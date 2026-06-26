@@ -28,6 +28,7 @@ from kater.telemetry import (
     record_server_toggle,
     status_overview,
 )
+from kater.tunnel import start_cloudflared, start_tailscale_funnel
 
 # ── Request / Response: the seam between the stdlib server and app logic ──
 
@@ -667,6 +668,18 @@ def _server_action(req: Request) -> Response:
         _ws_broadcast("server_toggled", {"name": name, "enabled": not current})
         return Response.json(200, {"name": name, "enabled": not current})
     return Response.json(400, {"error": f"Unknown action: {action}"})
+
+
+@route("POST", "/api/tunnel/{provider}/start")
+def _tunnel_start(req: Request) -> Response:
+    provider = req.params["provider"]
+    if provider == "cloudflare":
+        info = start_cloudflared()
+    elif provider == "tailscale":
+        info = start_tailscale_funnel()
+    else:
+        return Response.json(400, {"error": f"Unknown tunnel provider: {provider}"})
+    return Response.json(200, info.to_dict())
 
 
 @route("POST", "/api/settings")

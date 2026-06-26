@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-
-def _css() -> str:
-    return r"""
+_CSS = r"""
 :root {
   --bg: #0a0e14;
   --bg2: #0d1320;
@@ -515,8 +513,7 @@ body {
 """
 
 
-def _html() -> str:
-    return r"""
+_HTML_SHELL_TOP = r"""
 <div id="bg-gradient"></div>
 <div id="boot"><div class="boot-text" id="boot-text"></div></div>
 
@@ -555,7 +552,9 @@ def _html() -> str:
       onclick="switchView('settings')">Settings
       <span class="tab-num">5</span></button>
   </div>
+"""
 
+_VIEW_DASHBOARD = r"""
   <div class="view active" id="view-dashboard">
   <div class="bento">
     <div class="tile constellation-tile">
@@ -608,7 +607,9 @@ def _html() -> str:
     </div>
   </div>
   </div>
+"""
 
+_VIEW_CATALOG = r"""
   <div class="view" id="view-catalog">
     <div class="view-header">
       <span class="view-title">Server Catalog</span>
@@ -620,7 +621,9 @@ def _html() -> str:
       </div>
     </div>
   </div>
+"""
 
+_VIEW_EVALS = r"""
   <div class="view" id="view-evals">
     <div class="view-header">
       <span class="view-title">Tool Performance</span>
@@ -635,7 +638,9 @@ def _html() -> str:
       </table>
     </div>
   </div>
+"""
 
+_VIEW_DEPLOY = r"""
   <div class="view" id="view-deploy">
     <div class="view-header">
       <span class="view-title">Deployment Configs</span>
@@ -651,7 +656,9 @@ def _html() -> str:
       </div>
     </div>
   </div>
+"""
 
+_VIEW_SETTINGS = r"""
   <div class="view" id="view-settings">
     <div class="view-header">
       <span class="view-title">Settings</span>
@@ -690,7 +697,9 @@ def _html() -> str:
       </div>
     </div>
   </div>
+"""
 
+_HTML_SHELL_BOTTOM = r"""
   <div class="command-bar">
     <span class="cmd-prompt">&gt;</span>
     <input id="cmd-input"
@@ -735,9 +744,18 @@ def _html() -> str:
 <div class="toast-container" id="toast-container"></div>
 """
 
+_HTML = (
+    _HTML_SHELL_TOP
+    + _VIEW_DASHBOARD
+    + _VIEW_CATALOG
+    + _VIEW_EVALS
+    + _VIEW_DEPLOY
+    + _VIEW_SETTINGS
+    + _HTML_SHELL_BOTTOM
+)
 
-def _js() -> str:
-    return r"""
+
+_JS = r"""
 const API = '';
 const WS_URL = `ws://${location.hostname}:9092/ws`;
 let ws = null;
@@ -1472,9 +1490,9 @@ def render_dashboard() -> str:
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
         "<title>Kater — MCP Gateway</title>\n"
         '<meta name="color-scheme" content="dark">\n'
-        f"<style>{_css()}</style>\n"
+        f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n"
-        f"{_html()}\n"
-        f"<script>{_js()}</script>\n"
+        f"{_HTML}\n"
+        f"<script>{_JS}</script>\n"
         "</body>\n</html>\n"
     )

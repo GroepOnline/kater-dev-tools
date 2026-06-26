@@ -896,5 +896,23 @@ def tunnel_config_command(
             return
         typer.echo(" ".join(cmd))
     else:
-        typer.echo(f"Error: unknown provider '{provider}'.", err=True)
+        typer.echo("Error: unknown provider.", err=True)
         raise typer.Exit(code=1)
+
+
+# ── interactive ────────────────────────────────────────────────────
+
+
+@app.command("interactive")
+def interactive_command(
+    profile: Annotated[
+        str, typer.Option("--profile", help="Starting profile.")
+    ] = DEFAULT_PROFILE,
+    refresh: Annotated[
+        float, typer.Option("--refresh", help="Refresh interval in seconds.")
+    ] = 3.0,
+) -> None:
+    """Live interactive dashboard in the terminal."""
+    from kater.interactive import interactive_loop
+
+    interactive_loop(profile=profile, refresh_interval=refresh)

@@ -413,16 +413,15 @@ def serve_command(
         f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port}"
     )
     from kater.serve import serve_unified
+    from kater.settings import resolve_listen_config
 
-    serve_unified(
-        profile=profile,
-        api_host=host,
+    listen = resolve_listen_config(
+        host=host,
         api_port=api_port,
-        mcp_host=host,
         mcp_port=mcp_port,
-        ws_host=host,
         ws_port=ws_port,
     )
+    serve_unified(profile=profile, listen=listen)
 
 
 # ── mcp serve (legacy alias) ───────────────────────────────────────

@@ -36,6 +36,15 @@ class Aggregator:
     def get_tool(self, prefixed_name: str) -> ProxiedTool | None:
         return self._tools.get(prefixed_name)
 
+    def resolve(self, prefixed_name: str) -> tuple[str, str] | None:
+        tool = self.get_tool(prefixed_name)
+        if tool:
+            return (tool.backend, tool.original_name)
+        parts = prefixed_name.split("__", 1)
+        if len(parts) == 2:
+            return (parts[0], parts[1])
+        return None
+
     def count(self) -> int:
         return len(self._tools)
 

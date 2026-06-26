@@ -3,7 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,6 +53,11 @@ def _db_path() -> Path:
 
 _state: dict[str, Any] = {}
 
+# Guards all read-modify-write access to _state and the backing file. The API
+# runs under ThreadingHTTPServer, so concurrent /token and /register calls
+# would otherwise race on _save() and corrupt oauth.json or lose writes.
+_lock = threading.RLock()
+
 
 def _load() -> dict[str, Any]:
     global _state
@@ -68,46 +75,54 @@ def _save() -> None:
     global _state
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}.{threading.get_ident()}")
+    tmp.write_text(
         json.dumps(_state, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    os.replace(tmp, path)
 
 
 def reset_state() -> None:
     global _state
-    _state = {}
-    path = _db_path()
-    if path.exists():
-        path.unlink()
+    with _lock:
+        _state = {}
+        path = _db_path()
+        if path.exists():
+            path.unlink()
 
 
 def register_client(
     client_name: str = "",
     redirect_uris: list[str] | None = None,
 ) -> ClientRegistration:
-    data = _load()
-    client_id = f"client_{secrets.token_hex(12)}"
-    client = ClientRegistration(
-        client_id=client_id,
-        client_secret=secrets.token_hex(24),
-        client_name=client_name or "unnamed",
-        redirect_uris=redirect_uris or [],
-    )
-    data["clients"][client_id] = {
-        "client_id": client.client_id,
-        "client_secret": client.client_secret,
-        "client_name": client.client_name,
-        "redirect_uris": client.redirect_uris,
-        "created_at": client.created_at,
-    }
-    _save()
+    uris = [u for u in (redirect_uris or []) if u]
+    if not uris:
+        raise ValueError("redirect_uris is required and must be non-empty")
+    with _lock:
+        data = _load()
+        client_id = f"client_{secrets.token_hex(12)}"
+        client = ClientRegistration(
+            client_id=client_id,
+            client_secret=secrets.token_hex(24),
+            client_name=client_name or "unnamed",
+            redirect_uris=uris,
+        )
+        data["clients"][client_id] = {
+            "client_id": client.client_id,
+            "client_secret": client.client_secret,
+            "client_name": client.client_name,
+            "redirect_uris": client.redirect_uris,
+            "created_at": client.created_at,
+        }
+        _save()
     return client
 
 
 def get_client(client_id: str) -> ClientRegistration | None:
-    data = _load()
-    raw = data["clients"].get(client_id)
+    with _lock:
+        data = _load()
+        raw = data["clients"].get(client_id)
     if not raw:
         return None
     return ClientRegistration(
@@ -123,8 +138,12 @@ def validate_redirect_uri(
     client: ClientRegistration,
     redirect_uri: str,
 ) -> bool:
+    # A client with no registered redirect URIs must not be able to receive
+    # auth codes at an arbitrary location (open redirect / code injection).
     if not client.redirect_uris:
-        return True
+        return False
+    if not redirect_uri:
+        return False
     return redirect_uri in client.redirect_uris
 
 
@@ -139,21 +158,22 @@ def create_auth_code(
 ) -> str:
     if code_challenge_method != "S256":
         raise ValueError("Only S256 code challenge method is supported")
-    data = _load()
-    code = f"code_{secrets.token_hex(16)}"
-    data["codes"][code] = {
-        "code": code,
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "code_challenge": code_challenge,
-        "code_challenge_method": code_challenge_method,
-        "scope": scope,
-        "state": state,
-        "profile": profile,
-        "created_at": time.time(),
-        "used": False,
-    }
-    _save()
+    with _lock:
+        data = _load()
+        code = f"code_{secrets.token_hex(16)}"
+        data["codes"][code] = {
+            "code": code,
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+            "scope": scope,
+            "state": state,
+            "profile": profile,
+            "created_at": time.time(),
+            "used": False,
+        }
+        _save()
     return code
 
 
@@ -162,31 +182,31 @@ def exchange_code(
     client_id: str,
     code_verifier: str,
 ) -> dict[str, Any] | None:
-    data = _load()
-    raw = data["codes"].get(code)
-    if not raw or raw["used"] or raw["client_id"] != client_id:
-        return None
-    if time.time() - raw["created_at"] > 300:
-        return None
+    with _lock:
+        data = _load()
+        raw = data["codes"].get(code)
+        if not raw or raw["used"] or raw["client_id"] != client_id:
+            return None
+        if time.time() - raw["created_at"] > 300:
+            return None
 
-    if raw["code_challenge_method"] == "S256":
+        # Only S256 is issued (see create_auth_code); reject anything else.
+        if raw["code_challenge_method"] != "S256":
+            return None
         expected = base64.urlsafe_b64encode(
             hashlib.sha256(code_verifier.encode()).digest()
         ).decode().rstrip("=")
-        if expected != raw["code_challenge"]:
+        if not secrets.compare_digest(expected, raw["code_challenge"]):
             return None
-    elif code_verifier != raw["code_challenge"]:
-        return None
 
-    raw["used"] = True
-    _save()
+        raw["used"] = True
+        _save()
 
-    token = create_token(
-        client_id=client_id,
-        scope=raw.get("scope", ""),
-        profile=raw.get("profile", "core"),
-    )
-    return token
+        return create_token(
+            client_id=client_id,
+            scope=raw.get("scope", ""),
+            profile=raw.get("profile", "core"),
+        )
 
 
 def create_token(
@@ -195,19 +215,19 @@ def create_token(
     profile: str = "core",
     expires_in: int = 86400,
 ) -> dict[str, Any]:
-    data = _load()
-    token_str = f"tok_{secrets.token_hex(24)}"
-    now = time.time()
-    token_data = {
-        "token": token_str,
-        "client_id": client_id,
-        "scope": scope,
-        "profile": profile,
-        "created_at": now,
-        "expires_at": now + expires_in,
-    }
-    data["tokens"][token_str] = token_data
-    _save()
+    with _lock:
+        data = _load()
+        token_str = f"tok_{secrets.token_hex(24)}"
+        now = time.time()
+        data["tokens"][token_str] = {
+            "token": token_str,
+            "client_id": client_id,
+            "scope": scope,
+            "profile": profile,
+            "created_at": now,
+            "expires_at": now + expires_in,
+        }
+        _save()
     return {
         "access_token": token_str,
         "token_type": "Bearer",
@@ -217,8 +237,9 @@ def create_token(
 
 
 def validate_token(token: str) -> AccessToken | None:
-    data = _load()
-    raw = data["tokens"].get(token)
+    with _lock:
+        data = _load()
+        raw = data["tokens"].get(token)
     if not raw:
         return None
     at = AccessToken(
@@ -235,31 +256,33 @@ def validate_token(token: str) -> AccessToken | None:
 
 
 def revoke_token(token: str) -> bool:
-    data = _load()
-    if token in data["tokens"]:
-        del data["tokens"][token]
-        _save()
-        return True
+    with _lock:
+        data = _load()
+        if token in data["tokens"]:
+            del data["tokens"][token]
+            _save()
+            return True
     return False
 
 
 def cleanup_expired() -> int:
-    data = _load()
-    now = time.time()
-    expired = [
-        t for t, v in data["tokens"].items()
-        if v.get("expires_at", 0) > 0 and now >= v["expires_at"]
-    ]
-    for t in expired:
-        del data["tokens"][t]
-    old_codes = [
-        c for c, v in data["codes"].items()
-        if now - v.get("created_at", now) > 600
-    ]
-    for c in old_codes:
-        del data["codes"][c]
-    if expired or old_codes:
-        _save()
+    with _lock:
+        data = _load()
+        now = time.time()
+        expired = [
+            t for t, v in data["tokens"].items()
+            if v.get("expires_at", 0) > 0 and now >= v["expires_at"]
+        ]
+        for t in expired:
+            del data["tokens"][t]
+        old_codes = [
+            c for c, v in data["codes"].items()
+            if now - v.get("created_at", now) > 600
+        ]
+        for c in old_codes:
+            del data["codes"][c]
+        if expired or old_codes:
+            _save()
     return len(expired) + len(old_codes)
 
 
@@ -357,7 +380,7 @@ def discovery_metadata(base_url: str) -> dict[str, Any]:
         "revocation_endpoint": f"{base_url}/revoke",
         "grant_types_supported": ["authorization_code"],
         "response_types_supported": ["code"],
-        "code_challenge_methods_supported": ["S256", "plain"],
+        "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none"],
         "scopes_supported": ["profile", "tools"],
     }

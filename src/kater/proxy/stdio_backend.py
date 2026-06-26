@@ -8,10 +8,22 @@ import time
 from typing import Any
 
 from kater.proxy.base import BaseBackend
-from kater.proxy.models import ProxiedTool
 
 
 class StdioBackend(BaseBackend):
+    _SAFE_ENV_PASSTHROUGH = frozenset({
+        "PATH",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TMPDIR",
+        "TERM",
+        "SystemRoot",
+        "PATHEXT",
+        "USERPROFILE",
+    })
+
     def __init__(
         self,
         name: str,
@@ -24,30 +36,44 @@ class StdioBackend(BaseBackend):
         self.name = name
         self._command = command
         self._args = args or []
-        self._env = {**os.environ, **(env or {})}
+        self._env = self._build_safe_env(env)
         self._timeout = timeout
         self._proc: subprocess.Popen[bytes] | None = None
         self._next_id = 1
         self._stderr_thread: threading.Thread | None = None
 
-    def start(self) -> None:
-        try:
-            self._proc = subprocess.Popen(
-                [self._command, *self._args],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=self._env,
-            )
-            self._start_stderr_drain()
-            self._running = True
-            self._initialize()
-            self._refresh_tools()
-            self._status.healthy = True
-        except (OSError, FileNotFoundError) as exc:
-            self._status.error = str(exc)
-            self._status.healthy = False
-            self._running = False
+    @classmethod
+    def _build_safe_env(cls, env: dict[str, str] | None) -> dict[str, str]:
+        safe = {
+            key: os.environ[key]
+            for key in cls._SAFE_ENV_PASSTHROUGH
+            if key in os.environ
+        }
+        safe.update(env or {})
+        return safe
+
+    def _connect(self) -> None:
+        self._proc = subprocess.Popen(
+            [self._command, *self._args],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self._env,
+        )
+        self._start_stderr_drain()
+
+    def _disconnect(self) -> None:
+        if self._proc:
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait(timeout=2)
+            except OSError:
+                pass
+            self._proc = None
+        self._stderr_thread = None
 
     def _start_stderr_drain(self) -> None:
         if not self._proc or not self._proc.stderr:
@@ -65,21 +91,7 @@ class StdioBackend(BaseBackend):
         )
         self._stderr_thread.start()
 
-    def stop(self) -> None:
-        if self._proc:
-            try:
-                self._proc.terminate()
-                self._proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-                self._proc.wait(timeout=2)
-            except OSError:
-                pass
-            self._proc = None
-        self._running = False
-        self._stderr_thread = None
-
-    def _send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self._proc or not self._proc.stdin or not self._proc.stdout:
             return {"error": "backend not started"}
 
@@ -115,34 +127,3 @@ class StdioBackend(BaseBackend):
                 self._status.error = str(exc)
                 self._status.healthy = False
                 return {"error": str(exc)}
-
-    def _initialize(self) -> None:
-        self._send("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "kater-proxy", "version": "1.0"},
-        })
-        self._send("notifications/initialized")
-
-    def _refresh_tools(self) -> None:
-        result = self._send("tools/list")
-        tools_data = result.get("result", {}).get("tools", [])
-        self._tools = [
-            ProxiedTool(
-                name=t["name"],
-                description=t.get("description", ""),
-                backend=self.name,
-                original_name=t["name"],
-                input_schema=t.get("inputSchema", {}),
-            )
-            for t in tools_data
-        ]
-
-    def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        result = self._send("tools/call", {
-            "name": tool_name,
-            "arguments": arguments,
-        })
-        if "error" in result:
-            return result
-        return result.get("result", result)

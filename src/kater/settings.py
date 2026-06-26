@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -31,8 +33,10 @@ class KaterSettings(BaseModel):
     server_overrides: dict[str, ServerOverride] = Field(default_factory=dict)
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     rate_limit_per_min: int = 0
+    host: str = "127.0.0.1"
     api_port: int = 9091
     mcp_port: int = 9090
+    ws_port: int = 9092
     storage_backend: str = "sqlite"
     db_path: str = ".kater/kater.db"
     body_size_limit: int = 1048576
@@ -139,8 +143,47 @@ def _settings_from_env() -> KaterSettings:
         auth=auth,
         cors_origins=cors_origins,
         rate_limit_per_min=rate_limit,
+        host=host,
         api_port=int(os.environ.get("KATER_API_PORT", "9091")),
         mcp_port=int(os.environ.get("KATER_MCP_PORT", "9090")),
+        ws_port=int(os.environ.get("KATER_WS_PORT", "9092")),
+    )
+
+
+@dataclass(frozen=True)
+class ListenConfig:
+    """Single source of truth for where the three servers bind.
+
+    One process binds one host with three ports (REST API, MCP SSE, WebSocket).
+    Collapsing host/port handling here removes the literals that were scattered
+    across cli, serve, api, mcp_server and websocket — and the footgun where
+    different entrypoints defaulted to different hosts (0.0.0.0 vs 127.0.0.1).
+    """
+
+    host: str = "127.0.0.1"
+    api_port: int = 9091
+    mcp_port: int = 9090
+    ws_port: int = 9092
+
+
+def resolve_listen_config(
+    *,
+    host: str | None = None,
+    api_port: int | None = None,
+    mcp_port: int | None = None,
+    ws_port: int | None = None,
+    settings: KaterSettings | None = None,
+) -> ListenConfig:
+    """Merge explicit overrides over persisted/env settings.
+
+    Precedence: explicit argument > settings (file or env-derived) > default.
+    """
+    settings = settings or load_settings()
+    return ListenConfig(
+        host=host if host is not None else settings.host,
+        api_port=api_port if api_port is not None else settings.api_port,
+        mcp_port=mcp_port if mcp_port is not None else settings.mcp_port,
+        ws_port=ws_port if ws_port is not None else settings.ws_port,
     )
 
 
@@ -167,8 +210,9 @@ def check_auth(
                 "Missing API key. Use Authorization: Bearer <key>"
                 " or ?api_key=<key>."
             )
-        if token in settings.auth.api_keys:
-            return True, None
+        for key in settings.auth.api_keys:
+            if secrets.compare_digest(token, key):
+                return True, None
         return False, "Invalid API key."
 
     if settings.auth.mode == "oauth":
@@ -182,7 +226,7 @@ def check_auth(
             return True, None
         return False, "Invalid or expired token."
 
-    return True, None
+    return False, "Unsupported auth mode."
 
 
 def cors_allow_origin(
@@ -218,10 +262,18 @@ class RateLimiter:
             return True
         now = time.time()
         window = 60.0
-        hits = self._hits.get(client_id, [])
-        hits = [t for t in hits if now - t < window]
+        hits = [t for t in self._hits.get(client_id, []) if now - t < window]
         if len(hits) >= self.max_per_min:
+            # Keep the pruned window so the client stays rate-limited.
+            self._hits[client_id] = hits
             return False
         hits.append(now)
         self._hits[client_id] = hits
+        self._evict_idle(now, window)
         return True
+
+    def _evict_idle(self, now: float, window: float) -> None:
+        # Bound memory: drop clients with no hits inside the window.
+        idle = [c for c, ts in self._hits.items() if not ts or now - ts[-1] >= window]
+        for c in idle:
+            del self._hits[c]

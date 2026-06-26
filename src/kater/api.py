@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from kater.adapters.external import scan_adapters
 from kater.chains import list_chains
@@ -15,7 +17,6 @@ from kater.profiles import TOOL_SOURCES, get_source, list_profiles
 from kater.registry import tools_for_profile
 from kater.settings import (
     RateLimiter,
-    check_auth,
     cors_allow_origin,
     load_settings,
     save_settings,
@@ -27,6 +28,146 @@ from kater.telemetry import (
     record_server_toggle,
     status_overview,
 )
+
+# ── Request / Response: the seam between the stdlib server and app logic ──
+
+
+@dataclass
+class Request:
+    method: str
+    path: str
+    query: dict[str, list[str]]
+    headers: dict[str, str]
+    raw_body: bytes
+    client_ip: str
+    base_url: str
+    params: dict[str, str] = field(default_factory=dict)
+
+    def query1(self, key: str, default: str | None = None) -> str | None:
+        return self.query.get(key, [default])[0]
+
+    def header(self, name: str) -> str | None:
+        return self.headers.get(name.lower())
+
+    @property
+    def json(self) -> dict[str, Any]:
+        if not self.raw_body:
+            return {}
+        try:
+            return json.loads(self.raw_body.decode("utf-8"))
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in request body") from None
+
+    @property
+    def form(self) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for pair in self.raw_body.decode("utf-8").split("&"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                out[unquote(k)] = unquote(v)
+        return out
+
+    @property
+    def json_or_form(self) -> dict[str, Any]:
+        ctype = self.header("content-type") or ""
+        return self.json if ctype.startswith("application/json") else self.form
+
+
+@dataclass
+class Response:
+    status: int = 200
+    payload: Any = None
+    body: bytes | None = None
+    content_type: str = "application/json; charset=utf-8"
+    headers: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def json(cls, status: int, payload: Any) -> Response:
+        return cls(status=status, payload=payload)
+
+    @classmethod
+    def html(cls, status: int, markup: str) -> Response:
+        return cls(
+            status=status,
+            body=markup.encode("utf-8"),
+            content_type="text/html; charset=utf-8",
+        )
+
+    @classmethod
+    def redirect(cls, location: str) -> Response:
+        return cls(status=302, body=b"", content_type="text/plain", headers={"Location": location})
+
+    def encoded(self) -> bytes:
+        if self.body is not None:
+            return self.body
+        return json.dumps(self.payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+# ── Route table: one dispatch mechanism for every endpoint ──────────
+
+
+@dataclass(frozen=True)
+class Route:
+    method: str
+    pattern: str
+    handler: Callable[[Request], Response]
+    public: bool = False
+    rate_limit: bool = True
+
+
+class RouteTable:
+    def __init__(self) -> None:
+        self._routes: list[Route] = []
+
+    def add(self, route: Route) -> None:
+        self._routes.append(route)
+
+    def match(self, method: str, path: str) -> tuple[Route, dict[str, str]] | None:
+        target = _segments(path)
+        exact: tuple[Route, dict[str, str]] | None = None
+        param: tuple[Route, dict[str, str]] | None = None
+        for route in self._routes:
+            if route.method != method:
+                continue
+            pat = _segments(route.pattern)
+            if len(pat) != len(target):
+                continue
+            captured: dict[str, str] = {}
+            ok = True
+            has_param = False
+            for p, t in zip(pat, target, strict=True):
+                if p.startswith("{") and p.endswith("}"):
+                    captured[p[1:-1]] = t
+                    has_param = True
+                elif p != t:
+                    ok = False
+                    break
+            if not ok:
+                continue
+            if has_param:
+                param = param or (route, captured)
+            else:
+                exact = (route, captured)
+        return exact or param
+
+
+def _segments(path: str) -> list[str]:
+    stripped = path.strip("/")
+    return stripped.split("/") if stripped else []
+
+
+ROUTER = RouteTable()
+
+
+def route(method: str, pattern: str, *, public: bool = False) -> Callable[..., Any]:
+    def decorator(func: Callable[[Request], Response]) -> Callable[[Request], Response]:
+        ROUTER.add(Route(method, pattern, func, public=public))
+        return func
+
+    return decorator
+
+
+# ── Payload builders (unchanged domain logic) ──────────────────────
 
 
 def _adapter_payload(profile: str) -> dict[str, Any]:
@@ -79,18 +220,24 @@ def _mcp_servers_payload() -> dict[str, Any]:
     return {"total": len(servers), "servers": servers}
 
 
-ROUTES: dict[str, Any] = {}
+def _group_by(items: list[dict], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        val = item.get(key, "unknown")
+        counts[val] = counts.get(val, 0) + 1
+    return counts
 
 
-def _register(method: str, pattern: str) -> Any:
-    def decorator(func: Any) -> Any:
-        ROUTES[f"{method} {pattern}"] = func
-        return func
+def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
+    try:
+        from kater.websocket import broadcast_event
 
-    return decorator
+        broadcast_event({"type": event_type, **data, "ts": time.time()})
+    except ImportError:
+        pass
 
 
-# ── Module-level state ─────────────────────────────────────────────
+# ── Rate limiter (module-level) ────────────────────────────────────
 
 _rate_limiter: RateLimiter | None = None
 
@@ -103,277 +250,308 @@ def _get_rate_limiter() -> RateLimiter:
     return _rate_limiter
 
 
-class KaterAPIHandler(BaseHTTPRequestHandler):
-    server_version = "KaterAPI/1.0"
+def _reset_rate_limiter() -> None:
+    # Called after settings change so a new rate_limit_per_min takes effect
+    # immediately instead of being pinned to the value at first request.
+    global _rate_limiter
+    _rate_limiter = None
 
-    def _send_json(self, code: int, payload: Any) -> None:
-        body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-        settings = load_settings()
-        origin = self.headers.get("Origin")
-        allow = cors_allow_origin(settings, origin)
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        if allow:
-            self.send_header("Access-Control-Allow-Origin", allow)
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header(
-            "Access-Control-Allow-Headers",
-            "Authorization, Content-Type",
+
+# ── The pipeline: one function decides every request ───────────────
+
+
+def handle(request: Request) -> Response:
+    if request.method == "OPTIONS":
+        return Response.json(200, {"ok": True})
+
+    matched = ROUTER.match(request.method, request.path)
+    if matched is None:
+        return Response.json(404, {"error": f"Not found: {request.path}"})
+
+    matched_route, params = matched
+    request.params = params
+
+    if matched_route.rate_limit and not _get_rate_limiter().check(request.client_ip):
+        return Response.json(429, {"error": "Rate limit exceeded. Try again later."})
+
+    if not matched_route.public:
+        from kater.authgate import AuthContext, authenticate
+
+        decision = authenticate(
+            AuthContext(
+                settings=load_settings(),
+                authorization_header=request.header("authorization"),
+                query_api_key=request.query1("api_key"),
+                path=request.path,
+            )
         )
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
-        self.end_headers()
-        self.wfile.write(body)
+        if not decision.allowed:
+            return Response.json(401, {"error": decision.error or "Unauthorized"})
 
-    def _send_error(self, code: int, message: str) -> None:
-        self._send_json(code, {"error": message})
-
-    def _read_body(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length", 0))
-        settings = load_settings()
-        if length > settings.body_size_limit:
-            raise ValueError("Request body too large")
-        if length == 0:
-            return {}
-        raw = self.rfile.read(length).decode("utf-8")
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            raise ValueError("Invalid JSON in request body") from None
-
-    def _authenticate(self) -> bool:
-        parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/") or "/"
-        if path in ("/health", "/authorize", "/token", "/register", "/revoke"):
-            return True
-        if path.startswith("/.well-known"):
-            return True
-        settings = load_settings()
-        if settings.auth.mode == "none":
-            return True
-        auth_header = self.headers.get("Authorization")
-        parsed = urlparse(self.path)
-        query = parse_qs(parsed.query)
-        api_key = query.get("api_key", [None])[0]
-        ok, error = check_auth(settings, auth_header, api_key)
-        if not ok:
-            self._send_error(401, error or "Unauthorized")
-            return False
-        return True
-
-    def _rate_check(self) -> bool:
-        limiter = _get_rate_limiter()
-        client = self.client_address[0] if self.client_address else "unknown"
-        if not limiter.check(client):
-            self._send_error(429, "Rate limit exceeded. Try again later.")
-            return False
-        return True
-
-    def do_OPTIONS(self) -> None:
-        self._send_json(200, {"ok": True})
-
-    def do_GET(self) -> None:
-        if not self._rate_check():
-            return
-        if not self._authenticate():
-            return
-        parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/") or "/"
-        key = f"GET {path}"
-        if key in ROUTES:
-            try:
-                result = ROUTES[key]()
-                self._send_json(200, result)
-            except Exception as exc:
-                self._send_error(500, str(exc))
-            return
-        for pattern, func in ROUTES.items():
-            if pattern.startswith("GET /") and "{x}" in pattern:
-                prefix = pattern.split("/{x}")[0]
-                path_prefix = prefix[4:]
-                if path.startswith(path_prefix + "/"):
-                    param = path[len(path_prefix) + 1:]
-                    try:
-                        result = func(param)
-                        self._send_json(200, result)
-                    except Exception as exc:
-                        self._send_error(500, str(exc))
-                    return
-        self._send_error(404, f"Not found: {path}")
-
-    def do_POST(self) -> None:
-        if not self._rate_check():
-            return
-        if not self._authenticate():
-            return
-        parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/") or "/"
-        key = f"POST {path}"
-        if key in ROUTES:
-            try:
-                body = self._read_body()
-            except ValueError as exc:
-                self._send_error(400, str(exc))
-                return
-            try:
-                result = ROUTES[key](body)
-                code = 200
-                if isinstance(result, dict) and "error" in result:
-                    msg = result.get("error", "").lower()
-                    if "not found" in msg or "unknown" in msg:
-                        code = 404
-                    else:
-                        code = 400
-                self._send_json(code, result)
-            except Exception as exc:
-                self._send_error(500, str(exc))
-            return
-        for pattern, func in ROUTES.items():
-            if pattern.startswith("POST /") and "{x}" in pattern:
-                prefix = pattern.split("/{x}")[0]
-                path_prefix = prefix[5:]
-                if path.startswith(path_prefix + "/"):
-                    remainder = path[len(path_prefix) + 1:]
-                    parts = remainder.split("/", 1)
-                    param = parts[0]
-                    sub = parts[1] if len(parts) > 1 else ""
-                    try:
-                        body = self._read_body()
-                    except ValueError as exc:
-                        self._send_error(400, str(exc))
-                        return
-                    try:
-                        result = func(param, sub, body)
-                        code = 200
-                        if isinstance(result, dict) and "error" in result:
-                            code = 400
-                        self._send_json(code, result)
-                    except Exception as exc:
-                        self._send_error(500, str(exc))
-                    return
-        self._send_error(404, f"Not found: {path}")
-
-    def log_message(self, fmt: str, *args: Any) -> None:
-        pass
+    try:
+        return matched_route.handler(request)
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    except Exception as exc:  # noqa: BLE001 - surface as 500, never crash the thread
+        return Response.json(500, {"error": str(exc)})
 
 
-# ── Public endpoints (no auth required even if enabled) ────────────
+# ── Public endpoints (no auth) ─────────────────────────────────────
 
 
-@_register("GET", "/health")
-def _health() -> dict[str, Any]:
+@route("GET", "/health", public=True)
+def _health(_: Request) -> Response:
     from kater import __version__
 
     settings = load_settings()
-    return {
-        "status": "ok",
-        "version": __version__,
-        "auth_mode": settings.auth.mode,
-    }
+    return Response.json(
+        200,
+        {"status": "ok", "version": __version__, "auth_mode": settings.auth.mode},
+    )
+
+
+@route("GET", "/", public=True)
+@route("GET", "/dashboard", public=True)
+def _dashboard(_: Request) -> Response:
+    from kater.web import render_dashboard
+
+    return Response.html(200, render_dashboard())
+
+
+@route("GET", "/.well-known/oauth-authorization-server", public=True)
+def _oauth_discovery(req: Request) -> Response:
+    from kater.oauth import discovery_metadata
+
+    return Response.json(200, discovery_metadata(req.base_url))
+
+
+@route("GET", "/.well-known/oauth-protected-resource", public=True)
+def _oauth_resource(req: Request) -> Response:
+    from kater.oauth import resource_metadata
+
+    return Response.json(200, resource_metadata(req.base_url))
+
+
+@route("GET", "/authorize", public=True)
+def _authorize(req: Request) -> Response:
+    from kater.oauth import (
+        create_auth_code,
+        get_client,
+        render_consent_page,
+        validate_redirect_uri,
+    )
+
+    client_id = req.query1("client_id", "") or ""
+    redirect_uri = req.query1("redirect_uri", "") or ""
+    challenge = req.query1("code_challenge", "") or ""
+    method = req.query1("code_challenge_method", "S256") or "S256"
+    scope = req.query1("scope", "") or ""
+    state = req.query1("state")
+    profile = req.query1("profile", "core") or "core"
+    approve = req.query1("approve", "") or ""
+
+    client = get_client(client_id)
+    if not client:
+        return Response.json(400, {"error": "invalid_client"})
+    if not validate_redirect_uri(client, redirect_uri):
+        return Response.json(400, {"error": "invalid_redirect_uri"})
+
+    if approve == "1":
+        try:
+            code = create_auth_code(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                code_challenge=challenge,
+                code_challenge_method=method,
+                scope=scope,
+                state=state,
+                profile=profile,
+            )
+        except ValueError:
+            return Response.json(
+                400,
+                {"error": "invalid_request", "detail": "unsupported code_challenge_method"},
+            )
+        sep = "&" if "?" in redirect_uri else "?"
+        location = f"{redirect_uri}{sep}code={code}"
+        if state:
+            location += f"&state={state}"
+        return Response.redirect(location)
+
+    if approve == "0":
+        sep = "&" if "?" in redirect_uri else "?"
+        return Response.redirect(f"{redirect_uri}{sep}error=access_denied")
+
+    authorize_self = (
+        f"{req.base_url}/authorize?response_type=code"
+        f"&client_id={client_id}&redirect_uri={redirect_uri}"
+        f"&code_challenge={challenge}"
+        f"&code_challenge_method={method}"
+        f"&profile={profile}"
+    )
+    if scope:
+        authorize_self += f"&scope={scope}"
+
+    return Response.html(
+        200,
+        render_consent_page(
+            client_name=client.client_name,
+            redirect_uri=redirect_uri,
+            state=state,
+            authorize_url=authorize_self,
+            profile=profile,
+        ),
+    )
+
+
+@route("POST", "/token", public=True)
+def _token(req: Request) -> Response:
+    from kater.oauth import exchange_code
+
+    params = req.json_or_form
+    if params.get("grant_type", "") != "authorization_code":
+        return Response.json(400, {"error": "unsupported_grant_type"})
+    token = exchange_code(
+        params.get("code", ""),
+        params.get("client_id", ""),
+        params.get("code_verifier", ""),
+    )
+    if not token:
+        return Response.json(400, {"error": "invalid_grant"})
+    return Response.json(200, token)
+
+
+@route("POST", "/register", public=True)
+def _register_client(req: Request) -> Response:
+    from kater.oauth import register_client
+
+    body = req.json
+    try:
+        client = register_client(
+            client_name=body.get("client_name", ""),
+            redirect_uris=body.get("redirect_uris", []),
+        )
+    except ValueError as exc:
+        return Response.json(400, {"error": "invalid_redirect_uri", "detail": str(exc)})
+    return Response.json(
+        201,
+        {
+            "client_id": client.client_id,
+            "client_secret": client.client_secret,
+            "client_name": client.client_name,
+            "redirect_uris": client.redirect_uris,
+        },
+    )
+
+
+@route("POST", "/revoke", public=True)
+def _revoke(req: Request) -> Response:
+    from kater.oauth import revoke_token
+
+    revoke_token(req.form.get("token", ""))
+    return Response.json(200, {"revoked": True})
 
 
 # ── Read endpoints ─────────────────────────────────────────────────
 
 
-@_register("GET", "/api/profiles")
-def _profiles() -> dict[str, Any]:
-    return {"profiles": list_profiles()}
+@route("GET", "/api/profiles")
+def _profiles(_: Request) -> Response:
+    return Response.json(200, {"profiles": list_profiles()})
 
 
-@_register("GET", "/api/tools")
-def _tools() -> dict[str, Any]:
+@route("GET", "/api/tools")
+def _tools(_: Request) -> Response:
     profile = os.environ.get("KATER_PROFILE", "core")
     tools = tools_for_profile(profile)
-    return {
-        "profile": profile,
-        "tools": [t.model_dump(exclude={"handler"}) for t in tools],
-    }
+    return Response.json(
+        200,
+        {"profile": profile, "tools": [t.model_dump(exclude={"handler"}) for t in tools]},
+    )
 
 
-@_register("GET", "/api/adapters")
-def _adapters() -> dict[str, Any]:
+@route("GET", "/api/adapters")
+def _adapters(_: Request) -> Response:
     profile = os.environ.get("KATER_PROFILE", "core")
-    return _adapter_payload(profile)
+    return Response.json(200, _adapter_payload(profile))
 
 
-@_register("GET", "/api/doctor")
-def _doctor() -> dict[str, Any]:
+@route("GET", "/api/doctor")
+def _doctor(_: Request) -> Response:
     profile = os.environ.get("KATER_PROFILE", "core")
-    report = run_doctor(profiles={profile})
-    return report.model_dump(mode="json")
+    return Response.json(200, run_doctor(profiles={profile}).model_dump(mode="json"))
 
 
-@_register("GET", "/api/chains")
-def _chains() -> dict[str, Any]:
+@route("GET", "/api/chains")
+def _chains(_: Request) -> Response:
     profile = os.environ.get("KATER_PROFILE", "core")
     chains = list_chains(profile)
-    return {"chains": [c.model_dump(mode="json") for c in chains]}
+    return Response.json(200, {"chains": [c.model_dump(mode="json") for c in chains]})
 
 
-@_register("GET", "/api/mcp/servers")
-def _mcp_servers() -> dict[str, Any]:
-    return _mcp_servers_payload()
+@route("GET", "/api/mcp/servers")
+def _mcp_servers(_: Request) -> Response:
+    return Response.json(200, _mcp_servers_payload())
 
 
-@_register("GET", "/api/mcp/servers/{x}")
-def _mcp_server(name: str) -> dict[str, Any]:
-    source = get_source(name)
+@route("GET", "/api/mcp/servers/{name}")
+def _mcp_server(req: Request) -> Response:
+    source = get_source(req.params["name"])
     if not source:
-        return {"error": f"Unknown server: {name}"}
+        return Response.json(200, {"error": f"Unknown server: {req.params['name']}"})
     settings = load_settings()
     env_present = all(os.environ.get(v) for v in source.env)
-    return {
-        "name": source.name,
-        "description": source.description,
-        "transport": source.transport.value,
-        "risk": source.risk.value,
-        "profiles": sorted(source.profiles),
-        "env_required": source.env,
-        "env_configured": env_present,
-        "homepage": source.homepage,
-        "mcp": source.mcp.model_dump() if source.mcp else None,
-        "enabled": settings.is_server_enabled(source.name, default=True),
-    }
+    return Response.json(
+        200,
+        {
+            "name": source.name,
+            "description": source.description,
+            "transport": source.transport.value,
+            "risk": source.risk.value,
+            "profiles": sorted(source.profiles),
+            "env_required": source.env,
+            "env_configured": env_present,
+            "homepage": source.homepage,
+            "mcp": source.mcp.model_dump() if source.mcp else None,
+            "enabled": settings.is_server_enabled(source.name, default=True),
+        },
+    )
 
 
-@_register("GET", "/api/settings")
-def _get_settings() -> dict[str, Any]:
-    return load_settings().to_safe_dict()
+@route("GET", "/api/settings")
+def _get_settings(_: Request) -> Response:
+    return Response.json(200, load_settings().to_safe_dict())
 
 
-@_register("GET", "/api/deploy")
-def _deploy_formats() -> dict[str, Any]:
-    return {"formats": list_deploy_formats()}
+@route("GET", "/api/deploy")
+def _deploy_formats(_: Request) -> Response:
+    return Response.json(200, {"formats": list_deploy_formats()})
 
 
-@_register("GET", "/api/deploy/{x}")
-def _deploy_render(fmt: str) -> dict[str, Any]:
+@route("GET", "/api/deploy/{fmt}")
+def _deploy_render(req: Request) -> Response:
     profile = os.environ.get("KATER_PROFILE", "core")
-    return render_deploy(fmt, profile=profile)
+    return Response.json(200, render_deploy(req.params["fmt"], profile=profile))
 
 
-@_register("GET", "/api/status")
-def _status() -> dict[str, Any]:
-    return status_overview()
+@route("GET", "/api/status")
+def _status(_: Request) -> Response:
+    return Response.json(200, status_overview())
 
 
-@_register("GET", "/api/telemetry")
-def _telemetry() -> dict[str, Any]:
+@route("GET", "/api/telemetry")
+def _telemetry(_: Request) -> Response:
     events = load_events()
-    return {
-        "total": len(events),
-        "events": events,
-    }
+    return Response.json(200, {"total": len(events), "events": events})
 
 
-@_register("GET", "/api/evals")
-def _evals() -> dict[str, Any]:
-    return eval_summary()
+@route("GET", "/api/evals")
+def _evals(_: Request) -> Response:
+    return Response.json(200, eval_summary())
 
 
-@_register("GET", "/api/catalog")
-def _catalog() -> dict[str, Any]:
+@route("GET", "/api/catalog")
+def _catalog(_: Request) -> Response:
     settings = load_settings()
     results = []
     for source in TOOL_SOURCES:
@@ -393,115 +571,107 @@ def _catalog() -> dict[str, Any]:
                 "context_cost": source.context_cost,
             }
         )
-    return {
-        "total": len(results),
-        "servers": results,
-        "by_transport": _group_by(results, "transport"),
-        "by_risk": _group_by(results, "risk"),
-    }
+    return Response.json(
+        200,
+        {
+            "total": len(results),
+            "servers": results,
+            "by_transport": _group_by(results, "transport"),
+            "by_risk": _group_by(results, "risk"),
+        },
+    )
 
 
-def _group_by(items: list[dict], key: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items:
-        val = item.get(key, "unknown")
-        counts[val] = counts.get(val, 0) + 1
-    return counts
-
-
-@_register("GET", "/api/spec")
-def _spec() -> dict[str, Any]:
+@route("GET", "/api/spec")
+def _spec(_: Request) -> Response:
     from kater.openapi_spec import generate_spec
 
-    return generate_spec()
+    return Response.json(200, generate_spec())
 
 
-@_register("GET", "/api/export")
-def _export() -> dict[str, Any]:
+@route("GET", "/api/export")
+def _export(_: Request) -> Response:
     settings = load_settings()
     safe_auth = settings.auth.model_dump()
     if safe_auth.get("api_keys"):
         safe_auth["api_keys"] = len(safe_auth["api_keys"])
-    return {
-        "version": settings.version,
-        "default_profile": settings.default_profile,
-        "auth": safe_auth,
-        "server_overrides": {
-            k: v.model_dump() for k, v in settings.server_overrides.items()
+    return Response.json(
+        200,
+        {
+            "version": settings.version,
+            "default_profile": settings.default_profile,
+            "auth": safe_auth,
+            "server_overrides": {
+                k: v.model_dump() for k, v in settings.server_overrides.items()
+            },
+            "cors_origins": settings.cors_origins,
+            "rate_limit_per_min": settings.rate_limit_per_min,
+            "storage_backend": settings.storage_backend,
+            "exported_at": time.time(),
         },
-        "cors_origins": settings.cors_origins,
-        "rate_limit_per_min": settings.rate_limit_per_min,
-        "storage_backend": settings.storage_backend,
-        "exported_at": time.time(),
-    }
+    )
 
 
 # ── Mutation endpoints ─────────────────────────────────────────────
 
 
-@_register("POST", "/api/chains/run")
-def _chain_run(body: dict[str, Any]) -> dict[str, Any]:
+@route("POST", "/api/chains/run")
+def _chain_run(req: Request) -> Response:
+    body = req.json
     name = body.get("name", "")
     profile = body.get("profile", os.environ.get("KATER_PROFILE", "core"))
-    chains = list_chains(profile)
-    for c in chains:
+    for c in list_chains(profile):
         if c.name == name:
-            result = {
-                "chain": c.name,
-                "description": c.description,
-                "profile": profile,
-                "steps": [
-                    {"step": i + 1, "tool": s.tool, "reason": s.reason}
-                    for i, s in enumerate(c.steps)
-                ],
-            }
             record_chain_run(c.name, steps=len(c.steps), profile=profile)
-            return result
+            return Response.json(
+                200,
+                {
+                    "chain": c.name,
+                    "description": c.description,
+                    "profile": profile,
+                    "steps": [
+                        {"step": i + 1, "tool": s.tool, "reason": s.reason}
+                        for i, s in enumerate(c.steps)
+                    ],
+                },
+            )
     record_chain_run(name, steps=0, success=False, profile=profile, error="not_found")
-    return {"error": f"Chain '{name}' not found for profile '{profile}'."}
+    return Response.json(404, {"error": f"Chain '{name}' not found for profile '{profile}'."})
 
 
-@_register("POST", "/api/mcp/servers/{x}")
-def _server_action(name: str, action: str, body: dict[str, Any]) -> dict[str, Any]:
+@route("POST", "/api/mcp/servers/{name}/{action}")
+def _server_action(req: Request) -> Response:
+    name = req.params["name"]
+    action = req.params["action"]
     source = get_source(name)
     if not source:
-        return {"error": f"Unknown server: {name}"}
+        return Response.json(400, {"error": f"Unknown server: {name}"})
     settings = load_settings()
     if action == "enable":
         settings.set_server_enabled(name, True)
         save_settings(settings)
         record_server_toggle(name, action, True)
         _ws_broadcast("server_enabled", {"name": name})
-        return {"name": name, "enabled": True}
+        return Response.json(200, {"name": name, "enabled": True})
     if action == "disable":
         settings.set_server_enabled(name, False)
         save_settings(settings)
         record_server_toggle(name, action, False)
         _ws_broadcast("server_disabled", {"name": name})
-        return {"name": name, "enabled": False}
+        return Response.json(200, {"name": name, "enabled": False})
     if action == "toggle":
         current = settings.is_server_enabled(name, default=True)
         settings.set_server_enabled(name, not current)
         save_settings(settings)
         record_server_toggle(name, action, not current)
-        _ws_broadcast(
-            "server_toggled", {"name": name, "enabled": not current}
-        )
-        return {"name": name, "enabled": not current}
-    return {"error": f"Unknown action: {action}"}
+        _ws_broadcast("server_toggled", {"name": name, "enabled": not current})
+        return Response.json(200, {"name": name, "enabled": not current})
+    return Response.json(400, {"error": f"Unknown action: {action}"})
 
 
-def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
-    try:
-        from kater.websocket import broadcast_event
-
-        broadcast_event({"type": event_type, **data, "ts": time.time()})
-    except ImportError:
-        pass
-
-
-@_register("POST", "/api/settings")
-def _update_settings(body: dict[str, Any]) -> dict[str, Any]:
+@route("POST", "/api/settings")
+def _update_settings(req: Request) -> Response:
+    body = req.json
     settings = load_settings()
     if "auth" in body:
         settings.auth = type(settings.auth).model_validate(body["auth"])
@@ -509,245 +679,87 @@ def _update_settings(body: dict[str, Any]) -> dict[str, Any]:
         settings.cors_origins = body["cors_origins"]
     if "rate_limit_per_min" in body:
         settings.rate_limit_per_min = int(body["rate_limit_per_min"])
+        _reset_rate_limiter()
     if "default_profile" in body:
         settings.default_profile = body["default_profile"]
     save_settings(settings)
-    return settings.to_dict()
+    return Response.json(200, settings.to_dict())
 
 
-@_register("GET", "/")
-def _dashboard() -> dict[str, Any]:
-    return {"_serve_html": True}
+# ── Stdlib adapter: translate HTTP <-> Request/Response ────────────
 
 
-_original_get = KaterAPIHandler.do_GET
-
-
-def _patched_do_get(self) -> None:
-    parsed = urlparse(self.path)
-    path = parsed.path.rstrip("/") or "/"
-    query = parse_qs(parsed.query)
-
-    if path == "/" or path == "/dashboard":
-        from kater.web import render_dashboard
-
-        html = render_dashboard().encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(html)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(html)
-        return
-
-    if path == "/.well-known/oauth-authorization-server":
-        base = _base_url(self)
-        from kater.oauth import discovery_metadata
-
-        self._send_json(200, discovery_metadata(base))
-        return
-
-    if path == "/.well-known/oauth-protected-resource":
-        base = _base_url(self)
-        from kater.oauth import resource_metadata
-
-        self._send_json(200, resource_metadata(base))
-        return
-
-    if path == "/authorize":
-        _handle_authorize(self, query)
-        return
-
-    _original_get(self)
-
-
-def _base_url(handler: Any) -> str:
+def _base_url(handler: BaseHTTPRequestHandler) -> str:
     host = handler.headers.get("Host", "localhost:9091")
     scheme = "https" if handler.headers.get("X-Forwarded-Proto") == "https" else "http"
     return f"{scheme}://{host}"
 
 
-def _handle_authorize(handler: Any, query: dict[str, list[str]]) -> None:
-    from kater.oauth import (
-        create_auth_code,
-        get_client,
-        render_consent_page,
-        validate_redirect_uri,
-    )
+class KaterAPIHandler(BaseHTTPRequestHandler):
+    server_version = "KaterAPI/1.0"
 
-    client_id = query.get("client_id", [""])[0]
-    redirect_uri = query.get("redirect_uri", [""])[0]
-    challenge = query.get("code_challenge", [""])[0]
-    method = query.get("code_challenge_method", ["S256"])[0]
-    scope = query.get("scope", [""])[0]
-    state = query.get("state", [None])[0]
-    profile = query.get("profile", ["core"])[0]
-    approve = query.get("approve", [""])[0]
+    def log_message(self, fmt: str, *args: Any) -> None:
+        pass
 
-    client = get_client(client_id)
-    if not client:
-        handler._send_json(400, {"error": "invalid_client"})
-        return
-
-    if not validate_redirect_uri(client, redirect_uri):
-        handler._send_json(400, {"error": "invalid_redirect_uri"})
-        return
-
-    if approve == "1":
-        code = create_auth_code(
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-            code_challenge=challenge,
-            code_challenge_method=method,
-            scope=scope,
-            state=state,
-            profile=profile,
+    def _build_request(self, method: str) -> Request | None:
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = b""
+        if length:
+            if length > load_settings().body_size_limit:
+                self._write(Response.json(400, {"error": "Request body too large"}))
+                return None
+            raw = self.rfile.read(length)
+        return Request(
+            method=method,
+            path=path,
+            query=parse_qs(parsed.query),
+            headers={k.lower(): v for k, v in self.headers.items()},
+            raw_body=raw,
+            client_ip=self.client_address[0] if self.client_address else "unknown",
+            base_url=_base_url(self),
         )
-        sep = "&" if "?" in redirect_uri else "?"
-        location = f"{redirect_uri}{sep}code={code}"
-        if state:
-            location += f"&state={state}"
-        handler.send_response(302)
-        handler.send_header("Location", location)
-        handler.end_headers()
-        return
 
-    if approve == "0":
-        sep = "&" if "?" in redirect_uri else "?"
-        handler.send_response(302)
-        handler.send_header(
-            "Location",
-            f"{redirect_uri}{sep}error=access_denied",
-        )
-        handler.end_headers()
-        return
+    def _dispatch(self, method: str) -> None:
+        request = self._build_request(method)
+        if request is None:
+            return
+        self._write(handle(request))
 
-    base = _base_url(handler)
-    authorize_self = (
-        f"{base}/authorize?response_type=code"
-        f"&client_id={client_id}&redirect_uri={redirect_uri}"
-        f"&code_challenge={challenge}"
-        f"&code_challenge_method={method}"
-        f"&profile={profile}"
-    )
-    if scope:
-        authorize_self += f"&scope={scope}"
+    def do_GET(self) -> None:
+        self._dispatch("GET")
 
-    html = render_consent_page(
-        client_name=client.client_name,
-        redirect_uri=redirect_uri,
-        state=state,
-        authorize_url=authorize_self,
-        profile=profile,
-    ).encode("utf-8")
-    handler.send_response(200)
-    handler.send_header("Content-Type", "text/html; charset=utf-8")
-    handler.send_header("Content-Length", str(len(html)))
-    handler.end_headers()
-    handler.wfile.write(html)
+    def do_POST(self) -> None:
+        self._dispatch("POST")
+
+    def do_OPTIONS(self) -> None:
+        self._write(Response.json(200, {"ok": True}))
+
+    def _write(self, response: Response) -> None:
+        body = response.encoded()
+        origin = self.headers.get("Origin")
+        allow = cors_allow_origin(load_settings(), origin)
+        self.send_response(response.status)
+        self.send_header("Content-Type", response.content_type)
+        self.send_header("Content-Length", str(len(body)))
+        if allow:
+            self.send_header("Access-Control-Allow-Origin", allow)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        for key, value in response.headers.items():
+            self.send_header(key, value)
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
 
 
-_original_post = KaterAPIHandler.do_POST
-
-
-def _patched_do_post(self) -> None:
-    parsed = urlparse(self.path)
-    path = parsed.path.rstrip("/") or "/"
-
-    if path == "/token":
-        _handle_token(self)
-        return
-
-    if path == "/register":
-        _handle_register(self)
-        return
-
-    if path == "/revoke":
-        _handle_revoke(self)
-        return
-
-    _original_post(self)
-
-
-def _handle_token(handler: Any) -> None:
-    from kater.oauth import exchange_code
-
-    length = int(handler.headers.get("Content-Length", 0))
-    body_raw = handler.rfile.read(length).decode("utf-8") if length else ""
-    params: dict[str, str] = {}
-    if handler.headers.get("Content-Type", "").startswith("application/json"):
-        import json as _json
-
-        params = _json.loads(body_raw) if body_raw else {}
-    else:
-        for pair in body_raw.split("&"):
-            if "=" in pair:
-                k, v = pair.split("=", 1)
-                from urllib.parse import unquote
-
-                params[unquote(k)] = unquote(v)
-
-    grant = params.get("grant_type", "")
-    if grant != "authorization_code":
-        handler._send_json(400, {"error": "unsupported_grant_type"})
-        return
-
-    code = params.get("code", "")
-    client_id = params.get("client_id", "")
-    verifier = params.get("code_verifier", "")
-
-    token = exchange_code(code, client_id, verifier)
-    if not token:
-        handler._send_json(400, {"error": "invalid_grant"})
-        return
-
-    handler._send_json(200, token)
-
-
-def _handle_register(handler: Any) -> None:
-    from kater.oauth import register_client
-
-    length = int(handler.headers.get("Content-Length", 0))
-    body_raw = handler.rfile.read(length).decode("utf-8") if length else "{}"
-    import json as _json
-
-    body = _json.loads(body_raw) if body_raw else {}
-    client = register_client(
-        client_name=body.get("client_name", ""),
-        redirect_uris=body.get("redirect_uris", []),
-    )
-    handler._send_json(201, {
-        "client_id": client.client_id,
-        "client_secret": client.client_secret,
-        "client_name": client.client_name,
-        "redirect_uris": client.redirect_uris,
-    })
-
-
-def _handle_revoke(handler: Any) -> None:
-    from kater.oauth import revoke_token
-
-    length = int(handler.headers.get("Content-Length", 0))
-    body_raw = handler.rfile.read(length).decode("utf-8") if length else ""
-    params: dict[str, str] = {}
-    for pair in body_raw.split("&"):
-        if "=" in pair:
-            k, v = pair.split("=", 1)
-            params[k] = v
-
-    token = params.get("token", "")
-    revoke_token(token)
-    handler._send_json(200, {"revoked": True})
-
-
-KaterAPIHandler.do_GET = _patched_do_get
-KaterAPIHandler.do_POST = _patched_do_post
-
-
-def create_api_server(host: str = "0.0.0.0", port: int = 9091) -> ThreadingHTTPServer:
+def create_api_server(host: str = "127.0.0.1", port: int = 9091) -> ThreadingHTTPServer:
     return ThreadingHTTPServer((host, port), KaterAPIHandler)
 
 
-def serve_api(host: str = "0.0.0.0", port: int = 9091) -> None:
+def serve_api(host: str = "127.0.0.1", port: int = 9091) -> None:
     server = create_api_server(host, port)
     server.serve_forever()

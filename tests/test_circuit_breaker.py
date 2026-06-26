@@ -82,36 +82,19 @@ def test_circuit_breaker_resets_on_success():
 
 
 def test_proxy_manager_call_with_breaker():
-    from kater.proxy.aggregator import Aggregator
-    from kater.proxy.router import Router
-
     backend = MockBackend(
         tools=[{"name": "ping"}],
         responses={"ping": {"result": "ok"}},
     )
-    backend.start()
-    agg = Aggregator()
-    agg.add_backend_tools("mock", backend.list_tools())
-    router = Router(agg)
-
     manager = ProxyManager()
-    manager._backends["mock"] = backend
-    manager._aggregator = agg
-    manager._router = router
-    from kater.proxy.manager import CircuitBreaker
-
-    manager._breakers["mock"] = CircuitBreaker()
+    manager.register_backend("mock", backend)
 
     result = manager.call_tool("mock__ping", {})
     assert result.get("result") == "ok"
-    assert manager._breakers["mock"].state == "closed"
+    assert manager.statuses()[0].breaker_state == "closed"
 
 
 def test_proxy_manager_breaker_trips_on_failures():
-    from kater.proxy.aggregator import Aggregator
-    from kater.proxy.base import MockBackend
-    from kater.proxy.router import Router
-
     backend = MockBackend(
         tools=[{"name": "crash"}],
     )
@@ -120,36 +103,21 @@ def test_proxy_manager_breaker_trips_on_failures():
         RuntimeError("boom")
     )
 
-    agg = Aggregator()
-    agg.add_backend_tools("mock", backend.list_tools())
-    router = Router(agg)
-
     manager = ProxyManager()
-    manager._backends["mock"] = backend
-    manager._aggregator = agg
-    manager._router = router
-    from kater.proxy.manager import CircuitBreaker
+    manager.register_backend("mock", backend)
 
-    manager._breakers["mock"] = CircuitBreaker(failure_threshold=3)
-
-    for _ in range(3):
+    for _ in range(5):
         manager.call_tool("mock__crash", {})
 
-    assert manager._breakers["mock"].state == "open"
+    assert manager.statuses()[0].breaker_state == "open"
     result = manager.call_tool("mock__crash", {})
     assert "error" in result
 
 
 def test_proxy_manager_health_check():
-    from kater.proxy.base import MockBackend
-    from kater.proxy.manager import CircuitBreaker
-
     backend = MockBackend(tools=[{"name": "ping"}])
-    backend.start()
-
     manager = ProxyManager()
-    manager._backends["mock"] = backend
-    manager._breakers["mock"] = CircuitBreaker()
+    manager.register_backend("mock", backend)
 
     health = manager.health_check()
     assert "mock" in health
@@ -157,16 +125,11 @@ def test_proxy_manager_health_check():
 
 
 def test_proxy_statuses_include_breaker():
-    from kater.proxy.base import MockBackend
-    from kater.proxy.manager import CircuitBreaker
-
     backend = MockBackend(tools=[{"name": "ping"}])
-    backend.start()
-
     manager = ProxyManager()
-    manager._backends["mock"] = backend
-    manager._breakers["mock"] = CircuitBreaker()
+    manager.register_backend("mock", backend)
 
     statuses = manager.statuses()
     assert len(statuses) == 1
-    assert hasattr(statuses[0], "breaker_state") or "breaker" in statuses[0].to_dict()
+    assert statuses[0].breaker_state == "closed"
+    assert statuses[0].to_dict()["breaker_state"] == "closed"

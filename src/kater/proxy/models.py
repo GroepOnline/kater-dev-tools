@@ -25,6 +25,7 @@ class BackendStatus:
     tool_count: int = 0
     error: str | None = None
     latency_ms: float = 0.0
+    breaker_state: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -34,4 +35,5 @@ class BackendStatus:
             "tool_count": self.tool_count,
             "error": self.error,
             "latency_ms": round(self.latency_ms, 1),
+            "breaker_state": self.breaker_state,
         }

@@ -16,16 +16,35 @@ class BaseBackend:
         self._running = False
 
     def start(self) -> None:
-        raise NotImplementedError
+        try:
+            self._connect()
+            self._running = True
+            self._initialize()
+            self._refresh_tools()
+            self._status.healthy = True
+        except Exception as exc:
+            self._status.error = str(exc)
+            self._status.healthy = False
+            self._running = False
 
     def stop(self) -> None:
-        raise NotImplementedError
+        self._disconnect()
+        self._running = False
 
     def list_tools(self) -> list[ProxiedTool]:
         return list(self._tools)
 
     def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError
+        result = self._rpc(
+            "tools/call",
+            {
+                "name": tool_name,
+                "arguments": arguments,
+            },
+        )
+        if "error" in result:
+            return result
+        return result.get("result", result)
 
     @property
     def status(self) -> BackendStatus:
@@ -35,6 +54,40 @@ class BaseBackend:
 
     def is_healthy(self) -> bool:
         return self._running and self._status.healthy
+
+    def _connect(self) -> None:
+        raise NotImplementedError
+
+    def _disconnect(self) -> None:
+        raise NotImplementedError
+
+    def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def _initialize(self) -> None:
+        self._rpc(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "kater-proxy", "version": "1.0"},
+            },
+        )
+        self._rpc("notifications/initialized")
+
+    def _refresh_tools(self) -> None:
+        result = self._rpc("tools/list")
+        tools_data = result.get("result", {}).get("tools", [])
+        self._tools = [
+            ProxiedTool(
+                name=t["name"],
+                description=t.get("description", ""),
+                backend=self.name,
+                original_name=t["name"],
+                input_schema=t.get("inputSchema", {}),
+            )
+            for t in tools_data
+        ]
 
 
 class MockBackend(BaseBackend):

@@ -5,7 +5,6 @@ import urllib.request
 from typing import Any
 
 from kater.proxy.base import BaseBackend
-from kater.proxy.models import ProxiedTool
 
 
 class SSEBackend(BaseBackend):
@@ -24,19 +23,11 @@ class SSEBackend(BaseBackend):
         self._next_id = 1
         self._endpoint: str | None = None
 
-    def start(self) -> None:
-        try:
-            self._discover_endpoint()
-            self._initialize()
-            self._refresh_tools()
-            self._running = True
-            self._status.healthy = True
-        except Exception as exc:
-            self._status.error = str(exc)
-            self._status.healthy = False
+    def _connect(self) -> None:
+        self._discover_endpoint()
 
-    def stop(self) -> None:
-        self._running = False
+    def _disconnect(self) -> None:
+        pass
 
     def _discover_endpoint(self) -> None:
         req = urllib.request.Request(
@@ -58,7 +49,7 @@ class SSEBackend(BaseBackend):
         if not self._endpoint:
             self._endpoint = self._url.replace("/sse", "/messages")
 
-    def _post_jsonrpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self._endpoint:
             return {"error": "no endpoint discovered"}
         msg = {"jsonrpc": "2.0", "id": self._next_id, "method": method}
@@ -82,33 +73,3 @@ class SSEBackend(BaseBackend):
                 self._status.error = str(exc)
                 self._status.healthy = False
                 return {"error": str(exc)}
-
-    def _initialize(self) -> None:
-        self._post_jsonrpc("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "kater-proxy", "version": "1.0"},
-        })
-
-    def _refresh_tools(self) -> None:
-        result = self._post_jsonrpc("tools/list")
-        tools_data = result.get("result", {}).get("tools", [])
-        self._tools = [
-            ProxiedTool(
-                name=t["name"],
-                description=t.get("description", ""),
-                backend=self.name,
-                original_name=t["name"],
-                input_schema=t.get("inputSchema", {}),
-            )
-            for t in tools_data
-        ]
-
-    def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        result = self._post_jsonrpc("tools/call", {
-            "name": tool_name,
-            "arguments": arguments,
-        })
-        if "error" in result:
-            return result
-        return result.get("result", result)

@@ -237,23 +237,23 @@ class WSHandler(BaseHTTPRequestHandler):
     def _check_auth(self) -> bool:
         from urllib.parse import parse_qs, urlparse
 
-        from kater.settings import check_auth, load_settings
+        from kater.authgate import AuthContext, authenticate
+        from kater.settings import load_settings
 
-        settings = load_settings()
-        if settings.auth.mode == "none":
-            return True
-        auth_header = self.headers.get("Authorization")
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
-        api_key = query.get("api_key", [None])[0]
-        ok, error = check_auth(settings, auth_header, api_key)
-        if not ok:
+        decision = authenticate(
+            AuthContext(
+                settings=load_settings(),
+                authorization_header=self.headers.get("Authorization"),
+                query_api_key=query.get("api_key", [None])[0],
+            )
+        )
+        if not decision.allowed:
             self.send_response(401)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(
-                json.dumps({"error": error}).encode()
-            )
+            self.wfile.write(json.dumps({"error": decision.error}).encode())
             return False
         return True
 

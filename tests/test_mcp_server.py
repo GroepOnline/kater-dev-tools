@@ -29,3 +29,19 @@ def test_mcp_registers_core_tools() -> None:
     registered = [call.kwargs["name"] for call in fake_server.tool.call_args_list]
     assert "kater_profiles" in registered
     assert "kater_doctor" in registered
+
+
+def test_create_server_does_not_start_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_server = Mock()
+    fake_server.tool.return_value = lambda handler: handler
+    fake_module = Mock(FastMCP=Mock(return_value=fake_server))
+    proxy_start = Mock()
+    monkeypatch.setattr(
+        "kater.proxy.get_proxy",
+        lambda: Mock(start=proxy_start, list_tools=Mock(return_value=[])),
+    )
+
+    with patch("kater.mcp_server.import_module", return_value=fake_module):
+        mcp_server.create_server(profile="core")
+
+    proxy_start.assert_not_called()

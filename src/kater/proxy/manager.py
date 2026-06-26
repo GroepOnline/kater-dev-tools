@@ -10,7 +10,6 @@ from kater.profiles import TOOL_SOURCES, Transport
 from kater.proxy.aggregator import Aggregator
 from kater.proxy.base import BaseBackend
 from kater.proxy.models import BackendStatus
-from kater.proxy.router import Router
 from kater.proxy.sse_backend import SSEBackend
 from kater.proxy.stdio_backend import StdioBackend
 from kater.settings import load_settings
@@ -71,7 +70,6 @@ class ProxyManager:
         self._breakers: dict[str, CircuitBreaker] = {}
         self._lock = threading.Lock()
         self._aggregator = Aggregator()
-        self._router = Router(self._aggregator)
         self._started = False
 
     def start(self, profile: str) -> None:
@@ -92,6 +90,14 @@ class ProxyManager:
             self._breakers.clear()
             self._aggregator.clear()
             self._started = False
+
+    def register_backend(self, name: str, backend: BaseBackend) -> None:
+        with self._lock:
+            backend.start()
+            tools = backend.list_tools()
+            self._aggregator.add_backend_tools(name, tools)
+            self._backends[name] = backend
+            self._breakers[name] = CircuitBreaker()
 
     def _start_backends(self, profile: str) -> None:
         settings = load_settings()
@@ -163,14 +169,22 @@ class ProxyManager:
         return self._aggregator.for_mcp()
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        route = self._router.route(name)
+        route = self._aggregator.resolve(name)
         if route is None:
             return {"error": f"Unknown tool: {name}"}
-        backend_name, _ = route
+        backend_name, original_name = route
         breaker = self._breakers.get(backend_name)
         if breaker is not None and not breaker.can_call():
             return {"error": f"Circuit open for {backend_name}"}
-        result = self._router.call(name, arguments, self._backends)
+        backend = self._backends.get(backend_name)
+        if not backend:
+            return {"error": f"Backend not available: {backend_name}"}
+        if not backend.is_healthy():
+            return {"error": f"Backend unhealthy: {backend_name}"}
+        try:
+            result = backend.call_tool(original_name, arguments)
+        except Exception as exc:
+            result = {"error": f"Backend error: {exc}"}
         if breaker is not None:
             if "error" in result:
                 breaker.record_failure()

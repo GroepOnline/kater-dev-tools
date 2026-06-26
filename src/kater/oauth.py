@@ -119,15 +119,26 @@ def get_client(client_id: str) -> ClientRegistration | None:
     )
 
 
+def validate_redirect_uri(
+    client: ClientRegistration,
+    redirect_uri: str,
+) -> bool:
+    if not client.redirect_uris:
+        return True
+    return redirect_uri in client.redirect_uris
+
+
 def create_auth_code(
     client_id: str,
     redirect_uri: str,
     code_challenge: str,
-    code_challenge_method: str,
+    code_challenge_method: str = "S256",
     scope: str = "",
     state: str | None = None,
     profile: str = "core",
 ) -> str:
+    if code_challenge_method != "S256":
+        raise ValueError("Only S256 code challenge method is supported")
     data = _load()
     code = f"code_{secrets.token_hex(16)}"
     data["codes"][code] = {

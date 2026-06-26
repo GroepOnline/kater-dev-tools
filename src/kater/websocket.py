@@ -220,6 +220,8 @@ class WSHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             return
+        if not self._check_auth():
+            return
         if not self._do_handshake():
             return
         client = WSClient(self.connection, self.rfile, self.wfile)
@@ -231,6 +233,29 @@ class WSHandler(BaseHTTPRequestHandler):
             self._serve(client)
         finally:
             client.close()
+
+    def _check_auth(self) -> bool:
+        from urllib.parse import parse_qs, urlparse
+
+        from kater.settings import check_auth, load_settings
+
+        settings = load_settings()
+        if settings.auth.mode == "none":
+            return True
+        auth_header = self.headers.get("Authorization")
+        parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+        api_key = query.get("api_key", [None])[0]
+        ok, error = check_auth(settings, auth_header, api_key)
+        if not ok:
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({"error": error}).encode()
+            )
+            return False
+        return True
 
     def log_message(self, fmt: str, *args: Any) -> None:
         pass

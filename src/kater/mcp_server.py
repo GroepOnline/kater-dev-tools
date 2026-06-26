@@ -72,5 +72,13 @@ def _make_proxy_tool(server: Any, tool_def: dict, proxy: Any) -> None:
     server.tool(name=name, description=desc)(_handler)
 
 
-def serve(*, profile: str = "core") -> None:
-    create_server(profile=profile).run()
+def serve(
+    *,
+    profile: str = "core",
+    host: str = "127.0.0.1",
+    port: int = 9090,
+) -> None:
+    server = create_server(profile=profile)
+    server.settings.host = host
+    server.settings.port = port
+    server.run()

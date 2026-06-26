@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 import time
 from typing import Any
 
@@ -27,6 +28,7 @@ class StdioBackend(BaseBackend):
         self._timeout = timeout
         self._proc: subprocess.Popen[bytes] | None = None
         self._next_id = 1
+        self._stderr_thread: threading.Thread | None = None
 
     def start(self) -> None:
         try:
@@ -37,6 +39,7 @@ class StdioBackend(BaseBackend):
                 stderr=subprocess.PIPE,
                 env=self._env,
             )
+            self._start_stderr_drain()
             self._running = True
             self._initialize()
             self._refresh_tools()
@@ -46,6 +49,22 @@ class StdioBackend(BaseBackend):
             self._status.healthy = False
             self._running = False
 
+    def _start_stderr_drain(self) -> None:
+        if not self._proc or not self._proc.stderr:
+            return
+
+        def _drain() -> None:
+            try:
+                for _line in iter(self._proc.stderr.readline, b""):
+                    pass
+            except (OSError, ValueError):
+                pass
+
+        self._stderr_thread = threading.Thread(
+            target=_drain, daemon=True
+        )
+        self._stderr_thread.start()
+
     def stop(self) -> None:
         if self._proc:
             try:
@@ -53,10 +72,12 @@ class StdioBackend(BaseBackend):
                 self._proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self._proc.kill()
+                self._proc.wait(timeout=2)
             except OSError:
                 pass
             self._proc = None
         self._running = False
+        self._stderr_thread = None
 
     def _send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self._proc or not self._proc.stdin or not self._proc.stdout:

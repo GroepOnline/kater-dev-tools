@@ -386,7 +386,7 @@ def serve_command(
     api_port: Annotated[int, typer.Option("--api-port", help="REST API port.")] = 9091,
     mcp_port: Annotated[int, typer.Option("--mcp-port", help="MCP SSE port.")] = 9090,
     ws_port: Annotated[int, typer.Option("--ws-port", help="WebSocket port.")] = 9092,
-    host: Annotated[str, typer.Option("--host", help="Bind address.")] = "0.0.0.0",
+    host: Annotated[str, typer.Option("--host", help="Bind address.")] = "127.0.0.1",
     api_only: Annotated[bool, typer.Option("--api-only", help="Run only the API.")] = False,
     mcp_only: Annotated[bool, typer.Option("--mcp-only", help="Run only the MCP server.")] = False,
 ) -> None:
@@ -406,7 +406,7 @@ def serve_command(
         from kater.mcp_server import serve
 
         typer.echo(f"Kater MCP on http://{host}:{mcp_port}/sse")
-        serve(profile=profile)
+        serve(profile=profile, host=host, port=mcp_port)
         return
 
     typer.echo(

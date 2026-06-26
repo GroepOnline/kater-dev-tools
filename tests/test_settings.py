@@ -79,20 +79,29 @@ def test_check_auth_apikey_via_query():
     assert ok is True
 
 
-def test_check_auth_oauth_valid_structure():
+def test_check_auth_oauth_valid_token():
+    from kater.oauth import create_token, reset_state
+
+    reset_state()
+    token = create_token("client_test", "tools", "core")
     settings = KaterSettings(
         auth=AuthConfig(mode="oauth", oauth_issuer="https://auth.example.com")
     )
-    ok, err = check_auth(settings, "Bearer a.b.c", None)
+    ok, err = check_auth(settings, f"Bearer {token['access_token']}", None)
     assert ok is True
+    reset_state()
 
 
-def test_check_auth_oauth_invalid_structure():
+def test_check_auth_oauth_invalid_token():
+    from kater.oauth import reset_state
+
+    reset_state()
     settings = KaterSettings(
-        auth=AuthConfig(mode="oauth")
+        auth=AuthConfig(mode="oauth", oauth_issuer="https://auth.example.com")
     )
-    ok, err = check_auth(settings, "Bearer not-a-jwt", None)
+    ok, err = check_auth(settings, "Bearer tok_nonexistent", None)
     assert ok is False
+    reset_state()
 
 
 def test_rate_limiter_allows():

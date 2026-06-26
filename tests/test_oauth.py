@@ -92,11 +92,14 @@ def test_full_auth_code_flow():
 
 def test_exchange_code_used():
     client = register_client("app", ["http://localhost/cb"])
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(b"verifier").digest()
+    ).decode().rstrip("=")
     code = create_auth_code(
         client_id=client.client_id,
         redirect_uri="http://localhost/cb",
-        code_challenge="verifier",
-        code_challenge_method="plain",
+        code_challenge=challenge,
+        code_challenge_method="S256",
     )
     token1 = exchange_code(code, client.client_id, "verifier")
     assert token1 is not None
@@ -106,11 +109,14 @@ def test_exchange_code_used():
 
 def test_exchange_code_wrong_verifier():
     client = register_client("app", ["http://localhost/cb"])
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(b"correct").digest()
+    ).decode().rstrip("=")
     code = create_auth_code(
         client_id=client.client_id,
         redirect_uri="http://localhost/cb",
-        code_challenge="correct",
-        code_challenge_method="plain",
+        code_challenge=challenge,
+        code_challenge_method="S256",
     )
     result = exchange_code(code, client.client_id, "wrong")
     assert result is None

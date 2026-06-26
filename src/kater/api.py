@@ -16,6 +16,7 @@ from kater.registry import tools_for_profile
 from kater.settings import (
     RateLimiter,
     check_auth,
+    cors_allow_origin,
     load_settings,
     save_settings,
 )
@@ -108,13 +109,18 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
     def _send_json(self, code: int, payload: Any) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         settings = load_settings()
-        cors = ", ".join(settings.cors_origins) if settings.cors_origins else "*"
+        origin = self.headers.get("Origin")
+        allow = cors_allow_origin(settings, origin)
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", cors)
+        if allow:
+            self.send_header("Access-Control-Allow-Origin", allow)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Authorization, Content-Type",
+        )
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.end_headers()
@@ -125,9 +131,16 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
 
     def _read_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", 0))
+        settings = load_settings()
+        if length > settings.body_size_limit:
+            raise ValueError("Request body too large")
         if length == 0:
             return {}
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+        raw = self.rfile.read(length).decode("utf-8")
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in request body") from None
 
     def _authenticate(self) -> bool:
         parsed = urlparse(self.path)
@@ -198,26 +211,44 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         key = f"POST {path}"
         if key in ROUTES:
-            body = self._read_body()
+            try:
+                body = self._read_body()
+            except ValueError as exc:
+                self._send_error(400, str(exc))
+                return
             try:
                 result = ROUTES[key](body)
-                self._send_json(200, result)
+                code = 200
+                if isinstance(result, dict) and "error" in result:
+                    msg = result.get("error", "").lower()
+                    if "not found" in msg or "unknown" in msg:
+                        code = 404
+                    else:
+                        code = 400
+                self._send_json(code, result)
             except Exception as exc:
                 self._send_error(500, str(exc))
             return
         for pattern, func in ROUTES.items():
             if pattern.startswith("POST /") and "{x}" in pattern:
                 prefix = pattern.split("/{x}")[0]
-                path_prefix = prefix[5:]  # strip "POST "
+                path_prefix = prefix[5:]
                 if path.startswith(path_prefix + "/"):
                     remainder = path[len(path_prefix) + 1:]
                     parts = remainder.split("/", 1)
                     param = parts[0]
                     sub = parts[1] if len(parts) > 1 else ""
-                    body = self._read_body()
+                    try:
+                        body = self._read_body()
+                    except ValueError as exc:
+                        self._send_error(400, str(exc))
+                        return
                     try:
                         result = func(param, sub, body)
-                        self._send_json(200, result)
+                        code = 200
+                        if isinstance(result, dict) and "error" in result:
+                            code = 400
+                        self._send_json(code, result)
                     except Exception as exc:
                         self._send_error(500, str(exc))
                     return
@@ -308,7 +339,7 @@ def _mcp_server(name: str) -> dict[str, Any]:
 
 @_register("GET", "/api/settings")
 def _get_settings() -> dict[str, Any]:
-    return load_settings().to_dict()
+    return load_settings().to_safe_dict()
 
 
 @_register("GET", "/api/deploy")
@@ -388,10 +419,13 @@ def _spec() -> dict[str, Any]:
 @_register("GET", "/api/export")
 def _export() -> dict[str, Any]:
     settings = load_settings()
+    safe_auth = settings.auth.model_dump()
+    if safe_auth.get("api_keys"):
+        safe_auth["api_keys"] = len(safe_auth["api_keys"])
     return {
         "version": settings.version,
         "default_profile": settings.default_profile,
-        "auth": settings.auth.model_dump(),
+        "auth": safe_auth,
         "server_overrides": {
             k: v.model_dump() for k, v in settings.server_overrides.items()
         },
@@ -538,12 +572,13 @@ def _handle_authorize(handler: Any, query: dict[str, list[str]]) -> None:
         create_auth_code,
         get_client,
         render_consent_page,
+        validate_redirect_uri,
     )
 
     client_id = query.get("client_id", [""])[0]
     redirect_uri = query.get("redirect_uri", [""])[0]
     challenge = query.get("code_challenge", [""])[0]
-    method = query.get("code_challenge_method", ["plain"])[0]
+    method = query.get("code_challenge_method", ["S256"])[0]
     scope = query.get("scope", [""])[0]
     state = query.get("state", [None])[0]
     profile = query.get("profile", ["core"])[0]
@@ -552,6 +587,10 @@ def _handle_authorize(handler: Any, query: dict[str, list[str]]) -> None:
     client = get_client(client_id)
     if not client:
         handler._send_json(400, {"error": "invalid_client"})
+        return
+
+    if not validate_redirect_uri(client, redirect_uri):
+        handler._send_json(400, {"error": "invalid_redirect_uri"})
         return
 
     if approve == "1":

@@ -33,8 +33,10 @@ class KaterSettings(BaseModel):
     rate_limit_per_min: int = 0
     api_port: int = 9091
     mcp_port: int = 9090
-    storage_backend: str = "sqlite"  # sqlite | jsonl
+    storage_backend: str = "sqlite"
     db_path: str = ".kater/kater.db"
+    body_size_limit: int = 1048576
+    high_risk_default_disabled: bool = True
 
     def is_server_enabled(self, name: str, default: bool = True) -> bool:
         override = self.server_overrides.get(name)
@@ -55,6 +57,13 @@ class KaterSettings(BaseModel):
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
+
+    def to_safe_dict(self) -> dict[str, Any]:
+        d = self.to_dict()
+        if "api_keys" in d.get("auth", {}):
+            keys = d["auth"]["api_keys"]
+            d["auth"]["api_keys"] = len(keys) if keys else 0
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> KaterSettings:
@@ -77,8 +86,6 @@ def load_settings(project_dir: Path | None = None) -> KaterSettings:
             return KaterSettings.from_dict(data)
         except (json.JSONDecodeError, ValueError):
             pass
-
-    # Fall back to env vars
     return _settings_from_env()
 
 
@@ -93,17 +100,26 @@ def save_settings(settings: KaterSettings, project_dir: Path | None = None) -> P
 
 
 def _settings_from_env() -> KaterSettings:
-    auth = AuthConfig()
-    mode = os.environ.get("KATER_AUTH_MODE", "none")
-    if mode == "apikey":
+    host = os.environ.get("KATER_HOST", "127.0.0.1")
+    is_public = host not in ("127.0.0.1", "localhost", "::1")
+
+    auth_mode = os.environ.get("KATER_AUTH_MODE", "")
+    if not auth_mode:
+        auth_mode = "apikey" if is_public else "none"
+
+    auth = AuthConfig(mode=auth_mode)
+
+    if auth_mode == "apikey":
         keys_raw = os.environ.get("KATER_API_KEYS", "")
         api_keys = [k.strip() for k in keys_raw.split(",") if k.strip()]
         if not api_keys:
             single = os.environ.get("KATER_API_KEY", "")
             if single:
                 api_keys = [single]
+        if is_public and not api_keys:
+            api_keys = [_generate_default_key()]
         auth = AuthConfig(mode="apikey", api_keys=api_keys)
-    elif mode == "oauth":
+    elif auth_mode == "oauth":
         auth = AuthConfig(
             mode="oauth",
             oauth_issuer=os.environ.get("KATER_OAUTH_ISSUER"),
@@ -111,10 +127,13 @@ def _settings_from_env() -> KaterSettings:
             oauth_jwks_url=os.environ.get("KATER_OAUTH_JWKS_URL"),
         )
 
-    cors_raw = os.environ.get("KATER_CORS_ORIGINS", "*")
-    cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
+    cors_raw = os.environ.get("KATER_CORS_ORIGINS", "")
+    if cors_raw:
+        cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
+    else:
+        cors_origins = ["http://localhost:9091"] if is_public else ["*"]
 
-    rate_limit = int(os.environ.get("KATER_RATE_LIMIT", "0"))
+    rate_limit = int(os.environ.get("KATER_RATE_LIMIT", "60" if is_public else "0"))
 
     return KaterSettings(
         auth=auth,
@@ -125,6 +144,11 @@ def _settings_from_env() -> KaterSettings:
     )
 
 
+def _generate_default_key() -> str:
+    import secrets as _secrets
+    return f"kat_{_secrets.token_hex(16)}"
+
+
 # ── Auth helpers ───────────────────────────────────────────────────
 
 
@@ -133,7 +157,6 @@ def check_auth(
     authorization_header: str | None,
     query_api_key: str | None,
 ) -> tuple[bool, str | None]:
-    """Return (authorized, error_message)."""
     if settings.auth.mode == "none":
         return True, None
 
@@ -152,13 +175,25 @@ def check_auth(
         token = _extract_bearer(authorization_header)
         if not token:
             return False, "Missing bearer token."
-        # For OAuth, we validate the token structure (in production, verify against JWKS)
-        # This is a placeholder for full JWKS validation
-        if _validate_jwt_structure(token):
+        from kater.oauth import validate_token
+
+        at = validate_token(token)
+        if at and at.is_valid():
             return True, None
-        return False, "Invalid token."
+        return False, "Invalid or expired token."
 
     return True, None
+
+
+def cors_allow_origin(
+    settings: KaterSettings,
+    request_origin: str | None,
+) -> str | None:
+    if not settings.cors_origins or "*" in settings.cors_origins:
+        return request_origin or "*"
+    if request_origin and request_origin in settings.cors_origins:
+        return request_origin
+    return None
 
 
 def _extract_bearer(header: str | None) -> str | None:
@@ -168,11 +203,6 @@ def _extract_bearer(header: str | None) -> str | None:
     if len(parts) == 2 and parts[0].lower() == "bearer":
         return parts[1].strip()
     return None
-
-
-def _validate_jwt_structure(token: str) -> bool:
-    parts = token.split(".")
-    return len(parts) == 3
 
 
 # ── Rate limiter ───────────────────────────────────────────────────

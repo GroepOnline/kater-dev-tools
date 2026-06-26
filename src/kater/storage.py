@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_events_name ON events(name);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp);
 """
 
-_db_lock = threading.Lock()
+_storage_lock = threading.Lock()
 _db_cache: sqlite3.Connection | None = None
 _db_path_cache: str | None = None
 
@@ -57,8 +57,6 @@ def _get_db() -> sqlite3.Connection:
             _db_path_cache = None
     if _db_cache is not None:
         return _db_cache
-    if _db_cache is not None:
-        _db_cache.close()
     db_path_obj = Path(db_path)
     db_path_obj.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -71,7 +69,7 @@ def _get_db() -> sqlite3.Connection:
 
 
 def _sqlite_insert(event: dict[str, Any]) -> None:
-    with _db_lock:
+    with _storage_lock:
         db = _get_db()
         db.execute(
             """INSERT INTO events (type, name, timestamp, duration_ms, success, profile, metadata)
@@ -95,7 +93,7 @@ def _sqlite_query(
     name: str | None = None,
     since: float | None = None,
 ) -> list[dict[str, Any]]:
-    with _db_lock:
+    with _storage_lock:
         db = _get_db()
         query = "SELECT * FROM events WHERE 1=1"
         params: list[Any] = []
@@ -129,7 +127,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _sqlite_count(event_type: str | None = None) -> int:
-    with _db_lock:
+    with _storage_lock:
         db = _get_db()
         if event_type:
             row = db.execute(
@@ -141,7 +139,7 @@ def _sqlite_count(event_type: str | None = None) -> int:
 
 
 def _sqlite_clear() -> int:
-    with _db_lock:
+    with _storage_lock:
         db = _get_db()
         row = db.execute("SELECT COUNT(*) as c FROM events").fetchone()
         count = row["c"]
@@ -161,8 +159,9 @@ def _jsonl_path() -> Path:
 def _jsonl_insert(event: dict[str, Any]) -> None:
     path = _jsonl_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    line = json.dumps(event, ensure_ascii=False) + "\n"
+    with _storage_lock, path.open("a", encoding="utf-8") as f:
+        f.write(line)
 
 
 def _jsonl_query(
@@ -175,9 +174,9 @@ def _jsonl_query(
     if not path.exists():
         return []
     events = []
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
+    with _storage_lock, path.open(encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
             if not line:
                 continue
             event = json.loads(line)
@@ -202,7 +201,9 @@ def _jsonl_clear() -> int:
     if not path.exists():
         return 0
     count = _jsonl_count()
-    path.unlink()
+    with _storage_lock:
+        if path.exists():
+            path.unlink()
     return count
 
 
@@ -241,7 +242,7 @@ def clear_all_events() -> int:
 
 def reset_db_cache() -> None:
     global _db_cache, _db_path_cache
-    with _db_lock:
+    with _storage_lock:
         if _db_cache is not None:
             _db_cache.close()
         _db_cache = None

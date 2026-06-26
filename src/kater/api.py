@@ -172,7 +172,8 @@ def route(method: str, pattern: str, *, public: bool = False) -> Callable[..., A
 
 
 def _adapter_payload(profile: str) -> dict[str, Any]:
-    inventory = scan_adapters({profile})
+    # Exposed over the network: never emit resolved secrets in launch hints.
+    inventory = scan_adapters({profile}, include_secrets=False)
     settings = load_settings()
     adapters = []
     for a in inventory.sources:

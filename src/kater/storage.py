@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections import deque
 from pathlib import Path
 from typing import Any
 
 from kater.settings import load_settings
+
+# Hard cap on how many events an unbounded query loads into memory, so a large
+# or poisoned store cannot OOM the API process via /api/telemetry|/api/evals.
+MAX_EVENTS = 100_000
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -106,15 +111,28 @@ def _sqlite_query(
         if since:
             query += " AND timestamp >= ?"
             params.append(since)
-        query += " ORDER BY timestamp ASC"
         if limit > 0:
-            query += " LIMIT ?"
+            query += " ORDER BY timestamp ASC LIMIT ?"
             params.append(limit)
-        rows = db.execute(query, params).fetchall()
+            rows = db.execute(query, params).fetchall()
+        else:
+            # Unbounded request: cap to the most recent MAX_EVENTS, but return
+            # them in chronological order so callers see a normal ASC stream.
+            query += " ORDER BY timestamp DESC LIMIT ?"
+            params.append(MAX_EVENTS)
+            rows = list(reversed(db.execute(query, params).fetchall()))
     return [_row_to_dict(row) for row in rows]
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    raw_meta = row["metadata"]
+    if raw_meta:
+        try:
+            metadata = json.loads(raw_meta)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            metadata = {"_parse_error": True}
+    else:
+        metadata = {}
     return {
         "type": row["type"],
         "name": row["name"],
@@ -122,7 +140,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "duration_ms": row["duration_ms"],
         "success": bool(row["success"]),
         "profile": row["profile"],
-        "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+        "metadata": metadata,
     }
 
 
@@ -173,23 +191,27 @@ def _jsonl_query(
     path = _jsonl_path()
     if not path.exists():
         return []
-    events = []
+    # Bound memory to the most recent `cap` matching events (deque drops the
+    # oldest), and never let one corrupt line take down the whole query.
+    cap = limit if limit > 0 else MAX_EVENTS
+    events: deque[dict[str, Any]] = deque(maxlen=cap)
     with _storage_lock, path.open(encoding="utf-8") as f:
         for raw in f:
             line = raw.strip()
             if not line:
                 continue
-            event = json.loads(line)
-            if event_type and event["type"] != event_type:
+            try:
+                event = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
                 continue
-            if name and event["name"] != name:
+            if event_type and event.get("type") != event_type:
                 continue
-            if since and event["timestamp"] < since:
+            if name and event.get("name") != name:
+                continue
+            if since and event.get("timestamp", 0) < since:
                 continue
             events.append(event)
-    if limit > 0:
-        events = events[-limit:]
-    return events
+    return list(events)
 
 
 def _jsonl_count(event_type: str | None = None) -> int:

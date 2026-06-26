@@ -1,10 +1,26 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from kater.profiles import TOOL_SOURCES, ToolSource
+
+_ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _substitute_env_vars(value: str, *, include_secrets: bool) -> str:
+    """Replace every ${VAR} in a string. Keep the placeholder unless
+    include_secrets is set and the variable is present in the environment."""
+
+    def repl(match: re.Match[str]) -> str:
+        real = os.environ.get(match.group(1))
+        if include_secrets and real:
+            return real
+        return match.group(0)
+
+    return _ENV_VAR_RE.sub(repl, value)
 
 
 @dataclass
@@ -23,7 +39,11 @@ class AdapterInventory:
         return [a for a in self.sources if profile in a.source.profiles]
 
 
-def scan_adapters(profiles: set[str] | None = None) -> AdapterInventory:
+def scan_adapters(
+    profiles: set[str] | None = None,
+    *,
+    include_secrets: bool = True,
+) -> AdapterInventory:
     from kater.settings import load_settings
 
     settings = load_settings()
@@ -37,7 +57,11 @@ def scan_adapters(profiles: set[str] | None = None) -> AdapterInventory:
             continue
         missing = [var for var in source.env if not os.environ.get(var)]
         configured = len(missing) == 0
-        launch = _build_launch_hint(source) if source.mcp else None
+        launch = (
+            _build_launch_hint(source, include_secrets=include_secrets)
+            if source.mcp
+            else None
+        )
         inventory.sources.append(
             McpAdapter(
                 source=source,
@@ -49,7 +73,9 @@ def scan_adapters(profiles: set[str] | None = None) -> AdapterInventory:
     return inventory
 
 
-def _build_launch_hint(source: ToolSource) -> dict[str, Any] | None:
+def _build_launch_hint(
+    source: ToolSource, *, include_secrets: bool = True
+) -> dict[str, Any] | None:
     if not source.mcp:
         return None
     if source.transport == "stdio":
@@ -57,40 +83,42 @@ def _build_launch_hint(source: ToolSource) -> dict[str, Any] | None:
             "type": "stdio",
             "command": source.mcp.command,
             "args": source.mcp.args,
-            "env": _resolve_env(source.mcp.env_template),
+            "env": _resolve_env(source.mcp.env_template, include_secrets=include_secrets),
         }
     if source.transport in ("sse", "http"):
-        url = source.mcp.url or ""
-        for var in source.env:
-            val = os.environ.get(var)
-            if val:
-                url = url.replace(f"${{{var}}}", val)
-        if not url or url.startswith("${") and "}" not in url:
-            if not source.env:
-                url = source.mcp.url or ""
+        url = _substitute_env_vars(source.mcp.url or "", include_secrets=include_secrets)
         return {
             "type": "sse",
             "url": url,
-            "env": _resolve_env(source.mcp.env_template),
+            "env": _resolve_env(source.mcp.env_template, include_secrets=include_secrets),
         }
     return None
 
 
-def _resolve_env(template: dict[str, str]) -> dict[str, str]:
+def _resolve_env(
+    template: dict[str, str], *, include_secrets: bool = True
+) -> dict[str, str]:
     resolved: dict[str, str] = {}
     for key, val in template.items():
-        if val.startswith("${") and val.endswith("}"):
-            env_var = val[2:-1]
-            real = os.environ.get(env_var)
-            if real:
-                resolved[key] = real
+        match = _ENV_VAR_RE.fullmatch(val)
+        if match:
+            if include_secrets:
+                real = os.environ.get(match.group(1))
+                if real:
+                    resolved[key] = real
+            else:
+                resolved[key] = val
+        elif "${" in val:
+            resolved[key] = _substitute_env_vars(val, include_secrets=include_secrets)
         else:
             resolved[key] = val
     return resolved
 
 
-def render_profile_config(profile: str) -> dict[str, Any]:
-    inventory = scan_adapters({profile} | {"core"})
+def render_profile_config(
+    profile: str, *, include_secrets: bool = True
+) -> dict[str, Any]:
+    inventory = scan_adapters({profile} | {"core"}, include_secrets=include_secrets)
     mcp_servers: dict[str, Any] = {}
     for adapter in inventory.sources:
         if not adapter.configured:

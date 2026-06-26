@@ -41,7 +41,11 @@ def parse_profiles(value: str | None) -> set[str]:
 def load_cursor_mcp(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def resolve_cursor_mcp(path: Path | None) -> Path | None:

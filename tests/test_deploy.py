@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from kater.deploy import (
     list_deploy_formats,
     render_cloudflare_config,
@@ -10,6 +12,15 @@ from kater.deploy import (
     render_stdio_config,
     render_systemd_config,
 )
+
+
+def test_systemd_rejects_injection():
+    with pytest.raises(ValueError):
+        render_systemd_config(profile="ops\nExecStart=/bin/sh -c evil")
+    with pytest.raises(ValueError):
+        render_systemd_config(user="root; rm -rf /")
+    with pytest.raises(ValueError):
+        render_systemd_config(workdir="/tmp\nExecStart=evil")
 
 
 def test_list_deploy_formats():

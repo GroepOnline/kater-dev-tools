@@ -65,7 +65,9 @@ def adapter_inventory_tool(profile: str = "core") -> dict[str, Any]:
 
 
 def config_render_tool(profile: str = "core") -> dict[str, Any]:
-    return render_profile_config(profile)
+    # Exposed as an MCP tool to connected agents: redact secrets, emit
+    # ${VAR} placeholders instead of the server's live environment values.
+    return render_profile_config(profile, include_secrets=False)
 
 
 def build_native_tools() -> list[NativeTool]:

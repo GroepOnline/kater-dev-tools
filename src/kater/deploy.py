@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+_SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._-]+$")
+_SAFE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
 class DeployTarget(BaseModel):
@@ -128,6 +132,12 @@ def render_systemd_config(
     workdir: str = "/home/sofie/kater-dev-tools",
 ) -> dict[str, Any]:
     """Systemd unit file for Linux server deployment."""
+    if not _SAFE_TOKEN.match(profile):
+        raise ValueError(f"Invalid profile: {profile!r}")
+    if not _SAFE_TOKEN.match(user):
+        raise ValueError(f"Invalid user: {user!r}")
+    if not _SAFE_PATH.match(workdir):
+        raise ValueError(f"Invalid workdir: {workdir!r}")
     unit = f"""[Unit]
 Description=Kater MCP Gateway
 After=network.target

@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from kater.adapters.external import (
+    _resolve_env,
+    _substitute_env_vars,
     render_profile_config,
     scan_adapters,
 )
@@ -86,6 +88,30 @@ def test_render_profile_config_configured_stdio(monkeypatch) -> None:
     assert servers["github"]["type"] == "stdio"
     assert servers["github"]["command"] == "npx"
     assert "kater" in servers
+
+
+def test_render_profile_config_redacts_secrets_when_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "supersecret-token")
+
+    leaky = render_profile_config("ops", include_secrets=True)
+    safe = render_profile_config("ops", include_secrets=False)
+
+    assert "supersecret-token" in str(leaky["mcpServers"]["github"]["env"])
+    assert "supersecret-token" not in str(safe["mcpServers"]["github"]["env"])
+
+
+def test_embedded_env_var_substitution(monkeypatch) -> None:
+    monkeypatch.setenv("NOTION_API_KEY", "ntn_secret")
+    headers = '{"Authorization":"Bearer ${NOTION_API_KEY}"}'
+
+    assert _substitute_env_vars(headers, include_secrets=True) == (
+        '{"Authorization":"Bearer ntn_secret"}'
+    )
+    # Placeholder preserved when secrets are disabled.
+    assert _substitute_env_vars(headers, include_secrets=False) == headers
+    # _resolve_env handles embedded (non-exact) ${VAR} values too.
+    resolved = _resolve_env({"OPENAPI_MCP_HEADERS": headers}, include_secrets=True)
+    assert resolved["OPENAPI_MCP_HEADERS"] == '{"Authorization":"Bearer ntn_secret"}'
 
 
 def test_adapter_inventory_profile_gating(monkeypatch) -> None:

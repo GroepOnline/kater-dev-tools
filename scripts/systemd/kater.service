@@ -6,14 +6,16 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/kater-dev-tools
+EnvironmentFile=-%h/.config/kater/kater.env
 Environment=KATER_PUBLIC=1
 Environment=KATER_AUTH_MODE=oauth
 Environment=KATER_RATE_LIMIT=60
 Environment=KATER_HOST=127.0.0.1
 Environment=KATER_DOMAIN=kater.chefgroep.online
 Environment=KATER_CORS_ORIGINS=https://kater.chefgroep.online
+ExecStartPre=-/usr/bin/pkill -f '%h/kater-dev-tools/.venv/bin/kater serve'
 ExecStart=%h/kater-dev-tools/.venv/bin/kater serve --profile core --host 127.0.0.1
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

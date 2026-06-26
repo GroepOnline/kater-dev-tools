@@ -2,12 +2,14 @@
 Description=Cloudflare Tunnel for Kater
 After=network-online.target kater.service
 Wants=network-online.target
+Requires=kater.service
 
 [Service]
 Type=simple
 EnvironmentFile=%h/.config/kater/tunnel.env
+ExecStartPre=-/usr/bin/pkill -f 'cloudflared tunnel run'
 ExecStart=/usr/local/bin/cloudflared tunnel run --token ${KATER_TUNNEL_TOKEN}
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

@@ -756,6 +756,31 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self._dispatch("POST")
 
+    def do_HEAD(self) -> None:
+        request = self._build_request("HEAD")
+        if request is None:
+            return
+        matched = ROUTER.match(request.method, request.path)
+        if matched is None:
+            self._write(Response.json(404, {"error": f"Not found: {request.path}"}))
+            return
+        matched_route, _ = matched
+        if not matched_route.public:
+            from kater.authgate import AuthContext, authenticate
+
+            decision = authenticate(
+                AuthContext(
+                    settings=load_settings(),
+                    authorization_header=request.header("authorization"),
+                    query_api_key=request.query1("api_key"),
+                    path=request.path,
+                )
+            )
+            if not decision.allowed:
+                self._write(Response.json(401, {"error": decision.error or "Unauthorized"}))
+                return
+        self._write(Response(status=200, body=b"", content_type="text/html; charset=utf-8"))
+
     def do_OPTIONS(self) -> None:
         self._write(Response.json(200, {"ok": True}))
 

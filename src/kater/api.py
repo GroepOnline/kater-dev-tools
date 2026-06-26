@@ -688,7 +688,16 @@ def _update_settings(req: Request) -> Response:
     body = req.json
     settings = load_settings()
     if "auth" in body:
-        settings.auth = type(settings.auth).model_validate(body["auth"])
+        auth_patch = body["auth"]
+        if not isinstance(auth_patch, dict):
+            return Response.json(400, {"error": "auth must be an object"})
+        # Merge instead of rebuild: only fields the client actually sent are
+        # overwritten. A partial patch (e.g. just {"mode"}) can no longer wipe
+        # api_keys / OAuth config — fixing a silent data-loss bug where every
+        # Save from the dashboard reset the whole AuthConfig.
+        current = settings.auth.model_dump()
+        current.update({k: v for k, v in auth_patch.items() if k in current})
+        settings.auth = type(settings.auth).model_validate(current)
     if "cors_origins" in body:
         settings.cors_origins = body["cors_origins"]
     if "rate_limit_per_min" in body:
@@ -704,7 +713,7 @@ def _update_settings(req: Request) -> Response:
 
 
 def _base_url(handler: BaseHTTPRequestHandler) -> str:
-    host = handler.headers.get("Host", "localhost:9091")
+    host = handler.headers.get("X-Forwarded-Host") or handler.headers.get("Host", "localhost:9091")
     scheme = "https" if handler.headers.get("X-Forwarded-Proto") == "https" else "http"
     return f"{scheme}://{host}"
 

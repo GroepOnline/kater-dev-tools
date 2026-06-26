@@ -91,11 +91,13 @@ class AuthASGIMiddleware:
             for k, v in scope.get("headers", [])
         }
         query = parse_qs(scope.get("query_string", b"").decode("latin-1"))
+        path = scope.get("path") or "/"
         decision = authenticate(
             AuthContext(
                 settings=load_settings(),
                 authorization_header=headers.get("authorization"),
                 query_api_key=query.get("api_key", [None])[0],
+                path=path,
             )
         )
         if not decision.allowed:
@@ -133,7 +135,9 @@ def build_sse_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
             register_proxy_tools(server, proxy=proxy, profile=profile)
         except Exception:
             _register_proxy_status_tool(server)
-    return AuthASGIMiddleware(server.sse_app())
+    from kater.gateway import ApiProxyMiddleware
+
+    return AuthASGIMiddleware(ApiProxyMiddleware(server.sse_app()))
 
 
 def serve(

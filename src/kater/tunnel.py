@@ -106,21 +106,18 @@ def _is_cloudflared_running() -> bool:
 
 def generate_cloudflare_config(
     tunnel_name: str = "kater",
-    domain: str = "kater.chefgroep.online",
+    domain: str | None = None,
     api_port: int = 9091,
     mcp_port: int = 9090,
     ws_port: int = 9092,
 ) -> str:
+    domain = domain or os.environ.get("KATER_DOMAIN", "kater.example.com")
     return f"""tunnel: {tunnel_name}
 credentials-file: ~/.cloudflared/{tunnel_name}.json
 
 ingress:
   - hostname: {domain}
     service: http://localhost:{mcp_port}
-  - hostname: api.{domain}
-    service: http://localhost:{api_port}
-  - hostname: ws.{domain}
-    service: http://localhost:{ws_port}
   - service: http_status:404
 """
 
@@ -137,7 +134,7 @@ def generate_tailscale_funnel_cmd(
 def start_cloudflared(
     tunnel_name: str = "kater",
     config_path: str | None = None,
-    domain: str = "kater.chefgroep.online",
+    domain: str | None = None,
 ) -> TunnelInfo:
     if not detect_cloudflared():
         return TunnelInfo(
@@ -149,9 +146,11 @@ def start_cloudflared(
     if config_path is None:
         config_path = os.path.expanduser(f"~/.cloudflared/{tunnel_name}.yml")
 
+    resolved_domain = domain or os.environ.get("KATER_DOMAIN", "kater.example.com")
+
     if not os.path.exists(config_path):
         config_content = generate_cloudflare_config(
-            tunnel_name=tunnel_name, domain=domain
+            tunnel_name=tunnel_name, domain=resolved_domain
         )
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         with open(config_path, "w") as f:
@@ -170,10 +169,10 @@ def start_cloudflared(
         return TunnelInfo(
             provider="cloudflare",
             name=tunnel_name,
-            url=f"https://{domain}",
+            url=f"https://{resolved_domain}",
             running=proc.poll() is None,
             pid=proc.pid,
-            config={"config_path": config_path, "domain": domain},
+            config={"config_path": config_path, "domain": resolved_domain},
         )
     except Exception as exc:
         return TunnelInfo(
@@ -245,17 +244,18 @@ def stop_tailscale_funnel(port: int = 9090) -> bool:
         return False
 
 
-def tunnel_overview(domain: str = "kater.chefgroep.online") -> dict[str, Any]:
+def tunnel_overview(domain: str | None = None) -> dict[str, Any]:
+    resolved = domain or os.environ.get("KATER_DOMAIN", "kater.example.com")
     return {
         "cloudflare": cloudflared_status(),
         "tailscale": tailscale_status(),
-        "suggested_domain": domain,
+        "suggested_domain": resolved,
         "available": {
             "cloudflare": detect_cloudflared(),
             "tailscale": detect_tailscale(),
         },
         "client_configs": {
-            "cloudflare_url": f"https://{domain}/sse",
+            "cloudflare_url": f"https://{resolved}/sse",
             "tailscale_url": "https://<hostname>.ts.net:9090/sse",
         },
     }

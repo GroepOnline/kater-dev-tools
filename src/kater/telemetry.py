@@ -31,6 +31,17 @@ class TelemetryEvent:
 
 def record_event(event: TelemetryEvent) -> None:
     insert_event(event.to_dict())
+    # Push the event to any connected WebSocket clients so the dashboard's
+    # Live Stream reflects tool calls / chain runs in real time. Lazy import
+    # avoids an import cycle (websocket imports telemetry for status_overview);
+    # the import only resolves once both modules are loaded at call time, and
+    # broadcasting to an empty client set is a no-op when no WS server runs.
+    try:
+        from kater.websocket import broadcast_event
+
+        broadcast_event(event.to_dict())
+    except Exception:
+        pass
 
 
 def record_tool_call(

@@ -7,7 +7,7 @@ Configure one of:
 
 ```bash
 UTRECHT_MCP_URL=http://100.65.83.86:9090/sse
-UTRECHT_REPO_PATH=/home/sofie/utrecht-data-os
+UTRECHT_REPO_PATH=/path/to/your/utrecht-data-os
 ```
 
 Use the `utrecht` profile only when the task needs Utrecht-specific tools.

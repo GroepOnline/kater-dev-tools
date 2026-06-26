@@ -1,0 +1,20 @@
+[Unit]
+Description=Kater MCP Gateway (secured)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/kater-dev-tools
+Environment=KATER_PUBLIC=1
+Environment=KATER_AUTH_MODE=oauth
+Environment=KATER_RATE_LIMIT=60
+Environment=KATER_HOST=127.0.0.1
+Environment=KATER_DOMAIN=kater.chefgroep.online
+Environment=KATER_CORS_ORIGINS=https://kater.chefgroep.online
+ExecStart=%h/kater-dev-tools/.venv/bin/kater serve --profile core --host 127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

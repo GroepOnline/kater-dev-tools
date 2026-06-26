@@ -815,7 +815,7 @@ def tunnel_start_command(
     ] = "cloudflare",
     domain: Annotated[
         str, typer.Option("--domain", help="Domain for Cloudflare tunnel.")
-    ] = "kater.chefgroep.online",
+    ] = "",
     port: Annotated[
         int, typer.Option("--port", help="Port for Tailscale Funnel.")
     ] = 9090,
@@ -825,7 +825,8 @@ def tunnel_start_command(
     from kater.tunnel import start_cloudflared, start_tailscale_funnel
 
     if provider == "cloudflare":
-        info = start_cloudflared(domain=domain)
+        resolved = domain or os.environ.get("KATER_DOMAIN") or None
+        info = start_cloudflared(domain=resolved)
     elif provider == "tailscale":
         info = start_tailscale_funnel(port=port)
     else:
@@ -874,14 +875,15 @@ def tunnel_config_command(
     ] = "cloudflare",
     domain: Annotated[
         str, typer.Option("--domain", help="Domain for Cloudflare.")
-    ] = "kater.chefgroep.online",
+    ] = "",
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Generate tunnel configuration."""
     if provider == "cloudflare":
         from kater.tunnel import generate_cloudflare_config
 
-        config = generate_cloudflare_config(domain=domain)
+        resolved = domain or os.environ.get("KATER_DOMAIN", "kater.example.com")
+        config = generate_cloudflare_config(domain=resolved)
         if json_output:
             _print_json({"provider": "cloudflare", "config": config})
             return

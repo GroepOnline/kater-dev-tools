@@ -253,4 +253,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Status
 
-v1.0.0 — 260+ tests, 29 MCP servers, loopback-by-default with OAuth/API-key auth for public deploys.
+v1.0.0 — 263 tests, 29 MCP servers, loopback-by-default with OAuth/API-key auth for public deploys.

@@ -27,8 +27,8 @@ def test_generate_cloudflare_config():
     assert "tunnel: my-tunnel" in config
     assert "kater.example.com" in config
     assert "localhost:9090" in config
-    assert "localhost:9091" in config
     assert "ingress:" in config
+    assert "api.kater" not in config
 
 
 def test_generate_tailscale_funnel_cmd():
@@ -47,6 +47,7 @@ def test_tunnel_overview():
     assert overview["client_configs"]["cloudflare_url"] == "https://test.example.com/sse"
 
 
-def test_tunnel_overview_defaults():
+def test_tunnel_overview_defaults(monkeypatch):
+    monkeypatch.delenv("KATER_DOMAIN", raising=False)
     overview = tunnel_overview()
-    assert overview["suggested_domain"] == "kater.chefgroep.online"
+    assert overview["suggested_domain"] == "kater.example.com"

@@ -288,10 +288,10 @@ def broadcast_event(event: dict[str, Any]) -> None:
             client.send_text(message)
 
 
-def create_ws_server(host: str = "0.0.0.0", port: int = 9092) -> ThreadingHTTPServer:
+def create_ws_server(host: str = "127.0.0.1", port: int = 9092) -> ThreadingHTTPServer:
     return WSServer((host, port), WSHandler)
 
 
-def serve_ws(host: str = "0.0.0.0", port: int = 9092) -> None:
+def serve_ws(host: str = "127.0.0.1", port: int = 9092) -> None:
     server = create_ws_server(host, port)
     server.serve_forever()

@@ -13,14 +13,17 @@ one curated MCP surface and turning broad dev MCPs on only through profiles.
 ┌─────────────────────────────────────┐
 │            KATER GATEWAY            │
 │                                     │
-│  Proxy ─── Auth ─── Telemetry/DB    │
-│  Router ── CORS ── Rate Limit       │
+│  KaterRuntime (ordered lifecycle)   │
+│   ├─ REST API  (RouteTable pipeline)│
+│   ├─ MCP / SSE (FastMCP + authgate) │
+│   └─ WebSocket (telemetry stream)   │
+│                                     │
+│  authgate · CORS · Rate Limit · DB  │
+│  ProxyManager → stdio / SSE backends│
 │                                     │
 │   Native  +  GitHub + Sentry + CF   │
 │   (local)   (stdio)   (SSE)  (stdio)│
 │              + 29 more servers      │
-│                                     │
-│  Web Dashboard + REST API + WS      │
 └─────────────────────────────────────┘
 ```
 
@@ -190,28 +193,31 @@ uv run pytest -v
 ```
 src/kater/
 ├── cli.py              CLI entry point (Typer)
-├── serve.py            Unified: API + MCP + WS
-├── api.py              REST API (stdlib http.server)
+├── runtime.py          KaterRuntime: ordered startup/shutdown of all servers
+├── serve.py            Thin wrapper over KaterRuntime
+├── api.py              REST API: Request/Response pipeline + RouteTable
+├── authgate.py         Single source of truth for auth policy
 ├── websocket.py        WebSocket server (RFC 6455)
-├── mcp_server.py       MCP SSE server (FastMCP + proxy)
+├── mcp_server.py       MCP SSE server (FastMCP + authgate middleware)
 ├── proxy/              MCP Proxy Engine
-│   ├── manager.py      Lifecycle + circuit breaker
-│   ├── stdio_backend.py  subprocess spawning
-│   ├── sse_backend.py    upstream SSE connection
-│   ├── aggregator.py   tool collection
-│   └── router.py       tool call routing
-├── web/dashboard.py    Web dashboard (inline HTML/CSS/JS)
+│   ├── manager.py      Lifecycle + routing + circuit breaker
+│   ├── base.py         BaseBackend: shared MCP session ceremony
+│   ├── stdio_backend.py  subprocess transport (env-whitelisted)
+│   ├── sse_backend.py    upstream SSE transport
+│   ├── aggregator.py   tool registry + prefix resolution
+│   └── models.py       proxy data models
+├── web/dashboard.py    Web dashboard (inline HTML/CSS/JS, per-view seams)
 ├── profiles.py         MCP server catalog (29+)
-├── settings.py         Auth, CORS, storage, overrides
+├── settings.py         Auth, CORS, storage, ListenConfig (bind SSOT)
 ├── storage.py          SQLite + JSONL telemetry
 ├── telemetry.py        Event recording + evals
-├── oauth.py            OAuth2 + PKCE
+├── oauth.py            OAuth2 + PKCE (locked, atomic state)
 ├── tunnel.py           CF Tunnel + Tailscale
 ├── deploy.py           Deployment config generation
 ├── ansi.py             CLI formatting
-└── openapi_spec.py     OpenAPI 3.1 generation
+└── openapi_spec.py     OpenAPI 3.1 generation (drift-guarded)
 ```
 
 ## Status
 
-v0.9.0 — 185 tests, 24 modules, 29 MCP servers, zero external runtime deps beyond pydantic/typer/mcp.
+v0.9.0 — 248 tests, 29 MCP servers, loopback-by-default, zero external runtime deps beyond pydantic/typer/mcp.

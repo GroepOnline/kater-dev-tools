@@ -529,10 +529,10 @@ def _deploy_formats(_: Request) -> Response:
     return Response.json(200, {"formats": list_deploy_formats()})
 
 
-@route("GET", "/api/deploy/{fmt}")
+@route("GET", "/api/deploy/{format}")
 def _deploy_render(req: Request) -> Response:
     profile = os.environ.get("KATER_PROFILE", "core")
-    return Response.json(200, render_deploy(req.params["fmt"], profile=profile))
+    return Response.json(200, render_deploy(req.params["format"], profile=profile))
 
 
 @route("GET", "/api/status")

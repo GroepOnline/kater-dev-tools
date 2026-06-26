@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from kater.adapters.external import render_profile_config, scan_adapters
+from kater.chains import list_chains
 from kater.doctor import run_doctor
 from kater.profiles import list_profiles
 
@@ -30,6 +32,42 @@ def doctor_tool(profile: str = "core") -> dict[str, Any]:
     return report.model_dump(mode="json")
 
 
+def chains_list_tool(profile: str = "core") -> dict[str, Any]:
+    chains = list_chains(profile)
+    return {"chains": [chain.model_dump(mode="json") for chain in chains]}
+
+
+def utrecht_status_tool() -> dict[str, Any]:
+    from kater.adapters.utrecht import utrecht_status
+    return utrecht_status()
+
+
+def utrecht_pipeline_tool() -> dict[str, Any]:
+    from kater.adapters.utrecht import utrecht_pipeline_status
+    return utrecht_pipeline_status()
+
+
+def adapter_inventory_tool(profile: str = "core") -> dict[str, Any]:
+    inventory = scan_adapters({profile})
+    return {
+        "profile": profile,
+        "adapters": [
+            {
+                "name": a.source.name,
+                "transport": a.source.transport,
+                "configured": a.configured,
+                "missing_env": a.missing_env,
+                "risk": a.source.risk,
+            }
+            for a in inventory.sources
+        ],
+    }
+
+
+def config_render_tool(profile: str = "core") -> dict[str, Any]:
+    return render_profile_config(profile)
+
+
 def build_native_tools() -> list[NativeTool]:
     return [
         NativeTool(
@@ -45,6 +83,41 @@ def build_native_tools() -> list[NativeTool]:
             profile="core",
             risk="low",
             handler=doctor_tool,
+        ),
+        NativeTool(
+            name="kater_chains",
+            description="List available tool chains for a profile.",
+            profile="core",
+            risk="low",
+            handler=chains_list_tool,
+        ),
+        NativeTool(
+            name="utrecht_status",
+            description="Check Utrecht Data OS adapter configuration.",
+            profile="utrecht",
+            risk="low",
+            handler=utrecht_status_tool,
+        ),
+        NativeTool(
+            name="utrecht_pipeline_status",
+            description="Inspect Utrecht Data OS pipeline artifacts.",
+            profile="utrecht",
+            risk="low",
+            handler=utrecht_pipeline_tool,
+        ),
+        NativeTool(
+            name="kater_adapters",
+            description="Scan which external MCP adapters are configured.",
+            profile="core",
+            risk="low",
+            handler=adapter_inventory_tool,
+        ),
+        NativeTool(
+            name="kater_config",
+            description="Render the full MCP config for a profile.",
+            profile="core",
+            risk="low",
+            handler=config_render_tool,
         ),
     ]
 

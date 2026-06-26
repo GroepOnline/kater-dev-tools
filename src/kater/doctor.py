@@ -44,6 +44,16 @@ def load_cursor_mcp(path: Path | None) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def resolve_cursor_mcp(path: Path | None) -> Path | None:
+    if path is not None:
+        return path if path.exists() else None
+    candidates = [Path.cwd() / ".cursor" / "mcp.json", Path.home() / ".cursor" / "mcp.json"]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def run_doctor(
     *,
     profiles: set[str] | None = None,
@@ -52,8 +62,10 @@ def run_doctor(
 ) -> DoctorReport:
     selected_profiles = profiles or {DEFAULT_PROFILE}
     sources = sources_for_profiles(selected_profiles)
+    effective_mcp_path = resolve_cursor_mcp(cursor_mcp_path)
     findings = _find_missing_env(sources)
-    findings.extend(_find_context_bloat(cursor_mcp_path=cursor_mcp_path, selected=sources))
+    findings.extend(_adapter_config_check(selected_profiles))
+    findings.extend(_find_context_bloat(cursor_mcp_path=effective_mcp_path, selected=sources))
     fix_actions = _build_fix_actions(findings) if include_fix_plan else []
     return DoctorReport(
         profiles=sorted(selected_profiles),
@@ -77,6 +89,40 @@ def _find_missing_env(sources: list[ToolSource]) -> list[Finding]:
                     suggested_action=(
                         "Set the env vars or remove this profile for the current task."
                     ),
+                )
+            )
+    return findings
+
+
+def _adapter_config_check(selected_profiles: set[str]) -> list[Finding]:
+    from kater.adapters.external import scan_adapters
+
+    findings: list[Finding] = []
+    inventory = scan_adapters(profiles=selected_profiles)
+    for adapter in inventory.sources:
+        if not adapter.configured and adapter.missing_env:
+            findings.append(
+                Finding(
+                    code="adapter_not_configured",
+                    severity="info",
+                    source=adapter.source.name,
+                    message=(
+                        f"{adapter.source.name} ({adapter.source.transport}) not configured. "
+                        f"Set: {', '.join(adapter.missing_env)}"
+                    ),
+                    suggested_action=(
+                        f"Set {', '.join(adapter.missing_env)} to enable this adapter."
+                    ),
+                )
+            )
+        elif adapter.configured:
+            findings.append(
+                Finding(
+                    code="adapter_ready",
+                    severity="info",
+                    source=adapter.source.name,
+                    message=f"{adapter.source.name} ({adapter.source.transport}) configured.",
+                    suggested_action="Use kater config --profile ... to generate the MCP config.",
                 )
             )
     return findings

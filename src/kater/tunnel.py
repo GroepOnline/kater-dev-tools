@@ -1,0 +1,261 @@
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class TunnelInfo:
+    provider: str
+    name: str
+    url: str | None = None
+    running: bool = False
+    error: str | None = None
+    pid: int | None = None
+    config: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "name": self.name,
+            "url": self.url,
+            "running": self.running,
+            "error": self.error,
+            "pid": self.pid,
+        }
+
+
+def detect_cloudflared() -> bool:
+    return shutil.which("cloudflared") is not None
+
+
+def detect_tailscale() -> bool:
+    return shutil.which("tailscale") is not None
+
+
+def tailscale_status() -> dict[str, Any]:
+    if not detect_tailscale():
+        return {"installed": False, "connected": False}
+    try:
+        result = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            import json
+            data = json.loads(result.stdout)
+            return {
+                "installed": True,
+                "connected": data.get("BackendState") == "Running",
+                "ip": data.get("TailscaleIPs", [None])[0],
+                "hostname": data.get("Self", {}).get("HostName"),
+                "funnel": _check_tailscale_funnel(),
+            }
+    except Exception:
+        pass
+    return {"installed": True, "connected": False}
+
+
+def _check_tailscale_funnel() -> bool:
+    try:
+        result = subprocess.run(
+            ["tailscale", "funnel", "status"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0 and "on" in result.stdout.lower()
+    except Exception:
+        return False
+
+
+def cloudflared_status(tunnel_name: str = "kater") -> dict[str, Any]:
+    if not detect_cloudflared():
+        return {"installed": False, "running": False}
+    running = _is_cloudflared_running()
+    config_path = os.path.expanduser(
+        f"~/.cloudflared/{tunnel_name}.yml"
+    )
+    has_config = os.path.exists(config_path)
+    return {
+        "installed": True,
+        "running": running,
+        "tunnel_name": tunnel_name,
+        "has_config": has_config,
+        "config_path": config_path if has_config else None,
+    }
+
+
+def _is_cloudflared_running() -> bool:
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "cloudflared.*tunnel"],
+            capture_output=True,
+            timeout=3,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def generate_cloudflare_config(
+    tunnel_name: str = "kater",
+    domain: str = "kater.chefgroep.online",
+    api_port: int = 9091,
+    mcp_port: int = 9090,
+    ws_port: int = 9092,
+) -> str:
+    return f"""tunnel: {tunnel_name}
+credentials-file: ~/.cloudflared/{tunnel_name}.json
+
+ingress:
+  - hostname: {domain}
+    service: http://localhost:{mcp_port}
+  - hostname: api.{domain}
+    service: http://localhost:{api_port}
+  - hostname: ws.{domain}
+    service: http://localhost:{ws_port}
+  - service: http_status:404
+"""
+
+
+def generate_tailscale_funnel_cmd(
+    port: int = 9090,
+    scope: str = "all",
+) -> list[str]:
+    if scope == "all":
+        return ["tailscale", "funnel", str(port)]
+    return ["tailscale", "funnel", f"--set-path=/{scope}", str(port)]
+
+
+def start_cloudflared(
+    tunnel_name: str = "kater",
+    config_path: str | None = None,
+    domain: str = "kater.chefgroep.online",
+) -> TunnelInfo:
+    if not detect_cloudflared():
+        return TunnelInfo(
+            provider="cloudflare",
+            name=tunnel_name,
+            error="cloudflared not installed. Install: brew install cloudflared",
+        )
+
+    if config_path is None:
+        config_path = os.path.expanduser(f"~/.cloudflared/{tunnel_name}.yml")
+
+    if not os.path.exists(config_path):
+        config_content = generate_cloudflare_config(
+            tunnel_name=tunnel_name, domain=domain
+        )
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        with open(config_path, "w") as f:
+            f.write(config_content)
+
+    try:
+        proc = subprocess.Popen(
+            [
+                "cloudflared", "tunnel", "--config",
+                config_path, "run", tunnel_name,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(1)
+        return TunnelInfo(
+            provider="cloudflare",
+            name=tunnel_name,
+            url=f"https://{domain}",
+            running=proc.poll() is None,
+            pid=proc.pid,
+            config={"config_path": config_path, "domain": domain},
+        )
+    except Exception as exc:
+        return TunnelInfo(
+            provider="cloudflare",
+            name=tunnel_name,
+            error=str(exc),
+        )
+
+
+def stop_cloudflared() -> bool:
+    try:
+        subprocess.run(
+            ["pkill", "-f", "cloudflared.*tunnel"],
+            capture_output=True,
+            timeout=5,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def start_tailscale_funnel(port: int = 9090) -> TunnelInfo:
+    if not detect_tailscale():
+        return TunnelInfo(
+            provider="tailscale",
+            name="funnel",
+            error="tailscale not installed. Install: https://tailscale.com/download",
+        )
+    try:
+        ts_status = tailscale_status()
+        if not ts_status.get("connected"):
+            return TunnelInfo(
+                provider="tailscale",
+                name="funnel",
+                error="Tailscale not connected. Run: tailscale up",
+            )
+        proc = subprocess.Popen(
+            ["tailscale", "funnel", str(port)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(1)
+        hostname = ts_status.get("hostname", "machine")
+        return TunnelInfo(
+            provider="tailscale",
+            name="funnel",
+            url=f"https://{hostname}.ts.net",
+            running=proc.poll() is None,
+            pid=proc.pid,
+            config={"port": port},
+        )
+    except Exception as exc:
+        return TunnelInfo(
+            provider="tailscale",
+            name="funnel",
+            error=str(exc),
+        )
+
+
+def stop_tailscale_funnel(port: int = 9090) -> bool:
+    try:
+        subprocess.run(
+            ["tailscale", "funnel", "reset"],
+            capture_output=True,
+            timeout=5,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def tunnel_overview(domain: str = "kater.chefgroep.online") -> dict[str, Any]:
+    return {
+        "cloudflare": cloudflared_status(),
+        "tailscale": tailscale_status(),
+        "suggested_domain": domain,
+        "available": {
+            "cloudflare": detect_cloudflared(),
+            "tailscale": detect_tailscale(),
+        },
+        "client_configs": {
+            "cloudflare_url": f"https://{domain}/sse",
+            "tailscale_url": "https://<hostname>.ts.net:9090/sse",
+        },
+    }

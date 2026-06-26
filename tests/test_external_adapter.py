@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+from kater.adapters.external import (
+    render_profile_config,
+    scan_adapters,
+)
+
+KATER_DIR = Path.cwd() / ".kater"
+
+
+@pytest.fixture(autouse=True)
+def clean_kater_settings():
+    from kater.storage import reset_db_cache
+
+    reset_db_cache()
+    if KATER_DIR.exists():
+        shutil.rmtree(KATER_DIR)
+    yield
+    reset_db_cache()
+    if KATER_DIR.exists():
+        shutil.rmtree(KATER_DIR)
+
+
+def test_scan_adapters_core_has_no_externals() -> None:
+    inventory = scan_adapters({"core"})
+    # core should only have kater (native)
+    assert len(inventory.sources) == 0
+    assert inventory.for_profile("core") == []
+
+
+def test_scan_adapters_research(monkeypatch) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "test-key")
+
+    inventory = scan_adapters({"research"})
+    names = {a.source.name for a in inventory.sources}
+
+    assert "exa" in names
+    assert "firecrawl" in names
+    assert "github" not in names
+
+
+def test_scan_adapters_reports_missing_env(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
+
+    inventory = scan_adapters({"ops"})
+    github = next((a for a in inventory.sources if a.source.name == "github"), None)
+
+    assert github is not None
+    assert github.configured is False
+    assert "GITHUB_PERSONAL_ACCESS_TOKEN" in github.missing_env
+
+
+def test_render_profile_config_core(monkeypatch) -> None:
+    config = render_profile_config("core")
+    servers = config.get("mcpServers", {})
+
+    assert "kater" in servers
+    assert servers["kater"]["type"] == "sse"
+
+
+def test_render_profile_config_research(monkeypatch) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+
+    config = render_profile_config("research")
+    servers = config.get("mcpServers", {})
+
+    assert "kater" in servers
+    assert "exa" in servers
+    assert servers["exa"]["type"] == "sse"
+    assert "test-key" in servers["exa"]["env"]["EXA_API_KEY"]
+
+
+def test_render_profile_config_configured_stdio(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "test-token")
+
+    config = render_profile_config("ops")
+    servers = config.get("mcpServers", {})
+
+    assert "github" in servers
+    assert servers["github"]["type"] == "stdio"
+    assert servers["github"]["command"] == "npx"
+    assert "kater" in servers
+
+
+def test_adapter_inventory_profile_gating(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "test-token")
+
+    ops_inventory = scan_adapters({"ops"})
+    research_inventory = scan_adapters({"research"})
+
+    ops_names = {a.source.name for a in ops_inventory.sources}
+    research_names = {a.source.name for a in research_inventory.sources}
+
+    assert "github" in ops_names
+    assert "github" not in research_names

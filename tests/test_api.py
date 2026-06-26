@@ -237,6 +237,34 @@ def test_openapi_spec(api_server) -> None:
     assert "/api/catalog" in data["paths"]
 
 
+def _normalize_path(path: str) -> str:
+    import re
+
+    return re.sub(r"\{[^}]+\}", "{}", path)
+
+
+def test_openapi_spec_has_no_api_drift() -> None:
+    # Single source of truth: every /api/* route must be documented and vice
+    # versa (param names normalized, so /api/deploy/{fmt} == /api/deploy/{format}).
+    from kater.api import ROUTER
+    from kater.openapi_spec import generate_spec
+
+    router_api = {
+        _normalize_path(r.pattern)
+        for r in ROUTER._routes
+        if r.pattern.startswith("/api/")
+    }
+    spec_api = {
+        _normalize_path(p)
+        for p in generate_spec()["paths"]
+        if p.startswith("/api/")
+    }
+    assert router_api == spec_api, {
+        "documented_but_missing": spec_api - router_api,
+        "undocumented_routes": router_api - spec_api,
+    }
+
+
 # ── Export ─────────────────────────────────────────────────────────
 
 

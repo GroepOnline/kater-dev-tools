@@ -262,6 +262,25 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/export"] = {
+        "get": _response(
+            "Export sanitized config",
+            {"type": "object"},
+            "Sanitized instance configuration.",
+        )
+    }
+
+    paths["/api/tunnel/{provider}/start"] = {
+        "post": {
+            "summary": "Start a tunnel for the given provider",
+            "parameters": [_provider_param()],
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+            },
+        }
+    }
+
     return paths
 
 
@@ -302,6 +321,16 @@ def _format_param() -> dict[str, Any]:
         "required": True,
         "schema": {"type": "string"},
         "description": "Deployment output format.",
+    }
+
+
+def _provider_param() -> dict[str, Any]:
+    return {
+        "name": "provider",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string", "enum": ["cloudflare", "tailscale"]},
+        "description": "Tunnel provider.",
     }
 
 
@@ -464,11 +493,15 @@ def _build_schemas() -> dict[str, Any]:
 
 
 def generate_spec() -> dict[str, Any]:
+    try:
+        from kater import __version__ as api_version
+    except Exception:
+        api_version = API_VERSION
     return {
         "openapi": OPENAPI_VERSION,
         "info": {
             "title": API_TITLE,
-            "version": API_VERSION,
+            "version": api_version,
             "description": (
                 "REST API for the Kater MCP Gateway. Provides profiles, tools, "
                 "adapters, chains, MCP server management, diagnostics, "

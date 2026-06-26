@@ -757,7 +757,8 @@ _HTML = (
 
 _JS = r"""
 const API = '';
-const WS_URL = `ws://${location.hostname}:9092/ws`;
+const WS_PORT = (window.KATER_CONFIG && window.KATER_CONFIG.wsPort) || 9092;
+const WS_URL = `ws://${location.hostname}:${WS_PORT}/ws`;
 let ws = null;
 let servers = [];
 let profiles = [];
@@ -1482,7 +1483,10 @@ window.addEventListener('DOMContentLoaded', init);
 """
 
 
-def render_dashboard() -> str:
+def render_dashboard(ws_port: int = 9092) -> str:
+    # Inject runtime config so the client talks to the configured WebSocket
+    # port instead of a hardcoded one (single source of truth = ListenConfig).
+    config = f"<script>window.KATER_CONFIG={{wsPort:{int(ws_port)}}};</script>\n"
     return (
         "<!DOCTYPE html>\n"
         '<html lang="en">\n<head>\n'
@@ -1493,6 +1497,7 @@ def render_dashboard() -> str:
         f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n"
         f"{_HTML}\n"
+        f"{config}"
         f"<script>{_JS}</script>\n"
         "</body>\n</html>\n"
     )

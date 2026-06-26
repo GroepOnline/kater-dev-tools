@@ -316,7 +316,7 @@ def _health(_: Request) -> Response:
 def _dashboard(_: Request) -> Response:
     from kater.web import render_dashboard
 
-    return Response.html(200, render_dashboard())
+    return Response.html(200, render_dashboard(ws_port=load_settings().ws_port))
 
 
 @route("GET", "/.well-known/oauth-authorization-server", public=True)

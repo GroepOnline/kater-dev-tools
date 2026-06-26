@@ -31,6 +31,11 @@ def test_render_dashboard_is_a_full_document():
     assert html.rstrip().endswith("</html>")
 
 
+def test_dashboard_injects_configured_ws_port():
+    assert "window.KATER_CONFIG={wsPort:12345}" in render_dashboard(ws_port=12345)
+    assert "wsPort:9092" in render_dashboard()
+
+
 def test_each_view_is_present_via_its_own_seam():
     # The per-view constants must each own exactly their view and compose
     # into the single _HTML body (deletion test: drop one -> a view vanishes).

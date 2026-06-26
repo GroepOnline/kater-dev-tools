@@ -2,12 +2,30 @@
 name = "kater"
 version = "1.0.0"
 description = "Developer MCP gateway with profile-gated tools for code agents"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11,<3.15"
+authors = [{ name = "OnlineChefGroep contributors" }]
+keywords = ["mcp", "gateway", "agents", "cursor", "devtools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "mcp>=1.0.0",
     "pydantic>=2.7",
     "typer>=0.12",
 ]
+
+[project.urls]
+Homepage = "https://github.com/OnlineChefGroep/kater-dev-tools"
+Repository = "https://github.com/OnlineChefGroep/kater-dev-tools"
+Issues = "https://github.com/OnlineChefGroep/kater-dev-tools/issues"
+Security = "https://github.com/OnlineChefGroep/kater-dev-tools/security/policy"
 
 [project.scripts]
 kater = "kater.cli:app"

@@ -1,6 +1,9 @@
 # Kater
 
-Kater is a developer-only MCP gateway for code agents. One endpoint, one
+[![CI](https://github.com/OnlineChefGroep/kater-dev-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/OnlineChefGroep/kater-dev-tools/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Kater is an open-source, developer-only MCP gateway for code agents. One endpoint, one
 source of truth, full self-manageable. Keep agent context small by exposing
 one curated MCP surface and turning broad dev MCPs on only through profiles.
 
@@ -149,25 +152,47 @@ Full spec: `GET /api/spec`
 
 ## Deployment
 
-### Docker
+**Local dev** binds to loopback with auth disabled. **Public exposure** (Cloudflare Tunnel, Tailscale Funnel, public IP) requires auth — set `KATER_PUBLIC=1`.
+
+Pre-flight:
 
 ```bash
+KATER_PUBLIC=1 KATER_AUTH_MODE=oauth kater doctor
+```
+
+### Docker (local)
+
+```bash
+cp .env.example .env
 docker compose up -d
 ```
 
-### Cloudflare Tunnel (ChatGPT compatible)
+### Cloudflare Tunnel (ChatGPT — OAuth built in)
 
 ```bash
-./scripts/deploy-cloudflare.sh kater.chefgroep.online kater
+cloudflared tunnel login   # once
+export KATER_PUBLIC=1
+export KATER_AUTH_MODE=oauth
+./scripts/deploy-cloudflare.sh kater.yourdomain.com kater
 ```
 
-Creates tunnel, DNS route, config, starts Kater + cloudflared. Result:
-`https://kater.chefgroep.online/sse` — paste into ChatGPT Settings → MCP.
+Result: `https://kater.yourdomain.com/sse` — paste into ChatGPT Settings → MCP.
+
+### API key auth (Cursor / agents over HTTPS)
+
+```bash
+export KATER_PUBLIC=1
+export KATER_AUTH_MODE=apikey
+export KATER_API_KEY="$(openssl rand -hex 24)"
+uv run kater serve
+```
+
+See [docs/deploy-server.md](docs/deploy-server.md) and [SECURITY.md](SECURITY.md).
 
 ### Tailscale Funnel
 
 ```bash
-kater tunnel start -p tailscale
+KATER_PUBLIC=1 KATER_AUTH_MODE=apikey KATER_API_KEY=... kater tunnel start -p tailscale
 ```
 
 ### Other formats
@@ -218,6 +243,14 @@ src/kater/
 └── openapi_spec.py     OpenAPI 3.1 generation (drift-guarded)
 ```
 
+## Contributing
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues via [SECURITY.md](SECURITY.md) (private advisories, not public issues).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
 ## Status
 
-v0.9.0 — 248 tests, 29 MCP servers, loopback-by-default, zero external runtime deps beyond pydantic/typer/mcp.
+v1.0.0 — 260+ tests, 29 MCP servers, loopback-by-default with OAuth/API-key auth for public deploys.

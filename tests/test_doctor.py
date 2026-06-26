@@ -47,3 +47,24 @@ def test_fix_plan_includes_safe_actions(tmp_path) -> None:
 
     assert any(action.action == "render_cursor_snippet" for action in report.fix_actions)
     assert any(action.action == "render_env_example" for action in report.fix_actions)
+
+
+def test_doctor_flags_public_without_auth(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "none")
+
+    report = run_doctor(profiles={"core"})
+
+    assert any(f.code == "public_without_auth" for f in report.findings)
+
+
+def test_doctor_ok_for_public_oauth(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "oauth")
+
+    report = run_doctor(profiles={"core"})
+
+    assert not any(f.code == "public_without_auth" for f in report.findings)
+    assert any(f.code == "public_oauth_ready" for f in report.findings)

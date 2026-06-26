@@ -87,10 +87,50 @@ def load_settings(project_dir: Path | None = None) -> KaterSettings:
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return KaterSettings.from_dict(data)
+            settings = KaterSettings.from_dict(data)
         except (json.JSONDecodeError, ValueError):
-            pass
-    return _settings_from_env()
+            settings = _settings_from_env()
+    else:
+        settings = _settings_from_env()
+    return _apply_env_security_overrides(settings)
+
+
+def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
+    """Env wins for security-sensitive fields on public deployments."""
+    host = os.environ.get("KATER_HOST", settings.host)
+    if not _is_public_deploy(host):
+        return settings
+
+    auth_mode = os.environ.get("KATER_AUTH_MODE", "").strip()
+    if auth_mode:
+        settings.auth.mode = auth_mode
+        if auth_mode == "apikey":
+            keys_raw = os.environ.get("KATER_API_KEYS", "")
+            api_keys = [k.strip() for k in keys_raw.split(",") if k.strip()]
+            if not api_keys:
+                single = os.environ.get("KATER_API_KEY", "")
+                if single:
+                    api_keys = [single]
+            if api_keys:
+                settings.auth.api_keys = api_keys
+        elif auth_mode == "oauth":
+            settings.auth.oauth_issuer = os.environ.get(
+                "KATER_OAUTH_ISSUER", settings.auth.oauth_issuer
+            )
+            settings.auth.oauth_audience = os.environ.get(
+                "KATER_OAUTH_AUDIENCE", settings.auth.oauth_audience
+            )
+
+    rate_raw = os.environ.get("KATER_RATE_LIMIT", "").strip()
+    if rate_raw:
+        settings.rate_limit_per_min = int(rate_raw)
+
+    cors_raw = os.environ.get("KATER_CORS_ORIGINS", "").strip()
+    if cors_raw:
+        settings.cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
+
+    settings.host = host
+    return settings
 
 
 def save_settings(settings: KaterSettings, project_dir: Path | None = None) -> Path:
@@ -103,13 +143,28 @@ def save_settings(settings: KaterSettings, project_dir: Path | None = None) -> P
     return path
 
 
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_public_deploy(host: str) -> bool:
+    """True when Kater is reachable beyond localhost (direct bind or via tunnel).
+
+    Cloudflare Tunnel and reverse proxies bind to loopback but expose the
+    service publicly — ``KATER_PUBLIC=1`` opts into secure defaults in that case.
+    """
+    if _env_truthy("KATER_PUBLIC"):
+        return True
+    return host not in ("127.0.0.1", "localhost", "::1")
+
+
 def _settings_from_env() -> KaterSettings:
     host = os.environ.get("KATER_HOST", "127.0.0.1")
-    is_public = host not in ("127.0.0.1", "localhost", "::1")
+    is_public = _is_public_deploy(host)
 
     auth_mode = os.environ.get("KATER_AUTH_MODE", "")
     if not auth_mode:
-        auth_mode = "apikey" if is_public else "none"
+        auth_mode = "oauth" if is_public else "none"
 
     auth = AuthConfig(mode=auth_mode)
 

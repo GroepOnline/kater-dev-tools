@@ -60,6 +60,8 @@ def test_docker_config():
 def test_cloudflare_config():
     config = render_cloudflare_config(profile="core", domain="kater.mysite.com")
     assert config["format"] == "cloudflare-tunnel"
+    assert config["environment"]["KATER_PUBLIC"] == "1"
+    assert config["environment"]["KATER_AUTH_MODE"] == "oauth"
     assert config["client_config"]["mcpServers"]["kater"]["url"] == "https://kater.mysite.com/sse"
     assert len(config["steps"]) >= 2
 

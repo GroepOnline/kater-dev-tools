@@ -30,6 +30,11 @@ def render_env_example(profiles: set[str]) -> str:
         "",
         f"KATER_PROFILE={','.join(sorted(profiles))}",
         "",
+        "# Public / tunnel (required before going live):",
+        "# KATER_PUBLIC=1",
+        "# KATER_AUTH_MODE=oauth",
+        "# KATER_RATE_LIMIT=60",
+        "",
     ]
     seen: set[str] = set()
     for source in TOOL_SOURCES:

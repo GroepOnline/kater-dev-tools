@@ -70,6 +70,7 @@ def run_doctor(
     findings = _find_missing_env(sources)
     findings.extend(_adapter_config_check(selected_profiles))
     findings.extend(_find_context_bloat(cursor_mcp_path=effective_mcp_path, selected=sources))
+    findings.extend(_security_check())
     fix_actions = _build_fix_actions(findings) if include_fix_plan else []
     return DoctorReport(
         profiles=sorted(selected_profiles),
@@ -172,6 +173,78 @@ def _find_context_bloat(
                     suggested_action="Expose it only through an explicit task profile.",
                 )
             )
+    return findings
+
+
+def _security_check() -> list[Finding]:
+    from kater.settings import _is_public_deploy, load_settings
+
+    findings: list[Finding] = []
+    settings = load_settings()
+    host = os.environ.get("KATER_HOST", settings.host)
+    is_public = _is_public_deploy(host)
+
+    if not is_public:
+        return findings
+
+    if settings.auth.mode == "none":
+        findings.append(
+            Finding(
+                code="public_without_auth",
+                severity="error",
+                message=(
+                    "Kater is marked public (KATER_PUBLIC=1 or non-loopback host) "
+                    "but auth mode is 'none'."
+                ),
+                suggested_action=(
+                    "Set KATER_AUTH_MODE=oauth (ChatGPT) or apikey (Cursor/agents) "
+                    "before exposing via tunnel or public IP."
+                ),
+            )
+        )
+
+    if settings.auth.mode == "apikey" and not settings.auth.api_keys:
+        findings.append(
+            Finding(
+                code="public_apikey_missing",
+                severity="error",
+                message="Public deployment uses apikey auth but no KATER_API_KEY is set.",
+                suggested_action="Set KATER_API_KEY or KATER_API_KEYS before going live.",
+            )
+        )
+
+    if settings.rate_limit_per_min <= 0:
+        findings.append(
+            Finding(
+                code="public_no_rate_limit",
+                severity="warning",
+                message="Public deployment has rate limiting disabled.",
+                suggested_action="Set KATER_RATE_LIMIT=60 (or higher) for production.",
+            )
+        )
+
+    if "*" in settings.cors_origins:
+        findings.append(
+            Finding(
+                code="public_cors_wildcard",
+                severity="warning",
+                message="CORS allows any origin on a public deployment.",
+                suggested_action=(
+                    "Set KATER_CORS_ORIGINS to your dashboard origin only."
+                ),
+            )
+        )
+
+    if is_public and settings.auth.mode == "oauth":
+        findings.append(
+            Finding(
+                code="public_oauth_ready",
+                severity="info",
+                message="OAuth auth enabled — compatible with ChatGPT Remote MCP.",
+                suggested_action="Use https://<your-domain>/sse as the MCP server URL.",
+            )
+        )
+
     return findings
 
 

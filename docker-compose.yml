@@ -9,7 +9,13 @@ services:
         required: false
     environment:
       KATER_PROFILE: ${KATER_PROFILE:-core}
-      KATER_AUTH_MODE: ${KATER_AUTH_MODE:-none}
+      # Local default: no auth. Set KATER_PUBLIC=1 for tunnel/public exposure.
+      KATER_PUBLIC: ${KATER_PUBLIC:-0}
+      KATER_AUTH_MODE: ${KATER_AUTH_MODE:-}
+      KATER_API_KEY: ${KATER_API_KEY:-}
+      KATER_RATE_LIMIT: ${KATER_RATE_LIMIT:-}
+      KATER_CORS_ORIGINS: ${KATER_CORS_ORIGINS:-}
+      KATER_HOST: ${KATER_HOST:-127.0.0.1}
       KATER_API_PORT: "9091"
       KATER_MCP_PORT: "9090"
     ports:

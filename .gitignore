@@ -3,6 +3,14 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .env
-*.pyc
+.env.local
 .env.kater.example
+*.pyc
 .cursor/
+.opencode/
+
+# Runtime state — never commit
+.kater/*.db
+.kater/*.json
+.kater/settings.json
+.kater/oauth.json

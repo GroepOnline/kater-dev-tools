@@ -1,20 +1,37 @@
 #!/usr/bin/env bash
 set -eu
 
-DOMAIN="${1:-kater.chefgroep.online}"
+DOMAIN="${1:-kater.example.com}"
 TUNNEL_NAME="${2:-kater}"
+AUTH_MODE="${KATER_AUTH_MODE:-oauth}"
 CONFIG_DIR="$HOME/.cloudflared"
 CONFIG_FILE="$CONFIG_DIR/${TUNNEL_NAME}.yml"
 
-echo "=== Kater Cloudflare Deploy ==="
+echo "=== Kater Cloudflare Deploy (secured) ==="
 echo "Domain: $DOMAIN"
 echo "Tunnel: $TUNNEL_NAME"
+echo "Auth:   $AUTH_MODE"
 echo ""
+
+if [[ "$AUTH_MODE" != "oauth" && "$AUTH_MODE" != "apikey" ]]; then
+    echo "ERROR: KATER_AUTH_MODE must be 'oauth' (ChatGPT) or 'apikey' (Cursor/agents)"
+    exit 1
+fi
+
+if [[ "$AUTH_MODE" == "apikey" && -z "${KATER_API_KEY:-}" && -z "${KATER_API_KEYS:-}" ]]; then
+    echo "ERROR: Set KATER_API_KEY before deploying with apikey auth."
+    exit 1
+fi
 
 if ! command -v cloudflared &>/dev/null; then
     echo "ERROR: cloudflared not installed"
-    echo "  brew install cloudflared"
-    echo "  or: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+    echo "  https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+    exit 1
+fi
+
+if [[ ! -f "$CONFIG_DIR/cert.pem" ]]; then
+    echo "ERROR: Cloudflare origin certificate missing."
+    echo "  Run once: cloudflared tunnel login"
     exit 1
 fi
 
@@ -28,17 +45,27 @@ cloudflared tunnel route dns "$TUNNEL_NAME" "$DOMAIN" 2>/dev/null || true
 
 echo "Generating config: $CONFIG_FILE"
 mkdir -p "$CONFIG_DIR"
-kater tunnel config -p cloudflare --domain "$DOMAIN" > "$CONFIG_FILE"
+uv run kater tunnel config -p cloudflare --domain "$DOMAIN" > "$CONFIG_FILE"
+
+export KATER_PUBLIC=1
+export KATER_AUTH_MODE="$AUTH_MODE"
+export KATER_HOST=127.0.0.1
+export KATER_RATE_LIMIT="${KATER_RATE_LIMIT:-60}"
+export KATER_CORS_ORIGINS="${KATER_CORS_ORIGINS:-https://${DOMAIN}}"
 
 echo ""
-echo "Config written to: $CONFIG_FILE"
-echo ""
-echo "Starting Kater + tunnel..."
+echo "Starting secured Kater + tunnel..."
 echo ""
 
-kater serve &
+uv run kater serve &
 KATER_PID=$!
 sleep 2
+
+if ! curl -sf "http://127.0.0.1:9091/health" >/dev/null; then
+    echo "ERROR: Kater failed to start. Check logs above."
+    kill "$KATER_PID" 2>/dev/null || true
+    exit 1
+fi
 
 cloudflared tunnel --config "$CONFIG_FILE" run "$TUNNEL_NAME" &
 TUNNEL_PID=$!
@@ -47,12 +74,14 @@ echo ""
 echo "Kater PID: $KATER_PID"
 echo "Tunnel PID: $TUNNEL_PID"
 echo ""
-echo "Dashboard: http://localhost:9091"
+echo "Dashboard: http://127.0.0.1:9091"
 echo "MCP SSE:   https://$DOMAIN/sse"
 echo ""
-echo "ChatGPT config:"
-echo "  MCP Server URL: https://$DOMAIN/sse"
-echo "  (OAuth flow will start automatically)"
+if [[ "$AUTH_MODE" == "oauth" ]]; then
+    echo "ChatGPT: paste https://$DOMAIN/sse — OAuth flow starts automatically."
+else
+    echo "Cursor/agents: use Authorization: Bearer \$KATER_API_KEY on /sse requests."
+fi
 echo ""
 echo "Press Ctrl+C to stop..."
 

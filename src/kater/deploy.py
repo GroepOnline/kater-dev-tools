@@ -97,9 +97,17 @@ def render_cloudflare_config(
     return {
         "format": "cloudflare-tunnel",
         "description": "Expose Kater via Cloudflare Tunnel — no open ports needed",
+        "environment": {
+            "KATER_PUBLIC": "1",
+            "KATER_AUTH_MODE": "oauth",
+            "KATER_RATE_LIMIT": "60",
+            "KATER_HOST": "127.0.0.1",
+        },
         "steps": [
+            "cloudflared tunnel login",
             f"cloudflared tunnel create {tunnel_name}",
             f"cloudflared tunnel route dns {tunnel_name} {domain}",
+            "./scripts/deploy-cloudflare.sh " + domain + " " + tunnel_name,
         ],
         "tunnel_config": {
             "tunnel": tunnel_name,
@@ -128,9 +136,14 @@ def render_cloudflare_config(
 
 def render_systemd_config(
     profile: str = "core",
-    user: str = "sofie",
-    workdir: str = "/home/sofie/kater-dev-tools",
+    user: str | None = None,
+    workdir: str | None = None,
 ) -> dict[str, Any]:
+    import getpass
+    import os
+
+    user = user or getpass.getuser()
+    workdir = workdir or os.getcwd()
     """Systemd unit file for Linux server deployment."""
     if not _SAFE_TOKEN.match(profile):
         raise ValueError(f"Invalid profile: {profile!r}")

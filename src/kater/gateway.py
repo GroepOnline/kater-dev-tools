@@ -1,9 +1,10 @@
-"""Proxy OAuth bootstrap routes from the MCP port to the REST API.
+"""Proxy REST API routes from the MCP port to the API server.
 
-ChatGPT Remote MCP expects ``/sse`` and ``/.well-known/oauth-*`` on the same
-origin. Kater runs MCP (9090) and REST (9091) on separate ports; this middleware
-forwards the public OAuth paths to the API so a single-host Cloudflare Tunnel
-can point at ``localhost:9090`` only.
+ChatGPT Remote MCP expects ``/sse`` and OAuth bootstrap on the same origin.
+The web dashboard expects ``/dashboard``, ``/api/*``, and (via tunnel) ``/ws``.
+Kater runs MCP (9090), REST (9091), and WebSocket (9092) separately; this
+middleware forwards non-MCP HTTP to the API so a single-host Cloudflare Tunnel
+can point at ``localhost:9090``.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import asyncio
 from typing import Any
 from urllib import error, request
 
-from kater.authgate import _is_public_path
+from kater.authgate import should_proxy_to_api
 from kater.settings import load_settings
 
 
@@ -77,7 +78,7 @@ async def _proxy_to_api(scope: dict, receive: Any, send: Any, api_port: int) -> 
 
 
 class ApiProxyMiddleware:
-    """Forward OAuth/public REST paths from the MCP listener to the API port."""
+    """Forward dashboard and REST paths from the MCP listener to the API port."""
 
     def __init__(self, app: Any, *, api_port: int | None = None) -> None:
         self._app = app
@@ -94,7 +95,7 @@ class ApiProxyMiddleware:
             return
 
         path = scope.get("path") or "/"
-        if _is_public_path(path):
+        if should_proxy_to_api(path):
             await _proxy_to_api(scope, receive, send, self._resolve_api_port())
             return
 

@@ -58,6 +58,25 @@ def test_api_proxy_forwards_oauth_discovery(api_server) -> None:
     assert "authorization_endpoint" in data
 
 
+def test_api_proxy_forwards_dashboard(api_server) -> None:
+    async def downstream(scope, receive, send):
+        raise AssertionError("should not reach MCP app")
+
+    mw = ApiProxyMiddleware(downstream, api_port=9925)
+    status, body = asyncio.run(_request(mw, "/dashboard"))
+    assert status == 200
+    assert b"KATER" in body or b"kater" in body.lower()
+
+
+def test_api_proxy_forwards_api_routes(api_server) -> None:
+    async def downstream(scope, receive, send):
+        raise AssertionError("should not reach MCP app")
+
+    mw = ApiProxyMiddleware(downstream, api_port=9925)
+    status, _ = asyncio.run(_request(mw, "/api/status"))
+    assert status == 200
+
+
 def test_api_proxy_passes_through_mcp_paths(api_server) -> None:
     called = {"v": False}
 

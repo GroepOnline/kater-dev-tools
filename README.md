@@ -37,7 +37,7 @@ uv sync
 kater serve
 ```
 
-Open `http://localhost:9091` for the dashboard.
+Open `http://localhost:9091` for the dashboard (or `/dashboard` on your public domain).
 
 ## What It Does
 
@@ -176,7 +176,8 @@ export KATER_AUTH_MODE=oauth
 ./scripts/deploy-cloudflare.sh kater.yourdomain.com kater
 ```
 
-Result: `https://kater.yourdomain.com/sse` — paste into ChatGPT Settings → MCP.
+Result: `https://kater.yourdomain.com/sse` — paste into ChatGPT Settings → MCP.  
+Dashboard: `https://kater.yourdomain.com/dashboard` (OAuth sign-in).
 
 ### API key auth (Cursor / agents over HTTPS)
 

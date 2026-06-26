@@ -38,7 +38,7 @@ fi
 curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}/configurations" \
   -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
   -H "Content-Type: application/json" \
-  --data "{\"config\":{\"ingress\":[{\"hostname\":\"${DOMAIN}\",\"service\":\"http://localhost:9090\"},{\"service\":\"http_status:404\"}]}}" \
+  --data "{\"config\":{\"ingress\":[{\"hostname\":\"${DOMAIN}\",\"path\":\"/ws\",\"service\":\"http://localhost:9092\"},{\"hostname\":\"${DOMAIN}\",\"service\":\"http://localhost:9090\"},{\"service\":\"http_status:404\"}]}}" \
   | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)"
 
 HOST="${DOMAIN%%.*}"
@@ -61,4 +61,5 @@ chmod 600 "${HOME}/.config/kater/tunnel.env"
 
 echo "Wrote ${HOME}/.config/kater/tunnel.env (mode 600)"
 echo "MCP URL: https://${DOMAIN}/sse"
+echo "Dashboard: https://${DOMAIN}/dashboard"
 echo "Enable systemd: systemctl --user enable --now kater-cloudflared.service"

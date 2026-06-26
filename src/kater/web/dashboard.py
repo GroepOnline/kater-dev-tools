@@ -499,7 +499,35 @@ body {
   text-transform: uppercase; letter-spacing: 0.5px;
   transition: var(--transition);
 }
-.btn-save:hover { opacity: 0.85; }
+  .btn-save:hover { opacity: 0.85; }
+
+/* ── Auth gate ─────────────────────────── */
+#auth-gate {
+  position: fixed; inset: 0; z-index: 120;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(10, 14, 20, 0.92);
+  backdrop-filter: blur(8px);
+}
+#auth-gate.show { display: flex; }
+.auth-card {
+  width: min(420px, 92vw);
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+  box-shadow: var(--shadow);
+}
+.auth-card h2 {
+  font-size: 18px; color: var(--text-bright); margin-bottom: 8px;
+}
+.auth-card p { color: var(--text-dim); margin-bottom: 20px; font-size: 13px; }
+.auth-card input {
+  width: 100%; padding: 10px 12px; margin-bottom: 12px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+  font-family: var(--mono); font-size: 13px;
+}
+.auth-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
 /* ── Responsive ────────────────────────── */
 @media (max-width: 768px) {
@@ -516,6 +544,18 @@ body {
 _HTML_SHELL_TOP = r"""
 <div id="bg-gradient"></div>
 <div id="boot"><div class="boot-text" id="boot-text"></div></div>
+
+<div id="auth-gate">
+  <div class="auth-card">
+    <h2>Sign in to Kater</h2>
+    <p>This gateway requires authentication. Use OAuth or paste an API key.</p>
+    <input type="password" id="auth-key-input" placeholder="API key (optional)" autocomplete="off">
+    <div class="auth-actions">
+      <button class="btn-save" id="auth-oauth-btn" type="button">Sign in with OAuth</button>
+      <button class="btn-save" id="auth-key-btn" type="button">Use API key</button>
+    </div>
+  </div>
+</div>
 
 <div id="app">
   <div class="topbar">
@@ -757,9 +797,15 @@ _HTML = (
 
 _JS = r"""
 const API = '';
+const AUTH_STORAGE = 'kater_bearer';
 const WS_PORT = (window.KATER_CONFIG && window.KATER_CONFIG.wsPort) || 9092;
-const WS_URL = `ws://${location.hostname}:${WS_PORT}/ws`;
+const WS_SCHEME = location.protocol === 'https:' ? 'wss' : 'ws';
+const WS_URL = (location.protocol === 'https:')
+  ? ('wss://' + location.host + '/ws')
+  : (WS_SCHEME + '://' + location.hostname + ':' + WS_PORT + '/ws');
 let ws = null;
+let wsRetry = 0;
+let wsTimer = null;
 let servers = [];
 let profiles = [];
 let activeProfile = 'core';
@@ -775,17 +821,153 @@ const transportColors = {
   native: '#f59e0b', local: '#a855f7'
 };
 
-function hashPos(name, total) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-  const angle = (h % 360 + 360) % 360 * Math.PI / 180;
-  const radius = 0.32 + Math.abs(h % 100) / 350;
-  return { angle, radius };
+// ── Helpers ────────────────────────────
+class ApiError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
 }
 
+// HTML-escape for the few places we still build markup from server data.
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Sanitize a value before it becomes a CSS class (badge transport/risk).
+function cls(s) {
+  return String(s == null ? '' : s).replace(/[^a-z0-9_-]/gi, '');
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function authHeaders() {
+  const h = {};
+  const token = sessionStorage.getItem(AUTH_STORAGE);
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
+
+function wsUrlWithAuth() {
+  const token = sessionStorage.getItem(AUTH_STORAGE);
+  if (!token) return WS_URL;
+  const sep = WS_URL.includes('?') ? '&' : '?';
+  return WS_URL + sep + 'token=' + encodeURIComponent(token);
+}
+
+function b64url(bytes) {
+  let s = btoa(String.fromCharCode(...bytes));
+  return s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function pkceChallenge(verifier) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return b64url(new Uint8Array(digest));
+}
+
+function randomVerifier() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return b64url(bytes);
+}
+
+async function exchangeOAuthCode(code) {
+  const verifier = sessionStorage.getItem('pkce_verifier') || '';
+  const clientId = sessionStorage.getItem('oauth_client_id') || '';
+  const redirect = location.origin + location.pathname;
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: code,
+    client_id: clientId,
+    redirect_uri: redirect,
+    code_verifier: verifier,
+  });
+  const data = await api('/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  if (data.access_token) {
+    sessionStorage.setItem(AUTH_STORAGE, data.access_token);
+  }
+  sessionStorage.removeItem('pkce_verifier');
+}
+
+async function startOAuthLogin() {
+  const verifier = randomVerifier();
+  const challenge = await pkceChallenge(verifier);
+  sessionStorage.setItem('pkce_verifier', verifier);
+  const redirect = location.origin + location.pathname;
+  const reg = await fetch('/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_name: 'kater-dashboard',
+      redirect_uris: [redirect],
+    }),
+  }).then(r => r.json());
+  if (!reg.client_id) {
+    toast('OAuth registration failed', 'error');
+    return;
+  }
+  sessionStorage.setItem('oauth_client_id', reg.client_id);
+  const q = new URLSearchParams({
+    response_type: 'code',
+    client_id: reg.client_id,
+    redirect_uri: redirect,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    scope: 'tools',
+  });
+  location.href = '/authorize?' + q.toString();
+}
+
+async function handleAuthBootstrap() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('api_key')) {
+    sessionStorage.setItem(AUTH_STORAGE, params.get('api_key'));
+    params.delete('api_key');
+    history.replaceState({}, '', location.pathname + (params.toString() ? '?' + params : ''));
+  }
+  if (params.get('code') && sessionStorage.getItem('pkce_verifier')) {
+    await exchangeOAuthCode(params.get('code'));
+    params.delete('code');
+    history.replaceState({}, '', location.pathname);
+  }
+}
+
+function showAuthGate() {
+  const gate = document.getElementById('auth-gate');
+  gate.classList.add('show');
+  document.getElementById('boot').style.display = 'none';
+  document.getElementById('auth-oauth-btn').onclick = () => startOAuthLogin();
+  document.getElementById('auth-key-btn').onclick = () => {
+    const key = document.getElementById('auth-key-input').value.trim();
+    if (!key) { toast('Enter an API key', 'error'); return; }
+    sessionStorage.setItem(AUTH_STORAGE, key);
+    gate.classList.remove('show');
+    init();
+  };
+}
+
+// Fail-aware fetch: throws ApiError on !ok or non-JSON, so callers can't
+// mistake a 401/500 for success and silently render undefined.
 async function api(path, opts = {}) {
+  opts.headers = { ...authHeaders(), ...(opts.headers || {}) };
   const r = await fetch(API + path, opts);
-  return r.json();
+  const text = await r.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch (e) { data = null; }
+  }
+  if (!r.ok) {
+    const msg = (data && data.error) ? data.error : ('HTTP ' + r.status);
+    throw new ApiError(msg, r.status, data);
+  }
+  return data || {};
 }
 
 async function apiPost(path, body) {
@@ -799,10 +981,35 @@ async function apiPost(path, body) {
 function toast(msg, type = '') {
   const c = document.getElementById('toast-container');
   const t = document.createElement('div');
-  t.className = `toast ${type}`;
+  t.className = 'toast ' + type;
+  t.setAttribute('role', 'status');
   t.textContent = msg;
   c.appendChild(t);
   setTimeout(() => t.remove(), 3000);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function makeBadge(klass, text) {
+  const b = document.createElement('span');
+  b.className = 'badge ' + cls(klass);
+  b.textContent = text;
+  return b;
+}
+
+function td(text) {
+  const t = document.createElement('td');
+  if (text != null) t.textContent = text;
+  return t;
+}
+
+function filterServers(all) {
+  // 'core' is the superset; any other profile filters to its members. Makes
+  // the profile pills actually do something (the catalog payload carries a
+  // `profiles` list per server).
+  return activeProfile === 'core'
+    ? all
+    : all.filter(s => (s.profiles || []).indexOf(activeProfile) !== -1);
 }
 
 // ── Boot Sequence ──────────────────────
@@ -814,73 +1021,109 @@ async function bootSequence() {
     { t: 'connecting backends...', d: 300 },
     { t: '', d: 100 },
   ];
-  let html = '';
+  el.innerHTML = '';
   for (const line of lines) {
-    html += `> ${line.t}\n`;
-    el.innerHTML = html.replace(/> (.*)/, '> <span class="accent">$1</span>');
+    const div = document.createElement('div');
+    const prompt = document.createElement('span');
+    prompt.textContent = '> ';
+    div.appendChild(prompt);
+    if (line.t) {
+      const a = document.createElement('span');
+      a.className = 'accent';
+      a.textContent = line.t;
+      div.appendChild(a);
+    }
+    el.appendChild(div);
     await sleep(line.d);
   }
-  const data = await api('/api/status');
-  html += `<span class="ok">kater ready. v${data.version}</span>\n`;
-  el.innerHTML = html;
+  let version = '';
+  try { version = (await api('/api/status')).version || ''; } catch (e) {
+    if (e instanceof ApiError && e.status === 401) throw e;
+  }
+  const ready = document.createElement('div');
+  ready.className = 'ok';
+  ready.textContent = 'kater ready' + (version ? '. v' + version : '');
+  el.appendChild(ready);
   await sleep(300);
-  document.getElementById('boot').classList.add('done');
-  setTimeout(() => document.getElementById('boot').style.display = 'none', 500);
+  const boot = document.getElementById('boot');
+  boot.classList.add('done');
+  setTimeout(() => { boot.style.display = 'none'; }, 500);
 }
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Init ───────────────────────────────
 async function init() {
-  await bootSequence();
-  await loadProfiles();
-  await loadCatalog();
-  await loadStatus();
+  try { await handleAuthBootstrap(); } catch (e) { console.error('auth bootstrap:', e); }
+  try { await bootSequence(); } catch (e) {
+    if (e instanceof ApiError && e.status === 401) {
+      showAuthGate();
+      return;
+    }
+    console.error('boot failed:', e);
+  }
+  // Canvas MUST exist before loadCatalog() calls buildNodes(), otherwise node
+  // positions are computed against a fallback 600x400 box and never realign.
   initCanvas();
+  try { await loadProfiles(); } catch (e) { console.error('profiles:', e); }
+  try { await loadCatalog(); } catch (e) { console.error('catalog:', e); }
+  try { await loadStatus(); } catch (e) { console.error('status:', e); }
+  initDelegation();
   initCommandBar();
   initKeyboard();
   initWebSocket();
   startAnimationLoop();
-  setInterval(loadStatus, 5000);
+  setInterval(loadStatusSafe, 5000);
+}
+
+async function loadStatusSafe() {
+  try { await loadStatus(); } catch (e) { /* swallow polled errors */ }
 }
 
 async function loadProfiles() {
   const data = await api('/api/profiles');
-  profiles = data.profiles;
+  profiles = data.profiles || [];
   const el = document.getElementById('profile-pills');
-  el.innerHTML = profiles.map(p =>
-    `<div class="pill ${p === activeProfile ? 'active' : ''}"`
-    + ` onclick="switchProfile('${p}')">${p}</div>`
-  ).join('');
+  el.innerHTML = '';
+  for (const p of profiles) {
+    const pill = document.createElement('div');
+    pill.className = 'pill' + (p === activeProfile ? ' active' : '');
+    pill.textContent = p;
+    pill.dataset.profile = p;
+    el.appendChild(pill);
+  }
 }
 
 function switchProfile(p) {
+  if (profiles.indexOf(p) === -1) { toast('unknown profile: ' + p, 'error'); return; }
   activeProfile = p;
   document.querySelectorAll('.pill').forEach(el => {
-    el.classList.toggle('active', el.textContent === p);
+    el.classList.toggle('active', el.dataset.profile === p);
   });
   loadCatalog();
-  toast(`profile: ${p}`);
+  if (currentView === 'catalog') loadCatalogView();
+  toast('profile: ' + p);
 }
 
 async function loadCatalog() {
   const data = await api('/api/catalog');
-  servers = data.servers || [];
+  servers = filterServers(data.servers || []);
   buildNodes();
-  document.getElementById('node-count').textContent = `${servers.length} nodes`;
+  document.getElementById('node-count').textContent = servers.length + ' nodes';
 }
 
 async function loadStatus() {
   const data = await api('/api/status');
-  document.getElementById('version-tag').textContent = `v${data.version}`;
-  document.getElementById('auth-mode').textContent = data.auth_mode;
-  document.getElementById('stat-tools').textContent = data.servers?.total || 0;
-  document.getElementById('stat-enabled').textContent = data.servers?.enabled || 0;
-  document.getElementById('stat-success').textContent = `${data.telemetry?.success_rate || 0}%`;
-  document.getElementById('stat-backends').textContent = data.telemetry?.tool_calls || 0;
-  document.getElementById('stat-events').textContent = data.telemetry?.total_events || 0;
-  const authDot = document.getElementById('auth-dot');
-  authDot.style.background = data.auth_mode === 'none' ? '#22c55e' : '#f59e0b';
+  document.getElementById('version-tag').textContent = 'v' + (data.version || '');
+  document.getElementById('auth-mode').textContent = data.auth_mode || 'none';
+  document.getElementById('stat-tools').textContent = (data.servers && data.servers.total) || 0;
+  document.getElementById('stat-enabled').textContent = (data.servers && data.servers.enabled) || 0;
+  document.getElementById('stat-success').textContent =
+    ((data.telemetry && data.telemetry.success_rate) || 0) + '%';
+  document.getElementById('stat-backends').textContent =
+    (data.telemetry && data.telemetry.tool_calls) || 0;
+  document.getElementById('stat-events').textContent =
+    (data.telemetry && data.telemetry.total_events) || 0;
+  document.getElementById('auth-dot').style.background =
+    data.auth_mode === 'none' ? '#22c55e' : '#f59e0b';
 }
 
 // ── Constellation Canvas ───────────────
@@ -894,29 +1137,40 @@ function initCanvas() {
 }
 
 function resizeCanvas() {
+  if (!canvas || !ctx) return;
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
   ctx.scale(dpr, dpr);
+  // Re-layout nodes against the new geometry so a resize keeps the
+  // constellation centered instead of leaving nodes in stale coordinates.
+  if (servers.length) buildNodes();
 }
 
 function buildNodes() {
-  const rect = canvas?.getBoundingClientRect() || { width: 600, height: 400 };
+  const rect = canvas ? canvas.getBoundingClientRect() : { width: 600, height: 400 };
   const cx = rect.width / 2;
   const cy = rect.height / 2;
   const maxR = Math.min(cx, cy) * 0.75;
 
-  nodes = servers.map((s, i) => {
-    const pos = hashPos(s.name, servers.length);
-    return {
-      ...s,
+  nodes = servers.map(s => {
+    const pos = hashPos(s.name);
+    return Object.assign({}, s, {
       x: cx + Math.cos(pos.angle) * maxR * pos.radius,
       y: cy + Math.sin(pos.angle) * maxR * pos.radius,
       r: 16,
       pulse: 0,
-    };
+    });
   });
+}
+
+function hashPos(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
+  const angle = ((h % 360) + 360) % 360 * Math.PI / 180;
+  const radius = 0.32 + Math.abs(h % 100) / 350;
+  return { angle, radius };
 }
 
 function onCanvasMove(e) {
@@ -926,7 +1180,7 @@ function onCanvasMove(e) {
   hoveredNode = null;
   for (const n of nodes) {
     const dx = x - n.x, dy = y - n.y;
-    if (dx * dx + dy * dy < (n.r + 8) ** 2) {
+    if (dx * dx + dy * dy < (n.r + 8) * (n.r + 8)) {
       hoveredNode = n;
       canvas.style.cursor = 'pointer';
       return;
@@ -935,12 +1189,19 @@ function onCanvasMove(e) {
   canvas.style.cursor = 'default';
 }
 
-function onCanvasClick(e) {
-  if (hoveredNode) {
-    openDetail(hoveredNode);
-  } else if (selectedNode) {
-    closeDetail();
+async function onCanvasClick(e) {
+  if (!hoveredNode) {
+    if (selectedNode) closeDetail();
+    return;
   }
+  let node = hoveredNode;
+  // Catalog nodes carry no `mcp` field; fetch the full server doc so the
+  // detail panel can show a real Launch Command instead of '-'.
+  if (!node.mcp) {
+    try { node = await api('/api/mcp/servers/' + encodeURIComponent(node.name)); }
+    catch (err) { /* fall back to catalog data */ }
+  }
+  openDetail(node);
 }
 
 function drawConstellation() {
@@ -951,18 +1212,15 @@ function drawConstellation() {
 
   ctx.clearRect(0, 0, w, h);
 
-  // center node (Kater)
   const time = Date.now() / 1000;
   const pulse = 0.5 + 0.5 * Math.sin(time * 1.5);
 
-  // glow
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
   grad.addColorStop(0, 'rgba(245,158,11,0.15)');
   grad.addColorStop(1, 'rgba(245,158,11,0)');
   ctx.fillStyle = grad;
   ctx.fillRect(cx - 60, cy - 60, 120, 120);
 
-  // connections
   for (const n of nodes) {
     const color = transportColors[n.transport] || '#64748b';
     const isActive = n.enabled && n.env_configured;
@@ -983,7 +1241,6 @@ function drawConstellation() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // data particles
     if (isActive && Math.random() < 0.02) {
       particles.push({
         x: n.x, y: n.y, tx: cx, ty: cy,
@@ -992,7 +1249,6 @@ function drawConstellation() {
     }
   }
 
-  // update + draw particles
   particles = particles.filter(p => p.life > 0);
   for (const p of particles) {
     p.life -= 0.015;
@@ -1001,18 +1257,19 @@ function drawConstellation() {
     p.y = p.y + (p.tx - p.y) * p.speed;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-    ctx.fillStyle = p.color + Math.floor(p.life * 200).toString(16).padStart(2, '0');
+    // Clamp alpha: life can dip below 0 before the filter catches it, which
+    // would produce a negative hex ("-1") and an invalid fillStyle.
+    const alpha = Math.max(0, Math.min(255, Math.floor(p.life * 200)));
+    ctx.fillStyle = p.color + alpha.toString(16).padStart(2, '0');
     ctx.fill();
   }
 
-  // server nodes
   for (const n of nodes) {
     const color = transportColors[n.transport] || '#64748b';
     const isActive = n.enabled && n.env_configured;
     const isHovered = n === hoveredNode;
     const r = isHovered ? n.r + 3 : n.r;
 
-    // glow for active
     if (isActive) {
       const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 2);
       g.addColorStop(0, color + '22');
@@ -1021,7 +1278,6 @@ function drawConstellation() {
       ctx.fillRect(n.x - r * 2, n.y - r * 2, r * 4, r * 4);
     }
 
-    // circle
     ctx.beginPath();
     ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
     if (isActive) {
@@ -1037,20 +1293,17 @@ function drawConstellation() {
     }
     ctx.stroke();
 
-    // inner dot
     ctx.beginPath();
     ctx.arc(n.x, n.y, 4, 0, Math.PI * 2);
     ctx.fillStyle = isActive ? color : '#475569';
     ctx.fill();
 
-    // label
     ctx.font = '11px SF Mono, Consolas, monospace';
     ctx.textAlign = 'center';
     ctx.fillStyle = isHovered ? '#f1f5f9' : isActive ? '#e2e8f0' : '#475569';
     ctx.fillText(n.name, n.x, n.y + r + 14);
   }
 
-  // Kater center
   ctx.beginPath();
   ctx.arc(cx, cy, 22 + pulse * 3, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(245,158,11,0.08)';
@@ -1084,57 +1337,57 @@ function startAnimationLoop() {
 }
 
 // ── Detail Panel ───────────────────────
+function formatLaunch(node) {
+  if (node.mcp && node.mcp.command) {
+    return node.mcp.command + ' ' + (node.mcp.args || []).join(' ');
+  }
+  if (node.mcp && node.mcp.url) return node.mcp.url;
+  return '-';
+}
+
 function openDetail(node) {
   selectedNode = node;
-  const panel = document.getElementById('detail-panel');
-  document.getElementById('detail-name').textContent = node.name;
+  document.getElementById('detail-name').textContent = node.name || '-';
   document.getElementById('detail-desc').textContent = node.description || '-';
 
   const badges = document.getElementById('detail-badges');
-  badges.innerHTML = `
-    <span class="badge ${node.transport}">${node.transport}</span>
-    <span class="badge ${node.risk}">${node.risk}</span>
-    ${node.env_configured
-      ? '<span class="badge low">configured</span>'
-      : '<span class="badge high">missing env</span>'}
-  `;
+  badges.innerHTML = '';
+  badges.appendChild(makeBadge(node.transport, node.transport));
+  badges.appendChild(makeBadge(node.risk, node.risk));
+  badges.appendChild(makeBadge(
+    node.env_configured ? 'low' : 'high',
+    node.env_configured ? 'configured' : 'missing env'
+  ));
 
   const envEl = document.getElementById('detail-env');
-  if (node.env_required && node.env_required.length > 0) {
-    envEl.innerHTML = node.env_required.map(e => {
-      const set = node.env_configured;
-      return `${e}: ${
-        set
-          ? '<span style="color:#22c55e">set</span>'
-          : '<span style="color:#ef4444">MISSING</span>'
-      }`;
-    }).join('<br>');
+  envEl.innerHTML = '';
+  const reqs = node.env_required || [];
+  if (reqs.length) {
+    for (const e of reqs) {
+      const line = document.createElement('div');
+      const nameEl = document.createElement('span');
+      nameEl.textContent = e + ': ';
+      const val = document.createElement('span');
+      val.style.color = node.env_configured ? '#22c55e' : '#ef4444';
+      val.textContent = node.env_configured ? 'set' : 'MISSING';
+      line.appendChild(nameEl);
+      line.appendChild(val);
+      envEl.appendChild(line);
+    }
   } else {
     envEl.textContent = '(none required)';
   }
 
-  const cmdEl = document.getElementById('detail-cmd');
-  if (node.mcp && node.mcp.command) {
-    cmdEl.textContent = `${node.mcp.command} ${(node.mcp.args || []).join(' ')}`;
-  } else if (node.mcp && node.mcp.url) {
-    cmdEl.textContent = node.mcp.url;
-  } else {
-    cmdEl.textContent = '-';
-  }
-
-  document.getElementById('detail-profiles').textContent = (node.profiles || []).join(', ');
+  document.getElementById('detail-cmd').textContent = formatLaunch(node);
+  document.getElementById('detail-profiles').textContent =
+    (node.profiles || []).join(', ');
 
   const enableBtn = document.getElementById('btn-enable');
   const disableBtn = document.getElementById('btn-disable');
-  if (node.enabled) {
-    enableBtn.style.opacity = '0.4';
-    disableBtn.style.opacity = '1';
-  } else {
-    enableBtn.style.opacity = '1';
-    disableBtn.style.opacity = '0.4';
-  }
+  enableBtn.style.opacity = node.enabled ? '0.4' : '1';
+  disableBtn.style.opacity = node.enabled ? '1' : '0.4';
 
-  panel.classList.add('open');
+  document.getElementById('detail-panel').classList.add('open');
 }
 
 function closeDetail() {
@@ -1144,12 +1397,46 @@ function closeDetail() {
 
 async function detailToggle(enable) {
   if (!selectedNode) return;
+  const name = selectedNode.name;
   const action = enable ? 'enable' : 'disable';
-  await apiPost(`/api/mcp/servers/${selectedNode.name}/${action}`, {});
-  toast(`${selectedNode.name}: ${enable ? 'enabled' : 'disabled'}`, 'success');
-  selectedNode.enabled = enable;
-  await loadCatalog();
-  openDetail(selectedNode);
+  try {
+    await apiPost('/api/mcp/servers/' + encodeURIComponent(name) + '/' + action, {});
+    toast(name + ': ' + (enable ? 'enabled' : 'disabled'), 'success');
+  } catch (e) {
+    toast(name + ': ' + (e.message || 'failed'), 'error');
+  }
+  // Reload, then re-resolve selectedNode from the FRESH server list so we
+  // don't keep rendering a stale, optimistically-mutated object.
+  try { await loadCatalog(); } catch (e) { /* handled */ }
+  const fresh = servers.find(s => s.name === name);
+  if (fresh) openDetail(fresh);
+}
+
+// ── Event delegation (catalog cards, deploy tabs, profile pills) ──
+function initDelegation() {
+  const grid = document.getElementById('catalog-grid');
+  grid.addEventListener('click', (e) => {
+    const toggle = e.target.closest('.toggle-switch');
+    if (toggle && toggle.dataset.name) {
+      e.stopPropagation();
+      toggleServerCard(toggle.dataset.name, toggle);
+      return;
+    }
+    const card = e.target.closest('.server-card');
+    if (card && card.dataset.name) openServerDetail(card.dataset.name);
+  });
+
+  const tabs = document.getElementById('deploy-tabs');
+  tabs.addEventListener('click', (e) => {
+    const t = e.target.closest('.code-tab');
+    if (t && t.dataset.fmt) selectDeployFormat(t.dataset.fmt);
+  });
+
+  const pills = document.getElementById('profile-pills');
+  pills.addEventListener('click', (e) => {
+    const p = e.target.closest('.pill');
+    if (p && p.dataset.profile) switchProfile(p.dataset.profile);
+  });
 }
 
 // ── Command Bar ────────────────────────
@@ -1176,7 +1463,7 @@ function initCommandBar() {
         if (match) input.value = match.cmd + ' ';
       } else if (parts.length === 2) {
         const match = servers.find(s => s.name.startsWith(parts[1]));
-        if (match) input.value = `${parts[0]} ${match.name}`;
+        if (match) input.value = parts[0] + ' ' + match.name;
       }
     }
   });
@@ -1194,38 +1481,63 @@ async function runCommand(input) {
   if ((cmd === 'toggle' || cmd === 'enable' || cmd === 'disable') && parts[1]) {
     const server = parts[1];
     const action = cmd === 'toggle' ? 'toggle' : cmd;
-    await apiPost(`/api/mcp/servers/${server}/${action}`, {});
-    toast(`${server}: ${action}d`, 'success');
-    await loadCatalog();
+    try {
+      await apiPost('/api/mcp/servers/' + encodeURIComponent(server) + '/' + action, {});
+      toast(server + ': ' + action + 'd', 'success');
+      await loadCatalog();
+    } catch (e) {
+      toast(server + ': ' + (e.message || 'failed'), 'error');
+    }
   } else if (cmd === 'profile' && parts[1]) {
     switchProfile(parts[1]);
   } else if (cmd === 'status') {
-    const data = await api('/api/status');
-    toast(`${data.servers.enabled}/${data.servers.total} servers`
-      + ` | ${data.telemetry.success_rate}% success`);
+    try {
+      const data = await api('/api/status');
+      toast((data.servers.enabled) + '/' + (data.servers.total) + ' servers | '
+        + (data.telemetry.success_rate || 0) + '% success');
+    } catch (e) {
+      toast('status: ' + (e.message || 'failed'), 'error');
+    }
   } else if (cmd === 'refresh') {
-    await loadCatalog();
-    toast('catalog refreshed');
+    try { await loadCatalog(); toast('catalog refreshed'); }
+    catch (e) { toast('refresh failed', 'error'); }
   } else {
-    toast(`unknown: ${input}`, 'error');
+    toast('unknown: ' + input, 'error');
   }
 }
 
 // ── WebSocket ──────────────────────────
 function initWebSocket() {
+  if (wsTimer) { clearTimeout(wsTimer); wsTimer = null; }
   try {
-    ws = new WebSocket(WS_URL);
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ cmd: 'subscribe' }));
-    };
-    ws.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        handleWSMessage(data);
-      } catch {}
-    };
-    ws.onclose = () => setTimeout(initWebSocket, 3000);
-  } catch {}
+    ws = new WebSocket(wsUrlWithAuth());
+  } catch (e) {
+    scheduleReconnect();
+    return;
+  }
+  ws.onopen = () => {
+    wsRetry = 0;
+    // subscribe_all so we receive every broadcast without a `type` filter
+    // (the previous {cmd:'subscribe'} was missing the required type field).
+    try { ws.send(JSON.stringify({ cmd: 'subscribe_all' })); } catch (e) {}
+  };
+  ws.onmessage = (e) => {
+    try { handleWSMessage(JSON.parse(e.data)); } catch (err) {}
+  };
+  ws.onclose = (e) => {
+    ws = null;
+    // 1000 = clean close; don't auto-reconnect that. Everything else backs off.
+    if (e.code !== 1000) scheduleReconnect();
+  };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+
+function scheduleReconnect() {
+  if (wsTimer) return;
+  // Exponential backoff with jitter, capped at 30s — prevents tight retry
+  // loops when the WS port is unreachable (e.g. behind a tunnel).
+  const delay = Math.min(30000, 1000 * Math.pow(2, wsRetry++) + Math.random() * 500);
+  wsTimer = setTimeout(() => { wsTimer = null; initWebSocket(); }, delay);
 }
 
 function handleWSMessage(data) {
@@ -1233,9 +1545,11 @@ function handleWSMessage(data) {
       || data.type === 'server_disabled'
       || data.type === 'server_toggled') {
     loadCatalog();
-    toast(`${data.name}: ${data.type}`, 'success');
+    if (currentView === 'catalog') loadCatalogView();
+    toast((data.name || 'server') + ': ' + data.type, 'success');
   }
-  if (data.type === 'telemetry' || data.type === 'tool_call') {
+  if (data.type === 'tool_call' || data.type === 'chain_run'
+      || data.type === 'telemetry') {
     appendTelemetry(data);
   }
 }
@@ -1243,42 +1557,53 @@ function handleWSMessage(data) {
 function appendTelemetry(event) {
   const stream = document.getElementById('telemetry-stream');
   const row = document.createElement('div');
-  const now = new Date();
-  const ts = String(now.getHours()).padStart(2,'0')
-    + ':' + String(now.getMinutes()).padStart(2,'0')
-    + ':' + String(now.getSeconds()).padStart(2,'0');
-  const ok = event.success !== false;
   row.className = 'tlm-row';
-  row.innerHTML = `
-    <span class="tlm-time">${ts}</span>
-    <span class="tlm-icon ${ok ? 'ok' : 'err'}">${ok ? '\u2713' : '\u2717'}</span>
-    <span class="tlm-name">${event.name || event.type}</span>
-    <span class="tlm-ms">${Math.round(event.duration_ms || 0)}ms</span>
-  `;
+  const now = new Date();
+  const ts = pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
+  const ok = event.success !== false;
+
+  const t = document.createElement('span'); t.className = 'tlm-time'; t.textContent = ts;
+  const ic = document.createElement('span');
+  ic.className = 'tlm-icon ' + (ok ? 'ok' : 'err');
+  ic.textContent = ok ? '\u2713' : '\u2717';
+  const nm = document.createElement('span');
+  nm.className = 'tlm-name';
+  nm.textContent = event.name || event.type || '';
+  const ms = document.createElement('span');
+  ms.className = 'tlm-ms';
+  ms.textContent = Math.round(event.duration_ms || 0) + 'ms';
+
+  row.appendChild(t); row.appendChild(ic); row.appendChild(nm); row.appendChild(ms);
   stream.insertBefore(row, stream.firstChild);
 
-  while (stream.children.length > 50) {
-    stream.lastChild.remove();
-  }
+  while (stream.children.length > 50) stream.lastChild.remove();
 
   setTimeout(() => row.classList.add('faded'), 4000);
 }
 
 // ── Tunnels ────────────────────────────
 async function toggleTunnel(provider) {
-  toast(`tunnel ${provider}: starting...`);
+  const btn = document.getElementById(provider === 'cloudflare' ? 'btn-cf' : 'btn-ts');
+  if (!btn) return;
+  const original = btn.classList.contains('active') ? 'ON' : 'START';
+  btn.textContent = '...';
+  btn.disabled = true;
+  toast('tunnel ' + provider + ': starting...');
   try {
-    const data = await apiPost(`/api/tunnel/${provider}/start`, {});
-    const btn = document.getElementById(provider === 'cloudflare' ? 'btn-cf' : 'btn-ts');
+    const data = await apiPost('/api/tunnel/' + encodeURIComponent(provider) + '/start', {});
     if (data.url) {
       btn.textContent = 'ON';
       btn.classList.add('active');
-      toast(`tunnel: ${data.url}`, 'success');
-    } else if (data.error) {
-      toast(`tunnel error: ${data.error}`, 'error');
+      toast('tunnel: ' + data.url, 'success');
+    } else {
+      btn.textContent = original;
+      toast('tunnel ' + provider + ': ' + (data.error || 'no url'), 'error');
     }
   } catch (e) {
-    toast('tunnel: failed to start', 'error');
+    btn.textContent = original;
+    toast('tunnel ' + provider + ': ' + (e.message || 'failed'), 'error');
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -1310,85 +1635,137 @@ async function loadViewData(name) {
 async function loadCatalogView() {
   const data = await api('/api/catalog');
   const grid = document.getElementById('catalog-grid');
-  document.getElementById('catalog-count').textContent =
-    (data.total || 0) + ' servers';
-  const items = data.servers || [];
+  const items = filterServers(data.servers || []);
+  document.getElementById('catalog-count').textContent = items.length + ' servers';
+  grid.innerHTML = '';
   if (!items.length) {
-    grid.innerHTML = '<div class="view-empty">No servers found.</div>';
+    const empty = document.createElement('div');
+    empty.className = 'view-empty';
+    empty.style.gridColumn = '1 / -1';
+    empty.textContent = 'No servers found.';
+    grid.appendChild(empty);
     return;
   }
-  grid.innerHTML = items.map(s => `
-    <div class="server-card" onclick="openServerDetail('${s.name}')">
-      <div class="server-card-head">
-        <span class="server-card-name">${s.name}</span>
-        <div class="toggle-switch ${s.enabled ? 'on' : ''}"
-          onclick="event.stopPropagation();
-            toggleServerCard('${s.name}', this)"></div>
-      </div>
-      <div class="badges" style="margin-bottom:6px">
-        <span class="badge ${s.transport}">${s.transport}</span>
-        <span class="badge ${s.risk}">${s.risk}</span>
-        ${s.env_configured
-          ? '<span class="badge low">configured</span>'
-          : '<span class="badge high">missing env</span>'}
-      </div>
-      <div class="server-card-desc">${s.description || ''}</div>
-    </div>
-  `).join('');
+  for (const s of items) {
+    const card = document.createElement('div');
+    card.className = 'server-card';
+    card.dataset.name = s.name;
+
+    const head = document.createElement('div');
+    head.className = 'server-card-head';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'server-card-name';
+    nameEl.textContent = s.name;
+    const toggle = document.createElement('div');
+    toggle.className = 'toggle-switch' + (s.enabled ? ' on' : '');
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', String(!!s.enabled));
+    toggle.dataset.name = s.name;
+    head.appendChild(nameEl);
+    head.appendChild(toggle);
+    card.appendChild(head);
+
+    const badges = document.createElement('div');
+    badges.className = 'badges';
+    badges.style.marginBottom = '6px';
+    badges.appendChild(makeBadge(s.transport, s.transport));
+    badges.appendChild(makeBadge(s.risk, s.risk));
+    badges.appendChild(makeBadge(
+      s.env_configured ? 'low' : 'high',
+      s.env_configured ? 'configured' : 'missing env'
+    ));
+    card.appendChild(badges);
+
+    const desc = document.createElement('div');
+    desc.className = 'server-card-desc';
+    desc.textContent = s.description || '';
+    card.appendChild(desc);
+
+    grid.appendChild(card);
+  }
 }
 
 async function toggleServerCard(name, el) {
-  const data = await apiPost(
-    '/api/mcp/servers/' + name + '/toggle', {}
-  );
-  if (data.error) { toast(data.error, 'error'); return; }
-  el.classList.toggle('on', data.enabled);
-  toast(name + ': ' + (data.enabled ? 'enabled' : 'disabled'),
-    'success');
+  try {
+    const data = await apiPost(
+      '/api/mcp/servers/' + encodeURIComponent(name) + '/toggle', {}
+    );
+    el.classList.toggle('on', !!data.enabled);
+    el.setAttribute('aria-checked', String(!!data.enabled));
+    toast(name + ': ' + (data.enabled ? 'enabled' : 'disabled'), 'success');
+  } catch (e) {
+    toast(name + ': ' + (e.message || 'failed'), 'error');
+  }
 }
 
 async function openServerDetail(name) {
-  const data = await api('/api/mcp/servers/' + name);
-  if (data.error) { toast(data.error, 'error'); return; }
-  openDetail(data);
+  try {
+    const data = await api('/api/mcp/servers/' + encodeURIComponent(name));
+    openDetail(data);
+  } catch (e) {
+    toast(name + ': ' + (e.message || 'not found'), 'error');
+  }
 }
 
 async function loadEvalsView() {
   const data = await api('/api/evals');
   const summary = data.summary || {};
   const tc = data.tool_calls || {};
-  document.getElementById('eval-summary').innerHTML = `
-    <div class="eval-stat"><span class="big-num">${tc.total || 0}</span>
-      calls</div>
-    <div class="eval-stat"><span class="big-num">${tc.unique_tools || 0}</span>
-      tools</div>
-    <div class="eval-stat"><span class="big-num">${summary.overall_success_rate || 0}%</span>
-      success</div>
-    <div class="eval-stat"><span class="big-num">${summary.total_errors || 0}</span>
-      errors</div>
-  `;
+
+  const sumEl = document.getElementById('eval-summary');
+  sumEl.innerHTML = '';
+  const stats = [
+    ['calls', tc.total || 0],
+    ['tools', tc.unique_tools || 0],
+    ['success', (summary.overall_success_rate || 0) + '%'],
+    ['errors', summary.total_errors || 0],
+  ];
+  for (const [label, val] of stats) {
+    const stat = document.createElement('div');
+    stat.className = 'eval-stat';
+    const big = document.createElement('span');
+    big.className = 'big-num';
+    big.textContent = val;
+    stat.appendChild(big);
+    stat.appendChild(document.createTextNode(' ' + label));
+    sumEl.appendChild(stat);
+  }
+
   const perTool = tc.per_tool || {};
-  const entries = Object.entries(perTool)
-    .sort((a, b) => b[1].total - a[1].total);
+  const entries = Object.entries(perTool).sort((a, b) => b[1].total - a[1].total);
   const tbody = document.getElementById('eval-tbody');
+  tbody.innerHTML = '';
   if (!entries.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="view-empty">'
-      + 'No eval data yet.</td></tr>';
+    const tr = document.createElement('tr');
+    const cell = td('');
+    cell.colSpan = 4;
+    cell.className = 'view-empty';
+    cell.textContent = 'No eval data yet.';
+    tr.appendChild(cell);
+    tbody.appendChild(tr);
     return;
   }
-  tbody.innerHTML = entries.map(([name, s]) => {
+  for (const [name, s] of entries) {
     const rate = s.success_rate || 0;
-    const color = rate >= 90 ? '#22c55e'
-      : rate >= 50 ? '#f59e0b' : '#ef4444';
+    const color = rate >= 90 ? '#22c55e' : rate >= 50 ? '#f59e0b' : '#ef4444';
     const avg = Math.round(s.avg_duration_ms || 0);
-    return `<tr>
-      <td>${name}</td>
-      <td>${s.total}</td>
-      <td><span class="success-bar"><span class="success-bar-fill"
-        style="width:${rate}%;background:${color}"></span></span>${rate}%</td>
-      <td>${avg}ms</td>
-    </tr>`;
-  }).join('');
+    const tr = document.createElement('tr');
+    tr.appendChild(td(name));
+    tr.appendChild(td(String(s.total)));
+    const c = td('');
+    const bar = document.createElement('span');
+    bar.className = 'success-bar';
+    const fill = document.createElement('span');
+    fill.className = 'success-bar-fill';
+    fill.style.width = rate + '%';
+    fill.style.background = color;
+    bar.appendChild(fill);
+    c.appendChild(bar);
+    c.appendChild(document.createTextNode(rate + '%'));
+    tr.appendChild(c);
+    tr.appendChild(td(avg + 'ms'));
+    tbody.appendChild(tr);
+  }
 }
 
 let deployFormats = [];
@@ -1397,10 +1774,14 @@ async function loadDeployView() {
   const data = await api('/api/deploy');
   deployFormats = data.formats || [];
   const tabs = document.getElementById('deploy-tabs');
-  tabs.innerHTML = deployFormats.map(f =>
-    `<button class="code-tab" data-fmt="${f.name}"
-      onclick="selectDeployFormat('${f.name}')">${f.name}</button>`
-  ).join('');
+  tabs.innerHTML = '';
+  for (const f of deployFormats) {
+    const btn = document.createElement('button');
+    btn.className = 'code-tab';
+    btn.dataset.fmt = f.name;
+    btn.textContent = f.name;
+    tabs.appendChild(btn);
+  }
   if (deployFormats[0]) await selectDeployFormat(deployFormats[0].name);
 }
 
@@ -1408,40 +1789,41 @@ async function selectDeployFormat(fmt) {
   document.querySelectorAll('.code-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.fmt === fmt);
   });
-  const data = await api('/api/deploy/' + fmt);
   const code = document.getElementById('deploy-code');
   const desc = document.getElementById('deploy-desc');
-  if (data.error) {
-    code.textContent = '# ' + data.error;
+  try {
+    const data = await api('/api/deploy/' + encodeURIComponent(fmt));
+    code.textContent = JSON.stringify(data, null, 2);
+    desc.textContent = data.description
+      || (deployFormats.find(f => f.name === fmt) || {}).description
+      || '';
+  } catch (e) {
+    code.textContent = '# ' + (e.message || 'error');
     desc.textContent = '';
-    return;
   }
-  code.textContent = JSON.stringify(data, null, 2);
-  desc.textContent = data.description
-    || (deployFormats.find(f => f.name === fmt) || {}).description
-    || '';
 }
 
 function copyDeployCode() {
   const text = document.getElementById('deploy-code').textContent || '';
-  navigator.clipboard.writeText(text).then(
-    () => toast('copied to clipboard', 'success'),
-    () => toast('clipboard access denied', 'error')
-  );
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => toast('copied to clipboard', 'success'),
+      () => toast('clipboard access denied', 'error')
+    );
+  } else {
+    toast('clipboard unavailable', 'error');
+  }
 }
 
 async function loadSettingsView() {
   const data = await api('/api/settings');
   const auth = data.auth || {};
-  document.getElementById('set-auth-mode').value = auth.mode || 'none';
-  document.getElementById('set-cors').value =
-    (data.cors_origins || []).join(', ');
-  document.getElementById('set-rate-limit').value =
-    data.rate_limit_per_min || 0;
-  document.getElementById('set-profile').value =
-    data.default_profile || 'core';
-  document.getElementById('set-storage').value =
-    data.storage_backend || 'sqlite';
+  document.getElementById('set-auth-mode').value = (auth.mode in { none: 1, apikey: 1, oauth: 1 })
+    ? auth.mode : 'none';
+  document.getElementById('set-cors').value = (data.cors_origins || []).join(', ');
+  document.getElementById('set-rate-limit').value = data.rate_limit_per_min || 0;
+  document.getElementById('set-profile').value = data.default_profile || 'core';
+  document.getElementById('set-storage').value = data.storage_backend || 'sqlite';
 }
 
 async function saveSettings() {
@@ -1449,15 +1831,14 @@ async function saveSettings() {
     auth: { mode: document.getElementById('set-auth-mode').value },
     cors_origins: document.getElementById('set-cors').value
       .split(',').map(s => s.trim()).filter(Boolean),
-    rate_limit_per_min:
-      parseInt(document.getElementById('set-rate-limit').value) || 0,
+    rate_limit_per_min: parseInt(document.getElementById('set-rate-limit').value) || 0,
     default_profile: document.getElementById('set-profile').value,
   };
   try {
     await apiPost('/api/settings', body);
     toast('settings saved', 'success');
   } catch (e) {
-    toast('failed to save settings', 'error');
+    toast('failed to save settings: ' + (e.message || ''), 'error');
   }
 }
 

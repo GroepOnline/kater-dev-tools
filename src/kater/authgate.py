@@ -22,6 +22,7 @@ PUBLIC_API_PATHS = frozenset(
     {"/health", "/authorize", "/token", "/register", "/revoke"}
 )
 PUBLIC_API_PREFIXES = ("/.well-known",)
+DASHBOARD_PUBLIC_PATHS = frozenset({"/", "/dashboard"})
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,16 @@ def _is_public_path(path: str) -> bool:
     if normalized in PUBLIC_API_PATHS:
         return True
     return any(normalized.startswith(prefix) for prefix in PUBLIC_API_PREFIXES)
+
+
+def should_proxy_to_api(path: str) -> bool:
+    """HTTP paths owned by the REST API that the MCP gateway must forward."""
+    normalized = path.rstrip("/") or "/"
+    if normalized in DASHBOARD_PUBLIC_PATHS:
+        return True
+    if normalized.startswith("/api/"):
+        return True
+    return _is_public_path(path)
 
 
 def authenticate(ctx: AuthContext) -> AuthDecision:

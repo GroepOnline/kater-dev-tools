@@ -234,6 +234,15 @@ class WSHandler(BaseHTTPRequestHandler):
         finally:
             client.close()
 
+    def _authorization_header(self, query: dict[str, list[str]]) -> str | None:
+        header = self.headers.get("Authorization")
+        if header:
+            return header
+        token = query.get("token", [None])[0]
+        if token:
+            return f"Bearer {token}"
+        return None
+
     def _check_auth(self) -> bool:
         from urllib.parse import parse_qs, urlparse
 
@@ -245,7 +254,7 @@ class WSHandler(BaseHTTPRequestHandler):
         decision = authenticate(
             AuthContext(
                 settings=load_settings(),
-                authorization_header=self.headers.get("Authorization"),
+                authorization_header=self._authorization_header(parsed.query),
                 query_api_key=query.get("api_key", [None])[0],
             )
         )

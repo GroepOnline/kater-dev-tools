@@ -137,7 +137,8 @@ def build_sse_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
             _register_proxy_status_tool(server)
     from kater.gateway import ApiProxyMiddleware
 
-    return AuthASGIMiddleware(ApiProxyMiddleware(server.sse_app()))
+    inner = AuthASGIMiddleware(server.sse_app())
+    return ApiProxyMiddleware(inner)
 
 
 def serve(

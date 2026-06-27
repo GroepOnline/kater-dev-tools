@@ -17,6 +17,18 @@ from kater.authgate import should_proxy_to_api
 from kater.settings import load_settings
 
 
+class _NoRedirect(request.HTTPRedirectHandler):
+    """Do not follow redirects — OAuth /authorize must reach the browser as 302."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+# OAuth approve flows return 302 to the client redirect_uri; following them here
+# would fetch the dashboard server-side and strip ?code= from the browser URL.
+_PROXY_OPENER = request.build_opener(_NoRedirect())
+
+
 async def _proxy_to_api(scope: dict, receive: Any, send: Any, api_port: int) -> None:
     path = scope.get("path") or "/"
     query = scope.get("query_string", b"").decode("latin-1")
@@ -31,7 +43,12 @@ async def _proxy_to_api(scope: dict, receive: Any, send: Any, api_port: int) -> 
     host = headers.get("host")
     if host:
         headers["X-Forwarded-Host"] = host
-        headers["X-Forwarded-Proto"] = "https"
+        if headers.get("x-forwarded-proto"):
+            headers["X-Forwarded-Proto"] = headers["x-forwarded-proto"]
+        elif host.endswith(".chefgroep.online") or ".online" in host:
+            headers["X-Forwarded-Proto"] = "https"
+        else:
+            headers["X-Forwarded-Proto"] = "http"
 
     body = b""
     if scope.get("method") in {"POST", "PUT", "PATCH"}:
@@ -51,7 +68,7 @@ async def _proxy_to_api(scope: dict, receive: Any, send: Any, api_port: int) -> 
             headers=headers,
         )
         try:
-            with request.urlopen(req, timeout=30) as resp:
+            with _PROXY_OPENER.open(req, timeout=30) as resp:
                 resp_headers = list(resp.headers.items())
                 return resp.status, resp_headers, resp.read()
         except error.HTTPError as exc:

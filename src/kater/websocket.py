@@ -254,7 +254,7 @@ class WSHandler(BaseHTTPRequestHandler):
         decision = authenticate(
             AuthContext(
                 settings=load_settings(),
-                authorization_header=self._authorization_header(parsed.query),
+                authorization_header=self._authorization_header(query),
                 query_api_key=query.get("api_key", [None])[0],
             )
         )

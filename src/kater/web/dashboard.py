@@ -900,7 +900,8 @@ _HTML_SHELL_BOTTOM = r"""
   <div class="detail-header">
     <span class="detail-name" id="detail-name">-</span>
     <div class="detail-close" onclick="closeDetail()" role="button"
-      tabindex="0" aria-label="Close details">&times;</div>
+      tabindex="0" aria-label="Close details"
+      onkeydown="btnKey(event,closeDetail)">&times;</div>
   </div>
   <div class="detail-section">
     <div class="detail-label">Status</div>
@@ -947,7 +948,8 @@ _HTML_SHELL_BOTTOM = r"""
     <div class="modal-head">
       <span class="modal-title" id="cred-title">Connect</span>
       <div class="detail-close" onclick="closeCredentialsModal()" role="button"
-        tabindex="0" aria-label="Close">&times;</div>
+        tabindex="0" aria-label="Close"
+        onkeydown="btnKey(event,closeCredentialsModal)">&times;</div>
     </div>
     <p class="modal-sub" id="cred-sub">Paste a token to connect this server.</p>
     <div id="cred-fields"></div>
@@ -960,7 +962,7 @@ _HTML_SHELL_BOTTOM = r"""
   </div>
 </div>
 
-<div class="toast-container" id="toast-container"></div>
+<div class="toast-container" id="toast-container" aria-live="polite"></div>
 """
 
 _HTML = (
@@ -1196,6 +1198,10 @@ function toast(msg, type = '') {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+function btnKey(e, fn) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+}
+
 function makeBadge(klass, text) {
   const b = document.createElement('span');
   b.className = 'badge ' + cls(klass);
@@ -1326,6 +1332,8 @@ async function loadProfiles() {
     pill.className = 'pill' + (p === activeProfile ? ' active' : '');
     pill.textContent = p;
     pill.dataset.profile = p;
+    pill.setAttribute('tabindex', '0');
+    pill.setAttribute('role', 'button');
     el.appendChild(pill);
   }
 }
@@ -1809,6 +1817,16 @@ function initDelegation() {
     const card = e.target.closest('.server-card');
     if (card && card.dataset.name) openServerDetail(card.dataset.name);
   });
+  grid.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const toggle = e.target.closest('.toggle-switch');
+      if (toggle && toggle.dataset.name) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleServerCard(toggle.dataset.name, toggle);
+      }
+    }
+  });
 
   const tabs = document.getElementById('deploy-tabs');
   tabs.addEventListener('click', (e) => {
@@ -1820,6 +1838,15 @@ function initDelegation() {
   pills.addEventListener('click', (e) => {
     const p = e.target.closest('.pill');
     if (p && p.dataset.profile) switchProfile(p.dataset.profile);
+  });
+  pills.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const p = e.target.closest('.pill');
+      if (p && p.dataset.profile) {
+        e.preventDefault();
+        switchProfile(p.dataset.profile);
+      }
+    }
   });
 }
 
@@ -2128,6 +2155,7 @@ async function loadCatalogView() {
       + (s.enabled ? (pending ? ' pending' : ' on') : '');
     toggle.setAttribute('role', 'switch');
     toggle.setAttribute('aria-checked', String(!!s.enabled));
+    toggle.setAttribute('tabindex', '0');
     toggle.title = pending ? 'On, but needs credentials to connect' : '';
     toggle.dataset.name = s.name;
     head.appendChild(nameEl);

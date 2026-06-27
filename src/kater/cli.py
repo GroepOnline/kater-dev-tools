@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -173,7 +173,7 @@ def chain_run_command(
         record_chain_run(chain_name, steps=0, success=False, profile=profile)
         typer.echo(f"Error: chain '{chain_name}' not found for profile '{profile}'.", err=True)
         raise typer.Exit(code=1)
-    result = {
+    result: dict[str, Any] = {
         "chain": chain.name,
         "description": chain.description,
         "profile": profile,
@@ -233,7 +233,7 @@ def adapters_command(
     from kater.adapters.external import scan_adapters
 
     inventory = scan_adapters({profile})
-    payload = {
+    payload: dict[str, Any] = {
         "profile": profile,
         "adapters": [
             {
@@ -333,12 +333,13 @@ def mcp_list_command(
     )
     for s in servers:
         status = success("yes") if s["env_configured"] else error("no")
+        profiles = s.get("profiles")
         table.add_row(
-            s["name"],
-            s["transport"],
-            s["risk"],
+            str(s["name"]),
+            str(s["transport"]),
+            str(s["risk"]),
             status,
-            ", ".join(s["profiles"]),
+            ", ".join(profiles) if isinstance(profiles, list) else "",
         )
     typer.echo(table.render())
 

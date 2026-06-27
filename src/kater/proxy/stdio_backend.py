@@ -81,7 +81,10 @@ class StdioBackend(BaseBackend):
 
         def _drain() -> None:
             try:
-                for _line in iter(self._proc.stderr.readline, b""):
+                proc = self._proc
+                if not proc or not proc.stderr:
+                    return
+                for _line in iter(proc.stderr.readline, b""):
                     pass
             except (OSError, ValueError):
                 pass
@@ -92,8 +95,28 @@ class StdioBackend(BaseBackend):
         self._stderr_thread.start()
 
     def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        if not self._proc or not self._proc.stdin or not self._proc.stdout:
+        proc = self._proc
+        if not proc or not proc.stdin or not proc.stdout:
             return {"error": "backend not started"}
+        stdin = proc.stdin
+        stdout = proc.stdout
+
+        # MCP notifications (method starts with "notifications/") carry no id
+        # and expect no response — fire and forget, otherwise we'd block until
+        # timeout waiting for a reply that never comes.
+        if method.startswith("notifications/"):
+            msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+            if params:
+                msg["params"] = params
+            with self._lock:
+                try:
+                    stdin.write((json.dumps(msg) + "\n").encode())
+                    stdin.flush()
+                except OSError as exc:
+                    self._status.error = str(exc)
+                    self._status.healthy = False
+                    return {"error": str(exc)}
+            return {"result": {}}
 
         msg = {
             "jsonrpc": "2.0",
@@ -106,14 +129,12 @@ class StdioBackend(BaseBackend):
 
         with self._lock:
             try:
-                self._proc.stdin.write(
-                    (json.dumps(msg) + "\n").encode()
-                )
-                self._proc.stdin.flush()
+                stdin.write((json.dumps(msg) + "\n").encode())
+                stdin.flush()
 
                 deadline = time.time() + self._timeout
                 while time.time() < deadline:
-                    line = self._proc.stdout.readline()
+                    line = stdout.readline()
                     if not line:
                         break
                     line = line.strip()

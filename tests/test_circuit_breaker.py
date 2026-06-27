@@ -1,28 +1,9 @@
 from __future__ import annotations
 
-import shutil
 import time
-from pathlib import Path
-
-import pytest
 
 from kater.proxy.base import MockBackend
 from kater.proxy.manager import CircuitBreaker, ProxyManager
-
-KATER_DIR = Path.cwd() / ".kater"
-
-
-@pytest.fixture(autouse=True)
-def clean_storage():
-    from kater.storage import reset_db_cache
-
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
-    yield
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
 
 
 def test_circuit_breaker_starts_closed():

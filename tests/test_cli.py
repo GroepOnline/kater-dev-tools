@@ -1,30 +1,12 @@
 from __future__ import annotations
 
 import json
-import shutil
-from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from kater.cli import app
 
 runner = CliRunner()
-
-KATER_DIR = Path.cwd() / ".kater"
-
-
-@pytest.fixture(autouse=True)
-def clean_kater_settings():
-    from kater.storage import reset_db_cache
-
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
-    yield
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
 
 
 def test_cli_help_starts() -> None:

@@ -494,7 +494,11 @@ PRIVATE_PROFILES = frozenset({"utrecht"})
 
 
 def is_public_mode() -> bool:
-    return os.environ.get("KATER_PUBLIC", "") == "1"
+    # Match the same truthy set as settings._env_truthy (1/true/yes/on) so a
+    # public deployment declared with KATER_PUBLIC=true hides private sources
+    # too — previously only the literal "1" did, splitting visibility from the
+    # secure-defaults path.
+    return os.environ.get("KATER_PUBLIC", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def is_private_profile(profile: str) -> bool:

@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from kater.profiles import TOOL_SOURCES, Transport
+from kater.profiles import TOOL_SOURCES, ToolSource, Transport
 from kater.proxy.aggregator import Aggregator
 from kater.proxy.base import BaseBackend
 from kater.proxy.models import BackendStatus
@@ -28,6 +28,9 @@ class CircuitBreaker:
         self._failures = 0
         self._state = "closed"
         self._opened_at = 0.0
+        # Half-open admits exactly one trial call; concurrent callers are
+        # rejected until the probe resolves (closed or re-opened).
+        self._probe_in_flight = False
         self._lock = threading.Lock()
 
     @property
@@ -42,16 +45,24 @@ class CircuitBreaker:
             and time.monotonic() - self._opened_at >= self._recovery_timeout
         ):
             self._state = "half_open"
+            self._probe_in_flight = False
 
     def can_call(self) -> bool:
         with self._lock:
             self._maybe_half_open()
-            return self._state in ("closed", "half_open")
+            if self._state == "closed":
+                return True
+            if self._state == "half_open" and not self._probe_in_flight:
+                # Reserve the single probe slot so only one caller gets through.
+                self._probe_in_flight = True
+                return True
+            return False
 
     def record_success(self) -> None:
         with self._lock:
             self._failures = 0
             self._state = "closed"
+            self._probe_in_flight = False
 
     def record_failure(self) -> None:
         with self._lock:
@@ -59,9 +70,11 @@ class CircuitBreaker:
             if self._state == "half_open":
                 self._state = "open"
                 self._opened_at = time.monotonic()
+                self._probe_in_flight = False
             elif self._failures >= self._failure_threshold:
                 self._state = "open"
                 self._opened_at = time.monotonic()
+                self._probe_in_flight = False
 
 
 class ProxyManager:
@@ -71,6 +84,9 @@ class ProxyManager:
         self._lock = threading.Lock()
         self._aggregator = Aggregator()
         self._started = False
+        settings = load_settings()
+        self._failure_threshold = settings.proxy_failure_threshold
+        self._recovery_timeout = settings.proxy_recovery_timeout
 
     def start(self, profile: str) -> None:
         with self._lock:
@@ -97,7 +113,10 @@ class ProxyManager:
             tools = backend.list_tools()
             self._aggregator.add_backend_tools(name, tools)
             self._backends[name] = backend
-            self._breakers[name] = CircuitBreaker()
+            self._breakers[name] = CircuitBreaker(
+                failure_threshold=self._failure_threshold,
+                recovery_timeout=self._recovery_timeout,
+            )
 
     def _start_backends(self, profile: str) -> None:
         settings = load_settings()
@@ -121,14 +140,17 @@ class ProxyManager:
                 tools = backend.list_tools()
                 self._aggregator.add_backend_tools(source.name, tools)
                 self._backends[source.name] = backend
-                self._breakers[source.name] = CircuitBreaker()
+                self._breakers[source.name] = CircuitBreaker(
+                    failure_threshold=self._failure_threshold,
+                    recovery_timeout=self._recovery_timeout,
+                )
                 logger.info(
                     "Started %s: %d tools", source.name, len(tools)
                 )
             except Exception as exc:
                 logger.warning("Failed to start %s: %s", source.name, exc)
 
-    def _create_backend(self, source: Any) -> BaseBackend | None:
+    def _create_backend(self, source: ToolSource) -> BaseBackend | None:
         if source.transport == Transport.STDIO:
             if not source.mcp or not source.mcp.command:
                 return None
@@ -148,20 +170,22 @@ class ProxyManager:
                 env=env,
             )
         if source.transport in (Transport.SSE, Transport.HTTP):
+            if not source.mcp:
+                return None
             url = source.mcp.url or ""
             if not url:
                 return None
             for var in source.env:
-                val = os.environ.get(var)
-                if val:
-                    url = url.replace(f"${{{var}}}", val)
+                env_val = os.environ.get(var)
+                if env_val:
+                    url = url.replace(f"${{{var}}}", env_val)
             if "${" in url and "}" in url:
                 return None
             headers: dict[str, str] = {}
             for var in source.env:
-                val = os.environ.get(var)
-                if val:
-                    headers[var] = val
+                env_val = os.environ.get(var)
+                if env_val:
+                    headers[var] = env_val
             return SSEBackend(name=source.name, url=url, headers=headers)
         return None
 
@@ -178,8 +202,14 @@ class ProxyManager:
             return {"error": f"Circuit open for {backend_name}"}
         backend = self._backends.get(backend_name)
         if not backend:
+            # can_call() may have reserved a half-open probe; release it as a
+            # failure so the slot does not leak while the backend is missing.
+            if breaker is not None:
+                breaker.record_failure()
             return {"error": f"Backend not available: {backend_name}"}
         if not backend.is_healthy():
+            if breaker is not None:
+                breaker.record_failure()
             return {"error": f"Backend unhealthy: {backend_name}"}
         try:
             result = backend.call_tool(original_name, arguments)

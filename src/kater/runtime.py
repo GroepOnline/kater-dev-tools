@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import threading
+from http.server import ThreadingHTTPServer
 from typing import Any
 
 import uvicorn
 
 from kater.settings import ListenConfig
+
+_log = logging.getLogger("kater.runtime")
+
+# How often the background janitor sweeps expired OAuth tokens/codes and prunes
+# telemetry past the on-disk cap. Both are cheap, so 10 minutes is plenty.
+_MAINTENANCE_INTERVAL = 600.0
 
 
 class KaterRuntime:
@@ -25,12 +33,13 @@ class KaterRuntime:
         self._use_proxy = use_proxy
         self._started = False
         self._shutdown_event = threading.Event()
-        self._api_server: Any = None
+        self._api_server: ThreadingHTTPServer | None = None
         self._api_thread: threading.Thread | None = None
-        self._ws_server: Any = None
+        self._ws_server: ThreadingHTTPServer | None = None
         self._ws_thread: threading.Thread | None = None
         self._mcp_uvicorn: uvicorn.Server | None = None
         self._mcp_thread: threading.Thread | None = None
+        self._maintenance_thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._started:
@@ -49,8 +58,8 @@ class KaterRuntime:
                 from kater.proxy import get_proxy
 
                 get_proxy().start(self._profile)
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("proxy startup failed: %s", exc)
 
         from kater.api import create_api_server
         from kater.mcp_server import build_sse_app
@@ -60,6 +69,7 @@ class KaterRuntime:
         self._api_thread = threading.Thread(
             target=self._api_server.serve_forever,
             daemon=True,
+            name="kater-api",
         )
         self._api_thread.start()
 
@@ -67,6 +77,7 @@ class KaterRuntime:
         self._ws_thread = threading.Thread(
             target=self._ws_server.serve_forever,
             daemon=True,
+            name="kater-ws",
         )
         self._ws_thread.start()
 
@@ -81,43 +92,80 @@ class KaterRuntime:
         self._mcp_thread = threading.Thread(
             target=self._mcp_uvicorn.run,
             daemon=True,
+            name="kater-mcp",
         )
         self._mcp_thread.start()
 
+        self._maintenance_thread = threading.Thread(
+            target=self._maintenance_loop,
+            daemon=True,
+            name="kater-janitor",
+        )
+        self._maintenance_thread.start()
+
         self._started = True
 
+    def _maintenance_loop(self) -> None:
+        """Periodically purge expired OAuth state and trim telemetry to cap."""
+        while not self._shutdown_event.is_set():
+            self._shutdown_event.wait(_MAINTENANCE_INTERVAL)
+            if self._shutdown_event.is_set():
+                break
+            try:
+                from kater.oauth import cleanup_expired
+
+                removed = cleanup_expired()
+                if removed:
+                    _log.info("janitor: purged %d expired OAuth entries", removed)
+            except Exception as exc:
+                _log.warning("janitor: oauth cleanup failed: %s", exc)
+            try:
+                from kater.storage import prune_all
+
+                prune_all()
+            except Exception as exc:
+                _log.warning("janitor: telemetry prune failed: %s", exc)
+
     def stop(self, timeout: float = 5.0) -> None:
-        del timeout  # reserved for future thread joins
         if not self._started:
             return
+
+        self._shutdown_event.set()
 
         if self._mcp_uvicorn is not None:
             try:
                 self._mcp_uvicorn.should_exit = True
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("mcp shutdown signal failed: %s", exc)
 
         if self._ws_server is not None:
             try:
                 self._ws_server.shutdown()
                 self._ws_server.server_close()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("ws shutdown failed: %s", exc)
 
         if self._api_server is not None:
             try:
                 self._api_server.shutdown()
                 self._api_server.server_close()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("api shutdown failed: %s", exc)
 
         if self._use_proxy:
             try:
                 from kater.proxy import get_proxy
 
                 get_proxy().stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("proxy shutdown failed: %s", exc)
+
+        # Join worker threads so stop() blocks until in-flight requests drain.
+        for thread in (self._api_thread, self._ws_thread, self._mcp_thread):
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=timeout)
+        if self._maintenance_thread is not None and self._maintenance_thread.is_alive():
+            self._maintenance_thread.join(timeout=2.0)
 
         self._started = False
 

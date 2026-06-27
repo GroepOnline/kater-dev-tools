@@ -29,6 +29,7 @@ def test_render_dashboard_is_a_full_document():
     assert "<style>" in html and "</style>" in html
     assert "<script>" in html and "</script>" in html
     assert html.rstrip().endswith("</html>")
+    assert 'id="catalog-search"' in html
 
 
 def test_dashboard_injects_configured_ws_port():

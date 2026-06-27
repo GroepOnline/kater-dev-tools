@@ -7,16 +7,17 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from kater.adapters.external import scan_adapters
 from kater.chains import list_chains
 from kater.deploy import list_deploy_formats, render_deploy
 from kater.doctor import run_doctor
-from kater.profiles import TOOL_SOURCES, get_source, list_profiles
+from kater.profiles import get_source, list_profiles
 from kater.registry import tools_for_profile
 from kater.settings import (
     RateLimiter,
+    ServerOverride,
     cors_allow_origin,
     load_settings,
     save_settings,
@@ -28,7 +29,13 @@ from kater.telemetry import (
     record_server_toggle,
     status_overview,
 )
-from kater.tunnel import start_cloudflared, start_tailscale_funnel
+from kater.tunnel import (
+    start_cloudflared,
+    start_tailscale_funnel,
+    stop_cloudflared,
+    stop_tailscale_funnel,
+    tunnel_overview,
+)
 
 # ── Request / Response: the seam between the stdlib server and app logic ──
 
@@ -126,7 +133,11 @@ class RouteTable:
     def match(self, method: str, path: str) -> tuple[Route, dict[str, str]] | None:
         target = _segments(path)
         exact: tuple[Route, dict[str, str]] | None = None
-        param: tuple[Route, dict[str, str]] | None = None
+        # Among parameterized matches, prefer the most specific one: the route
+        # with the fewest param segments wins, so a literal like
+        # /servers/{name}/credentials beats the generic /servers/{name}/{action}.
+        best_param: tuple[Route, dict[str, str]] | None = None
+        best_param_count: int | None = None
         for route in self._routes:
             if route.method != method:
                 continue
@@ -135,21 +146,22 @@ class RouteTable:
                 continue
             captured: dict[str, str] = {}
             ok = True
-            has_param = False
+            param_count = 0
             for p, t in zip(pat, target, strict=True):
                 if p.startswith("{") and p.endswith("}"):
                     captured[p[1:-1]] = t
-                    has_param = True
+                    param_count += 1
                 elif p != t:
                     ok = False
                     break
             if not ok:
                 continue
-            if has_param:
-                param = param or (route, captured)
-            else:
+            if param_count == 0:
                 exact = (route, captured)
-        return exact or param
+            elif best_param_count is None or param_count < best_param_count:
+                best_param = (route, captured)
+                best_param_count = param_count
+        return exact or best_param
 
 
 def _segments(path: str) -> list[str]:
@@ -199,9 +211,11 @@ def _adapter_payload(profile: str) -> dict[str, Any]:
 
 
 def _mcp_servers_payload() -> dict[str, Any]:
+    from kater.profiles import visible_tool_sources
+
     settings = load_settings()
     servers = []
-    for source in TOOL_SOURCES:
+    for source in visible_tool_sources():
         if source.transport == "native":
             continue
         env_present = all(os.environ.get(v) for v in source.env)
@@ -384,15 +398,17 @@ def _authorize(req: Request) -> Response:
         sep = "&" if "?" in redirect_uri else "?"
         return Response.redirect(f"{redirect_uri}{sep}error=access_denied")
 
-    authorize_self = (
-        f"{req.base_url}/authorize?response_type=code"
-        f"&client_id={client_id}&redirect_uri={redirect_uri}"
-        f"&code_challenge={challenge}"
-        f"&code_challenge_method={method}"
-        f"&profile={profile}"
-    )
+    consent_params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "code_challenge": challenge,
+        "code_challenge_method": method,
+        "profile": profile,
+    }
     if scope:
-        authorize_self += f"&scope={scope}"
+        consent_params["scope"] = scope
+    authorize_self = f"{req.base_url}/authorize?{urlencode(consent_params)}"
 
     return Response.html(
         200,
@@ -496,11 +512,25 @@ def _mcp_servers(_: Request) -> Response:
     return Response.json(200, _mcp_servers_payload())
 
 
+def _visible_source(name: str):
+    """Look up a server, hiding private (org-only) sources in public mode.
+
+    A public deployment must not even acknowledge private servers exist, so
+    callers treat a None result as a 404 — identical to a truly unknown name.
+    """
+    from kater.profiles import is_private_source, is_public_mode
+
+    source = get_source(name)
+    if not source or (is_public_mode() and is_private_source(source)):
+        return None
+    return source
+
+
 @route("GET", "/api/mcp/servers/{name}")
 def _mcp_server(req: Request) -> Response:
-    source = get_source(req.params["name"])
+    source = _visible_source(req.params["name"])
     if not source:
-        return Response.json(200, {"error": f"Unknown server: {req.params['name']}"})
+        return Response.json(404, {"error": f"Unknown server: {req.params['name']}"})
     settings = load_settings()
     env_present = all(os.environ.get(v) for v in source.env)
     return Response.json(
@@ -553,12 +583,28 @@ def _evals(_: Request) -> Response:
 
 
 @route("GET", "/api/catalog")
-def _catalog(_: Request) -> Response:
+def _catalog(req: Request) -> Response:
+    from kater.profiles import visible_tool_sources
+
     settings = load_settings()
+    query = (req.query1("q") or "").strip().lower()
+    profile = (req.query1("profile") or "").strip()
+    transport = (req.query1("transport") or "").strip().lower()
+    risk = (req.query1("risk") or "").strip().lower()
     results = []
-    for source in TOOL_SOURCES:
+    for source in visible_tool_sources():
         if source.transport == "native":
             continue
+        if profile and profile != "core" and profile not in source.profiles:
+            continue
+        if transport and source.transport.value != transport:
+            continue
+        if risk and source.risk.value != risk:
+            continue
+        if query:
+            haystack = f"{source.name} {source.description}".lower()
+            if query not in haystack:
+                continue
         env_ok = all(os.environ.get(v) for v in source.env)
         results.append(
             {
@@ -567,6 +613,7 @@ def _catalog(_: Request) -> Response:
                 "transport": source.transport.value,
                 "risk": source.risk.value,
                 "profiles": sorted(source.profiles),
+                "env_required": source.env,
                 "env_configured": env_ok,
                 "enabled": settings.is_server_enabled(source.name, default=True),
                 "homepage": source.homepage,
@@ -593,19 +640,17 @@ def _spec(_: Request) -> Response:
 
 @route("GET", "/api/export")
 def _export(_: Request) -> Response:
+    # Reuse the single sanitizer so this export can never drift back into
+    # leaking secrets (api_keys, stored MCP server credentials).
     settings = load_settings()
-    safe_auth = settings.auth.model_dump()
-    if safe_auth.get("api_keys"):
-        safe_auth["api_keys"] = len(safe_auth["api_keys"])
+    safe = settings.to_safe_dict()
     return Response.json(
         200,
         {
             "version": settings.version,
             "default_profile": settings.default_profile,
-            "auth": safe_auth,
-            "server_overrides": {
-                k: v.model_dump() for k, v in settings.server_overrides.items()
-            },
+            "auth": safe["auth"],
+            "server_overrides": safe["server_overrides"],
             "cors_origins": settings.cors_origins,
             "rate_limit_per_min": settings.rate_limit_per_min,
             "storage_backend": settings.storage_backend,
@@ -645,9 +690,9 @@ def _chain_run(req: Request) -> Response:
 def _server_action(req: Request) -> Response:
     name = req.params["name"]
     action = req.params["action"]
-    source = get_source(name)
+    source = _visible_source(name)
     if not source:
-        return Response.json(400, {"error": f"Unknown server: {name}"})
+        return Response.json(404, {"error": f"Unknown server: {name}"})
     settings = load_settings()
     if action == "enable":
         settings.set_server_enabled(name, True)
@@ -671,6 +716,53 @@ def _server_action(req: Request) -> Response:
     return Response.json(400, {"error": f"Unknown action: {action}"})
 
 
+@route("POST", "/api/mcp/servers/{name}/credentials")
+def _server_credentials(req: Request) -> Response:
+    # Store the credentials a server needs to connect. Only env vars the server
+    # actually declares are accepted (no arbitrary env injection), values are
+    # applied to the live process and persisted (gitignored .kater/settings.json).
+    name = req.params["name"]
+    source = _visible_source(name)
+    if not source:
+        return Response.json(404, {"error": f"Unknown server: {name}"})
+
+    body = req.json
+    env = body.get("env")
+    if not isinstance(env, dict):
+        return Response.json(400, {"error": "Body must include an 'env' object."})
+
+    declared = set(source.env)
+    for key in env:
+        if key not in declared:
+            return Response.json(400, {"error": f"{name} does not use credential '{key}'."})
+
+    settings = load_settings()
+    override = settings.server_overrides.get(name) or ServerOverride()
+    applied: list[str] = []
+    for key, value in env.items():
+        text = str(value or "").strip()
+        if text:
+            override.env[key] = text
+            os.environ[key] = text
+            applied.append(key)
+        else:
+            override.env.pop(key, None)
+            # Clearing must also drop it from the live process, otherwise
+            # env_configured below would still read the old value as "set".
+            os.environ.pop(key, None)
+    settings.server_overrides[name] = override
+    save_settings(settings)
+
+    env_present = all(os.environ.get(v) for v in source.env)
+    _ws_broadcast("server_credentials", {"name": name, "env_configured": env_present})
+    return Response.json(200, {"name": name, "env_configured": env_present, "applied": applied})
+
+
+@route("GET", "/api/tunnel")
+def _tunnel_status(_: Request) -> Response:
+    return Response.json(200, tunnel_overview())
+
+
 @route("POST", "/api/tunnel/{provider}/start")
 def _tunnel_start(req: Request) -> Response:
     provider = req.params["provider"]
@@ -681,6 +773,18 @@ def _tunnel_start(req: Request) -> Response:
     else:
         return Response.json(400, {"error": f"Unknown tunnel provider: {provider}"})
     return Response.json(200, info.to_dict())
+
+
+@route("POST", "/api/tunnel/{provider}/stop")
+def _tunnel_stop(req: Request) -> Response:
+    provider = req.params["provider"]
+    if provider == "cloudflare":
+        ok = stop_cloudflared()
+    elif provider == "tailscale":
+        ok = stop_tailscale_funnel()
+    else:
+        return Response.json(400, {"error": f"Unknown tunnel provider: {provider}"})
+    return Response.json(200, {"provider": provider, "stopped": ok, "running": False})
 
 
 @route("POST", "/api/settings")
@@ -705,8 +809,13 @@ def _update_settings(req: Request) -> Response:
         _reset_rate_limiter()
     if "default_profile" in body:
         settings.default_profile = body["default_profile"]
+    if "storage_backend" in body:
+        backend = body["storage_backend"]
+        if backend not in ("sqlite", "jsonl"):
+            return Response.json(400, {"error": "storage_backend must be sqlite or jsonl"})
+        settings.storage_backend = backend
     save_settings(settings)
-    return Response.json(200, settings.to_dict())
+    return Response.json(200, settings.to_safe_dict())
 
 
 # ── Stdlib adapter: translate HTTP <-> Request/Response ────────────

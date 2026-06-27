@@ -225,6 +225,78 @@ def test_catalog(api_server) -> None:
     assert "stdio" in data["by_transport"]
     assert "high" in data["by_risk"]
 
+    search = _get(9912, "/api/catalog?q=brave")
+    names = {s["name"] for s in search["servers"]}
+    assert names == {"brave-search"}
+
+    profile = _get(9912, "/api/catalog?profile=research")
+    for server in profile["servers"]:
+        assert "research" in server["profiles"]
+
+
+def test_update_storage_backend(api_server) -> None:
+    updated = _post(9912, "/api/settings", {"storage_backend": "jsonl"})
+    assert updated["storage_backend"] == "jsonl"
+    assert _get(9912, "/api/settings")["storage_backend"] == "jsonl"
+
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _post(9912, "/api/settings", {"storage_backend": "redis"})
+    assert exc.value.code == 400
+
+
+def test_server_credentials(api_server) -> None:
+    import os
+
+    try:
+        ok = _post(
+            9912,
+            "/api/mcp/servers/github/credentials",
+            {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "tok123"}},
+        )
+        assert ok["env_configured"] is True
+        assert ok["applied"] == ["GITHUB_PERSONAL_ACCESS_TOKEN"]
+        # The server reports configured now that the credential is set.
+        detail = _get(9912, "/api/mcp/servers/github")
+        assert detail["env_configured"] is True
+
+        # Only declared credentials are accepted (no arbitrary env injection).
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            _post(9912, "/api/mcp/servers/github/credentials", {"env": {"NOPE": "x"}})
+        assert exc.value.code == 400
+    finally:
+        os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
+
+
+def test_settings_redacts_server_credentials(api_server) -> None:
+    import os
+
+    try:
+        _post(
+            9912,
+            "/api/mcp/servers/github/credentials",
+            {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "supersecret-token"}},
+        )
+        raw = _get(9912, "/api/settings")
+        assert "supersecret-token" not in json.dumps(raw)
+        stored = raw["server_overrides"]["github"]["env"]
+        assert stored["GITHUB_PERSONAL_ACCESS_TOKEN"] == "***"
+    finally:
+        os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
+
+
+def test_private_server_hidden_in_public_mode(monkeypatch) -> None:
+    # A public deployment must not acknowledge private (org-only) servers at all.
+    # The detail/toggle/credentials handlers all gate through _visible_source,
+    # so a None result there is what turns into a 404 for every one of them.
+    from kater.api import _visible_source
+
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    assert _visible_source("utrecht") is not None
+
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    assert _visible_source("utrecht") is None
+    assert _visible_source("github") is not None
+
 
 # ── Spec ───────────────────────────────────────────────────────────
 

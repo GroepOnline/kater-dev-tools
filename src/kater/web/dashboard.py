@@ -2,29 +2,34 @@ from __future__ import annotations
 
 _CSS = r"""
 :root {
-  --bg: #0a0e14;
-  --bg2: #0d1320;
-  --surface: rgba(18, 24, 38, 0.72);
-  --surface-solid: #121826;
-  --border: rgba(48, 60, 82, 0.6);
-  --border-bright: rgba(80, 100, 140, 0.4);
-  --text: #e2e8f0;
-  --text-dim: #64748b;
-  --text-bright: #f1f5f9;
-  --accent: #f59e0b;
-  --accent-glow: rgba(245, 158, 11, 0.15);
-  --green: #22c55e;
-  --green-glow: rgba(34, 197, 94, 0.12);
-  --cyan: #06b6d4;
-  --cyan-glow: rgba(6, 182, 212, 0.12);
-  --red: #ef4444;
-  --purple: #a855f7;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --shadow: 0 4px 24px rgba(0,0,0,0.4);
-  --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Amber-console palette: neutral graphite + a single amber signal.
+     Status colors (jade/coral/ice) carry meaning, never decoration. */
+  --bg: #0a0b0e;
+  --bg2: #0f1116;
+  --surface: rgba(20, 22, 28, 0.72);
+  --surface-solid: #14161c;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-bright: rgba(255, 255, 255, 0.17);
+  --text: #e7e9ee;
+  --text-dim: #8b919e;
+  --text-bright: #f6f7f9;
+  --accent: #ffb224;
+  --accent-soft: #f59e0b;
+  --accent-glow: rgba(255, 178, 36, 0.16);
+  --green: #3fb950;
+  --green-glow: rgba(63, 185, 80, 0.14);
+  --cyan: #5cc8e0;
+  --cyan-glow: rgba(92, 200, 224, 0.12);
+  --red: #f76d5e;
+  /* Legacy alias: any stray purple usage stays on-brand amber. */
+  --purple: #ffb224;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+  --shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  --transition: 170ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -36,14 +41,44 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--accent-glow); color: var(--text-bright); }
+
+/* Quality floor: every interactive element shows a visible amber focus ring. */
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Respect reduced-motion: kill ambient animation and transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 #bg-gradient {
   position: fixed; inset: 0; z-index: 0;
   background:
-    radial-gradient(ellipse 800px 600px at 20% 30%, rgba(245,158,11,0.04), transparent),
-    radial-gradient(ellipse 600px 800px at 80% 70%, rgba(6,182,212,0.03), transparent),
+    radial-gradient(ellipse 900px 640px at 18% 20%, rgba(255,178,36,0.05), transparent 60%),
+    radial-gradient(ellipse 700px 820px at 84% 78%, rgba(92,200,224,0.035), transparent 60%),
     var(--bg);
+}
+/* Faint engineering grid — the console sits on a measured surface. */
+#bg-gradient::before {
+  content: ''; position: absolute; inset: 0; opacity: 0.4;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 38px 38px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 80% at 50% 40%, #000 30%, transparent 80%);
+  mask-image: radial-gradient(ellipse 80% 80% at 50% 40%, #000 30%, transparent 80%);
 }
 
 /* ── Boot ──────────────────────────────── */
@@ -76,16 +111,24 @@ body {
 .topbar-left { display: flex; align-items: center; gap: 16px; }
 .brand {
   font-family: var(--mono); font-weight: 700; font-size: 15px;
-  letter-spacing: 1px; color: var(--text-bright);
-  display: flex; align-items: center; gap: 8px;
+  letter-spacing: 2px; color: var(--text-bright);
+  display: flex; align-items: center; gap: 10px;
 }
 .brand-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 12px var(--accent);
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent-glow), 0 0 14px var(--accent);
+  animation: reactor 2.6s ease-in-out infinite;
+}
+@keyframes reactor {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,178,36,0.45), 0 0 14px var(--accent); }
+  50% { box-shadow: 0 0 0 6px rgba(255,178,36,0), 0 0 18px var(--accent); }
 }
 .version-tag {
   font-family: var(--mono); font-size: 11px; color: var(--text-dim);
-  padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.04);
+  padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
 }
 .profile-pills {
   display: flex; gap: 4px; flex-wrap: wrap;
@@ -259,7 +302,7 @@ body {
   display: flex; align-items: center; justify-content: center;
   transition: var(--transition);
 }
-.detail-close:hover { color: var(--red); background: rgba(239,68,68,0.1); }
+.detail-close:hover { color: var(--red); background: rgba(247,109,94,0.12); }
 .detail-section {
   padding: 14px 16px; border-bottom: 1px solid var(--border);
 }
@@ -272,6 +315,24 @@ body {
   font-family: var(--mono); font-size: 12px; color: var(--text);
   word-break: break-all;
 }
+.detail-link {
+  font-family: var(--mono); font-size: 12px; color: var(--accent);
+  text-decoration: none; word-break: break-all;
+}
+.detail-link:hover { text-decoration: underline; }
+.detail-status {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 12px; color: var(--text);
+}
+.detail-status::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-dim); flex-shrink: 0;
+}
+.detail-status.ready { color: var(--green); }
+.detail-status.ready::before { background: var(--green); box-shadow: 0 0 10px var(--green); }
+.detail-status.needs { color: var(--accent); }
+.detail-status.needs::before { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.detail-status.off { color: var(--text-dim); }
 .badges { display: flex; gap: 6px; flex-wrap: wrap; }
 .badge {
   font-family: var(--mono); font-size: 10px; font-weight: 600;
@@ -280,8 +341,8 @@ body {
 .badge.stdio { background: var(--green-glow); color: var(--green); }
 .badge.sse, .badge.http { background: var(--cyan-glow); color: var(--cyan); }
 .badge.native { background: var(--accent-glow); color: var(--accent); }
-.badge.high { background: rgba(239,68,68,0.12); color: var(--red); }
-.badge.medium { background: rgba(245,158,11,0.12); color: var(--accent); }
+.badge.high { background: rgba(247,109,94,0.13); color: var(--red); }
+.badge.medium { background: rgba(255,178,36,0.14); color: var(--accent); }
 .badge.low { background: var(--green-glow); color: var(--green); }
 .detail-actions {
   padding: 16px; display: flex; gap: 8px;
@@ -364,6 +425,14 @@ body {
   padding: 48px 20px; text-align: center;
   font-family: var(--mono); font-size: 12px; color: var(--text-dim);
 }
+.catalog-toolbar {
+  padding: 10px 12px 0;
+  position: sticky; top: 0; z-index: 2;
+  background: linear-gradient(var(--bg) 70%, transparent);
+}
+#catalog-search {
+  width: 100%; max-width: 420px;
+}
 
 /* ── Server Grid (Catalog) ────────────── */
 .server-grid {
@@ -372,13 +441,22 @@ body {
   gap: 12px; padding: 12px;
 }
 .server-card {
+  position: relative;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px; cursor: pointer;
   transition: var(--transition); backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+.server-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--accent); opacity: 0;
+  transition: opacity var(--transition);
 }
 .server-card:hover {
-  border-color: var(--border-bright); transform: translateY(-1px);
+  border-color: var(--border-bright); transform: translateY(-2px);
+  box-shadow: var(--shadow);
 }
+.server-card:hover::before { opacity: 0.9; }
 .server-card-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 8px; gap: 8px;
@@ -405,6 +483,13 @@ body {
 }
 .toggle-switch.on { background: var(--green); }
 .toggle-switch.on::after { left: 18px; background: #fff; }
+/* Mid-stage: switched on, but missing credentials — not actually connected. */
+.toggle-switch.pending { background: var(--accent-soft); }
+.toggle-switch.pending::after {
+  left: 18px; background: #000;
+  animation: toggle-pulse 1.6s ease-in-out infinite;
+}
+@keyframes toggle-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 /* ── Eval Table ───────────────────────── */
 .eval-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -500,6 +585,44 @@ body {
   transition: var(--transition);
 }
   .btn-save:hover { opacity: 0.85; }
+
+/* ── Modal (credentials) ───────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 130;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(8, 9, 12, 0.74);
+  backdrop-filter: blur(8px);
+  padding: 20px;
+}
+.modal-overlay.show { display: flex; animation: toast-in 160ms ease-out; }
+.modal-card {
+  width: min(460px, 96vw);
+  background: var(--surface-solid);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.modal-title {
+  font-family: var(--mono); font-size: 15px; font-weight: 700;
+  letter-spacing: 0.5px; color: var(--text-bright);
+}
+.modal-sub {
+  color: var(--text-dim); font-size: 13px; line-height: 1.5;
+  margin-bottom: 18px;
+}
+.modal-actions {
+  display: flex; gap: 10px; align-items: center; margin-top: 6px;
+}
+.modal-actions .btn-action { flex: 1; text-transform: none; letter-spacing: 0; }
+.modal-actions .btn-action#cred-provider {
+  flex: 0 0 auto; text-decoration: none; display: inline-flex;
+  align-items: center; justify-content: center;
+}
 
 /* ── Auth gate ─────────────────────────── */
 #auth-gate {
@@ -656,6 +779,10 @@ _VIEW_CATALOG = r"""
       <span class="tile-title" id="catalog-count">0 servers</span>
     </div>
     <div class="view-scroll">
+      <div class="catalog-toolbar">
+        <input class="form-input" id="catalog-search" type="search"
+          placeholder="Zoek servers (bijv. search, github)..." autocomplete="off">
+      </div>
       <div class="server-grid" id="catalog-grid">
         <div class="view-empty">Loading catalog...</div>
       </div>
@@ -728,7 +855,7 @@ _VIEW_SETTINGS = r"""
         </div>
         <div class="form-field">
           <label class="form-label">Storage Backend</label>
-          <select class="form-select" id="set-storage" disabled>
+          <select class="form-select" id="set-storage">
             <option value="sqlite">sqlite</option>
             <option value="jsonl">jsonl</option>
           </select>
@@ -752,7 +879,12 @@ _HTML_SHELL_BOTTOM = r"""
 <div class="detail-panel" id="detail-panel">
   <div class="detail-header">
     <span class="detail-name" id="detail-name">-</span>
-    <div class="detail-close" onclick="closeDetail()">&times;</div>
+    <div class="detail-close" onclick="closeDetail()" role="button"
+      tabindex="0" aria-label="Close details">&times;</div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-label">Status</div>
+    <div class="detail-status" id="detail-status">-</div>
   </div>
   <div class="detail-section">
     <div class="detail-label">Transport / Risk</div>
@@ -774,10 +906,37 @@ _HTML_SHELL_BOTTOM = r"""
     <div class="detail-label">Profiles</div>
     <div class="detail-value" id="detail-profiles">-</div>
   </div>
+  <div class="detail-section" id="detail-homepage-row" style="display:none">
+    <div class="detail-label">Homepage</div>
+    <a class="detail-link" id="detail-homepage" href="#" target="_blank" rel="noopener">-</a>
+  </div>
+  <div class="detail-section" id="detail-connect-row" style="display:none">
+    <button class="btn-action primary" id="btn-connect" type="button"
+      onclick="connectSelected()" style="width:100%">Connect…</button>
+  </div>
   <div class="detail-actions">
-    <button class="btn-action primary" id="btn-enable" onclick="detailToggle(true)">ENABLE</button>
+    <button class="btn-action primary" id="btn-enable" onclick="detailToggle(true)">Enable</button>
     <button class="btn-action danger" id="btn-disable"
-      onclick="detailToggle(false)">DISABLE</button>
+      onclick="detailToggle(false)">Disable</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="cred-modal" role="dialog" aria-modal="true"
+  aria-labelledby="cred-title">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span class="modal-title" id="cred-title">Connect</span>
+      <div class="detail-close" onclick="closeCredentialsModal()" role="button"
+        tabindex="0" aria-label="Close">&times;</div>
+    </div>
+    <p class="modal-sub" id="cred-sub">Paste a token to connect this server.</p>
+    <div id="cred-fields"></div>
+    <div class="modal-actions">
+      <a class="btn-action" id="cred-provider" href="#" target="_blank"
+        rel="noopener" style="display:none">Get a token &#8599;</a>
+      <button class="btn-action primary" id="cred-save" type="button"
+        onclick="saveCredentials()">Save &amp; connect</button>
+    </div>
   </div>
 </div>
 
@@ -797,6 +956,7 @@ _HTML = (
 
 _JS = r"""
 const API = '';
+const MONO_FONT = "'JetBrains Mono','SF Mono',ui-monospace,'Cascadia Code','Consolas',monospace";
 const AUTH_STORAGE = 'kater_bearer';
 const WS_PORT = (window.KATER_CONFIG && window.KATER_CONFIG.wsPort) || 9092;
 const WS_SCHEME = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -806,6 +966,12 @@ const WS_URL = (location.protocol === 'https:')
 let ws = null;
 let wsRetry = 0;
 let wsTimer = null;
+let appReady = false;
+let catalogQuery = '';
+let catalogReloadTimer = null;
+let catalogSearchTimer = null;
+const recentTelemetry = new Map();
+const TELEMETRY_DEDUPE_MS = 2500;
 let servers = [];
 let profiles = [];
 let activeProfile = 'core';
@@ -817,8 +983,8 @@ let particles = [];
 let animFrame = null;
 
 const transportColors = {
-  stdio: '#22c55e', sse: '#06b6d4', http: '#06b6d4',
-  native: '#f59e0b', local: '#a855f7'
+  stdio: '#3fb950', sse: '#5cc8e0', http: '#5cc8e0',
+  native: '#ffb224', local: '#ffb224'
 };
 
 // ── Helpers ────────────────────────────
@@ -885,11 +1051,15 @@ async function exchangeOAuthCode(code) {
     redirect_uri: redirect,
     code_verifier: verifier,
   });
-  const data = await api('/token', {
+  const r = await fetch('/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
   });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ApiError(data.error || 'token exchange failed', r.status, data);
+  }
   if (data.access_token) {
     sessionStorage.setItem(AUTH_STORAGE, data.access_token);
   }
@@ -901,16 +1071,17 @@ async function startOAuthLogin() {
   const challenge = await pkceChallenge(verifier);
   sessionStorage.setItem('pkce_verifier', verifier);
   const redirect = location.origin + location.pathname;
-  const reg = await fetch('/register', {
+  const regResp = await fetch('/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       client_name: 'kater-dashboard',
       redirect_uris: [redirect],
     }),
-  }).then(r => r.json());
-  if (!reg.client_id) {
-    toast('OAuth registration failed', 'error');
+  });
+  const reg = await regResp.json().catch(() => ({}));
+  if (!regResp.ok || !reg.client_id) {
+    toast('OAuth registration failed: ' + (reg.error || regResp.status), 'error');
     return;
   }
   sessionStorage.setItem('oauth_client_id', reg.client_id);
@@ -933,8 +1104,18 @@ async function handleAuthBootstrap() {
     history.replaceState({}, '', location.pathname + (params.toString() ? '?' + params : ''));
   }
   if (params.get('code') && sessionStorage.getItem('pkce_verifier')) {
-    await exchangeOAuthCode(params.get('code'));
-    params.delete('code');
+    try {
+      await exchangeOAuthCode(params.get('code'));
+      params.delete('code');
+      history.replaceState({}, '', location.pathname);
+    } catch (e) {
+      sessionStorage.removeItem(AUTH_STORAGE);
+      throw e;
+    }
+  }
+  if (params.get('error')) {
+    toast('OAuth denied: ' + params.get('error'), 'error');
+    params.delete('error');
     history.replaceState({}, '', location.pathname);
   }
 }
@@ -944,11 +1125,16 @@ function showAuthGate() {
   gate.classList.add('show');
   document.getElementById('boot').style.display = 'none';
   document.getElementById('auth-oauth-btn').onclick = () => startOAuthLogin();
-  document.getElementById('auth-key-btn').onclick = () => {
+  document.getElementById('auth-key-btn').onclick = async () => {
     const key = document.getElementById('auth-key-input').value.trim();
     if (!key) { toast('Enter an API key', 'error'); return; }
     sessionStorage.setItem(AUTH_STORAGE, key);
     gate.classList.remove('show');
+    if (appReady) {
+      try { await loadCatalog(); await loadStatus(); initWebSocket(); }
+      catch (e) { toast('Login refresh failed', 'error'); }
+      return;
+    }
     init();
   };
 }
@@ -1007,9 +1193,34 @@ function filterServers(all) {
   // 'core' is the superset; any other profile filters to its members. Makes
   // the profile pills actually do something (the catalog payload carries a
   // `profiles` list per server).
-  return activeProfile === 'core'
+  const seen = new Set();
+  return (activeProfile === 'core'
     ? all
-    : all.filter(s => (s.profiles || []).indexOf(activeProfile) !== -1);
+    : all.filter(s => (s.profiles || []).indexOf(activeProfile) !== -1)
+  ).filter(s => {
+    if (seen.has(s.name)) return false;
+    seen.add(s.name);
+    return true;
+  });
+}
+
+function catalogApiPath() {
+  const params = new URLSearchParams();
+  if (catalogQuery) params.set('q', catalogQuery);
+  if (activeProfile && activeProfile !== 'core') params.set('profile', activeProfile);
+  const q = params.toString();
+  return '/api/catalog' + (q ? '?' + q : '');
+}
+
+function scheduleCatalogReload() {
+  if (catalogReloadTimer) return;
+  catalogReloadTimer = setTimeout(async () => {
+    catalogReloadTimer = null;
+    try {
+      await loadCatalog();
+      if (currentView === 'catalog') await loadCatalogView();
+    } catch (e) { /* ignore background refresh errors */ }
+  }, 300);
 }
 
 // ── Boot Sequence ──────────────────────
@@ -1052,7 +1263,11 @@ async function bootSequence() {
 
 // ── Init ───────────────────────────────
 async function init() {
-  try { await handleAuthBootstrap(); } catch (e) { console.error('auth bootstrap:', e); }
+  if (appReady) return;
+  try { await handleAuthBootstrap(); } catch (e) {
+    console.error('auth bootstrap:', e);
+    toast((e instanceof ApiError ? e.message : 'Login failed'), 'error');
+  }
   try { await bootSequence(); } catch (e) {
     if (e instanceof ApiError && e.status === 401) {
       showAuthGate();
@@ -1066,12 +1281,15 @@ async function init() {
   try { await loadProfiles(); } catch (e) { console.error('profiles:', e); }
   try { await loadCatalog(); } catch (e) { console.error('catalog:', e); }
   try { await loadStatus(); } catch (e) { console.error('status:', e); }
+  try { await loadTunnelStatus(); } catch (e) { console.error('tunnel:', e); }
   initDelegation();
   initCommandBar();
+  initCatalogSearch();
   initKeyboard();
   initWebSocket();
   startAnimationLoop();
   setInterval(loadStatusSafe, 5000);
+  appReady = true;
 }
 
 async function loadStatusSafe() {
@@ -1104,7 +1322,7 @@ function switchProfile(p) {
 }
 
 async function loadCatalog() {
-  const data = await api('/api/catalog');
+  const data = await api(catalogApiPath());
   servers = filterServers(data.servers || []);
   buildNodes();
   document.getElementById('node-count').textContent = servers.length + ' nodes';
@@ -1123,7 +1341,7 @@ async function loadStatus() {
   document.getElementById('stat-events').textContent =
     (data.telemetry && data.telemetry.total_events) || 0;
   document.getElementById('auth-dot').style.background =
-    data.auth_mode === 'none' ? '#22c55e' : '#f59e0b';
+    data.auth_mode === 'none' ? '#3fb950' : '#ffb224';
 }
 
 // ── Constellation Canvas ───────────────
@@ -1216,13 +1434,13 @@ function drawConstellation() {
   const pulse = 0.5 + 0.5 * Math.sin(time * 1.5);
 
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
-  grad.addColorStop(0, 'rgba(245,158,11,0.15)');
-  grad.addColorStop(1, 'rgba(245,158,11,0)');
+  grad.addColorStop(0, 'rgba(255,178,36,0.15)');
+  grad.addColorStop(1, 'rgba(255,178,36,0)');
   ctx.fillStyle = grad;
   ctx.fillRect(cx - 60, cy - 60, 120, 120);
 
   for (const n of nodes) {
-    const color = transportColors[n.transport] || '#64748b';
+    const color = transportColors[n.transport] || '#565d6a';
     const isActive = n.enabled && n.env_configured;
     const isHovered = n === hoveredNode;
 
@@ -1234,7 +1452,7 @@ function drawConstellation() {
       ctx.strokeStyle = color + '44';
       ctx.lineWidth = isHovered ? 2 : 1.5;
     } else {
-      ctx.strokeStyle = 'rgba(48,60,82,0.3)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 4]);
     }
@@ -1265,7 +1483,7 @@ function drawConstellation() {
   }
 
   for (const n of nodes) {
-    const color = transportColors[n.transport] || '#64748b';
+    const color = transportColors[n.transport] || '#565d6a';
     const isActive = n.enabled && n.env_configured;
     const isHovered = n === hoveredNode;
     const r = isHovered ? n.r + 3 : n.r;
@@ -1286,45 +1504,45 @@ function drawConstellation() {
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
     } else {
-      ctx.fillStyle = 'rgba(18,24,38,0.8)';
+      ctx.fillStyle = 'rgba(20,22,28,0.85)';
       ctx.fill();
-      ctx.strokeStyle = '#303c4c';
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
       ctx.lineWidth = 1.5;
     }
     ctx.stroke();
 
     ctx.beginPath();
     ctx.arc(n.x, n.y, 4, 0, Math.PI * 2);
-    ctx.fillStyle = isActive ? color : '#475569';
+    ctx.fillStyle = isActive ? color : '#565d6a';
     ctx.fill();
 
-    ctx.font = '11px SF Mono, Consolas, monospace';
+    ctx.font = '11px ' + MONO_FONT;
     ctx.textAlign = 'center';
-    ctx.fillStyle = isHovered ? '#f1f5f9' : isActive ? '#e2e8f0' : '#475569';
+    ctx.fillStyle = isHovered ? '#f6f7f9' : isActive ? '#e7e9ee' : '#565d6a';
     ctx.fillText(n.name, n.x, n.y + r + 14);
   }
 
   ctx.beginPath();
   ctx.arc(cx, cy, 22 + pulse * 3, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(245,158,11,0.08)';
+  ctx.fillStyle = 'rgba(255,178,36,0.08)';
   ctx.fill();
 
   ctx.beginPath();
   ctx.arc(cx, cy, 16, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(245,158,11,0.2)';
+  ctx.fillStyle = 'rgba(255,178,36,0.22)';
   ctx.fill();
-  ctx.strokeStyle = '#f59e0b';
+  ctx.strokeStyle = '#ffb224';
   ctx.lineWidth = 2;
   ctx.stroke();
 
   ctx.beginPath();
   ctx.arc(cx, cy, 6, 0, Math.PI * 2);
-  ctx.fillStyle = '#f59e0b';
+  ctx.fillStyle = '#ffb224';
   ctx.fill();
 
-  ctx.font = 'bold 12px SF Mono, Consolas, monospace';
+  ctx.font = 'bold 12px ' + MONO_FONT;
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#f59e0b';
+  ctx.fillStyle = '#ffb224';
   ctx.fillText('KATER', cx, cy + 36);
 }
 
@@ -1359,31 +1577,67 @@ function openDetail(node) {
     node.env_configured ? 'configured' : 'missing env'
   ));
 
+  const reqs = node.env_required || [];
+  const configured = !!node.env_configured;
+  const missing = configured ? [] : reqs;
+
   const envEl = document.getElementById('detail-env');
   envEl.innerHTML = '';
-  const reqs = node.env_required || [];
   if (reqs.length) {
     for (const e of reqs) {
       const line = document.createElement('div');
       const nameEl = document.createElement('span');
       nameEl.textContent = e + ': ';
       const val = document.createElement('span');
-      val.style.color = node.env_configured ? '#22c55e' : '#ef4444';
-      val.textContent = node.env_configured ? 'set' : 'MISSING';
+      val.style.color = configured ? '#3fb950' : '#f76d5e';
+      val.textContent = configured ? 'set' : 'not set';
       line.appendChild(nameEl);
       line.appendChild(val);
       envEl.appendChild(line);
     }
   } else {
-    envEl.textContent = '(none required)';
+    envEl.textContent = 'No credentials required.';
+  }
+
+  // Status reads like a sentence the operator can act on.
+  const statusEl = document.getElementById('detail-status');
+  statusEl.className = 'detail-status';
+  if (!node.enabled) {
+    statusEl.classList.add('off');
+    statusEl.textContent = 'Disabled. Enable it to include it in this profile.';
+  } else if (missing.length) {
+    statusEl.classList.add('needs');
+    statusEl.textContent = 'Enabled, but not connected. Set ' + missing.join(', ') + '.';
+  } else if (reqs.length) {
+    statusEl.classList.add('ready');
+    statusEl.textContent = 'Enabled and configured. Ready to connect.';
+  } else {
+    statusEl.classList.add('ready');
+    statusEl.textContent = 'Enabled. No credentials needed.';
   }
 
   document.getElementById('detail-cmd').textContent = formatLaunch(node);
   document.getElementById('detail-profiles').textContent =
-    (node.profiles || []).join(', ');
+    (node.profiles || []).join(', ') || '-';
+
+  const homeRow = document.getElementById('detail-homepage-row');
+  const homeLink = document.getElementById('detail-homepage');
+  if (node.homepage) {
+    homeLink.href = node.homepage;
+    homeLink.textContent = node.homepage;
+    homeRow.style.display = '';
+  } else {
+    homeRow.style.display = 'none';
+  }
+
+  // Offer "Connect…" only when the server is missing the credentials it needs.
+  const connectRow = document.getElementById('detail-connect-row');
+  connectRow.style.display = (reqs.length && missing.length) ? '' : 'none';
 
   const enableBtn = document.getElementById('btn-enable');
   const disableBtn = document.getElementById('btn-disable');
+  enableBtn.disabled = !!node.enabled;
+  disableBtn.disabled = !node.enabled;
   enableBtn.style.opacity = node.enabled ? '0.4' : '1';
   disableBtn.style.opacity = node.enabled ? '1' : '0.4';
 
@@ -1395,13 +1649,104 @@ function closeDetail() {
   selectedNode = null;
 }
 
+// ── Credentials modal ──────────────────
+let credServer = null;
+
+function connectSelected() {
+  if (selectedNode && selectedNode.name) promptCredentials(selectedNode.name);
+}
+
+async function promptCredentials(name) {
+  // Always work from the full server doc: the catalog payload omits the list
+  // of required env vars, the detail endpoint has it.
+  try {
+    const server = await api('/api/mcp/servers/' + encodeURIComponent(name));
+    if (server && !server.error) openCredentialsModal(server);
+  } catch (e) {
+    toast('Could not load ' + name + ': ' + (e.message || 'failed'), 'error');
+  }
+}
+
+function openCredentialsModal(server) {
+  credServer = server;
+  const reqs = server.env_required || [];
+  document.getElementById('cred-title').textContent = 'Connect ' + server.name;
+  const sub = document.getElementById('cred-sub');
+  const fields = document.getElementById('cred-fields');
+  fields.innerHTML = '';
+  if (!reqs.length) {
+    sub.textContent = server.name + ' needs no credentials — just enable it.';
+  } else {
+    sub.textContent = 'Paste ' + (reqs.length > 1 ? 'these tokens' : 'a token')
+      + ' to connect ' + server.name + ', or open the provider to create one.';
+    for (const v of reqs) {
+      const wrap = document.createElement('div');
+      wrap.className = 'form-field';
+      const label = document.createElement('label');
+      label.className = 'form-label';
+      label.textContent = v;
+      const input = document.createElement('input');
+      input.className = 'form-input';
+      input.type = 'password';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.dataset.env = v;
+      input.placeholder = server.env_configured
+        ? 'set — leave blank to keep current'
+        : 'paste value';
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') saveCredentials();
+      });
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      fields.appendChild(wrap);
+    }
+  }
+  const prov = document.getElementById('cred-provider');
+  if (server.homepage) { prov.href = server.homepage; prov.style.display = ''; }
+  else { prov.style.display = 'none'; }
+  document.getElementById('cred-modal').classList.add('show');
+  const first = fields.querySelector('input');
+  if (first) first.focus();
+}
+
+function closeCredentialsModal() {
+  document.getElementById('cred-modal').classList.remove('show');
+  credServer = null;
+}
+
+async function saveCredentials() {
+  if (!credServer) return;
+  const inputs = document.querySelectorAll('#cred-fields input[data-env]');
+  const env = {};
+  let any = false;
+  inputs.forEach((i) => {
+    const val = i.value.trim();
+    if (val) { env[i.dataset.env] = val; any = true; }
+  });
+  if (!any) { toast('Enter at least one value to save.', 'error'); return; }
+  const name = credServer.name;
+  try {
+    const data = await apiPost(
+      '/api/mcp/servers/' + encodeURIComponent(name) + '/credentials', { env }
+    );
+    toast(name + (data.env_configured ? ' connected.' : ' credentials saved.'), 'success');
+    closeCredentialsModal();
+    await loadCatalog();
+    if (currentView === 'catalog') await loadCatalogView();
+    if (selectedNode && selectedNode.name === name) openServerDetail(name);
+  } catch (e) {
+    toast('Could not save credentials: ' + (e.message || 'failed'), 'error');
+  }
+}
+
 async function detailToggle(enable) {
   if (!selectedNode) return;
   const name = selectedNode.name;
   const action = enable ? 'enable' : 'disable';
   try {
     await apiPost('/api/mcp/servers/' + encodeURIComponent(name) + '/' + action, {});
-    toast(name + ': ' + (enable ? 'enabled' : 'disabled'), 'success');
+    toast(enableHint(name, enable), enable ? 'success' : '');
   } catch (e) {
     toast(name + ': ' + (e.message || 'failed'), 'error');
   }
@@ -1410,6 +1755,25 @@ async function detailToggle(enable) {
   try { await loadCatalog(); } catch (e) { /* handled */ }
   const fresh = servers.find(s => s.name === name);
   if (fresh) openDetail(fresh);
+  // Enabling something that still needs a token? Bring up the connect popup.
+  if (enable && fresh && fresh.env_configured === false) promptCredentials(name);
+}
+
+function initCatalogSearch() {
+  const input = document.getElementById('catalog-search');
+  if (!input || input.dataset.bound) return;
+  input.dataset.bound = '1';
+  input.addEventListener('input', () => {
+    if (catalogSearchTimer) clearTimeout(catalogSearchTimer);
+    catalogSearchTimer = setTimeout(async () => {
+      catalogSearchTimer = null;
+      catalogQuery = input.value.trim();
+      try {
+        await loadCatalog();
+        if (currentView === 'catalog') await loadCatalogView();
+      } catch (e) { /* ignore search errors while typing */ }
+    }, 200);
+  });
 }
 
 // ── Event delegation (catalog cards, deploy tabs, profile pills) ──
@@ -1469,7 +1833,17 @@ function initCommandBar() {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeDetail();
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('cred-modal').classList.contains('show')) {
+      closeCredentialsModal();
+    } else {
+      closeDetail();
+    }
+  });
+
+  const credModal = document.getElementById('cred-modal');
+  credModal.addEventListener('click', (e) => {
+    if (e.target === credModal) closeCredentialsModal();
   });
 }
 
@@ -1507,8 +1881,20 @@ async function runCommand(input) {
 }
 
 // ── WebSocket ──────────────────────────
-function initWebSocket() {
+function closeWebSocket() {
   if (wsTimer) { clearTimeout(wsTimer); wsTimer = null; }
+  if (!ws) return;
+  const old = ws;
+  ws = null;
+  old.onopen = null;
+  old.onmessage = null;
+  old.onerror = null;
+  old.onclose = null;
+  try { old.close(1000); } catch (e) {}
+}
+
+function initWebSocket() {
+  closeWebSocket();
   try {
     ws = new WebSocket(wsUrlWithAuth());
   } catch (e) {
@@ -1544,9 +1930,18 @@ function handleWSMessage(data) {
   if (data.type === 'server_enabled'
       || data.type === 'server_disabled'
       || data.type === 'server_toggled') {
-    loadCatalog();
-    if (currentView === 'catalog') loadCatalogView();
-    toast((data.name || 'server') + ': ' + data.type, 'success');
+    // The initiating action already toasts; just keep the view in sync, and
+    // refresh the open detail panel so its status reflects the change.
+    scheduleCatalogReload();
+    if (selectedNode && selectedNode.name === data.name) {
+      openServerDetail(data.name);
+    }
+  }
+  if (data.type === 'server_credentials') {
+    scheduleCatalogReload();
+    if (selectedNode && selectedNode.name === data.name) {
+      openServerDetail(data.name);
+    }
   }
   if (data.type === 'tool_call' || data.type === 'chain_run'
       || data.type === 'telemetry') {
@@ -1555,6 +1950,19 @@ function handleWSMessage(data) {
 }
 
 function appendTelemetry(event) {
+  const stamp = event.ts || event.timestamp || (Date.now() / 1000);
+  const bucket = Math.round(Number(stamp) * 2);
+  const key = (event.type || '') + '|' + (event.name || '') + '|' + bucket;
+  const nowMs = Date.now();
+  const prev = recentTelemetry.get(key);
+  if (prev && nowMs - prev < TELEMETRY_DEDUPE_MS) return;
+  recentTelemetry.set(key, nowMs);
+  if (recentTelemetry.size > 200) {
+    for (const [k, t] of recentTelemetry) {
+      if (nowMs - t > TELEMETRY_DEDUPE_MS) recentTelemetry.delete(k);
+    }
+  }
+
   const stream = document.getElementById('telemetry-stream');
   const row = document.createElement('div');
   row.className = 'tlm-row';
@@ -1582,28 +1990,60 @@ function appendTelemetry(event) {
 }
 
 // ── Tunnels ────────────────────────────
-async function toggleTunnel(provider) {
-  const btn = document.getElementById(provider === 'cloudflare' ? 'btn-cf' : 'btn-ts');
+function tunnelBtn(provider) {
+  return document.getElementById(provider === 'cloudflare' ? 'btn-cf' : 'btn-ts');
+}
+
+function setTunnelButton(provider, running) {
+  const btn = tunnelBtn(provider);
   if (!btn) return;
-  const original = btn.classList.contains('active') ? 'ON' : 'START';
+  btn.classList.toggle('active', !!running);
+  btn.textContent = running ? 'ON' : 'START';
+  btn.disabled = false;
+}
+
+async function loadTunnelStatus() {
+  try {
+    const data = await api('/api/tunnel');
+    setTunnelButton('cloudflare', !!(data.cloudflare && data.cloudflare.running));
+    const ts = data.tailscale || {};
+    setTunnelButton('tailscale', !!ts.funnel);
+  } catch (e) { /* tiles just stay as-is */ }
+}
+
+async function toggleTunnel(provider) {
+  const btn = tunnelBtn(provider);
+  if (!btn) return;
+  const running = btn.classList.contains('active');
+  const action = running ? 'stop' : 'start';
+  // Stopping the cloudflare tunnel takes the public site offline — confirm it.
+  if (action === 'stop' && provider === 'cloudflare') {
+    if (!confirm('Stop the cloudflare tunnel? This takes the public site offline.')) {
+      return;
+    }
+  }
   btn.textContent = '...';
   btn.disabled = true;
-  toast('tunnel ' + provider + ': starting...');
+  toast('tunnel ' + provider + ': ' + action + 'ing...');
   try {
-    const data = await apiPost('/api/tunnel/' + encodeURIComponent(provider) + '/start', {});
-    if (data.url) {
-      btn.textContent = 'ON';
-      btn.classList.add('active');
-      toast('tunnel: ' + data.url, 'success');
+    const data = await apiPost(
+      '/api/tunnel/' + encodeURIComponent(provider) + '/' + action, {}
+    );
+    if (action === 'stop') {
+      setTunnelButton(provider, false);
+      toast('tunnel ' + provider + ' stopped.', '');
+    } else if (data.url || data.running) {
+      setTunnelButton(provider, true);
+      toast('tunnel: ' + (data.url || 'started'), 'success');
     } else {
-      btn.textContent = original;
+      setTunnelButton(provider, false);
       toast('tunnel ' + provider + ': ' + (data.error || 'no url'), 'error');
     }
   } catch (e) {
-    btn.textContent = original;
     toast('tunnel ' + provider + ': ' + (e.message || 'failed'), 'error');
   } finally {
-    btn.disabled = false;
+    // Reconcile with reality (e.g. a managed unit that refused to die).
+    await loadTunnelStatus();
   }
 }
 
@@ -1633,7 +2073,11 @@ async function loadViewData(name) {
 }
 
 async function loadCatalogView() {
-  const data = await api('/api/catalog');
+  const search = document.getElementById('catalog-search');
+  if (search && search.value.trim() !== catalogQuery) {
+    catalogQuery = search.value.trim();
+  }
+  const data = await api(catalogApiPath());
   const grid = document.getElementById('catalog-grid');
   const items = filterServers(data.servers || []);
   document.getElementById('catalog-count').textContent = items.length + ' servers';
@@ -1642,7 +2086,9 @@ async function loadCatalogView() {
     const empty = document.createElement('div');
     empty.className = 'view-empty';
     empty.style.gridColumn = '1 / -1';
-    empty.textContent = 'No servers found.';
+    empty.textContent = catalogQuery
+      ? 'No servers match "' + catalogQuery + '". Clear the search to see all.'
+      : 'No servers in this profile. Switch profiles in the top bar.';
     grid.appendChild(empty);
     return;
   }
@@ -1657,9 +2103,12 @@ async function loadCatalogView() {
     nameEl.className = 'server-card-name';
     nameEl.textContent = s.name;
     const toggle = document.createElement('div');
-    toggle.className = 'toggle-switch' + (s.enabled ? ' on' : '');
+    const pending = s.enabled && s.env_configured === false;
+    toggle.className = 'toggle-switch'
+      + (s.enabled ? (pending ? ' pending' : ' on') : '');
     toggle.setAttribute('role', 'switch');
     toggle.setAttribute('aria-checked', String(!!s.enabled));
+    toggle.title = pending ? 'On, but needs credentials to connect' : '';
     toggle.dataset.name = s.name;
     head.appendChild(nameEl);
     head.appendChild(toggle);
@@ -1685,14 +2134,31 @@ async function loadCatalogView() {
   }
 }
 
+function enableHint(name, enabled) {
+  // Tell the operator the truth: enabling a server with missing credentials
+  // does not connect it. Point them at exactly what's needed.
+  if (!enabled) return name + ' disabled.';
+  const s = servers.find(x => x.name === name);
+  if (s && s.env_required && s.env_required.length && !s.env_configured) {
+    return name + ' enabled. Set ' + s.env_required.join(', ') + ' to connect it.';
+  }
+  return name + ' enabled.';
+}
+
 async function toggleServerCard(name, el) {
   try {
     const data = await apiPost(
       '/api/mcp/servers/' + encodeURIComponent(name) + '/toggle', {}
     );
-    el.classList.toggle('on', !!data.enabled);
+    const s = servers.find(x => x.name === name);
+    const pending = data.enabled && s && s.env_configured === false;
+    el.classList.remove('on', 'pending');
+    if (data.enabled) el.classList.add(pending ? 'pending' : 'on');
     el.setAttribute('aria-checked', String(!!data.enabled));
-    toast(name + ': ' + (data.enabled ? 'enabled' : 'disabled'), 'success');
+    el.title = pending ? 'On, but needs credentials to connect' : '';
+    toast(enableHint(name, !!data.enabled), data.enabled ? 'success' : '');
+    // Enabling something that still needs a token? Bring up the connect popup.
+    if (pending) promptCredentials(name);
   } catch (e) {
     toast(name + ': ' + (e.message || 'failed'), 'error');
   }
@@ -1740,14 +2206,14 @@ async function loadEvalsView() {
     const cell = td('');
     cell.colSpan = 4;
     cell.className = 'view-empty';
-    cell.textContent = 'No eval data yet.';
+    cell.textContent = 'No tool calls recorded yet. Run a tool to see it here.';
     tr.appendChild(cell);
     tbody.appendChild(tr);
     return;
   }
   for (const [name, s] of entries) {
     const rate = s.success_rate || 0;
-    const color = rate >= 90 ? '#22c55e' : rate >= 50 ? '#f59e0b' : '#ef4444';
+    const color = rate >= 90 ? '#3fb950' : rate >= 50 ? '#ffb224' : '#f76d5e';
     const avg = Math.round(s.avg_duration_ms || 0);
     const tr = document.createElement('tr');
     tr.appendChild(td(name));
@@ -1833,6 +2299,7 @@ async function saveSettings() {
       .split(',').map(s => s.trim()).filter(Boolean),
     rate_limit_per_min: parseInt(document.getElementById('set-rate-limit').value) || 0,
     default_profile: document.getElementById('set-profile').value,
+    storage_backend: document.getElementById('set-storage').value,
   };
   try {
     await apiPost('/api/settings', body);

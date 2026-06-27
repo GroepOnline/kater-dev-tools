@@ -106,6 +106,23 @@ def test_export_does_not_leak_api_keys(api_server):
     assert "secret-key-456" not in json.dumps(auth)
 
 
+def test_export_does_not_leak_server_credentials(api_server):
+    import os
+
+    try:
+        _post(
+            9930,
+            "/api/mcp/servers/github/credentials",
+            {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "export-secret-789"}},
+        )
+        data = _get(9930, "/api/export")
+        assert "export-secret-789" not in json.dumps(data)
+        env = data["server_overrides"]["github"]["env"]
+        assert env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "***"
+    finally:
+        os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
+
+
 # ── Auth enforcement ──────────────────────────────────────────────
 
 

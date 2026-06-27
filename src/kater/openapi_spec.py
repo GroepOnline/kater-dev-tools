@@ -148,6 +148,34 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/mcp/servers/{name}/credentials"] = {
+        "post": {
+            "summary": "Set the credentials a server needs to connect",
+            "parameters": [_name_param()],
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "env": {
+                                    "type": "object",
+                                    "additionalProperties": {"type": "string"},
+                                }
+                            },
+                            "required": ["env"],
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+            },
+        }
+    }
+
     paths["/api/settings"] = {
         "get": _response("Get settings", _ref("Settings")),
         "post": {
@@ -270,9 +298,24 @@ def _build_paths() -> dict[str, Any]:
         )
     }
 
+    paths["/api/tunnel"] = {
+        "get": _response("Tunnel status overview", {"type": "object"})
+    }
+
     paths["/api/tunnel/{provider}/start"] = {
         "post": {
             "summary": "Start a tunnel for the given provider",
+            "parameters": [_provider_param()],
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+            },
+        }
+    }
+
+    paths["/api/tunnel/{provider}/stop"] = {
+        "post": {
+            "summary": "Stop a tunnel for the given provider",
             "parameters": [_provider_param()],
             "responses": {
                 "200": _ok(),

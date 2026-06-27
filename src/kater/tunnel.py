@@ -29,6 +29,47 @@ class TunnelInfo:
         }
 
 
+# In production the cloudflare tunnel runs as a systemd user unit with
+# Restart=always. A bare `pkill` is therefore undone within RestartSec, so the
+# tunnel appears to "turn itself back on". When a managed unit is present we
+# must control that unit (stop/start) rather than the raw process.
+DEFAULT_TUNNEL_UNIT = "kater-cloudflared.service"
+
+
+def _tunnel_unit() -> str | None:
+    return os.environ.get("KATER_TUNNEL_UNIT", DEFAULT_TUNNEL_UNIT) or None
+
+
+def _systemctl(*args: str) -> subprocess.CompletedProcess[str] | None:
+    if not shutil.which("systemctl"):
+        return None
+    try:
+        return subprocess.run(
+            ["systemctl", "--user", *args],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception:
+        return None
+
+
+def _unit_exists(unit: str) -> bool:
+    result = _systemctl("cat", unit)
+    return bool(result and result.returncode == 0)
+
+
+def _unit_active(unit: str) -> bool:
+    result = _systemctl("is-active", unit)
+    return bool(result and result.stdout.strip() == "active")
+
+
+def _managed_unit() -> str | None:
+    """The systemd unit that owns the cloudflare tunnel, if any."""
+    unit = _tunnel_unit()
+    return unit if unit and _unit_exists(unit) else None
+
+
 def detect_cloudflared() -> bool:
     return shutil.which("cloudflared") is not None
 
@@ -78,7 +119,9 @@ def _check_tailscale_funnel() -> bool:
 def cloudflared_status(tunnel_name: str = "kater") -> dict[str, Any]:
     if not detect_cloudflared():
         return {"installed": False, "running": False}
-    running = _is_cloudflared_running()
+    unit = _managed_unit()
+    # A managed unit is the source of truth: report its state, not a stray pid.
+    running = _unit_active(unit) if unit else _is_cloudflared_running()
     config_path = os.path.expanduser(
         f"~/.cloudflared/{tunnel_name}.yml"
     )
@@ -87,6 +130,7 @@ def cloudflared_status(tunnel_name: str = "kater") -> dict[str, Any]:
         "installed": True,
         "running": running,
         "tunnel_name": tunnel_name,
+        "managed_unit": unit,
         "has_config": has_config,
         "config_path": config_path if has_config else None,
     }
@@ -143,10 +187,29 @@ def start_cloudflared(
             error="cloudflared not installed. Install: brew install cloudflared",
         )
 
+    resolved_domain = domain or os.environ.get("KATER_DOMAIN", "kater.example.com")
+
+    # Prefer the managed systemd unit so start/stop stay consistent and the
+    # tunnel isn't fought over by a stray Popen process.
+    unit = _managed_unit()
+    if unit:
+        result = _systemctl("start", unit)
+        ok = bool(result and result.returncode == 0)
+        # `systemctl start` returns once activation is requested; the unit may
+        # report active a moment later. Trust the command result so a freshly
+        # started unit isn't reported as down.
+        running = ok or _unit_active(unit)
+        return TunnelInfo(
+            provider="cloudflare",
+            name=unit,
+            url=f"https://{resolved_domain}" if running else None,
+            running=running,
+            error=None if ok else "Failed to start tunnel unit.",
+            config={"managed_unit": unit, "domain": resolved_domain},
+        )
+
     if config_path is None:
         config_path = os.path.expanduser(f"~/.cloudflared/{tunnel_name}.yml")
-
-    resolved_domain = domain or os.environ.get("KATER_DOMAIN", "kater.example.com")
 
     if not os.path.exists(config_path):
         config_content = generate_cloudflare_config(
@@ -183,6 +246,12 @@ def start_cloudflared(
 
 
 def stop_cloudflared() -> bool:
+    # Stop the owning systemd unit when present; otherwise a Restart=always unit
+    # would respawn the tunnel within seconds and it would look "still on".
+    unit = _managed_unit()
+    if unit:
+        result = _systemctl("stop", unit)
+        return bool(result and result.returncode == 0)
     try:
         subprocess.run(
             ["pkill", "-f", "cloudflared.*tunnel"],

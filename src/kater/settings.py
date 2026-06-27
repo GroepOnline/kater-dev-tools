@@ -59,6 +59,18 @@ class KaterSettings(BaseModel):
             return override.env
         return {}
 
+    def apply_credentials_to_env(self) -> None:
+        """Load persisted per-server credentials into the process environment.
+
+        Externally-provided env (e.g. systemd/secret managers) always wins, so
+        we only fill gaps — that way an operator can override a dashboard-set
+        value from the outside without it being clobbered on restart.
+        """
+        for override in self.server_overrides.values():
+            for key, value in (override.env or {}).items():
+                if value:
+                    os.environ.setdefault(key, value)
+
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
 
@@ -67,6 +79,12 @@ class KaterSettings(BaseModel):
         if "api_keys" in d.get("auth", {}):
             keys = d["auth"]["api_keys"]
             d["auth"]["api_keys"] = len(keys) if keys else 0
+        # Stored MCP server credentials must never be echoed back over the API.
+        # Keep the var names (so the UI knows what's set) but mask the values.
+        for override in d.get("server_overrides", {}).values():
+            env = override.get("env")
+            if env:
+                override["env"] = {key: "***" for key in env}
         return d
 
     @classmethod
@@ -274,6 +292,9 @@ def check_auth(
         token = _extract_bearer(authorization_header)
         if not token:
             return False, "Missing bearer token."
+        dashboard_key = os.environ.get("KATER_DASHBOARD_KEY", "")
+        if dashboard_key and token and secrets.compare_digest(token, dashboard_key):
+            return True, None
         from kater.oauth import validate_token
 
         at = validate_token(token)

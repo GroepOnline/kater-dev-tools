@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
+import logging
 import os
 import secrets
 import threading
@@ -10,6 +12,31 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+_log = logging.getLogger("kater.oauth")
+
+# Schemes permitted in a registered redirect_uri. ``http`` is allowed only for
+# loopback (127.0.0.1/localhost) per RFC 8252 §7.3; everything else must be
+# https. Dangerous schemes (javascript:, data:, file:) are rejected.
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# Bound on registered clients so an attacker cannot bloat oauth.json.
+MAX_CLIENTS = 500
+MAX_TOKENS = 5000
+
+
+def _is_safe_redirect_uri(uri: str) -> bool:
+    """Reject dangerous redirect_uri schemes and non-https non-loopback hosts."""
+    try:
+        parsed = urlparse(uri)
+    except (ValueError, TypeError):
+        return False
+    scheme = (parsed.scheme or "").lower()
+    if scheme == "https":
+        return True
+    if scheme == "http" and (parsed.hostname or "") in _LOOPBACK_HOSTS:
+        return True
+    return False
 
 
 @dataclass
@@ -18,6 +45,8 @@ class ClientRegistration:
     client_secret: str | None = None
     client_name: str = ""
     redirect_uris: list[str] = field(default_factory=list)
+    # OAuth token-endpoint auth method; "none" = public PKCE client. Not a secret.
+    token_endpoint_auth_method: str = "none"
     created_at: float = field(default_factory=time.time)
 
 
@@ -80,6 +109,12 @@ def _save() -> None:
         json.dumps(_state, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    # Restrict permissions so only the owner can read/write (no world access).
+    # This prevents token theft by co-located processes on shared machines.
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
     os.replace(tmp, path)
 
 
@@ -95,24 +130,38 @@ def reset_state() -> None:
 def register_client(
     client_name: str = "",
     redirect_uris: list[str] | None = None,
+    token_endpoint_auth_method: str = "none",
 ) -> ClientRegistration:
     uris = [u for u in (redirect_uris or []) if u]
     if not uris:
         raise ValueError("redirect_uris is required and must be non-empty")
+    bad = [u for u in uris if not _is_safe_redirect_uri(u)]
+    if bad:
+        raise ValueError(
+            "redirect_uris must use https (or http for loopback); rejected: "
+            + ", ".join(bad)
+        )
+    if token_endpoint_auth_method not in ("none", "client_secret_post"):
+        token_endpoint_auth_method = "none"
     with _lock:
         data = _load()
+        clients = data.get("clients", {})
+        if len(clients) >= MAX_CLIENTS:
+            raise ValueError("client registration limit reached")
         client_id = f"client_{secrets.token_hex(12)}"
         client = ClientRegistration(
             client_id=client_id,
             client_secret=secrets.token_hex(24),
-            client_name=client_name or "unnamed",
+            client_name=client_name[:200] or "unnamed",
             redirect_uris=uris,
+            token_endpoint_auth_method=token_endpoint_auth_method,
         )
-        data["clients"][client_id] = {
+        clients[client_id] = {
             "client_id": client.client_id,
             "client_secret": client.client_secret,
             "client_name": client.client_name,
             "redirect_uris": client.redirect_uris,
+            "token_endpoint_auth_method": client.token_endpoint_auth_method,
             "created_at": client.created_at,
         }
         _save()
@@ -130,6 +179,7 @@ def get_client(client_id: str) -> ClientRegistration | None:
         client_secret=raw.get("client_secret"),
         client_name=raw.get("client_name", ""),
         redirect_uris=raw.get("redirect_uris", []),
+        token_endpoint_auth_method=raw.get("token_endpoint_auth_method", "none"),
         created_at=raw.get("created_at", time.time()),
     )
 
@@ -181,6 +231,7 @@ def exchange_code(
     code: str,
     client_id: str,
     code_verifier: str,
+    client_secret: str | None = None,
 ) -> dict[str, Any] | None:
     with _lock:
         data = _load()
@@ -189,6 +240,16 @@ def exchange_code(
             return None
         if time.time() - raw["created_at"] > 300:
             return None
+
+        # Confidential clients (client_secret_post) must present their secret.
+        client = data["clients"].get(client_id)
+        if client and client.get("token_endpoint_auth_method") == "client_secret_post":
+            secret = client.get("client_secret")
+            if not secret or not client_secret or not secrets.compare_digest(
+                client_secret, secret
+            ):
+                _log.warning("token exchange rejected: bad client_secret for %s", client_id)
+                return None
 
         # Only S256 is issued (see create_auth_code); reject anything else.
         if raw["code_challenge_method"] != "S256":
@@ -217,6 +278,8 @@ def create_token(
 ) -> dict[str, Any]:
     with _lock:
         data = _load()
+        if len(data.get("tokens", {})) >= MAX_TOKENS:
+            raise ValueError(f"Token limit reached ({MAX_TOKENS})")
         token_str = f"tok_{secrets.token_hex(24)}"
         now = time.time()
         data["tokens"][token_str] = {
@@ -293,9 +356,20 @@ def render_consent_page(
     authorize_url: str,
     profile: str = "core",
 ) -> str:
-    safe_name = client_name.replace("<", "&lt;").replace(">", "&gt;")
-    safe_uri = redirect_uri.replace("<", "&lt;").replace(">", "&gt;")
-    state_param = f"&state={state}" if state else ""
+    # Escape for HTML text content AND attribute values. The prior code only
+    # stripped < and >, which let `state` break out of an href attribute and
+    # run script (reflected XSS). html.escape(quote=True) covers &, <, >, ", '.
+    safe_name = html.escape(client_name or "", quote=True)
+    safe_uri = html.escape(redirect_uri or "", quote=True)
+    safe_profile = html.escape(profile or "", quote=True)
+    # state is interpolated into an href query parameter; URL-encode it so it
+    # cannot inject & / = / quotes, then HTML-escape the result for safety.
+    if state:
+        from urllib.parse import quote_plus
+
+        state_param = f"&state={html.escape(quote_plus(state), quote=True)}"
+    else:
+        state_param = ""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -305,8 +379,20 @@ def render_consent_page(
   --bg:#0a0e14; --surface:#121826; --border:#1e2733;
   --text:#e2e8f0; --dim:#64748b; --accent:#f59e0b;
   --green:#22c55e; --mono:'SF Mono','Consolas',monospace;
+  color-scheme: dark;
 }}
 * {{ margin:0; padding:0; box-sizing:border-box; }}
+:focus-visible {{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}}
+@media (prefers-reduced-motion: reduce) {{
+  *, *::before, *::after {{
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }}
+}}
 body {{
   background:var(--bg); color:var(--text);
   font-family:system-ui,sans-serif;
@@ -358,13 +444,15 @@ p {{ color:var(--dim); font-size:14px; margin-bottom:24px; }}
   <div class="logo">KATER</div>
   <h1>Authorize <span class="app-name">{safe_name}</span></h1>
   <p>This app wants to connect to your Kater MCP gateway
-  (profile: {profile}). It will be able to call tools
+  (profile: {safe_profile}). It will be able to call tools
   exposed by this profile.</p>
   <div class="btn-row">
     <a class="btn btn-allow"
-      href="{authorize_url}&approve=1{state_param}">Allow</a>
+      href="{authorize_url}&approve=1{state_param}" role="button"
+      aria-label="Allow {safe_name} to connect">Allow</a>
     <a class="btn btn-deny"
-      href="{authorize_url}&approve=0{state_param}">Deny</a>
+      href="{authorize_url}&approve=0{state_param}" role="button"
+      aria-label="Deny access">Deny</a>
   </div>
   <div class="meta">Redirect: {safe_uri}</div>
 </div>
@@ -381,7 +469,7 @@ def discovery_metadata(base_url: str) -> dict[str, Any]:
         "grant_types_supported": ["authorization_code"],
         "response_types_supported": ["code"],
         "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["none"],
+        "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
         "scopes_supported": ["profile", "tools"],
     }
 

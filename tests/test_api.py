@@ -1,31 +1,14 @@
 from __future__ import annotations
 
 import json
-import shutil
 import threading
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 import pytest
 
 from kater.api import create_api_server
-
-KATER_DIR = Path.cwd() / ".kater"
-
-
-@pytest.fixture(autouse=True)
-def clean_kater_dir():
-    from kater.storage import reset_db_cache
-
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
-    yield
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
 
 
 @pytest.fixture

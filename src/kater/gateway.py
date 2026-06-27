@@ -10,6 +10,7 @@ can point at ``localhost:9090``.
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 from urllib import error, request
 
@@ -20,7 +21,7 @@ from kater.settings import load_settings
 class _NoRedirect(request.HTTPRedirectHandler):
     """Do not follow redirects — OAuth /authorize must reach the browser as 302."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
@@ -45,17 +46,31 @@ async def _proxy_to_api(scope: dict, receive: Any, send: Any, api_port: int) -> 
         headers["X-Forwarded-Host"] = host
         if headers.get("x-forwarded-proto"):
             headers["X-Forwarded-Proto"] = headers["x-forwarded-proto"]
-        elif host.endswith(".chefgroep.online") or ".online" in host:
-            headers["X-Forwarded-Proto"] = "https"
         else:
-            headers["X-Forwarded-Proto"] = "http"
+            # A tunnel terminates TLS, so the upstream socket is plain HTTP.
+            # Detect https by a non-loopback public host (configurable). This
+            # avoids baking any single org domain into shared source.
+            https_hosts = os.environ.get("KATER_HTTPS_HOSTS", "")
+            is_https_tunnel = host not in ("localhost:9091", "127.0.0.1:9091") and (
+                not host.startswith(("127.", "localhost", "::1"))
+                or any(h and h in host for h in https_hosts.split(","))
+            )
+            headers["X-Forwarded-Proto"] = "https" if is_https_tunnel else "http"
 
     body = b""
     if scope.get("method") in {"POST", "PUT", "PATCH"}:
+        from kater.settings import load_settings
+
+        body_limit = load_settings().body_size_limit
         chunks: list[bytes] = []
+        total = 0
         while True:
             message = await receive()
-            chunks.append(message.get("body", b""))
+            chunk = message.get("body", b"")
+            total += len(chunk)
+            if total > body_limit:
+                raise ValueError("Request body too large")
+            chunks.append(chunk)
             if not message.get("more_body", False):
                 break
         body = b"".join(chunks)

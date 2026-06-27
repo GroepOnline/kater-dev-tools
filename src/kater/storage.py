@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from collections import deque
@@ -9,9 +10,16 @@ from typing import Any
 
 from kater.settings import load_settings
 
+_log = logging.getLogger("kater.storage")
+
 # Hard cap on how many events an unbounded query loads into memory, so a large
 # or poisoned store cannot OOM the API process via /api/telemetry|/api/evals.
 MAX_EVENTS = 100_000
+# Hard cap on rows kept on disk. Inserts beyond this prune the oldest rows so a
+# long-running public gateway cannot exhaust disk via telemetry growth.
+MAX_ROWS_ON_DISK = 200_000
+# Prune check frequency: only sweep once every N inserts to avoid write overhead.
+_PRUNE_EVERY = 500
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -33,6 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp);
 _storage_lock = threading.Lock()
 _db_cache: sqlite3.Connection | None = None
 _db_path_cache: str | None = None
+_insert_counter = 0
 
 
 def _resolve_db_path() -> Path:
@@ -74,6 +83,7 @@ def _get_db() -> sqlite3.Connection:
 
 
 def _sqlite_insert(event: dict[str, Any]) -> None:
+    global _insert_counter
     with _storage_lock:
         db = _get_db()
         db.execute(
@@ -89,7 +99,25 @@ def _sqlite_insert(event: dict[str, Any]) -> None:
                 json.dumps(event.get("metadata", {}), ensure_ascii=False),
             ),
         )
+        _insert_counter += 1
+        if _insert_counter % _PRUNE_EVERY == 0:
+            _sqlite_prune_locked(db)
         db.commit()
+
+
+def _sqlite_prune_locked(db: sqlite3.Connection) -> int:
+    """Drop oldest rows beyond MAX_ROWS_ON_DISK. Caller holds _storage_lock."""
+    row = db.execute("SELECT COUNT(*) AS c FROM events").fetchone()
+    count = row["c"] if row else 0
+    if count <= MAX_ROWS_ON_DISK:
+        return 0
+    excess = count - MAX_ROWS_ON_DISK
+    db.execute(
+        "DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id ASC LIMIT ?)",
+        (excess,),
+    )
+    _log.info("pruned %d telemetry rows (kept cap %d)", excess, MAX_ROWS_ON_DISK)
+    return excess
 
 
 def _sqlite_query(
@@ -229,6 +257,23 @@ def _jsonl_clear() -> int:
     return count
 
 
+def _jsonl_prune() -> int:
+    """Keep only the most recent MAX_ROWS_ON_DISK lines in the JSONL file."""
+    path = _jsonl_path()
+    if not path.exists():
+        return 0
+    with _storage_lock:
+        with path.open(encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) <= MAX_ROWS_ON_DISK:
+            return 0
+        keep = lines[-MAX_ROWS_ON_DISK:]
+        dropped = len(lines) - len(keep)
+        path.write_text("".join(keep), encoding="utf-8")
+    _log.info("pruned %d telemetry lines (kept cap %d)", dropped, MAX_ROWS_ON_DISK)
+    return dropped
+
+
 # ── Unified API ────────────────────────────────────────────────────
 
 
@@ -260,6 +305,14 @@ def clear_all_events() -> int:
     if _get_backend() == "sqlite":
         return _sqlite_clear()
     return _jsonl_clear()
+
+
+def prune_all() -> int:
+    """Enforce the on-disk row cap across whichever backend is active."""
+    if _get_backend() == "sqlite":
+        with _storage_lock:
+            return _sqlite_prune_locked(_get_db())
+    return _jsonl_prune()
 
 
 def reset_db_cache() -> None:

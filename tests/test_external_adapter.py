@@ -1,31 +1,11 @@
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
-
-import pytest
-
 from kater.adapters.external import (
     _resolve_env,
     _substitute_env_vars,
     render_profile_config,
     scan_adapters,
 )
-
-KATER_DIR = Path.cwd() / ".kater"
-
-
-@pytest.fixture(autouse=True)
-def clean_kater_settings():
-    from kater.storage import reset_db_cache
-
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
-    yield
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
 
 
 def test_scan_adapters_core_has_no_externals() -> None:

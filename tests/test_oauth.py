@@ -3,11 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import shutil
 import threading
 import time
 import urllib.request
-from pathlib import Path
 
 import pytest
 
@@ -21,28 +19,10 @@ from kater.oauth import (
     get_client,
     register_client,
     render_consent_page,
-    reset_state,
     resource_metadata,
     revoke_token,
     validate_token,
 )
-
-KATER_DIR = Path.cwd() / ".kater"
-
-
-@pytest.fixture(autouse=True)
-def clean_oauth():
-    from kater.storage import reset_db_cache
-
-    reset_db_cache()
-    reset_state()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
-    yield
-    reset_db_cache()
-    reset_state()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
 
 
 def test_register_client():

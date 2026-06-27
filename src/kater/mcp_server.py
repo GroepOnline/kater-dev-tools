@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from importlib import import_module
 from typing import Any
@@ -8,6 +9,8 @@ from urllib.parse import parse_qs
 
 from kater.registry import tools_for_profile
 from kater.settings import load_settings
+
+_log = logging.getLogger("kater.mcp")
 
 MCP_INSTALL_MESSAGE = "MCP support is required. Install with `uv sync` in the Kater repo."
 
@@ -40,7 +43,8 @@ def register_proxy_tools(server: Any, *, proxy: Any, profile: str) -> None:
     try:
         for tool_def in proxy.list_tools():
             _make_proxy_tool(server, tool_def, proxy)
-    except Exception:
+    except Exception as exc:
+        _log.warning("proxy tool registration failed: %s", exc)
         _register_proxy_status_tool(server)
         return
 
@@ -84,12 +88,22 @@ class AuthASGIMiddleware:
             await self._app(scope, receive, send)
             return
 
+        from kater.api import check_transport_rate_limit
         from kater.authgate import AuthContext, authenticate
 
         headers = {
             k.decode("latin-1").lower(): v.decode("latin-1")
             for k, v in scope.get("headers", [])
         }
+        # Throttle the tool surface (/sse + MCP POST) the same way REST is.
+        client_ip = headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if not client_ip:
+            client = scope.get("client")
+            client_ip = client[0] if client else "unknown"
+        if not check_transport_rate_limit(client_ip):
+            await self._send_429(send)
+            return
+
         query = parse_qs(scope.get("query_string", b"").decode("latin-1"))
         path = scope.get("path") or "/"
         decision = authenticate(
@@ -122,6 +136,21 @@ class AuthASGIMiddleware:
         )
         await send({"type": "http.response.body", "body": body})
 
+    @staticmethod
+    async def _send_429(send: Any) -> None:
+        body = json.dumps({"error": "Rate limit exceeded."}).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 429,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
 
 def build_sse_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
     """Return the FastMCP SSE ASGI app wrapped with Kater auth."""
@@ -133,7 +162,8 @@ def build_sse_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
         try:
             proxy.start(profile)
             register_proxy_tools(server, proxy=proxy, profile=profile)
-        except Exception:
+        except Exception as exc:
+            _log.warning("proxy startup failed: %s", exc)
             _register_proxy_status_tool(server)
     from kater.gateway import ApiProxyMiddleware
 

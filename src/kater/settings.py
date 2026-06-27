@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,9 @@ class KaterSettings(BaseModel):
     db_path: str = ".kater/kater.db"
     body_size_limit: int = 1048576
     high_risk_default_disabled: bool = True
+    # Proxy circuit-breaker tuning (magic numbers were previously hardcoded).
+    proxy_failure_threshold: int = 5
+    proxy_recovery_timeout: float = 30.0
 
     def is_server_enabled(self, name: str, default: bool = True) -> bool:
         override = self.server_overrides.get(name)
@@ -94,6 +98,10 @@ class KaterSettings(BaseModel):
 
 SETTINGS_FILE = "settings.json"
 
+# Per-project settings cache (cwd-resolved key). Bounded to one entry in
+# practice; a dict keeps it explicit and easy to invalidate.
+_settings_cache: dict[str, KaterSettings] = {}
+
 
 def settings_path(project_dir: Path | None = None) -> Path:
     project_dir = project_dir or Path.cwd()
@@ -101,6 +109,12 @@ def settings_path(project_dir: Path | None = None) -> Path:
 
 
 def load_settings(project_dir: Path | None = None) -> KaterSettings:
+    # In-process cache: the hot path (every HTTP request) used to re-read and
+    # re-parse settings.json on each call. Invalidation happens in save_settings.
+    cache_key = str((project_dir or Path.cwd()).resolve())
+    cached = _settings_cache.get(cache_key)
+    if cached is not None:
+        return cached
     path = settings_path(project_dir)
     if path.exists():
         try:
@@ -110,7 +124,17 @@ def load_settings(project_dir: Path | None = None) -> KaterSettings:
             settings = _settings_from_env()
     else:
         settings = _settings_from_env()
-    return _apply_env_security_overrides(settings)
+    settings = _apply_env_security_overrides(settings)
+    _settings_cache[cache_key] = settings
+    return settings
+
+
+def invalidate_settings_cache(project_dir: Path | None = None) -> None:
+    """Drop the cached settings so the next load re-reads from disk/env."""
+    if project_dir is not None:
+        _settings_cache.pop(str(project_dir.resolve()), None)
+    else:
+        _settings_cache.clear()
 
 
 def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
@@ -141,7 +165,10 @@ def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
 
     rate_raw = os.environ.get("KATER_RATE_LIMIT", "").strip()
     if rate_raw:
-        settings.rate_limit_per_min = int(rate_raw)
+        try:
+            settings.rate_limit_per_min = int(rate_raw)
+        except ValueError:
+            pass  # Ignore invalid values; keep the default.
 
     cors_raw = os.environ.get("KATER_CORS_ORIGINS", "").strip()
     if cors_raw:
@@ -151,13 +178,25 @@ def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
     return settings
 
 
+# Thread-safety: a single lock serialises read-modify-write sequences so
+# concurrent API requests cannot overwrite each other's changes, and an
+# atomic write (tmp + replace) prevents corruption on crash.
+
+_settings_lock = threading.Lock()
+
+
 def save_settings(settings: KaterSettings, project_dir: Path | None = None) -> Path:
     path = settings_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(settings.to_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    with _settings_lock:
+        tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(
+            json.dumps(settings.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    # Drop the cache so the next load_settings() reflects the new on-disk state.
+    invalidate_settings_cache(project_dir)
     return path
 
 
@@ -210,16 +249,25 @@ def _settings_from_env() -> KaterSettings:
     else:
         cors_origins = ["http://localhost:9091"] if is_public else ["*"]
 
-    rate_limit = int(os.environ.get("KATER_RATE_LIMIT", "60" if is_public else "0"))
+    def _safe_int(env_var: str, default: int) -> int:
+        raw = os.environ.get(env_var, "").strip()
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            return default
+
+    rate_limit = _safe_int("KATER_RATE_LIMIT", 60 if is_public else 0)
 
     return KaterSettings(
         auth=auth,
         cors_origins=cors_origins,
         rate_limit_per_min=rate_limit,
         host=host,
-        api_port=int(os.environ.get("KATER_API_PORT", "9091")),
-        mcp_port=int(os.environ.get("KATER_MCP_PORT", "9090")),
-        ws_port=int(os.environ.get("KATER_WS_PORT", "9092")),
+        api_port=_safe_int("KATER_API_PORT", 9091),
+        mcp_port=_safe_int("KATER_MCP_PORT", 9090),
+        ws_port=_safe_int("KATER_WS_PORT", 9092),
     )
 
 
@@ -263,6 +311,24 @@ def resolve_listen_config(
 def _generate_default_key() -> str:
     import secrets as _secrets
     return f"kat_{_secrets.token_hex(16)}"
+
+
+def check_admin(authorization_header: str | None) -> bool:
+    """True if the caller holds the operator/admin credential.
+
+    Operators set ``KATER_ADMIN_KEY`` to separate "use tools" from "change
+    settings". When unset, every authenticated caller is treated as admin
+    (single-user local default). When set, sensitive settings mutations
+    (auth mode, api_keys, CORS, rate limit) require this key, so a leaked
+    tool-credential cannot weaken the gateway.
+    """
+    admin_key = os.environ.get("KATER_ADMIN_KEY", "")
+    if not admin_key:
+        return True
+    token = _extract_bearer(authorization_header)
+    if not token:
+        return False
+    return secrets.compare_digest(token, admin_key)
 
 
 # ── Auth helpers ───────────────────────────────────────────────────
@@ -332,24 +398,27 @@ class RateLimiter:
     def __init__(self, max_per_min: int) -> None:
         self.max_per_min = max_per_min
         self._hits: dict[str, list[float]] = {}
+        self._check_count = 0
+        self._lock = threading.Lock()
 
     def check(self, client_id: str) -> bool:
         if self.max_per_min <= 0:
             return True
         now = time.time()
         window = 60.0
-        hits = [t for t in self._hits.get(client_id, []) if now - t < window]
-        if len(hits) >= self.max_per_min:
-            # Keep the pruned window so the client stays rate-limited.
+        with self._lock:
+            hits = [t for t in self._hits.get(client_id, []) if now - t < window]
+            if len(hits) >= self.max_per_min:
+                self._hits[client_id] = hits
+                return False
+            hits.append(now)
             self._hits[client_id] = hits
-            return False
-        hits.append(now)
-        self._hits[client_id] = hits
-        self._evict_idle(now, window)
-        return True
+            self._check_count += 1
+            if len(self._hits) > 500 and self._check_count % 500 == 0:
+                self._evict_idle(now, window)
+            return True
 
     def _evict_idle(self, now: float, window: float) -> None:
-        # Bound memory: drop clients with no hits inside the window.
         idle = [c for c, ts in self._hits.items() if not ts or now - ts[-1] >= window]
         for c in idle:
             del self._hits[c]

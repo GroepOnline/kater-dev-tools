@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlencode, urlparse
+from urllib.parse import parse_qs, quote, unquote_plus, urlencode, urlparse
 
 from kater.adapters.external import scan_adapters
 from kater.chains import list_chains
@@ -36,6 +37,8 @@ from kater.tunnel import (
     stop_tailscale_funnel,
     tunnel_overview,
 )
+
+_log = logging.getLogger(__name__)
 
 # ── Request / Response: the seam between the stdlib server and app logic ──
 
@@ -69,10 +72,16 @@ class Request:
     @property
     def form(self) -> dict[str, str]:
         out: dict[str, str] = {}
-        for pair in self.raw_body.decode("utf-8").split("&"):
+        try:
+            body_str = self.raw_body.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError("Request body is not valid UTF-8") from None
+        for pair in body_str.split("&"):
             if "=" in pair:
                 k, v = pair.split("=", 1)
-                out[unquote(k)] = unquote(v)
+                # unquote_plus converts '+' to space, which unquote does not —
+                # a verifier/code containing '+' would otherwise be misparsed.
+                out[unquote_plus(k)] = unquote_plus(v)
         return out
 
     @property
@@ -84,13 +93,13 @@ class Request:
 @dataclass
 class Response:
     status: int = 200
-    payload: Any = None
+    payload: dict[str, Any] | None = None
     body: bytes | None = None
     content_type: str = "application/json; charset=utf-8"
     headers: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def json(cls, status: int, payload: Any) -> Response:
+    def json(cls, status: int, payload: dict[str, Any]) -> Response:
         return cls(status=status, payload=payload)
 
     @classmethod
@@ -253,6 +262,20 @@ def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
         pass
 
 
+def _resolve_client_ip(
+    forwarded_for: str | None, client_address_ip: str
+) -> str:
+    """Pick the real client IP, trusting X-Forwarded-For behind a tunnel/proxy.
+
+    Behind Cloudflare Tunnel / Tailscale Funnel the socket peer is always
+    loopback, so without this every caller shared one global rate-limit bucket.
+    The leftmost address in XFF is the original client.
+    """
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip() or client_address_ip
+    return client_address_ip
+
+
 # ── Rate limiter (module-level) ────────────────────────────────────
 
 _rate_limiter: RateLimiter | None = None
@@ -264,6 +287,15 @@ def _get_rate_limiter() -> RateLimiter:
         settings = load_settings()
         _rate_limiter = RateLimiter(settings.rate_limit_per_min)
     return _rate_limiter
+
+
+def check_transport_rate_limit(client_ip: str) -> bool:
+    """Shared rate-limit gate for non-REST transports (MCP /sse, WebSocket).
+
+    REST applies the limiter inside ``handle()``; MCP and WS call this so the
+    actual tool surface is throttled too. No-op when rate limiting is disabled.
+    """
+    return _get_rate_limiter().check(client_ip)
 
 
 def _reset_rate_limiter() -> None:
@@ -308,8 +340,9 @@ def handle(request: Request) -> Response:
         return matched_route.handler(request)
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
-    except Exception as exc:  # noqa: BLE001 - surface as 500, never crash the thread
-        return Response.json(500, {"error": str(exc)})
+    except Exception:
+        _log.exception("Internal error handling %s %s", request.method, request.path)
+        return Response.json(500, {"error": "Internal server error"})
 
 
 # ── Public endpoints (no auth) ─────────────────────────────────────
@@ -389,9 +422,9 @@ def _authorize(req: Request) -> Response:
                 {"error": "invalid_request", "detail": "unsupported code_challenge_method"},
             )
         sep = "&" if "?" in redirect_uri else "?"
-        location = f"{redirect_uri}{sep}code={code}"
+        location = f"{redirect_uri}{sep}code={quote(code, safe='')}"
         if state:
-            location += f"&state={state}"
+            location += f"&state={quote(state, safe='')}"
         return Response.redirect(location)
 
     if approve == "0":
@@ -433,6 +466,7 @@ def _token(req: Request) -> Response:
         params.get("code", ""),
         params.get("client_id", ""),
         params.get("code_verifier", ""),
+        client_secret=params.get("client_secret"),
     )
     if not token:
         return Response.json(400, {"error": "invalid_grant"})
@@ -441,13 +475,25 @@ def _token(req: Request) -> Response:
 
 @route("POST", "/register", public=True)
 def _register_client(req: Request) -> Response:
+    import secrets as _secrets
+
     from kater.oauth import register_client
+
+    # When an operator sets KATER_REGISTRATION_TOKEN, /register requires it.
+    # This lets public deployments lock down dynamic client registration
+    # (RFC 7591) without breaking the default local flow.
+    reg_token = os.environ.get("KATER_REGISTRATION_TOKEN", "")
+    if reg_token:
+        supplied = req.header("x-registration-token") or req.query1("registration_token") or ""
+        if not supplied or not _secrets.compare_digest(supplied, reg_token):
+            return Response.json(403, {"error": "registration_forbidden"})
 
     body = req.json
     try:
         client = register_client(
             client_name=body.get("client_name", ""),
             redirect_uris=body.get("redirect_uris", []),
+            token_endpoint_auth_method=body.get("token_endpoint_auth_method", "none"),
         )
     except ValueError as exc:
         return Response.json(400, {"error": "invalid_redirect_uri", "detail": str(exc)})
@@ -458,6 +504,7 @@ def _register_client(req: Request) -> Response:
             "client_secret": client.client_secret,
             "client_name": client.client_name,
             "redirect_uris": client.redirect_uris,
+            "token_endpoint_auth_method": client.token_endpoint_auth_method,
         },
     )
 
@@ -789,6 +836,14 @@ def _tunnel_stop(req: Request) -> Response:
 
 @route("POST", "/api/settings")
 def _update_settings(req: Request) -> Response:
+    from kater.settings import check_admin
+
+    # Sensitive settings mutations (auth mode, CORS, rate limit, api_keys)
+    # require the operator/admin credential when KATER_ADMIN_KEY is set, so a
+    # compromised tool-credential cannot weaken the gateway.
+    if not check_admin(req.header("authorization")):
+        return Response.json(403, {"error": "admin credential required for settings changes"})
+
     body = req.json
     settings = load_settings()
     if "auth" in body:
@@ -805,7 +860,10 @@ def _update_settings(req: Request) -> Response:
     if "cors_origins" in body:
         settings.cors_origins = body["cors_origins"]
     if "rate_limit_per_min" in body:
-        settings.rate_limit_per_min = int(body["rate_limit_per_min"])
+        try:
+            settings.rate_limit_per_min = int(body["rate_limit_per_min"])
+        except (TypeError, ValueError):
+            return Response.json(400, {"error": "rate_limit_per_min must be an integer"})
         _reset_rate_limiter()
     if "default_profile" in body:
         settings.default_profile = body["default_profile"]
@@ -822,7 +880,16 @@ def _update_settings(req: Request) -> Response:
 
 
 def _base_url(handler: BaseHTTPRequestHandler) -> str:
-    host = handler.headers.get("X-Forwarded-Host") or handler.headers.get("Host", "localhost:9091")
+    # Only trust X-Forwarded-Host when the connection originates from a
+    # loopback proxy (Cloudflare Tunnel / Tailscale Funnel connect from
+    # 127.0.0.1).  An external client connecting directly to 0.0.0.0 can
+    # forge the header and poison the OAuth issuer URL.
+    peer = handler.client_address[0] if handler.client_address else ""
+    host = handler.headers.get("Host", "localhost:9091")
+    if peer in ("127.0.0.1", "::1", ""):
+        xfh = handler.headers.get("X-Forwarded-Host")
+        if xfh:
+            host = xfh
     scheme = "https" if handler.headers.get("X-Forwarded-Proto") == "https" else "http"
     return f"{scheme}://{host}"
 
@@ -836,7 +903,11 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
     def _build_request(self, method: str) -> Request | None:
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            self._write(Response.json(400, {"error": "Invalid Content-Length header"}))
+            return None
         raw = b""
         if length:
             if length > load_settings().body_size_limit:
@@ -849,7 +920,10 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
             query=parse_qs(parsed.query),
             headers={k.lower(): v for k, v in self.headers.items()},
             raw_body=raw,
-            client_ip=self.client_address[0] if self.client_address else "unknown",
+            client_ip=_resolve_client_ip(
+                self.headers.get("X-Forwarded-For"),
+                self.client_address[0] if self.client_address else "unknown",
+            ),
             base_url=_base_url(self),
         )
 
@@ -866,32 +940,42 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
         self._dispatch("POST")
 
     def do_HEAD(self) -> None:
+        # HEAD is GET-for-routing with no body. Reuse the single pipeline so
+        # auth + rate limiting cannot drift from the GET path (previously do_HEAD
+        # re-implemented auth inline and skipped the rate limiter).
         request = self._build_request("HEAD")
         if request is None:
             return
-        matched = ROUTER.match(request.method, request.path)
-        if matched is None:
-            self._write(Response.json(404, {"error": f"Not found: {request.path}"}))
-            return
-        matched_route, _ = matched
-        if not matched_route.public:
-            from kater.authgate import AuthContext, authenticate
-
-            decision = authenticate(
-                AuthContext(
-                    settings=load_settings(),
-                    authorization_header=request.header("authorization"),
-                    query_api_key=request.query1("api_key"),
-                    path=request.path,
-                )
+        get_request = Request(
+            method="GET",
+            path=request.path,
+            query=request.query,
+            headers=request.headers,
+            raw_body=request.raw_body,
+            client_ip=request.client_ip,
+            base_url=request.base_url,
+            params=request.params,
+        )
+        response = handle(get_request)
+        # Same headers/status, but HEAD must not carry a body.
+        self._write(
+            Response(
+                status=response.status,
+                body=b"",
+                content_type=response.content_type,
+                headers=response.headers,
             )
-            if not decision.allowed:
-                self._write(Response.json(401, {"error": decision.error or "Unauthorized"}))
-                return
-        self._write(Response(status=200, body=b"", content_type="text/html; charset=utf-8"))
+        )
 
     def do_OPTIONS(self) -> None:
-        self._write(Response.json(200, {"ok": True}))
+        # Apply rate limiting to OPTIONS (CORS preflight) to prevent DoS.
+        if _get_rate_limiter().check(_resolve_client_ip(
+            self.headers.get("X-Forwarded-For", ""),
+            self.client_address[0] if self.client_address else "",
+        )):
+            self._write(Response.json(200, {"ok": True}))
+        else:
+            self._write(Response.json(429, {"error": "rate limit exceeded"}))
 
     def _write(self, response: Response) -> None:
         body = response.encoded()
@@ -902,6 +986,10 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         if allow:
             self.send_header("Access-Control-Allow-Origin", allow)
+            # Vary: Origin ensures CDNs/proxies don't cache a response
+            # with a permissive ACAO header and serve it to a different origin.
+            if allow != "*":
+                self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.send_header("X-Content-Type-Options", "nosniff")

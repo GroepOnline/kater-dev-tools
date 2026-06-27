@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 from kater.proxy.models import BackendStatus, ProxiedTool
@@ -35,6 +36,9 @@ class BaseBackend:
         return list(self._tools)
 
     def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        # Measure wall-clock latency so BackendStatus.latency_ms reflects reality
+        # (it was previously declared but never populated — always 0.0).
+        start = time.monotonic()
         result = self._rpc(
             "tools/call",
             {
@@ -42,6 +46,7 @@ class BaseBackend:
                 "arguments": arguments,
             },
         )
+        self._status.latency_ms = (time.monotonic() - start) * 1000.0
         if "error" in result:
             return result
         return result.get("result", result)

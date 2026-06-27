@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
-
-import pytest
-
 from kater.storage import (
     clear_all_events,
     count_events,
@@ -21,19 +16,6 @@ from kater.telemetry import (
     record_tool_call,
     status_overview,
 )
-
-KATER_DIR = Path.cwd() / ".kater"
-
-
-@pytest.fixture(autouse=True)
-def clean_storage():
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
-    yield
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
 
 
 def test_insert_and_query():

@@ -54,9 +54,14 @@ def interactive_loop(
             sys.stdout.flush()
 
             try:
-                line = sys.stdin.readline().strip()
+                raw = sys.stdin.readline()
             except (EOFError, KeyboardInterrupt):
                 break
+            # readline() returns "" at EOF — without this guard the loop would
+            # spin forever burning CPU once stdin closes (e.g. piped input end).
+            if not raw:
+                break
+            line = raw.strip()
 
             if not line:
                 continue

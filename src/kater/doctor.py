@@ -236,6 +236,36 @@ def _security_check() -> list[Finding]:
         )
 
     if is_public and settings.auth.mode == "oauth":
+        if not os.environ.get("KATER_REGISTRATION_TOKEN"):
+            findings.append(
+                Finding(
+                    code="public_oauth_open_registration",
+                    severity="warning",
+                    message=(
+                        "OAuth mode is enabled but KATER_REGISTRATION_TOKEN is not set, "
+                        "so anyone who can reach this host can register an OAuth client "
+                        "and obtain an access token."
+                    ),
+                    suggested_action=(
+                        "Set KATER_REGISTRATION_TOKEN to require it for /register, "
+                        "or accept that this host is single-user (anyone-with-the-link)."
+                    ),
+                )
+            )
+        if not os.environ.get("KATER_ADMIN_KEY"):
+            findings.append(
+                Finding(
+                    code="public_no_admin_key",
+                    severity="info",
+                    message=(
+                        "KATER_ADMIN_KEY is not set; any authenticated caller can change "
+                        "settings (auth mode, CORS, rate limit)."
+                    ),
+                    suggested_action=(
+                        "Set KATER_ADMIN_KEY so settings changes require the operator key."
+                    ),
+                )
+            )
         findings.append(
             Finding(
                 code="public_oauth_ready",

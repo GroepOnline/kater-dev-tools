@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+_log = logging.getLogger("kater.tunnel")
 
 
 @dataclass
@@ -50,7 +53,8 @@ def _systemctl(*args: str) -> subprocess.CompletedProcess[str] | None:
             text=True,
             timeout=8,
         )
-    except Exception:
+    except Exception as exc:
+        _log.debug("systemctl %s failed: %s", args, exc)
         return None
 
 
@@ -98,8 +102,8 @@ def tailscale_status() -> dict[str, Any]:
                 "hostname": data.get("Self", {}).get("HostName"),
                 "funnel": _check_tailscale_funnel(),
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.debug("tailscale status failed: %s", exc)
     return {"installed": True, "connected": False}
 
 
@@ -112,7 +116,8 @@ def _check_tailscale_funnel() -> bool:
             timeout=5,
         )
         return result.returncode == 0 and "on" in result.stdout.lower()
-    except Exception:
+    except Exception as exc:
+        _log.debug("tailscale funnel status failed: %s", exc)
         return False
 
 
@@ -144,7 +149,8 @@ def _is_cloudflared_running() -> bool:
             timeout=3,
         )
         return result.returncode == 0
-    except Exception:
+    except Exception as exc:
+        _log.debug("cloudflared process check failed: %s", exc)
         return False
 
 
@@ -259,7 +265,8 @@ def stop_cloudflared() -> bool:
             timeout=5,
         )
         return True
-    except Exception:
+    except Exception as exc:
+        _log.debug("stopping cloudflared failed: %s", exc)
         return False
 
 
@@ -309,7 +316,8 @@ def stop_tailscale_funnel(port: int = 9090) -> bool:
             timeout=5,
         )
         return True
-    except Exception:
+    except Exception as exc:
+        _log.debug("tailscale funnel reset failed: %s", exc)
         return False
 
 

@@ -1,0 +1,28 @@
+# Exclude everything not needed for the image to keep the build context small
+# and prevent local state / secrets from leaking into image layers.
+.git
+.gitignore
+.github
+.agents
+.opencode
+.cursor
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Local runtime state — never bake into an image.
+.kater
+.env
+.env.local
+
+# Docs / tests are not needed at runtime.
+docs/
+tests/
+*.md
+!README.md
+LICENSE
+CONTRIBUTING.md
+SECURITY.md

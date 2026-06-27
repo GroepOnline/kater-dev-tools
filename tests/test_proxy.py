@@ -1,30 +1,11 @@
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
 from typing import Any
-
-import pytest
 
 from kater.proxy.aggregator import Aggregator
 from kater.proxy.base import BaseBackend, MockBackend
 from kater.proxy.manager import ProxyManager
 from kater.proxy.models import BackendStatus, ProxiedTool
-
-KATER_DIR = Path.cwd() / ".kater"
-
-
-@pytest.fixture(autouse=True)
-def clean_storage():
-    from kater.storage import reset_db_cache
-
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
-    yield
-    reset_db_cache()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
 
 
 class RecordingBackend(BaseBackend):

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.request
 from typing import Any
 
 from kater.proxy.base import BaseBackend
+
+_log = logging.getLogger("kater.proxy.sse")
 
 
 class SSEBackend(BaseBackend):
@@ -35,6 +38,7 @@ class SSEBackend(BaseBackend):
             headers={"Accept": "text/event-stream", **self._headers},
         )
         try:
+            # URL is operator-configured in profiles.py, not user input.
             resp = urllib.request.urlopen(req, timeout=self._timeout)
             for line in resp:
                 line = line.decode().strip()
@@ -44,8 +48,8 @@ class SSEBackend(BaseBackend):
                         base = self._url.rsplit("/", 1)[0]
                         self._endpoint = f"{base}{data.get('uri', '')}"
                         return
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.debug("sse endpoint discovery failed for %s: %s", self.name, exc)
         if not self._endpoint:
             self._endpoint = self._url.replace("/sse", "/messages")
 

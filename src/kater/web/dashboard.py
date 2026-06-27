@@ -30,6 +30,7 @@ _CSS = r"""
   --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code', 'Consolas', monospace;
   --shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
   --transition: 170ms cubic-bezier(0.4, 0, 0.2, 1);
+  color-scheme: dark;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -52,6 +53,19 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+
+/* Visually hidden but accessible to screen readers. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.skip-link:focus {
+  position: fixed; left: 12px; top: 8px; z-index: 999;
+  width: auto; height: auto; margin: 0; padding: 8px 16px;
+  clip: auto; overflow: visible; white-space: nowrap;
+  background: var(--accent); color: #000; border-radius: 6px;
+  font-family: var(--mono); font-size: 13px; text-decoration: none;
 }
 
 /* Respect reduced-motion: kill ambient animation and transitions. */
@@ -668,10 +682,13 @@ _HTML_SHELL_TOP = r"""
 <div id="bg-gradient"></div>
 <div id="boot"><div class="boot-text" id="boot-text"></div></div>
 
+<a href="#app" class="sr-only skip-link">Skip to content</a>
+
 <div id="auth-gate">
   <div class="auth-card">
     <h2>Sign in to Kater</h2>
     <p>This gateway requires authentication. Use OAuth or paste an API key.</p>
+    <label for="auth-key-input" class="sr-only">API key</label>
     <input type="password" id="auth-key-input" placeholder="API key (optional)" autocomplete="off">
     <div class="auth-actions">
       <button class="btn-save" id="auth-oauth-btn" type="button">Sign in with OAuth</button>
@@ -688,7 +705,7 @@ _HTML_SHELL_TOP = r"""
         KATER
         <span class="version-tag" id="version-tag">v0.0.0</span>
       </div>
-      <div class="profile-pills" id="profile-pills"></div>
+      <div class="profile-pills" id="profile-pills" role="group" aria-label="Profiles"></div>
     </div>
     <div class="topbar-right">
       <div class="auth-badge">
@@ -781,7 +798,8 @@ _VIEW_CATALOG = r"""
     <div class="view-scroll">
       <div class="catalog-toolbar">
         <input class="form-input" id="catalog-search" type="search"
-          placeholder="Zoek servers (bijv. search, github)..." autocomplete="off">
+          placeholder="Zoek servers (bijv. search, github)..." autocomplete="off"
+          aria-label="Search servers">
       </div>
       <div class="server-grid" id="catalog-grid">
         <div class="view-empty">Loading catalog...</div>
@@ -817,7 +835,8 @@ _VIEW_DEPLOY = r"""
       <div class="code-preview">
         <div class="code-desc" id="deploy-desc"></div>
         <div class="code-wrap">
-          <button class="code-copy" onclick="copyDeployCode()">Copy</button>
+          <button class="code-copy" onclick="copyDeployCode()"
+            aria-label="Copy deployment code">Copy</button>
           <pre class="code-block" id="deploy-code">Select a format above.</pre>
         </div>
       </div>
@@ -869,6 +888,7 @@ _VIEW_SETTINGS = r"""
 _HTML_SHELL_BOTTOM = r"""
   <div class="command-bar">
     <span class="cmd-prompt">&gt;</span>
+    <label for="cmd-input" class="sr-only">Command</label>
     <input id="cmd-input"
       placeholder="type a command... (toggle github, profile ops)"
       autocomplete="off" />

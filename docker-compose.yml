@@ -25,6 +25,14 @@ services:
     volumes:
       - ./config:/app/config:ro
       - kater_data:/app/.kater
+    # In-RAM writable /tmp without persisting it.
+    tmpfs:
+      - /tmp
+    # Drop all Linux capabilities and forbid privilege escalation.
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Read-only root FS; named volume + tmpfs cover the writable paths.
+    read_only: true
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9091/health"]
       interval: 30s

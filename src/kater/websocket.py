@@ -9,9 +9,11 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from kater.settings import cors_allow_origin, load_settings
 from kater.telemetry import status_overview
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+MAX_FRAME_SIZE = 1 << 20  # 1 MB — prevent attacker-controlled allocation
 
 _clients: set[Any] = set()
 _clients_lock = threading.Lock()
@@ -102,6 +104,8 @@ def _read_frame(rfile: Any) -> tuple[int, bytes] | None:
         if len(ext) < 8:
             return None
         length = struct.unpack(">Q", ext)[0]
+    if length > MAX_FRAME_SIZE:
+        return None
     mask_key = rfile.read(4) if masked else b""
     payload = rfile.read(length) if length > 0 else b""
     if masked and payload:
@@ -120,6 +124,19 @@ class WSHandler(BaseHTTPRequestHandler):
             self.send_response(400)
             self.end_headers()
             return False
+        # ── Origin validation (CSWSH protection) ───────────────────
+        # Non-browser clients typically omit Origin, so we only reject
+        # when the header is present and does not match any configured
+        # CORS origin — this blocks cross-site WebSocket hijacking.
+        origin = self.headers.get("Origin")
+        if origin:
+            settings = load_settings()
+            if not cors_allow_origin(settings, origin):
+                self.send_response(403)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"Origin not allowed")
+                return False
         digest = hashlib.sha1((key + WS_GUID).encode("ascii")).digest()
         accept = base64.b64encode(digest).decode("ascii")
         self.send_response(101)
@@ -246,11 +263,23 @@ class WSHandler(BaseHTTPRequestHandler):
     def _check_auth(self) -> bool:
         from urllib.parse import parse_qs, urlparse
 
+        from kater.api import check_transport_rate_limit
         from kater.authgate import AuthContext, authenticate
         from kater.settings import load_settings
 
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+        # Throttle connection attempts the same way REST/MCP are.
+        client_ip = (
+            self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or (self.client_address[0] if self.client_address else "unknown")
+        )
+        if not check_transport_rate_limit(client_ip):
+            self.send_response(429)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Rate limit exceeded."}).encode())
+            return False
         decision = authenticate(
             AuthContext(
                 settings=load_settings(),

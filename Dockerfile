@@ -5,15 +5,20 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:0.7.8 /uv /usr/local/bin/uv
-COPY pyproject.toml README.md ./
-COPY src ./src
 
+# Install dependencies first (cached unless pyproject/lock change), then add
+# source so a code edit does not invalidate the dependency layer.
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --no-dev --production --no-install-project
+
+COPY src ./src
 RUN uv sync --no-dev --production
 
 # ── runtime ───────────────────────────────────────────────────────
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -139,12 +140,12 @@ def render_systemd_config(
     user: str | None = None,
     workdir: str | None = None,
 ) -> dict[str, Any]:
+    """Systemd unit file for Linux server deployment."""
     import getpass
     import os
 
     user = user or getpass.getuser()
     workdir = workdir or os.getcwd()
-    """Systemd unit file for Linux server deployment."""
     if not _SAFE_TOKEN.match(profile):
         raise ValueError(f"Invalid profile: {profile!r}")
     if not _SAFE_TOKEN.match(user):
@@ -235,7 +236,7 @@ def render_k8s_config(
     }
 
 
-DEPLOY_FORMATS = {
+DEPLOY_FORMATS: dict[str, tuple[str, Callable[..., dict[str, Any]]]] = {
     "stdio": ("Local stdio process (Claude Desktop)", render_stdio_config),
     "sse": ("Remote SSE endpoint (Cursor, ChatGPT)", render_sse_config),
     "docker": ("Docker Compose self-hosted", render_docker_config),

@@ -4,10 +4,11 @@ from typing import Any
 
 OPENAPI_VERSION = "3.1.0"
 API_TITLE = "Kater MCP Gateway API"
-API_VERSION = "0.5.0"
+API_VERSION = "1.0.0"
 DEFAULT_SERVER = "http://localhost:9091"
 
-_JSON = {"application/json": {}}
+_JSON: dict[str, Any] = {"application/json": {}}
+_HTML: dict[str, Any] = {"text/html": {}}
 
 
 def _ref(name: str) -> dict[str, str]:
@@ -53,6 +54,141 @@ def _build_paths() -> dict[str, Any]:
             _ref("Health"),
             "Service health and version information.",
         )
+    }
+
+    paths["/"] = {
+        "get": {
+            "summary": "Web dashboard",
+            "responses": {"200": {"description": "Dashboard HTML.", "content": _HTML}},
+        }
+    }
+    paths["/dashboard"] = {
+        "get": {
+            "summary": "Web dashboard (canonical path)",
+            "responses": {"200": {"description": "Dashboard HTML.", "content": _HTML}},
+        }
+    }
+
+    paths["/.well-known/oauth-authorization-server"] = {
+        "get": _response(
+            "OAuth 2.0 authorization server metadata (RFC 8414)",
+            {"type": "object"},
+        )
+    }
+    paths["/.well-known/oauth-protected-resource"] = {
+        "get": _response(
+            "OAuth 2.0 protected resource metadata (RFC 9728)",
+            {"type": "object"},
+        )
+    }
+    paths["/authorize"] = {
+        "get": {
+            "summary": "OAuth 2.0 authorization endpoint (consent page / code redirect)",
+            "parameters": [
+                _qp("client_id", required=True),
+                _qp("redirect_uri", required=True),
+                _qp("code_challenge", required=True),
+                _qp("code_challenge_method", default_val="S256"),
+                _qp("scope"),
+                _qp("state"),
+                _qp("profile", default_val="core"),
+                {
+                    "name": "approve",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string", "enum": ["0", "1"]},
+                },
+            ],
+            "responses": {
+                "200": {"description": "Consent page HTML.", "content": _HTML},
+                "302": {"description": "Authorization code redirect."},
+                "400": _error_ref(),
+            },
+        }
+    }
+    paths["/token"] = {
+        "post": {
+            "summary": "OAuth 2.0 token endpoint (authorization_code + PKCE)",
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/x-www-form-urlencoded": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["grant_type", "code", "client_id", "code_verifier"],
+                            "properties": {
+                                "grant_type": {"type": "string", "enum": ["authorization_code"]},
+                                "code": {"type": "string"},
+                                "client_id": {"type": "string"},
+                                "code_verifier": {"type": "string"},
+                                "client_secret": {"type": "string"},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": {
+                    "description": "Token response.",
+                    "content": {"application/json": {"schema": _ref("TokenResponse")}},
+                },
+                "400": _error_ref(),
+            },
+        }
+    }
+    paths["/register"] = {
+        "post": {
+            "summary": "OAuth 2.0 dynamic client registration (RFC 7591)",
+            "description": (
+                "Register an OAuth client. Requires KATER_REGISTRATION_TOKEN "
+                "(header X-Registration-Token or ?registration_token=) when set."
+            ),
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["redirect_uris"],
+                            "properties": {
+                                "client_name": {"type": "string"},
+                                "redirect_uris": {"type": "array", "items": {"type": "string"}},
+                                "token_endpoint_auth_method": {
+                                    "type": "string",
+                                    "enum": ["none", "client_secret_post"],
+                                    "default": "none",
+                                },
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "201": {
+                    "description": "Registered client.",
+                    "content": {"application/json": {"schema": _ref("ClientRegistration")}},
+                },
+                "400": _error_ref(),
+                "403": _error_ref(),
+            },
+        }
+    }
+    paths["/revoke"] = {
+        "post": {
+            "summary": "OAuth 2.0 token revocation (RFC 7009)",
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/x-www-form-urlencoded": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {"token": {"type": "string"}},
+                        }
+                    }
+                },
+            },
+            "responses": {"200": {"description": "Revoked."}},
+        }
     }
 
     paths["/api/profiles"] = {
@@ -337,6 +473,19 @@ def _profile_query() -> dict[str, Any]:
     }
 
 
+def _qp(
+    name: str,
+    *,
+    required: bool = False,
+    default_val: str | None = None,
+) -> dict[str, Any]:
+    """Compact query parameter for the OAuth endpoints."""
+    schema: dict[str, Any] = {"type": "string"}
+    if default_val is not None:
+        schema["default"] = default_val
+    return {"name": name, "in": "query", "required": required, "schema": schema}
+
+
 def _name_param() -> dict[str, Any]:
     return {
         "name": "name",
@@ -532,13 +681,34 @@ def _build_schemas() -> dict[str, Any]:
             "required": ["error"],
             "properties": {"error": {"type": "string"}},
         },
+        "TokenResponse": {
+            "type": "object",
+            "required": ["access_token", "token_type", "expires_in"],
+            "properties": {
+                "access_token": {"type": "string"},
+                "token_type": {"type": "string", "default": "Bearer"},
+                "expires_in": {"type": "integer"},
+                "scope": {"type": "string"},
+            },
+        },
+        "ClientRegistration": {
+            "type": "object",
+            "required": ["client_id", "client_secret", "redirect_uris"],
+            "properties": {
+                "client_id": {"type": "string"},
+                "client_secret": {"type": "string"},
+                "client_name": {"type": "string"},
+                "redirect_uris": {"type": "array", "items": {"type": "string"}},
+                "token_endpoint_auth_method": {"type": "string"},
+            },
+        },
     }
 
 
 def generate_spec() -> dict[str, Any]:
     try:
         from kater import __version__ as api_version
-    except Exception:
+    except ImportError:
         api_version = API_VERSION
     return {
         "openapi": OPENAPI_VERSION,

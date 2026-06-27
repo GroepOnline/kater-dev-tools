@@ -13,6 +13,8 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
@@ -38,6 +40,7 @@ build-backend = "uv_build"
 dev = [
     "pytest>=8.2",
     "ruff>=0.6",
+    "mypy>=1.10",
 ]
 
 [tool.pytest.ini_options]
@@ -50,4 +53,49 @@ target-version = "py311"
 exclude = [".agents", ".venv", "__pycache__"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+# E/F  : pycodestyle + pyflakes basics
+# I    : isort (import order)
+# UP   : pyupgrade (modern syntax)
+# B    : bugbear (common pitfalls)
+# S    : bandit (security: SQLi, hardcoded secrets, subprocess, assert in prod)
+# RUF  : ruff-specific checks
+# RUF  covers a few additional catches beyond the basics.
+select = ["E", "F", "I", "UP", "B", "S", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately use secrets/subprocess/assert for fixtures and hit
+# localhost HTTP servers / tmp paths while exercising the gateway.
+"tests/**" = [
+    "S101", "S104", "S105", "S106", "S108",
+    "S310", "S311", "S324", "S603", "S607", "RUF059",
+]
+# profiles.py documents a catalog of MCP server launch commands (npx ...);
+# these are operator-chosen, not user input, so S603/S607 flagging is noise.
+"src/kater/profiles.py" = ["S603", "S607"]
+# subprocess invocations in tunnel/deploy/stdio_backend/utrecht use list-form
+# argv and operator-controlled binaries; bandit cannot see that.
+"src/kater/tunnel.py" = ["S603", "S607", "S110"]
+"src/kater/deploy.py" = ["S603", "S607"]
+"src/kater/proxy/stdio_backend.py" = ["S603", "S607"]
+"src/kater/adapters/utrecht.py" = ["S603", "S607"]
+# websocket.py uses sha1 per RFC 6455 (the WS handshake mandates it).
+"src/kater/websocket.py" = ["S324"]
+# gateway/sse_backend only open operator-configured URLs (localhost API proxy,
+# declared SSE backends). S310 cannot distinguish that from unsafe file: opens.
+"src/kater/gateway.py" = ["S310"]
+"src/kater/proxy/sse_backend.py" = ["S310"]
+# oauth.py: the field name `token_endpoint_auth_method` contains "token" which
+# trips S105/S107; it is an OAuth method selector, not a credential.
+"src/kater/oauth.py" = ["S105", "S107"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+packages = ["kater"]
+ignore_missing_imports = true
+# Start lenient: surface real bugs without blocking on untyped third-party stubs.
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+exclude = ["tests/", "build/"]

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from kater.storage import clear_all_events, insert_event, query_events
+
+_log = logging.getLogger("kater.telemetry")
 
 
 @dataclass
@@ -40,8 +43,8 @@ def record_event(event: TelemetryEvent) -> None:
         from kater.websocket import broadcast_event
 
         broadcast_event(event.to_dict())
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.debug("telemetry broadcast failed: %s", exc)
 
 
 def record_tool_call(
@@ -170,9 +173,8 @@ def eval_summary() -> dict[str, Any]:
         else:
             chain_stats[name]["failed"] += 1
 
-    time_span = 0.0
-    if events:
-        time_span = round(events[-1]["timestamp"] - events[0]["timestamp"], 1)
+    # events is non-empty here (empty case returned early above).
+    time_span = round(events[-1]["timestamp"] - events[0]["timestamp"], 1)
 
     return {
         "total_events": len(events),

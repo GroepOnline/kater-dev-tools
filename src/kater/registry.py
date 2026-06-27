@@ -125,6 +125,12 @@ def build_native_tools() -> list[NativeTool]:
 
 
 def tools_for_profile(profile: str) -> list[NativeTool]:
+    from kater.profiles import is_private_profile, is_public_mode
+
+    public = is_public_mode()
     return [
-        tool for tool in build_native_tools() if tool.profile == "core" or tool.profile == profile
+        tool
+        for tool in build_native_tools()
+        if (tool.profile == "core" or tool.profile == profile)
+        and not (public and is_private_profile(tool.profile))
     ]

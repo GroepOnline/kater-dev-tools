@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -485,10 +486,39 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
 )
 
 
+# Org-specific integrations that must never ship in a public deployment.
+# They stay in the source for private/self-hosted use, but are filtered out of
+# every public-facing surface (catalog, profiles, MCP tools, chains) whenever
+# KATER_PUBLIC=1. Tests run without that flag, so they keep full coverage.
+PRIVATE_PROFILES = frozenset({"utrecht"})
+
+
+def is_public_mode() -> bool:
+    return os.environ.get("KATER_PUBLIC", "") == "1"
+
+
+def is_private_profile(profile: str) -> bool:
+    return profile in PRIVATE_PROFILES
+
+
+def is_private_source(source: ToolSource) -> bool:
+    # Private when it belongs only to private profiles (no public profile path).
+    return bool(source.profiles) and source.profiles.issubset(PRIVATE_PROFILES)
+
+
+def visible_tool_sources() -> tuple[ToolSource, ...]:
+    """Tool sources for public-facing listings (hides private ones when public)."""
+    if not is_public_mode():
+        return TOOL_SOURCES
+    return tuple(s for s in TOOL_SOURCES if not is_private_source(s))
+
+
 def list_profiles() -> list[str]:
     profiles = {DEFAULT_PROFILE}
-    for source in TOOL_SOURCES:
+    for source in visible_tool_sources():
         profiles.update(source.profiles)
+    if is_public_mode():
+        profiles -= set(PRIVATE_PROFILES)
     return sorted(profiles)
 
 

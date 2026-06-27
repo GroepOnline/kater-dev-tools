@@ -49,6 +49,12 @@ CHAINS: tuple[ChainDefinition, ...] = (
 
 
 def list_chains(profile: str | None = None) -> list[ChainDefinition]:
+    from kater.profiles import PRIVATE_PROFILES, is_public_mode
+
+    chains = list(CHAINS)
+    if is_public_mode():
+        # Hide chains that only belong to private (org-specific) profiles.
+        chains = [c for c in chains if not (c.profiles and c.profiles.issubset(PRIVATE_PROFILES))]
     if profile is None:
-        return list(CHAINS)
-    return [chain for chain in CHAINS if profile in chain.profiles]
+        return chains
+    return [chain for chain in chains if profile in chain.profiles]

@@ -48,7 +48,7 @@ jobs:
 
   security-audit:
     runs-on: ubuntu-latest
-    # Scan third-party dependencies for known CVEs on every push/PR.
+    # Scan resolved third-party dependencies for known CVEs on every push/PR.
     steps:
       - uses: actions/checkout@v7
 
@@ -58,5 +58,8 @@ jobs:
       - name: Sync dependencies
         run: uv sync --dev
 
+      - name: Export audit requirements
+        run: uv run python -m pip freeze --exclude-editable > requirements-audit.txt
+
       - name: Audit dependencies for vulnerabilities
-        run: uv tree --no-annotated 2>/dev/null; uv run pip install pip-audit && uv run pip-audit --strict --skip-editable
+        run: uvx pip-audit --strict -r requirements-audit.txt

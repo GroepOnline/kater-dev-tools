@@ -40,7 +40,7 @@ jobs:
         run: uv run mypy
 
       - name: Test with pytest
-        run: uv run pytest -q --tb=short -ra
+        run: timeout 120s uv run pytest -vv -x --tb=short -ra
 
       - name: Smoke test
         run: ./scripts/smoke.sh

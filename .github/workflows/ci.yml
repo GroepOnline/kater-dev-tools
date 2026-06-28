@@ -53,8 +53,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Export audit requirements
-        run: uv export --format requirements-txt --all-groups --no-hashes > requirements-audit.txt
+      - name: Export runtime audit requirements
+        run: uv export --format requirements-txt --no-dev --no-hashes > requirements-audit.txt
 
-      - name: Audit dependencies
+      - name: Audit runtime dependencies
         run: uvx pip-audit --strict -r requirements-audit.txt

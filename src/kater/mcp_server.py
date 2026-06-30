@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from importlib import import_module
 from typing import Any
 from urllib.parse import parse_qs
@@ -35,41 +34,78 @@ def create_server(*, profile: str = "core") -> Any:
 
 def register_proxy_tools(server: Any, *, proxy: Any, profile: str) -> None:
     del profile
-    proxy_enabled = os.environ.get("KATER_PROXY", "0") == "1"
-    if not proxy_enabled:
-        _register_proxy_status_tool(server)
-        return
-
     try:
         for tool_def in proxy.list_tools():
             _make_proxy_tool(server, tool_def, proxy)
     except Exception as exc:
         _log.warning("proxy tool registration failed: %s", exc)
-        _register_proxy_status_tool(server)
+        _register_proxy_status_tool(server, proxy=proxy, enabled=False)
         return
 
-    _register_proxy_status_tool(server)
+    _register_proxy_status_tool(server, proxy=proxy, enabled=True)
 
 
-def _register_proxy_status_tool(server: Any) -> None:
+def _register_proxy_status_tool(
+    server: Any, *, proxy: Any | None = None, enabled: bool = False
+) -> None:
     @server.tool(name="kater_proxy_status")
     def proxy_status() -> dict:
+        if proxy is None:
+            return {"enabled": enabled, "backends": 0, "tools": 0}
         return {
-            "enabled": os.environ.get("KATER_PROXY", "0") == "1",
-            "backends": 0,
-            "tools": 0,
+            "enabled": enabled,
+            "backends": proxy.backend_count(),
+            "tools": proxy.tool_count(),
         }
+
+
+def _build_proxy_handler(
+    tool_name: str,
+    input_schema: dict[str, Any],
+    proxy: Any,
+) -> Any:
+    """Build a FastMCP handler whose signature matches the proxied input schema."""
+    properties = input_schema.get("properties") or {}
+    required = set(input_schema.get("required") or [])
+
+    if not properties:
+        def handler() -> Any:
+            return proxy.call_tool(tool_name, {})
+
+        handler.__doc__ = tool_name
+        return handler
+
+    params: list[str] = []
+    body: list[str] = ["    args: dict[str, Any] = {}"]
+    required_params: list[str] = []
+    optional_params: list[str] = []
+    for prop_name in properties:
+        if prop_name in required:
+            required_params.append(prop_name)
+            body.append(f"    if {prop_name} is not None:")
+            body.append(f"        args[{prop_name!r}] = {prop_name}")
+        else:
+            optional_params.append(f"{prop_name}=None")
+            body.append(f"    if {prop_name} is not None:")
+            body.append(f"        args[{prop_name!r}] = {prop_name}")
+
+    params = required_params + optional_params
+
+    body.append(f"    return proxy.call_tool({tool_name!r}, args)")
+    source = f"def handler({', '.join(params)}):\n" + "\n".join(body)
+    namespace: dict[str, Any] = {"Any": Any, "proxy": proxy}
+    exec(source, namespace)  # noqa: S102 — schema-driven signature; props are catalog-controlled
+    handler = namespace["handler"]
+    handler.__doc__ = tool_name
+    return handler
 
 
 def _make_proxy_tool(server: Any, tool_def: dict, proxy: Any) -> None:
     name = tool_def["name"]
     desc = tool_def["description"]
-
-    def _handler(**kwargs):
-        return proxy.call_tool(name, kwargs)
-
-    _handler.__doc__ = desc
-    server.tool(name=name, description=desc)(_handler)
+    schema = tool_def.get("inputSchema") or {"type": "object", "properties": {}}
+    handler = _build_proxy_handler(name, schema, proxy)
+    server.tool(name=name, description=desc)(handler)
 
 
 class AuthASGIMiddleware:

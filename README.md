@@ -39,6 +39,24 @@ kater serve
 
 Open `http://localhost:9091` for the dashboard (or `/dashboard` on your public domain).
 
+### Proxy mode (one MCP, many backends)
+
+By default `kater serve` exposes Kater-native meta-tools. Enable live proxying with
+adapter API keys and `KATER_PROXY=1`:
+
+```bash
+export LINEAR_API_KEY=lin_api_...   # ops profile
+export KATER_PROXY=1
+export KATER_PROFILE=ops
+kater serve
+```
+
+Connect your agent to `http://127.0.0.1:9090/sse`. Proxied tools are prefixed
+(`linear__list_issues`, …). Validate with `./scripts/e2e-mcp.sh` while the server
+is running.
+
+Client-side multi-server configs remain available via `kater config --profile ops`.
+
 ## What It Does
 
 - **Unified MCP surface**: proxy 29+ MCP servers behind one endpoint
@@ -87,7 +105,7 @@ All commands support `--json` for structured output.
 |--------|-----------|----------|
 | github | stdio | ops, code |
 | gitlab | stdio | ops, code |
-| linear | http | ops |
+| linear | http (`/mcp`) | ops |
 | sentry | http | ops |
 | exa | http | research, web |
 | firecrawl | stdio | research, web |
@@ -212,6 +230,7 @@ uv sync --dev
 uv run ruff check .
 uv run pytest -v
 ./scripts/smoke.sh
+./scripts/e2e-mcp.sh   # requires `kater serve` with KATER_PROXY=1
 ```
 
 ## Architecture
@@ -254,4 +273,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Status
 
-v1.0.0 — 379 tests, 29 MCP servers, loopback-by-default with OAuth/API-key auth for public deploys.
+v1.0.0 — 388 tests, 29 MCP servers, loopback-by-default with OAuth/API-key auth for public deploys.

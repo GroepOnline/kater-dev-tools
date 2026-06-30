@@ -6,12 +6,14 @@ import threading
 import time
 from typing import Any
 
+from kater.adapters.external import resolve_remote_headers
 from kater.profiles import TOOL_SOURCES, ToolSource, Transport
 from kater.proxy.aggregator import Aggregator
 from kater.proxy.base import BaseBackend
 from kater.proxy.models import BackendStatus
 from kater.proxy.sse_backend import SSEBackend
 from kater.proxy.stdio_backend import StdioBackend
+from kater.proxy.streamable_http_backend import StreamableHTTPBackend
 from kater.settings import load_settings
 
 logger = logging.getLogger("kater.proxy")
@@ -181,11 +183,13 @@ class ProxyManager:
                     url = url.replace(f"${{{var}}}", env_val)
             if "${" in url and "}" in url:
                 return None
-            headers: dict[str, str] = {}
-            for var in source.env:
-                env_val = os.environ.get(var)
-                if env_val:
-                    headers[var] = env_val
+            headers = resolve_remote_headers(source, include_secrets=True)
+            if url.rstrip("/").endswith("/mcp"):
+                return StreamableHTTPBackend(
+                    name=source.name,
+                    url=url,
+                    headers=headers,
+                )
             return SSEBackend(name=source.name, url=url, headers=headers)
         return None
 

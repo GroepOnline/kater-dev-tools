@@ -80,6 +80,18 @@ def test_render_profile_config_redacts_secrets_when_disabled(monkeypatch) -> Non
     assert "supersecret-token" not in str(safe["mcpServers"]["github"]["env"])
 
 
+def test_notion_launch_hint_uses_bearer_only(monkeypatch) -> None:
+    monkeypatch.setenv("NOTION_API_KEY", "ntn_secret")
+
+    config = render_profile_config("content")
+    notion = config["mcpServers"]["notion"]
+
+    assert notion["env"]["OPENAPI_MCP_HEADERS"] == (
+        '{"Authorization":"Bearer ntn_secret"}'
+    )
+    assert "Notion-Version" not in notion["env"]["OPENAPI_MCP_HEADERS"]
+
+
 def test_embedded_env_var_substitution(monkeypatch) -> None:
     monkeypatch.setenv("NOTION_API_KEY", "ntn_secret")
     headers = '{"Authorization":"Bearer ${NOTION_API_KEY}"}'

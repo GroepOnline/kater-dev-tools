@@ -84,6 +84,7 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 # declared SSE backends). S310 cannot distinguish that from unsafe file: opens.
 "src/kater/gateway.py" = ["S310"]
 "src/kater/proxy/sse_backend.py" = ["S310"]
+"src/kater/proxy/streamable_http_backend.py" = ["S310"]
 # oauth.py: the field name `token_endpoint_auth_method` contains "token" which
 # trips S105/S107; it is an OAuth method selector, not a credential.
 "src/kater/oauth.py" = ["S105", "S107"]

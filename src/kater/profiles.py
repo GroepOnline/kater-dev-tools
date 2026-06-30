@@ -26,6 +26,7 @@ class McpServerConfig(BaseModel):
     args: list[str] = Field(default_factory=list)
     url: str | None = None
     env_template: dict[str, str] = Field(default_factory=dict)
+    headers_template: dict[str, str] = Field(default_factory=dict)
 
 
 class ToolSource(BaseModel):
@@ -96,8 +97,8 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         context_cost=3,
         homepage="https://linear.app",
         mcp=McpServerConfig(
-            url="https://mcp.linear.app/sse",
-            env_template={"LINEAR_API_KEY": "${LINEAR_API_KEY}"},
+            url="https://mcp.linear.app/mcp",
+            headers_template={"Authorization": "Bearer ${LINEAR_API_KEY}"},
         ),
     ),
     ToolSource(
@@ -422,10 +423,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
             command="npx",
             args=["-y", "@notionhq/notion-mcp-server"],
             env_template={
-                "OPENAPI_MCP_HEADERS": (
-                    '{"Authorization":"Bearer ${NOTION_API_KEY}",'
-                    '"Notion-Version":"2022-06-28"}'
-                )
+                "OPENAPI_MCP_HEADERS": '{"Authorization":"Bearer ${NOTION_API_KEY}"}'
             },
         ),
     ),

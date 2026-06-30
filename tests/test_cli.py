@@ -149,79 +149,115 @@ def test_mcp_list_filtered_by_profile() -> None:
     result = runner.invoke(app, ["mcp", "list", "--profile", "ops", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert payload["profile"] == "ops"
-    assert payload["total"] >= 1
+    names = {s["name"] for s in payload["servers"]}
+    assert "github" in names
+    assert "exa" not in names
 
 
-def test_mcp_list_table() -> None:
-    result = runner.invoke(app, ["mcp", "list", "--profile", "core"])
-    assert result.exit_code == 0
-    assert "github" in result.output
-    assert "filesystem" in result.output
-
-
-def test_profiles_includes_mcp_counts() -> None:
-    result = runner.invoke(app, ["profiles", "--json"])
+def test_mcp_status_known() -> None:
+    result = runner.invoke(app, ["mcp", "status", "github", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert payload["counts"]["core"] >= 1
+    assert payload["name"] == "github"
+    assert payload["transport"] == "stdio"
 
 
-def test_config_profile_no_hidden_servers() -> None:
-    result = runner.invoke(app, ["config", "--profile", "core", "--json"])
+def test_mcp_status_unknown() -> None:
+    result = runner.invoke(app, ["mcp", "status", "nonexistent"])
+    assert result.exit_code == 1
+    assert "unknown" in result.output
+
+
+def test_init_creates_kater_dir(tmp_path) -> None:
+    result = runner.invoke(app, ["init", "--profile", "ops", "--force", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert payload["profile"] == "core"
-    assert "mcpServers" in payload
-    assert "notion" not in payload["mcpServers"]
+    assert len(payload["created"]) > 0
 
 
-def test_validate_profile_unknown() -> None:
-    result = runner.invoke(app, ["config", "--profile", "unknown", "--json"])
-    assert result.exit_code == 2
-    assert "Unknown profile" in result.output
+def test_serve_help() -> None:
+    result = runner.invoke(app, ["serve", "--help"])
+    assert result.exit_code == 0
+    assert "--api-port" in result.output
+    assert "--mcp-port" in result.output
 
 
-def test_config_opencode() -> None:
-    result = runner.invoke(app, ["config", "--profile", "core", "--format", "opencode"])
+def test_enable_server() -> None:
+    result = runner.invoke(app, ["enable", "github", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert "mcp" in payload or "mcpServers" in payload
+    assert payload["enabled"] is True
 
 
-def test_doctor_text() -> None:
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0
-    assert "Doctor" in result.output or "profiles" in result.output
-
-
-def test_init_config(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    result = runner.invoke(app, ["init", "--yes"])
-    assert result.exit_code == 0
-    assert (tmp_path / ".kater" / "config.toml").exists()
-
-
-def test_init_config_no_overwrite(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    config_dir = tmp_path / ".kater"
-    config_dir.mkdir()
-    config_file = config_dir / "config.toml"
-    config_file.write_text("existing")
-
-    result = runner.invoke(app, ["init", "--yes"])
-    assert result.exit_code == 0
-    assert config_file.read_text() == "existing"
-
-
-def test_env_example() -> None:
-    result = runner.invoke(app, ["env", "example", "--profile", "core"])
-    assert result.exit_code == 0
-    assert "GITHUB_TOKEN" in result.output
-
-
-def test_env_example_json() -> None:
-    result = runner.invoke(app, ["env", "example", "--profile", "core", "--json"])
+def test_disable_server() -> None:
+    result = runner.invoke(app, ["disable", "sentry", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert "GITHUB_TOKEN" in payload["required"]
+    assert payload["enabled"] is False
+
+
+def test_toggle_server() -> None:
+    result = runner.invoke(app, ["toggle", "exa", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert "enabled" in payload
+
+
+def test_enable_unknown() -> None:
+    result = runner.invoke(app, ["enable", "nonexistent"])
+    assert result.exit_code == 1
+
+
+def test_deploy_list() -> None:
+    result = runner.invoke(app, ["deploy", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    names = {f["name"] for f in payload["formats"]}
+    assert "docker" in names
+    assert "cloudflare" in names
+
+
+def test_deploy_render() -> None:
+    result = runner.invoke(app, ["deploy", "render", "docker", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["format"] == "docker-compose"
+
+
+def test_deploy_render_cloudflare() -> None:
+    result = runner.invoke(
+        app, ["deploy", "render", "cloudflare", "--domain", "kater.test.com", "--json"]
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["format"] == "cloudflare-tunnel"
+
+
+def test_auth_status() -> None:
+    result = runner.invoke(app, ["auth", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert "mode" in payload
+
+
+def test_auth_set_apikey() -> None:
+    result = runner.invoke(app, ["auth", "set", "apikey", "--key", "test-key", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["mode"] == "apikey"
+    assert "test-key" in payload["api_keys"]
+
+
+def test_auth_set_none() -> None:
+    result = runner.invoke(app, ["auth", "set", "none", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["mode"] == "none"
+
+
+def test_settings_json() -> None:
+    result = runner.invoke(app, ["settings", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["version"] == 2
+    assert "auth" in payload

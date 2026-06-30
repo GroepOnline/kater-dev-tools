@@ -348,7 +348,8 @@ def test_dashboard_html(api_server) -> None:
     resp = urllib.request.urlopen("http://127.0.0.1:9912/")
     body = resp.read().decode()
     assert "<!DOCTYPE html>" in body
-    assert "constellation-canvas" in body
+    assert "server-map" in body
+    assert "route-table" in body or "Routing table" in body
     assert "cmd-input" in body
-    assert "KATER" in body
+    assert "Kater" in body
     assert resp.headers.get("Content-Type", "").startswith("text/html")

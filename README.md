@@ -135,15 +135,21 @@ All commands support `--json` for structured output.
 
 ## Web Dashboard
 
-Open `http://localhost:9091` in any browser:
+Open `http://localhost:9091` in any browser. The dashboard is a single,
+dependency-free document (inline HTML/CSS/JS) with a dark, ops-focused design:
 
-- **Dashboard**: interactive constellation canvas, live telemetry stream, stats
+- **Overview**: triage-first exception strip (ready / needs-credentials /
+  disabled), live KPI tiles with sparklines + trend deltas, a 5-state routing
+  table, and an activity log with a canvas latency strip, burst grouping,
+  pause, and an errors-only filter
 - **Catalog**: browse all servers, toggle on/off, filter by profile
-- **Evals**: tool performance tables, success rates, latency
+- **Performance**: per-tool success bars and latency pills
 - **Deploy**: generate configs for any platform
 - **Settings**: auth mode, CORS, rate limit, storage backend
 
-Keyboard shortcuts: `1-5` switch views, `Ctrl+K` focuses command bar.
+Keyboard: `1-5` switch views, `⌘/Ctrl+K` opens the command palette, `j/k` move
+through the routing table and `Enter` opens detail, `/` focuses search, `r`
+refreshes the current view.
 
 ## REST API
 

@@ -87,12 +87,32 @@ def _build_launch_hint(
         }
     if source.transport in ("sse", "http"):
         url = _substitute_env_vars(source.mcp.url or "", include_secrets=include_secrets)
-        return {
-            "type": "sse",
+        hint: dict[str, Any] = {
+            "type": _remote_launch_type(url),
             "url": url,
-            "env": _resolve_env(source.mcp.env_template, include_secrets=include_secrets),
         }
+        headers = resolve_remote_headers(source, include_secrets=include_secrets)
+        if headers:
+            hint["headers"] = headers
+        env = _resolve_env(source.mcp.env_template, include_secrets=include_secrets)
+        if env:
+            hint["env"] = env
+        return hint
     return None
+
+
+def resolve_remote_headers(
+    source: ToolSource, *, include_secrets: bool = True
+) -> dict[str, str]:
+    if not source.mcp:
+        return {}
+    return _resolve_env(source.mcp.headers_template, include_secrets=include_secrets)
+
+
+def _remote_launch_type(url: str) -> str:
+    if url.rstrip("/").endswith("/mcp"):
+        return "http"
+    return "sse"
 
 
 def _resolve_env(

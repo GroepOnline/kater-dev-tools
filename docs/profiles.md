@@ -15,7 +15,7 @@ Kater profiles keep code-agent tool context scoped to the current task.
 | `research` | Web and model/dataset research | Exa, Firecrawl, Hugging Face |
 | `web` | Browser and web extraction | Browser, Exa, Firecrawl |
 | `cloud` | Cloud-ish dev support | Hugging Face, Upstash |
-| `content` | CMS and publishing | Sanity, Resend |
+| `content` | CMS and publishing | Sanity, Notion, Resend |
 | `email` | Email operations | Resend |
 | `image` | Image/vector generation | QuiverAI |
 | `utrecht` | Utrecht Data OS adapter | Existing Utrecht MCP or CLI |

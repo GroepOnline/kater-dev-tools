@@ -37,6 +37,25 @@ def test_dashboard_injects_configured_ws_port():
     assert "wsPort:9092" in render_dashboard()
 
 
+def test_overview_has_situational_awareness_seams():
+    # The 2026 redesign leads with triage, not vanity numbers: an exception
+    # strip, live KPI sparklines, a 5-state routing table, and a latency strip.
+    html = render_dashboard()
+    assert 'id="exc-strip"' in html  # triage-first exception strip
+    assert 'id="spark-success"' in html and 'id="spark-latency"' in html
+    assert 'id="latency-strip"' in html  # canvas latency oscilloscope
+    assert "Routing table" in html
+    assert 'id="telemetry-stream"' in html
+
+
+def test_command_palette_is_present():
+    # ⌘K command palette is the discoverable entry point for navigation/actions.
+    html = render_dashboard()
+    assert 'id="cmd-palette"' in html
+    assert 'id="palette-input"' in html
+    assert 'id="palette-results"' in html
+
+
 def test_each_view_is_present_via_its_own_seam():
     # The per-view constants must each own exactly their view and compose
     # into the single _HTML body (deletion test: drop one -> a view vanishes).

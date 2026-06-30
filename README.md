@@ -61,7 +61,7 @@ Client-side multi-server configs remain available via `kater config --profile op
 
 - **Unified MCP surface**: proxy 29+ MCP servers behind one endpoint
 - **Profile gating**: expose only the tools relevant to the current task
-- **Web dashboard**: constellation view, catalog, evals, deploy configs
+- **Web dashboard**: routing table, server catalog, evals, deploy configs
 - **REST API**: 25+ endpoints with OpenAPI spec at `/api/spec`
 - **WebSocket**: real-time telemetry and server state changes
 - **Auth**: API key or OAuth2 with PKCE (ChatGPT compatible)

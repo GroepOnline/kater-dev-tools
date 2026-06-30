@@ -345,11 +345,11 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
     # ── Specialized ─────────────────────────────────────────────────
     ToolSource(
         name="utrecht",
-        description="Utrecht Data OS pipeline and agent adapter.",
+        description="Utrecht Data OS pipeline, agent, and safe Fleet inventory adapter.",
         transport=Transport.SSE,
         risk=RiskLevel.LOW,
         profiles={"utrecht"},
-        env=["UTRECHT_MCP_URL"],
+        env=["UTRECHT_MCP_URL", "UTRECHT_FLEET_INVENTORY_PATH"],
         context_cost=2,
         homepage="https://utrecht-data-os.nl",
         mcp=McpServerConfig(

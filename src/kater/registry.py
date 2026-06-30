@@ -47,6 +47,11 @@ def utrecht_pipeline_tool() -> dict[str, Any]:
     return utrecht_pipeline_status()
 
 
+def utrecht_fleet_inventory_tool() -> dict[str, Any]:
+    from kater.adapters.utrecht import utrecht_fleet_inventory_summary
+    return utrecht_fleet_inventory_summary()
+
+
 def adapter_inventory_tool(profile: str = "core") -> dict[str, Any]:
     inventory = scan_adapters({profile})
     return {
@@ -106,6 +111,13 @@ def build_native_tools() -> list[NativeTool]:
             profile="utrecht",
             risk="low",
             handler=utrecht_pipeline_tool,
+        ),
+        NativeTool(
+            name="utrecht_fleet_inventory",
+            description="Summarize the safe Utrecht Fleet inventory without private host data.",
+            profile="utrecht",
+            risk="low",
+            handler=utrecht_fleet_inventory_tool,
         ),
         NativeTool(
             name="kater_adapters",

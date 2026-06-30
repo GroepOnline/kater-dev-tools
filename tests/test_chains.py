@@ -36,4 +36,5 @@ def test_utrecht_chain() -> None:
     chains = list_chains("utrecht")
     assert len(chains) == 1
     assert chains[0].name == "utrecht_status"
-    assert len(chains[0].steps) == 2
+    assert len(chains[0].steps) == 3
+    assert chains[0].steps[1].tool == "utrecht_fleet_inventory"

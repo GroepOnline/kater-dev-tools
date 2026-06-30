@@ -19,6 +19,7 @@ def test_registry_profile_gated_tools() -> None:
     assert "utrecht_status" not in core_tools
     assert "utrecht_status" in utrecht_tools
     assert "utrecht_pipeline_status" in utrecht_tools
+    assert "utrecht_fleet_inventory" in utrecht_tools
 
 
 def test_registry_all_profiles_share_core() -> None:

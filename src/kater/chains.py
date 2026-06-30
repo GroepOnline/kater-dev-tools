@@ -42,6 +42,7 @@ CHAINS: tuple[ChainDefinition, ...] = (
         profiles={"utrecht"},
         steps=[
             ChainStep(tool="utrecht_pipeline_status", reason="Check local pipeline artifacts."),
+            ChainStep(tool="utrecht_fleet_inventory", reason="Summarize the safe Fleet inventory."),
             ChainStep(tool="utrecht_agent_manifest", reason="Inspect Utrecht tool surface."),
         ],
     ),

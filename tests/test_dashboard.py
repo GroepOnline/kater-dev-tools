@@ -9,6 +9,8 @@ These tests guard two things the design review flagged:
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from kater.api import ROUTER
@@ -50,6 +52,33 @@ def test_each_view_is_present_via_its_own_seam():
         assert f'id="{view_id}"' in const, view_id
         assert const in _HTML, view_id
         assert f'id="{view_id}"' in render_dashboard(), view_id
+
+
+def test_dashboard_tabs_have_complete_aria_contract():
+    html = render_dashboard()
+    views = ["dashboard", "catalog", "evals", "deploy", "settings"]
+
+    assert 'role="tablist" aria-label="Dashboard views"' in html
+    assert "function initTabNavigation()" in html
+    assert "ArrowRight" in html
+    assert "ArrowLeft" in html
+    assert "Home" in html
+    assert "End" in html
+
+    for index, view in enumerate(views):
+        expected_selected = "true" if index == 0 else "false"
+        expected_tabindex = "0" if index == 0 else "-1"
+        expected_hidden = "" if index == 0 else " hidden"
+
+        assert f'id="tab-{view}" role="tab"' in html
+        assert f'aria-selected="{expected_selected}"' in html
+        assert f'aria-controls="view-{view}" tabindex="{expected_tabindex}"' in html
+        assert re.search(
+            rf'id="view-{view}"[^>]*role="tabpanel"'
+            rf'[^>]*aria-labelledby="tab-{view}"'
+            rf'[^>]*tabindex="0"[^>]*{expected_hidden}>',
+            html,
+        )
 
 
 # (method, concrete-path) pairs that the dashboard JS fetches. Sample values

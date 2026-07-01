@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 
+import pytest
 from typer.testing import CliRunner
 
-from kater.cli import app
+from kater.cli import _prepare_public_bind_environment, app
 
 runner = CliRunner()
 
@@ -178,6 +180,62 @@ def test_serve_help() -> None:
     assert result.exit_code == 0
     assert "--api-port" in strip_ansi(result.output)
     assert "--mcp-port" in strip_ansi(result.output)
+
+
+def test_public_bind_prepares_secure_env_before_settings(monkeypatch, tmp_path) -> None:
+    from kater.settings import load_settings
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    monkeypatch.delenv("KATER_HOST", raising=False)
+    monkeypatch.delenv("KATER_AUTH_MODE", raising=False)
+    monkeypatch.delenv("KATER_RATE_LIMIT", raising=False)
+    monkeypatch.delenv("KATER_CORS_ORIGINS", raising=False)
+
+    _prepare_public_bind_environment("0.0.0.0")
+    settings = load_settings()
+
+    assert settings.host == "0.0.0.0"
+    assert settings.auth.mode == "oauth"
+    assert settings.rate_limit_per_min == 60
+    assert settings.cors_origins != ["*"]
+    for name in (
+        "KATER_PUBLIC",
+        "KATER_HOST",
+        "KATER_AUTH_MODE",
+        "KATER_RATE_LIMIT",
+        "KATER_CORS_ORIGINS",
+    ):
+        os.environ.pop(name, None)
+
+
+@pytest.mark.parametrize(
+    ("env_name", "env_value", "message"),
+    [
+        ("KATER_AUTH_MODE", "none", "requires authentication"),
+        ("KATER_RATE_LIMIT", "0", "requires KATER_RATE_LIMIT"),
+        ("KATER_CORS_ORIGINS", "*", "must not use wildcard"),
+    ],
+)
+def test_public_bind_rejects_insecure_overrides(
+    monkeypatch, env_name: str, env_value: str, message: str
+) -> None:
+    for name in ("KATER_AUTH_MODE", "KATER_RATE_LIMIT", "KATER_CORS_ORIGINS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(env_name, env_value)
+
+    with pytest.raises(Exception) as exc:
+        _prepare_public_bind_environment("0.0.0.0")
+
+    assert message in str(exc.value)
+    for name in (
+        "KATER_PUBLIC",
+        "KATER_HOST",
+        "KATER_AUTH_MODE",
+        "KATER_RATE_LIMIT",
+        "KATER_CORS_ORIGINS",
+    ):
+        os.environ.pop(name, None)
 
 
 def test_enable_server() -> None:

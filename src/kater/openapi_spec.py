@@ -140,8 +140,10 @@ def _build_paths() -> dict[str, Any]:
         "post": {
             "summary": "OAuth 2.0 dynamic client registration (RFC 7591)",
             "description": (
-                "Register an OAuth client. Requires KATER_REGISTRATION_TOKEN "
-                "(header X-Registration-Token or ?registration_token=) when set."
+                "Register an OAuth client. In public mode this is disabled unless "
+                "KATER_ALLOW_DYNAMIC_REGISTRATION=1 and KATER_REGISTRATION_TOKEN is "
+                "set. Supply the token with header X-Registration-Token or "
+                "?registration_token=."
             ),
             "requestBody": {
                 "required": True,
@@ -334,6 +336,21 @@ def _build_paths() -> dict[str, Any]:
             "Instance status overview",
             _ref("Status"),
             "High-level instance status.",
+        )
+    }
+
+    paths["/api/ws-ticket"] = {
+        "post": _response(
+            "Issue WebSocket ticket",
+            {
+                "type": "object",
+                "required": ["ticket", "expires_in"],
+                "properties": {
+                    "ticket": {"type": "string"},
+                    "expires_in": {"type": "integer"},
+                },
+            },
+            "Short-lived one-time ticket for dashboard WebSocket auth.",
         )
     }
 

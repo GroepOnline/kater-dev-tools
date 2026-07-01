@@ -236,19 +236,39 @@ def _security_check() -> list[Finding]:
         )
 
     if is_public and settings.auth.mode == "oauth":
-        if not os.environ.get("KATER_REGISTRATION_TOKEN"):
+        allow_dynamic_registration = (
+            os.environ.get("KATER_ALLOW_DYNAMIC_REGISTRATION", "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+        registration_token_set = bool(os.environ.get("KATER_REGISTRATION_TOKEN"))
+        if allow_dynamic_registration and not registration_token_set:
             findings.append(
                 Finding(
-                    code="public_oauth_open_registration",
-                    severity="warning",
+                    code="public_oauth_registration_token_missing",
+                    severity="error",
                     message=(
-                        "OAuth mode is enabled but KATER_REGISTRATION_TOKEN is not set, "
-                        "so anyone who can reach this host can register an OAuth client "
-                        "and obtain an access token."
+                        "Dynamic OAuth registration is enabled but "
+                        "KATER_REGISTRATION_TOKEN is not set, so /register will stay "
+                        "disabled in public mode."
                     ),
                     suggested_action=(
-                        "Set KATER_REGISTRATION_TOKEN to require it for /register, "
-                        "or accept that this host is single-user (anyone-with-the-link)."
+                        "Set KATER_REGISTRATION_TOKEN and pass it as "
+                        "X-Registration-Token, or remove KATER_ALLOW_DYNAMIC_REGISTRATION."
+                    ),
+                )
+            )
+        elif registration_token_set and not allow_dynamic_registration:
+            findings.append(
+                Finding(
+                    code="public_oauth_registration_disabled",
+                    severity="info",
+                    message=(
+                        "KATER_REGISTRATION_TOKEN is set, but dynamic OAuth "
+                        "registration is disabled in public mode."
+                    ),
+                    suggested_action=(
+                        "Set KATER_ALLOW_DYNAMIC_REGISTRATION=1 only if you need "
+                        "runtime client registration."
                     ),
                 )
             )
@@ -258,11 +278,12 @@ def _security_check() -> list[Finding]:
                     code="public_no_admin_key",
                     severity="info",
                     message=(
-                        "KATER_ADMIN_KEY is not set; any authenticated caller can change "
-                        "settings (auth mode, CORS, rate limit)."
+                        "KATER_ADMIN_KEY is not set; public settings mutations are "
+                        "disabled."
                     ),
                     suggested_action=(
-                        "Set KATER_ADMIN_KEY so settings changes require the operator key."
+                        "Set KATER_ADMIN_KEY when the dashboard or API must change "
+                        "settings in public mode."
                     ),
                 )
             )

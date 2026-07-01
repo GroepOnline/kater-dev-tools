@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 import time
+import urllib.parse
 from urllib.parse import urlencode
 
 import pytest
@@ -94,14 +96,13 @@ def test_api_proxy_passes_through_oauth_redirect(api_server) -> None:
         client_name="test",
         redirect_uris=[redirect_uri],
     )
-    query = urlencode(
+    consent_query = urlencode(
         {
             "response_type": "code",
             "client_id": client.client_id,
             "redirect_uri": redirect_uri,
             "code_challenge": "abc123",
             "code_challenge_method": "S256",
-            "approve": "1",
         }
     ).encode()
 
@@ -110,7 +111,57 @@ def test_api_proxy_passes_through_oauth_redirect(api_server) -> None:
 
     mw = ApiProxyMiddleware(downstream, api_port=9925)
     status, body, headers = asyncio.run(
-        _request(mw, "/authorize", query_string=query)
+        _request(mw, "/authorize", query_string=consent_query)
+    )
+    assert status == 200
+    cookie = next(
+        (v.decode().split(";", 1)[0] for k, v in headers if k.lower() == b"set-cookie"),
+        "",
+    )
+    assert cookie.startswith("kater_oauth_consent=")
+    html = body.decode()
+    allow_href = re.search(r'href="([^"]+approve=1[^"]+)"', html)
+    assert allow_href is not None
+    approve_url = allow_href.group(1).replace("&amp;", "&")
+    parsed = urllib.parse.urlparse(approve_url)
+
+    async def _request_with_cookie(
+        mw: ApiProxyMiddleware,
+        path: str,
+        *,
+        query_string: bytes,
+        cookie: str,
+    ) -> tuple[int, bytes, list[tuple[bytes, bytes]]]:
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "query_string": query_string,
+            "headers": [(b"cookie", cookie.encode())],
+        }
+        sent: list = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(msg):
+            sent.append(msg)
+
+        await mw(scope, receive, send)
+        response_status = sent[0]["status"]
+        response_headers = sent[0].get("headers", [])
+        response_body = b"".join(
+            m.get("body", b"") for m in sent if m.get("type") == "http.response.body"
+        )
+        return response_status, response_body, response_headers
+
+    status, body, headers = asyncio.run(
+        _request_with_cookie(
+            mw,
+            parsed.path,
+            query_string=parsed.query.encode(),
+            cookie=cookie,
+        )
     )
     assert status == 302
     assert body == b""

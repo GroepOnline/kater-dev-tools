@@ -6,6 +6,8 @@ sources_for_profiles, is_private_profile, is_private_source.
 
 from __future__ import annotations
 
+import re
+
 from kater.profiles import (
     TOOL_SOURCES,
     RiskLevel,
@@ -42,6 +44,16 @@ class TestToolSourceBasics:
     def test_source_names_are_unique(self):
         names = [src.name for src in TOOL_SOURCES]
         assert len(names) == len(set(names)), f"Duplicate source names: {names}"
+
+    def test_npx_mcp_packages_are_version_pinned(self):
+        package_re = re.compile(r"^(?:@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+@[0-9][^@]*$")
+        for src in TOOL_SOURCES:
+            if not src.mcp or src.mcp.command != "npx":
+                continue
+            assert src.mcp.args[:1] == ["-y"], f"{src.name} npx args must start with -y"
+            assert len(src.mcp.args) >= 2, f"{src.name} npx args must include package"
+            package = src.mcp.args[1]
+            assert package_re.match(package), f"{src.name} package is not pinned: {package}"
 
 
 class TestListProfiles:

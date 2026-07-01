@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import secrets
@@ -188,12 +189,14 @@ _settings_lock = threading.Lock()
 def save_settings(settings: KaterSettings, project_dir: Path | None = None) -> Path:
     path = settings_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
     with _settings_lock:
         tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}.{threading.get_ident()}")
         tmp.write_text(
             json.dumps(settings.to_dict(), indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+        tmp.chmod(0o600)
         os.replace(tmp, path)
     # Drop the cache so the next load_settings() reflects the new on-disk state.
     invalidate_settings_cache(project_dir)
@@ -213,6 +216,34 @@ def _is_public_deploy(host: str) -> bool:
     if _env_truthy("KATER_PUBLIC"):
         return True
     return host not in ("127.0.0.1", "localhost", "::1")
+
+
+def is_public_settings(settings: KaterSettings) -> bool:
+    return _is_public_deploy(os.environ.get("KATER_HOST", settings.host))
+
+
+def unsafe_public_settings_override_enabled() -> bool:
+    return _env_truthy("KATER_ALLOW_UNSAFE_PUBLIC_SETTINGS")
+
+
+def allow_query_api_key(settings: KaterSettings) -> bool:
+    return not is_public_settings(settings)
+
+
+def _is_trusted_proxy_peer(peer_ip: str) -> bool:
+    if _env_truthy("KATER_TRUST_PROXY"):
+        return True
+    try:
+        ip = ipaddress.ip_address(peer_ip)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
+
+
+def resolve_client_ip(forwarded_for: str | None, client_address_ip: str) -> str:
+    if forwarded_for and _is_trusted_proxy_peer(client_address_ip):
+        return forwarded_for.split(",")[0].strip() or client_address_ip
+    return client_address_ip
 
 
 def _settings_from_env() -> KaterSettings:
@@ -313,7 +344,10 @@ def _generate_default_key() -> str:
     return f"kat_{_secrets.token_hex(16)}"
 
 
-def check_admin(authorization_header: str | None) -> bool:
+def check_admin(
+    authorization_header: str | None,
+    settings: KaterSettings | None = None,
+) -> bool:
     """True if the caller holds the operator/admin credential.
 
     Operators set ``KATER_ADMIN_KEY`` to separate "use tools" from "change
@@ -324,6 +358,8 @@ def check_admin(authorization_header: str | None) -> bool:
     """
     admin_key = os.environ.get("KATER_ADMIN_KEY", "")
     if not admin_key:
+        if settings is not None and is_public_settings(settings):
+            return False
         return True
     token = _extract_bearer(authorization_header)
     if not token:
@@ -343,11 +379,12 @@ def check_auth(
         return True, None
 
     if settings.auth.mode == "apikey":
-        token = _extract_bearer(authorization_header) or query_api_key
+        token = _extract_bearer(authorization_header)
+        if not token and allow_query_api_key(settings):
+            token = query_api_key
         if not token:
             return False, (
-                "Missing API key. Use Authorization: Bearer <key>"
-                " or ?api_key=<key>."
+                "Missing API key. Use Authorization: Bearer <key>."
             )
         for key in settings.auth.api_keys:
             if secrets.compare_digest(token, key):

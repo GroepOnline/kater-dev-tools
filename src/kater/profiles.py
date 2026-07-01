@@ -44,6 +44,29 @@ class ToolSource(BaseModel):
 
 DEFAULT_PROFILE = "core"
 
+GITHUB_MCP_VERSION = "2025.4.8"
+GITLAB_MCP_VERSION = "2025.4.25"
+FIRECRAWL_MCP_VERSION = "3.22.1"
+CLOUDFLARE_MCP_VERSION = "0.2.0"
+UPSTASH_MCP_VERSION = "0.2.3"
+PLAYWRIGHT_MCP_VERSION = "0.0.76"
+RESEND_MCP_VERSION = "2.9.0"
+SLACK_MCP_VERSION = "2025.4.25"
+FIGMA_MCP_VERSION = "0.13.2"
+POSTGRES_MCP_VERSION = "0.6.2"
+SQLITE_MCP_VERSION = "0.8.0"
+FILESYSTEM_MCP_VERSION = "2026.1.14"
+BRAVE_SEARCH_MCP_VERSION = "0.6.2"
+SEQUENTIAL_THINKING_MCP_VERSION = "2025.12.18"
+MEMORY_MCP_VERSION = "2026.1.26"
+CONTEXT7_MCP_VERSION = "3.2.2"
+DEEPWIKI_MCP_VERSION = "0.0.6"
+NOTION_MCP_VERSION = "2.4.1"
+FETCH_MCP_VERSION = "0.1.1"
+TIME_MCP_VERSION = "1.0.0"
+PUPPETEER_MCP_VERSION = "2025.5.12"
+EVERART_MCP_VERSION = "0.6.2"
+
 
 TOOL_SOURCES: tuple[ToolSource, ...] = (
     # ── Native ──────────────────────────────────────────────────────
@@ -67,7 +90,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://github.com/modelcontextprotocol/servers",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-github"],
+            args=["-y", f"@modelcontextprotocol/server-github@{GITHUB_MCP_VERSION}"],
             env_template={"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"},
         ),
     ),
@@ -82,7 +105,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://github.com/modelcontextprotocol/servers",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-gitlab"],
+            args=["-y", f"@modelcontextprotocol/server-gitlab@{GITLAB_MCP_VERSION}"],
             env_template={"GITLAB_PERSONAL_ACCESS_TOKEN": "${GITLAB_PERSONAL_ACCESS_TOKEN}"},
         ),
     ),
@@ -141,7 +164,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://firecrawl.dev",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "firecrawl-mcp"],
+            args=["-y", f"firecrawl-mcp@{FIRECRAWL_MCP_VERSION}"],
             env_template={"FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"},
         ),
     ),
@@ -186,7 +209,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://developers.cloudflare.com",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@cloudflare/mcp-server-cloudflare"],
+            args=["-y", f"@cloudflare/mcp-server-cloudflare@{CLOUDFLARE_MCP_VERSION}"],
             env_template={
                 "CLOUDFLARE_ACCOUNT_ID": "${CLOUDFLARE_ACCOUNT_ID}",
                 "CLOUDFLARE_API_TOKEN": "${CLOUDFLARE_API_TOKEN}",
@@ -204,7 +227,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://upstash.com",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@upstash/mcp-server"],
+            args=["-y", f"@upstash/mcp-server@{UPSTASH_MCP_VERSION}"],
             env_template={
                 "UPSTASH_EMAIL": "${UPSTASH_EMAIL}",
                 "UPSTASH_API_KEY": "${UPSTASH_API_KEY}",
@@ -222,7 +245,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://playwright.dev",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@anthropic-ai/mcp-server-playwright"],
+            args=["-y", f"@playwright/mcp@{PLAYWRIGHT_MCP_VERSION}"],
         ),
     ),
     # ── Communication ───────────────────────────────────────────────
@@ -237,7 +260,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://resend.com",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "resend-mcp"],
+            args=["-y", f"resend-mcp@{RESEND_MCP_VERSION}"],
             env_template={"RESEND_API_KEY": "${RESEND_API_KEY}"},
         ),
     ),
@@ -252,7 +275,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://slack.com",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-slack"],
+            args=["-y", f"@modelcontextprotocol/server-slack@{SLACK_MCP_VERSION}"],
             env_template={"SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}"},
         ),
     ),
@@ -280,7 +303,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://figma.com",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@anthropic-ai/mcp-server-figma"],
+            args=["-y", f"figma-developer-mcp@{FIGMA_MCP_VERSION}"],
             env_template={"FIGMA_API_KEY": "${FIGMA_API_KEY}"},
         ),
     ),
@@ -296,7 +319,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://postgresql.org",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-postgres"],
+            args=["-y", f"@modelcontextprotocol/server-postgres@{POSTGRES_MCP_VERSION}"],
             env_template={"DATABASE_URL": "${DATABASE_URL}"},
         ),
     ),
@@ -310,7 +333,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://sqlite.org",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-sqlite"],
+            args=["-y", f"mcp-server-sqlite-npx@{SQLITE_MCP_VERSION}"],
         ),
     ),
     # ── Filesystem / Search ─────────────────────────────────────────
@@ -324,7 +347,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://github.com/modelcontextprotocol/servers",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-filesystem"],
+            args=["-y", f"@modelcontextprotocol/server-filesystem@{FILESYSTEM_MCP_VERSION}"],
         ),
     ),
     ToolSource(
@@ -338,7 +361,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://brave.com/search",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-brave-search"],
+            args=["-y", f"@modelcontextprotocol/server-brave-search@{BRAVE_SEARCH_MCP_VERSION}"],
             env_template={"BRAVE_API_KEY": "${BRAVE_API_KEY}"},
         ),
     ),
@@ -367,7 +390,10 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://github.com/modelcontextprotocol/servers",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-sequential-thinking"],
+            args=[
+                "-y",
+                f"@modelcontextprotocol/server-sequential-thinking@{SEQUENTIAL_THINKING_MCP_VERSION}",
+            ],
         ),
     ),
     ToolSource(
@@ -380,7 +406,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://github.com/modelcontextprotocol/servers",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-memory"],
+            args=["-y", f"@modelcontextprotocol/server-memory@{MEMORY_MCP_VERSION}"],
         ),
     ),
     # ── Documentation / Knowledge ───────────────────────────────────
@@ -394,7 +420,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://context7.com",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@upstash/context7-mcp"],
+            args=["-y", f"@upstash/context7-mcp@{CONTEXT7_MCP_VERSION}"],
         ),
     ),
     ToolSource(
@@ -407,7 +433,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://deepwiki.com",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "deepwiki-mcp"],
+            args=["-y", f"deepwiki-mcp@{DEEPWIKI_MCP_VERSION}"],
         ),
     ),
     ToolSource(
@@ -421,7 +447,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://notion.so",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@notionhq/notion-mcp-server"],
+            args=["-y", f"@notionhq/notion-mcp-server@{NOTION_MCP_VERSION}"],
             env_template={
                 "OPENAPI_MCP_HEADERS": '{"Authorization":"Bearer ${NOTION_API_KEY}"}'
             },
@@ -437,7 +463,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://github.com/modelcontextprotocol/servers",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-fetch"],
+            args=["-y", f"mcp-server-fetch-typescript@{FETCH_MCP_VERSION}"],
         ),
     ),
     ToolSource(
@@ -450,7 +476,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://github.com/modelcontextprotocol/servers",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-time"],
+            args=["-y", f"@guanxiong/mcp-server-time@{TIME_MCP_VERSION}"],
         ),
     ),
     ToolSource(
@@ -463,7 +489,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://pptr.dev",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-puppeteer"],
+            args=["-y", f"@modelcontextprotocol/server-puppeteer@{PUPPETEER_MCP_VERSION}"],
         ),
     ),
     ToolSource(
@@ -477,7 +503,7 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://everart.ai",
         mcp=McpServerConfig(
             command="npx",
-            args=["-y", "@modelcontextprotocol/server-everart"],
+            args=["-y", f"@modelcontextprotocol/server-everart@{EVERART_MCP_VERSION}"],
             env_template={"EVERART_API_KEY": "${EVERART_API_KEY}"},
         ),
     ),

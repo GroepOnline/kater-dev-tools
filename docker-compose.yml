@@ -4,20 +4,23 @@ services:
       context: .
     image: kater-dev-tools:latest
     restart: unless-stopped
+    command: ["kater", "serve", "--host", "0.0.0.0"]
     env_file:
       - path: .env
         required: false
     environment:
       KATER_PROFILE: ${KATER_PROFILE:-core}
-      # Local default: no auth. Set KATER_PUBLIC=1 for tunnel/public exposure.
-      KATER_PUBLIC: ${KATER_PUBLIC:-0}
-      KATER_AUTH_MODE: ${KATER_AUTH_MODE:-}
+      # Published ports are public-deploy shaped by default. Override the origin
+      # with your real dashboard/API origin before exposing outside localhost.
+      KATER_PUBLIC: ${KATER_PUBLIC:-1}
+      KATER_AUTH_MODE: ${KATER_AUTH_MODE:-oauth}
       KATER_API_KEY: ${KATER_API_KEY:-}
-      KATER_RATE_LIMIT: ${KATER_RATE_LIMIT:-}
-      KATER_CORS_ORIGINS: ${KATER_CORS_ORIGINS:-}
-      KATER_HOST: ${KATER_HOST:-127.0.0.1}
+      KATER_RATE_LIMIT: ${KATER_RATE_LIMIT:-60}
+      KATER_CORS_ORIGINS: ${KATER_CORS_ORIGINS:-https://kater.example.com}
+      KATER_HOST: ${KATER_HOST:-0.0.0.0}
       KATER_API_PORT: "9091"
       KATER_MCP_PORT: "9090"
+      KATER_WS_PORT: "9092"
     ports:
       - "${MCP_PORT:-9090}:9090"
       - "${API_PORT:-9091}:9091"

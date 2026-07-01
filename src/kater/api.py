@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -20,8 +22,11 @@ from kater.settings import (
     RateLimiter,
     ServerOverride,
     cors_allow_origin,
+    is_public_settings,
     load_settings,
+    resolve_client_ip,
     save_settings,
+    unsafe_public_settings_override_enabled,
 )
 from kater.telemetry import (
     eval_summary,
@@ -39,6 +44,10 @@ from kater.tunnel import (
 )
 
 _log = logging.getLogger(__name__)
+_CONSENT_COOKIE = "kater_oauth_consent"
+_CONSENT_TTL_SECONDS = 600
+_consent_nonces: dict[str, float] = {}
+_consent_lock = threading.Lock()
 
 # ── Request / Response: the seam between the stdlib server and app logic ──
 
@@ -118,6 +127,51 @@ class Response:
         if self.body is not None:
             return self.body
         return json.dumps(self.payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_public_mode() -> bool:
+    settings = load_settings()
+    return _env_truthy("KATER_PUBLIC") or settings.host not in (
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    )
+
+
+def _cookie_value(req: Request, name: str) -> str:
+    cookie = req.header("cookie") or ""
+    prefix = f"{name}="
+    for part in cookie.split(";"):
+        part = part.strip()
+        if part.startswith(prefix):
+            return part[len(prefix):]
+    return ""
+
+
+def _new_consent_nonce() -> str:
+    nonce = secrets.token_urlsafe(32)
+    now = time.time()
+    with _consent_lock:
+        expired = [key for key, expiry in _consent_nonces.items() if expiry <= now]
+        for key in expired:
+            _consent_nonces.pop(key, None)
+        _consent_nonces[nonce] = now + _CONSENT_TTL_SECONDS
+    return nonce
+
+
+def _consume_consent_nonce(req: Request) -> bool:
+    supplied = req.query1("consent_nonce", "") or ""
+    cookie = _cookie_value(req, _CONSENT_COOKIE)
+    if not supplied or not cookie or not secrets.compare_digest(supplied, cookie):
+        return False
+    now = time.time()
+    with _consent_lock:
+        expiry = _consent_nonces.pop(supplied, 0)
+    return expiry > now
 
 
 # ── Route table: one dispatch mechanism for every endpoint ──────────
@@ -265,15 +319,7 @@ def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
 def _resolve_client_ip(
     forwarded_for: str | None, client_address_ip: str
 ) -> str:
-    """Pick the real client IP, trusting X-Forwarded-For behind a tunnel/proxy.
-
-    Behind Cloudflare Tunnel / Tailscale Funnel the socket peer is always
-    loopback, so without this every caller shared one global rate-limit bucket.
-    The leftmost address in XFF is the original client.
-    """
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip() or client_address_ip
-    return client_address_ip
+    return resolve_client_ip(forwarded_for, client_address_ip)
 
 
 # ── Rate limiter (module-level) ────────────────────────────────────
@@ -386,6 +432,7 @@ def _authorize(req: Request) -> Response:
     from kater.oauth import (
         create_auth_code,
         get_client,
+        get_or_create_dashboard_client,
         render_consent_page,
         validate_redirect_uri,
     )
@@ -399,13 +446,21 @@ def _authorize(req: Request) -> Response:
     profile = req.query1("profile", "core") or "core"
     approve = req.query1("approve", "") or ""
 
-    client = get_client(client_id)
+    if client_id == "kater-dashboard":
+        client = get_or_create_dashboard_client(
+            base_url=req.base_url,
+            redirect_uri=redirect_uri,
+        )
+    else:
+        client = get_client(client_id)
     if not client:
         return Response.json(400, {"error": "invalid_client"})
     if not validate_redirect_uri(client, redirect_uri):
         return Response.json(400, {"error": "invalid_redirect_uri"})
 
     if approve == "1":
+        if not _consume_consent_nonce(req):
+            return Response.json(403, {"error": "consent_required"})
         try:
             code = create_auth_code(
                 client_id=client_id,
@@ -428,6 +483,7 @@ def _authorize(req: Request) -> Response:
         return Response.redirect(location)
 
     if approve == "0":
+        _consume_consent_nonce(req)
         sep = "&" if "?" in redirect_uri else "?"
         return Response.redirect(f"{redirect_uri}{sep}error=access_denied")
 
@@ -442,8 +498,9 @@ def _authorize(req: Request) -> Response:
     if scope:
         consent_params["scope"] = scope
     authorize_self = f"{req.base_url}/authorize?{urlencode(consent_params)}"
+    consent_nonce = _new_consent_nonce()
 
-    return Response.html(
+    response = Response.html(
         200,
         render_consent_page(
             client_name=client.client_name,
@@ -451,8 +508,14 @@ def _authorize(req: Request) -> Response:
             state=state,
             authorize_url=authorize_self,
             profile=profile,
+            consent_nonce=consent_nonce,
         ),
     )
+    response.headers["Set-Cookie"] = (
+        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; "
+        "HttpOnly; SameSite=Lax; Max-Age=600"
+    )
+    return response
 
 
 @route("POST", "/token", public=True)
@@ -479,14 +542,13 @@ def _register_client(req: Request) -> Response:
 
     from kater.oauth import register_client
 
-    # When an operator sets KATER_REGISTRATION_TOKEN, /register requires it.
-    # This lets public deployments lock down dynamic client registration
-    # (RFC 7591) without breaking the default local flow.
     reg_token = os.environ.get("KATER_REGISTRATION_TOKEN", "")
-    if reg_token:
-        supplied = req.header("x-registration-token") or req.query1("registration_token") or ""
-        if not supplied or not _secrets.compare_digest(supplied, reg_token):
-            return Response.json(403, {"error": "registration_forbidden"})
+    allow_dynamic = _env_truthy("KATER_ALLOW_DYNAMIC_REGISTRATION")
+    if _is_public_mode() and (not allow_dynamic or not reg_token):
+        return Response.json(403, {"error": "registration_disabled"})
+    supplied = req.header("x-registration-token") or req.query1("registration_token") or ""
+    if reg_token and (not supplied or not _secrets.compare_digest(supplied, reg_token)):
+        return Response.json(403, {"error": "registration_forbidden"})
 
     body = req.json
     try:
@@ -552,6 +614,19 @@ def _chains(_: Request) -> Response:
     profile = os.environ.get("KATER_PROFILE", "core")
     chains = list_chains(profile)
     return Response.json(200, {"chains": [c.model_dump(mode="json") for c in chains]})
+
+
+@route("POST", "/api/ws-ticket")
+def _ws_ticket(_: Request) -> Response:
+    from kater.websocket import WS_TICKET_TTL_SECONDS, issue_ws_ticket
+
+    return Response.json(
+        200,
+        {
+            "ticket": issue_ws_ticket(),
+            "expires_in": WS_TICKET_TTL_SECONDS,
+        },
+    )
 
 
 @route("GET", "/api/mcp/servers")
@@ -838,14 +913,14 @@ def _tunnel_stop(req: Request) -> Response:
 def _update_settings(req: Request) -> Response:
     from kater.settings import check_admin
 
+    body = req.json
+    settings = load_settings()
     # Sensitive settings mutations (auth mode, CORS, rate limit, api_keys)
     # require the operator/admin credential when KATER_ADMIN_KEY is set, so a
     # compromised tool-credential cannot weaken the gateway.
-    if not check_admin(req.header("authorization")):
+    if not check_admin(req.header("authorization"), settings):
         return Response.json(403, {"error": "admin credential required for settings changes"})
 
-    body = req.json
-    settings = load_settings()
     if "auth" in body:
         auth_patch = body["auth"]
         if not isinstance(auth_patch, dict):
@@ -872,6 +947,23 @@ def _update_settings(req: Request) -> Response:
         if backend not in ("sqlite", "jsonl"):
             return Response.json(400, {"error": "storage_backend must be sqlite or jsonl"})
         settings.storage_backend = backend
+    unsafe = unsafe_public_settings_override_enabled()
+    if is_public_settings(settings) and not unsafe:
+        if settings.auth.mode == "none":
+            return Response.json(
+                400,
+                {"error": "auth.mode=none is blocked in public mode"},
+            )
+        if "*" in settings.cors_origins:
+            return Response.json(
+                400,
+                {"error": "cors_origins=['*'] is blocked in public mode"},
+            )
+        if settings.rate_limit_per_min <= 0:
+            return Response.json(
+                400,
+                {"error": "rate_limit_per_min=0 is blocked in public mode"},
+            )
     save_settings(settings)
     return Response.json(200, settings.to_safe_dict())
 
@@ -992,8 +1084,18 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
                 self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; "
+            "img-src 'self' data:; object-src 'none'; base-uri 'none'; "
+            "frame-ancestors 'none'",
+        )
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        if self.headers.get("X-Forwarded-Proto") == "https":
+            self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         for key, value in response.headers.items():
             self.send_header(key, value)
         self.end_headers()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import socket
 import struct
@@ -145,6 +146,71 @@ def test_websocket_status_command(ws_server) -> None:
     data = json.loads(response)
     assert "version" in data or "type" in data
     sock.close()
+
+
+def test_websocket_query_token_rejected_in_public_mode(monkeypatch) -> None:
+    from kater.settings import AuthConfig, KaterSettings, save_settings
+    from kater.websocket import WSHandler
+
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    save_settings(KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["ws-key"])))
+
+    class FakeHandler(WSHandler):
+        def __init__(self, path: str, headers: dict[str, str] | None = None):
+            self.path = path
+            self.headers = headers or {}
+            self.client_address = ("127.0.0.1", 12345)
+            self.wfile = io.BytesIO()
+            self._status = None
+
+        def send_response(self, code, *args):
+            self._status = code
+
+        def send_header(self, key, value):
+            pass
+
+        def end_headers(self):
+            pass
+
+    query_token = FakeHandler("/ws?token=ws-key")
+    assert query_token._check_auth() is False
+    assert query_token._status == 401
+
+    bearer = FakeHandler("/ws?token=wrong", {"Authorization": "Bearer ws-key"})
+    assert bearer._check_auth() is True
+
+
+def test_websocket_one_time_ticket_allows_public_dashboard(monkeypatch) -> None:
+    from kater.settings import AuthConfig, KaterSettings, save_settings
+    from kater.websocket import WSHandler, issue_ws_ticket
+
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    save_settings(KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["ws-key"])))
+    ticket = issue_ws_ticket()
+
+    class FakeHandler(WSHandler):
+        def __init__(self, path: str):
+            self.path = path
+            self.headers = {}
+            self.client_address = ("127.0.0.1", 12345)
+            self.wfile = io.BytesIO()
+            self._status = None
+
+        def send_response(self, code, *args):
+            self._status = code
+
+        def send_header(self, key, value):
+            pass
+
+        def end_headers(self):
+            pass
+
+    first = FakeHandler("/ws?ticket=" + ticket)
+    assert first._check_auth() is True
+
+    second = FakeHandler("/ws?ticket=" + ticket)
+    assert second._check_auth() is False
+    assert second._status == 401
 
 
 def test_broadcast_to_connected(ws_server) -> None:

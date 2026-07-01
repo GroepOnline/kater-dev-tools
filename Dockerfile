@@ -20,10 +20,14 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/app/.venv/bin:$PATH"
+ENV KATER_PUBLIC=1
+ENV KATER_AUTH_MODE=oauth
+ENV KATER_RATE_LIMIT=60
+ENV KATER_CORS_ORIGINS=https://kater.example.com
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates \
+    curl ca-certificates nodejs npm \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -u 10001 kater
 
@@ -37,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 
 EXPOSE 9090 9091 9092
 
-CMD ["kater", "serve", "--host", "0.0.0.0"]
+CMD ["kater", "serve", "--host", "127.0.0.1"]

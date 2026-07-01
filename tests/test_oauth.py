@@ -11,12 +11,14 @@ import pytest
 
 from kater.api import create_api_server
 from kater.oauth import (
+    DASHBOARD_CLIENT_ID,
     cleanup_expired,
     create_auth_code,
     create_token,
     discovery_metadata,
     exchange_code,
     get_client,
+    get_or_create_dashboard_client,
     register_client,
     render_consent_page,
     resource_metadata,
@@ -42,6 +44,37 @@ def test_get_client():
 
 def test_get_client_not_found():
     assert get_client("nonexistent") is None
+
+
+def test_get_or_create_dashboard_client_same_origin():
+    client = get_or_create_dashboard_client(
+        base_url="https://kater.example.com",
+        redirect_uri="https://kater.example.com/dashboard",
+    )
+
+    assert client is not None
+    assert client.client_id == DASHBOARD_CLIENT_ID
+    assert client.client_secret is None
+    assert client.token_endpoint_auth_method == "none"
+    assert client.redirect_uris == ["https://kater.example.com/dashboard"]
+
+
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "https://evil.example.com/dashboard",
+        "https://kater.example.com/other",
+        "javascript:alert(1)",
+    ],
+)
+def test_get_or_create_dashboard_client_rejects_non_dashboard_redirects(redirect_uri):
+    assert (
+        get_or_create_dashboard_client(
+            base_url="https://kater.example.com",
+            redirect_uri=redirect_uri,
+        )
+        is None
+    )
 
 
 def test_full_auth_code_flow():

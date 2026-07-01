@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 import time
 import urllib.error
@@ -182,6 +183,61 @@ def test_settings_change_works_without_admin_key_set(api_server, monkeypatch):
     assert "https://local.com" in data["cors_origins"]
 
 
+def test_public_settings_change_requires_admin_key(monkeypatch, api_server):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "apikey")
+    monkeypatch.setenv("KATER_API_KEY", "tool-secret")
+    monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
+
+    err = _get_err_post(
+        9970,
+        "/api/settings",
+        {"cors_origins": ["https://ok.example.com"]},
+        headers={"Authorization": "Bearer tool-secret"},
+    )
+    assert err.code == 403
+
+
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        ({"auth": {"mode": "none"}}, "auth.mode=none"),
+        ({"cors_origins": ["*"]}, "cors_origins"),
+        ({"rate_limit_per_min": 0}, "rate_limit_per_min"),
+    ],
+)
+def test_public_settings_reject_unsafe_downgrades(monkeypatch, api_server, body, expected):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "apikey")
+    monkeypatch.setenv("KATER_API_KEYS", "admin-secret")
+    monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
+
+    err = _get_err_post(
+        9970,
+        "/api/settings",
+        body,
+        headers={"Authorization": "Bearer admin-secret"},
+    )
+    assert err.code == 400
+    assert expected in err.read().decode()
+
+
+def test_public_settings_unsafe_override_allows_explicit_downgrade(monkeypatch, api_server):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "apikey")
+    monkeypatch.setenv("KATER_API_KEYS", "admin-secret")
+    monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
+    monkeypatch.setenv("KATER_ALLOW_UNSAFE_PUBLIC_SETTINGS", "1")
+
+    data = _post(
+        9970,
+        "/api/settings",
+        {"auth": {"mode": "none"}},
+        headers={"Authorization": "Bearer admin-secret"},
+    )
+    assert data["auth"]["mode"] == "none"
+
+
 def test_confidential_client_requires_secret_for_token():
     import base64
     import hashlib
@@ -272,6 +328,72 @@ def test_register_requires_token_when_set(api_server, monkeypatch):
     assert data["client_id"].startswith("client_")
 
 
+def test_public_register_disabled_by_default(api_server, monkeypatch):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.delenv("KATER_ALLOW_DYNAMIC_REGISTRATION", raising=False)
+    monkeypatch.delenv("KATER_REGISTRATION_TOKEN", raising=False)
+
+    err = _get_err_post(
+        9970,
+        "/register",
+        {"client_name": "x", "redirect_uris": ["https://a.com/cb"]},
+    )
+    assert err.code == 403
+    assert json.loads(err.read())["error"] == "registration_disabled"
+
+
+def test_public_register_requires_opt_in_and_presented_token(api_server, monkeypatch):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_ALLOW_DYNAMIC_REGISTRATION", "1")
+    monkeypatch.setenv("KATER_REGISTRATION_TOKEN", "secret-reg-token")
+
+    err = _get_err_post(
+        9970,
+        "/register",
+        {"client_name": "x", "redirect_uris": ["https://a.com/cb"]},
+    )
+    assert err.code == 403
+    assert json.loads(err.read())["error"] == "registration_forbidden"
+
+    data = _post(
+        9970,
+        "/register",
+        {"client_name": "x", "redirect_uris": ["https://a.com/cb"]},
+        headers={"X-Registration-Token": "secret-reg-token"},
+    )
+    assert data["client_id"].startswith("client_")
+
+
+def test_public_dashboard_first_party_authorize_does_not_need_registration(api_server, monkeypatch):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.delenv("KATER_ALLOW_DYNAMIC_REGISTRATION", raising=False)
+    monkeypatch.delenv("KATER_REGISTRATION_TOKEN", raising=False)
+
+    resp = urllib.request.urlopen(
+        "http://127.0.0.1:9970/authorize?client_id=kater-dashboard"
+        "&redirect_uri=http://127.0.0.1:9970/dashboard"
+        "&code_challenge=test&code_challenge_method=S256"
+    )
+
+    html = resp.read().decode()
+    assert resp.status == 200
+    assert "kater-dashboard" in html
+    assert resp.headers["Set-Cookie"].startswith("kater_oauth_consent=")
+
+
+def test_authorize_approve_requires_consent_nonce(api_server):
+    client = register_client("NoBypass", ["https://app.example.com/cb"])
+    err = _get_err(
+        9970,
+        f"/authorize?client_id={client.client_id}"
+        f"&redirect_uri=https://app.example.com/cb"
+        f"&code_challenge=test&code_challenge_method=S256"
+        f"&state=xyz123&approve=1",
+    )
+    assert err.code == 403
+    assert json.loads(err.read())["error"] == "consent_required"
+
+
 # ── 6. Rate limiting on MCP transport ──────────────────────────────
 
 
@@ -311,22 +433,25 @@ def test_mcp_middleware_applies_rate_limit(monkeypatch):
 # ── 7. Telemetry pruning / disk cap ────────────────────────────────
 
 
-def test_sqlite_prune_caps_rows(monkeypatch):
+def test_sqlite_prune_caps_rows(monkeypatch, tmp_path):
     from kater import storage
     from kater.settings import KaterSettings, save_settings
 
+    monkeypatch.chdir(tmp_path)
     save_settings(KaterSettings(storage_backend="sqlite"))
     storage.reset_db_cache()
     # Lower the cap to make the test fast.
     monkeypatch.setattr(storage, "MAX_ROWS_ON_DISK", 10)
     now = time.time()
-    for i in range(25):
-        storage.insert_event(
-            {"type": "t", "name": f"n{i}", "timestamp": now + i, "success": True}
-        )
-    storage.prune_all()
-    assert storage.count_events() <= 10
-    storage.reset_db_cache()
+    try:
+        for i in range(25):
+            storage.insert_event(
+                {"type": "t", "name": f"n{i}", "timestamp": now + i, "success": True}
+            )
+        storage.prune_all()
+        assert storage.count_events() <= 10
+    finally:
+        storage.reset_db_cache()
 
 
 # ── 8. OpenAPI drift: every route is in the spec ───────────────────
@@ -373,20 +498,23 @@ def test_private_mode_shows_private_profiles(monkeypatch):
     assert is_public_mode() is False
 
 
-# ── 10. doctor flags open registration on public oauth ─────────────
+# ── 10. doctor treats registration as closed by default ────────────
 
 
-def test_doctor_flags_open_registration(monkeypatch):
+def test_doctor_does_not_flag_closed_default_registration(monkeypatch):
     from kater.doctor import run_doctor
     from kater.settings import AuthConfig, KaterSettings, save_settings
 
     monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.delenv("KATER_ALLOW_DYNAMIC_REGISTRATION", raising=False)
     monkeypatch.delenv("KATER_REGISTRATION_TOKEN", raising=False)
     monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
     save_settings(KaterSettings(auth=AuthConfig(mode="oauth")))
     report = run_doctor(profiles={"core"})
     codes = [f.code for f in report.findings]
-    assert "public_oauth_open_registration" in codes
+    assert "public_oauth_open_registration" not in codes
+    assert "public_oauth_registration_token_missing" not in codes
+    assert "public_oauth_ready" in codes
 
 
 # ── 11. client registration limit ──────────────────────────────────
@@ -490,14 +618,19 @@ def test_full_authorize_browser_flow(api_server):
     ).decode().rstrip("=")
 
     # Hit /authorize without approve → consent page HTML.
-    consent = urllib.request.urlopen(
+    consent_resp = urllib.request.urlopen(
         f"http://127.0.0.1:9970/authorize?client_id={client_id}"
         f"&redirect_uri=https://app.example.com/cb"
         f"&code_challenge={challenge}&code_challenge_method=S256"
         f"&state=xyz123"
-    ).read().decode()
+    )
+    consent = consent_resp.read().decode()
     assert "Allow" in consent
     assert "FlowTest" in consent
+    cookie = consent_resp.headers["Set-Cookie"].split(";", 1)[0]
+    allow_href = re.search(r'href="([^"]+approve=1[^"]+)"', consent)
+    assert allow_href is not None
+    approve_url = allow_href.group(1).replace("&amp;", "&")
 
     # Approve → 302 redirect with code=.
     opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler)
@@ -510,10 +643,8 @@ def test_full_authorize_browser_flow(api_server):
 
     opener = urllib.request.build_opener(_NoFollow)
     req = urllib.request.Request(
-        f"http://127.0.0.1:9970/authorize?client_id={client_id}"
-        f"&redirect_uri=https://app.example.com/cb"
-        f"&code_challenge={challenge}&code_challenge_method=S256"
-        f"&state=xyz123&approve=1"
+        approve_url,
+        headers={"Cookie": cookie},
     )
     try:
         opener.open(req)
@@ -645,3 +776,19 @@ def test_cors_vary_origin_header():
 
     src = inspect.getsource(KaterAPIHandler._write)
     assert "Vary" in src
+
+
+def test_security_headers_include_csp_referrer_and_https_hsts(api_server):
+    req = urllib.request.Request(
+        "http://127.0.0.1:9970/health",
+        headers={"X-Forwarded-Proto": "https"},
+    )
+    resp = urllib.request.urlopen(req)
+
+    assert resp.headers.get("Referrer-Policy") == "no-referrer"
+    csp = resp.headers.get("Content-Security-Policy")
+    assert csp is not None
+    assert "object-src 'none'" in csp
+    assert resp.headers.get("Strict-Transport-Security") == (
+        "max-age=31536000; includeSubDomains"
+    )

@@ -23,6 +23,8 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # Bound on registered clients so an attacker cannot bloat oauth.json.
 MAX_CLIENTS = 500
 MAX_TOKENS = 5000
+DASHBOARD_CLIENT_ID = "kater-dashboard"
+DASHBOARD_CLIENT_NAME = "kater-dashboard"
 
 
 def _is_safe_redirect_uri(uri: str) -> bool:
@@ -166,6 +168,59 @@ def register_client(
         }
         _save()
     return client
+
+
+def get_or_create_dashboard_client(
+    *,
+    base_url: str,
+    redirect_uri: str,
+) -> ClientRegistration | None:
+    """Return the built-in first-party dashboard OAuth client.
+
+    The dashboard is served by this gateway, so it should not dynamically call
+    public /register. Instead, /authorize can bootstrap this fixed first-party
+    public PKCE client only for same-origin dashboard redirects.
+    """
+    if not _is_safe_redirect_uri(redirect_uri):
+        return None
+    try:
+        base = urlparse(base_url)
+        redirect = urlparse(redirect_uri)
+    except (ValueError, TypeError):
+        return None
+    if (redirect.scheme, redirect.netloc) != (base.scheme, base.netloc):
+        return None
+    path = redirect.path.rstrip("/") or "/"
+    if path not in {"/", "/dashboard"}:
+        return None
+
+    with _lock:
+        data = _load()
+        clients = data.get("clients", {})
+        raw = clients.get(DASHBOARD_CLIENT_ID)
+        redirect_uris = []
+        if raw:
+            redirect_uris = list(raw.get("redirect_uris", []))
+        if redirect_uri not in redirect_uris:
+            redirect_uris.append(redirect_uri)
+        clients[DASHBOARD_CLIENT_ID] = {
+            "client_id": DASHBOARD_CLIENT_ID,
+            "client_secret": None,
+            "client_name": DASHBOARD_CLIENT_NAME,
+            "redirect_uris": redirect_uris,
+            "token_endpoint_auth_method": "none",
+            "created_at": raw.get("created_at", time.time()) if raw else time.time(),
+        }
+        _save()
+    auth_method = "none"
+    return ClientRegistration(
+        client_id=DASHBOARD_CLIENT_ID,
+        client_secret=None,
+        client_name=DASHBOARD_CLIENT_NAME,
+        redirect_uris=redirect_uris,
+        token_endpoint_auth_method=auth_method,
+        created_at=clients[DASHBOARD_CLIENT_ID]["created_at"],
+    )
 
 
 def get_client(client_id: str) -> ClientRegistration | None:
@@ -355,6 +410,7 @@ def render_consent_page(
     state: str | None,
     authorize_url: str,
     profile: str = "core",
+    consent_nonce: str | None = None,
 ) -> str:
     # Escape for HTML text content AND attribute values. The prior code only
     # stripped < and >, which let `state` break out of an href attribute and
@@ -370,6 +426,14 @@ def render_consent_page(
         state_param = f"&state={html.escape(quote_plus(state), quote=True)}"
     else:
         state_param = ""
+    if consent_nonce:
+        from urllib.parse import quote_plus
+
+        nonce_param = (
+            f"&consent_nonce={html.escape(quote_plus(consent_nonce), quote=True)}"
+        )
+    else:
+        nonce_param = ""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -448,10 +512,10 @@ p {{ color:var(--dim); font-size:14px; margin-bottom:24px; }}
   exposed by this profile.</p>
   <div class="btn-row">
     <a class="btn btn-allow"
-      href="{authorize_url}&approve=1{state_param}" role="button"
+      href="{authorize_url}&approve=1{state_param}{nonce_param}" role="button"
       aria-label="Allow {safe_name} to connect">Allow</a>
     <a class="btn btn-deny"
-      href="{authorize_url}&approve=0{state_param}" role="button"
+      href="{authorize_url}&approve=0{state_param}{nonce_param}" role="button"
       aria-label="Deny access">Deny</a>
   </div>
   <div class="meta">Redirect: {safe_uri}</div>

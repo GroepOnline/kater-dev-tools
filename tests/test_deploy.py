@@ -53,6 +53,14 @@ def test_docker_config():
     config = render_docker_config(profile="ops")
     assert config["format"] == "docker-compose"
     svc = config["compose"]["services"]["kater"]
+    env = svc["environment"]
+    assert env["KATER_PROFILE"] == "ops"
+    assert env["KATER_PUBLIC"] == "1"
+    assert env["KATER_AUTH_MODE"] == "oauth"
+    assert env["KATER_RATE_LIMIT"] == "60"
+    assert env["KATER_CORS_ORIGINS"] != "*"
+    assert env["KATER_HOST"] == "0.0.0.0"
+    assert svc["command"] == ["kater", "serve", "--host", "0.0.0.0"]
     assert "9090" in svc["ports"][0]
     assert "9091" in svc["ports"][1]
 

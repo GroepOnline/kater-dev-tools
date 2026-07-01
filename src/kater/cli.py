@@ -28,6 +28,39 @@ def _print_json(payload: object) -> None:
     typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def _prepare_public_bind_environment(host: str) -> None:
+    """Apply secure env defaults before settings are loaded for public binds."""
+    normalized = host.strip().lower()
+    os.environ["KATER_HOST"] = host
+    from kater.settings import invalidate_settings_cache
+
+    invalidate_settings_cache()
+    if normalized in {"127.0.0.1", "localhost", "::1"}:
+        return
+
+    os.environ.setdefault("KATER_PUBLIC", "1")
+    os.environ.setdefault("KATER_AUTH_MODE", "oauth")
+    os.environ.setdefault("KATER_RATE_LIMIT", "60")
+    os.environ.setdefault("KATER_CORS_ORIGINS", "https://kater.example.com")
+
+    auth_mode = os.environ.get("KATER_AUTH_MODE", "").strip().lower()
+    if auth_mode == "none":
+        raise typer.BadParameter(
+            "public bind requires authentication; set KATER_AUTH_MODE=oauth or apikey"
+        )
+
+    rate_limit = os.environ.get("KATER_RATE_LIMIT", "").strip()
+    if rate_limit == "0":
+        raise typer.BadParameter("public bind requires KATER_RATE_LIMIT greater than 0")
+
+    cors_origins = [
+        origin.strip()
+        for origin in os.environ.get("KATER_CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    if "*" in cors_origins:
+        raise typer.BadParameter("public bind must not use wildcard KATER_CORS_ORIGINS")
+
 # ── doctor ─────────────────────────────────────────────────────────
 
 
@@ -392,9 +425,8 @@ def serve_command(
     mcp_only: Annotated[bool, typer.Option("--mcp-only", help="Run only the MCP server.")] = False,
 ) -> None:
     """Start Kater: REST API + MCP server + WebSocket in one process."""
-    import os
-
     os.environ["KATER_PROFILE"] = profile
+    _prepare_public_bind_environment(host)
 
     if api_only:
         from kater.api import serve_api

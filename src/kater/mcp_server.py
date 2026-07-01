@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from kater.registry import tools_for_profile
-from kater.settings import load_settings
+from kater.settings import load_settings, resolve_client_ip
 
 _log = logging.getLogger("kater.mcp")
 
@@ -132,10 +132,9 @@ class AuthASGIMiddleware:
             for k, v in scope.get("headers", [])
         }
         # Throttle the tool surface (/sse + MCP POST) the same way REST is.
-        client_ip = headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if not client_ip:
-            client = scope.get("client")
-            client_ip = client[0] if client else "unknown"
+        client = scope.get("client")
+        peer_ip = client[0] if client else "unknown"
+        client_ip = resolve_client_ip(headers.get("x-forwarded-for"), peer_ip)
         if not check_transport_rate_limit(client_ip):
             await self._send_429(send)
             return

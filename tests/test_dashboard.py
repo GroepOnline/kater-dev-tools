@@ -39,6 +39,24 @@ def test_dashboard_injects_configured_ws_port():
     assert "wsPort:9092" in render_dashboard()
 
 
+def test_dashboard_uses_first_party_oauth_client_without_runtime_registration():
+    html = render_dashboard()
+    assert "client_id: 'kater-dashboard'" in html
+    assert "fetch('/register'" not in html
+    assert "params.get('api_key')" not in html
+    assert "/api/ws-ticket" in html
+    assert "ticket=" in html
+    assert "token=" not in html
+
+
+def test_dashboard_status_and_command_ui_are_operator_focused():
+    html = render_dashboard()
+    assert 'id="ws-status"' in html
+    assert 'id="ws-dot"' in html
+    assert 'placeholder="Command"' in html
+    assert 'class="cmd-hint"' not in html
+
+
 def test_each_view_is_present_via_its_own_seam():
     # The per-view constants must each own exactly their view and compose
     # into the single _HTML body (deletion test: drop one -> a view vanishes).
@@ -97,6 +115,7 @@ DASHBOARD_ENDPOINTS = [
     ("POST", "/api/mcp/servers/github/toggle"),
     ("POST", "/api/tunnel/cloudflare/start"),
     ("POST", "/api/tunnel/tailscale/start"),
+    ("POST", "/api/ws-ticket"),
     ("POST", "/api/settings"),
 ]
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from kater.settings import _is_public_deploy, load_settings
 
 
@@ -44,3 +46,27 @@ def test_is_public_deploy_loopback_without_flag() -> None:
 def test_is_public_deploy_with_public_flag(monkeypatch) -> None:
     monkeypatch.setenv("KATER_PUBLIC", "1")
     assert _is_public_deploy("127.0.0.1") is True
+
+
+def test_cli_public_bind_forces_public_settings(monkeypatch, tmp_path) -> None:
+    from kater.cli import _prepare_public_bind_environment
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    monkeypatch.delenv("KATER_HOST", raising=False)
+    monkeypatch.delenv("KATER_AUTH_MODE", raising=False)
+
+    _prepare_public_bind_environment("0.0.0.0")
+    settings = load_settings()
+
+    assert settings.host == "0.0.0.0"
+    assert settings.auth.mode == "oauth"
+    assert settings.rate_limit_per_min == 60
+    for name in (
+        "KATER_PUBLIC",
+        "KATER_HOST",
+        "KATER_AUTH_MODE",
+        "KATER_RATE_LIMIT",
+        "KATER_CORS_ORIGINS",
+    ):
+        os.environ.pop(name, None)

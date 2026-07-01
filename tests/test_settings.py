@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 from kater.settings import (
@@ -8,6 +9,7 @@ from kater.settings import (
     RateLimiter,
     check_auth,
     load_settings,
+    resolve_client_ip,
     save_settings,
 )
 
@@ -36,6 +38,14 @@ def test_settings_roundtrip(tmp_path: Path):
     assert loaded.auth.mode == "apikey"
     assert "test123" in loaded.auth.api_keys
     assert loaded.is_server_enabled("sentry") is False
+
+
+def test_save_settings_uses_owner_only_permissions(tmp_path: Path):
+    settings = KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["secret"]))
+    path = save_settings(settings, tmp_path)
+
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
 def test_check_auth_none_mode():
@@ -77,6 +87,26 @@ def test_check_auth_apikey_via_query():
     )
     ok, err = check_auth(settings, None, "q-key")
     assert ok is True
+
+
+def test_check_auth_apikey_query_disabled_in_public(monkeypatch):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    settings = KaterSettings(
+        auth=AuthConfig(mode="apikey", api_keys=["q-key"])
+    )
+    ok, err = check_auth(settings, None, "q-key")
+    assert ok is False
+    assert "Missing API key" in err
+
+
+def test_resolve_client_ip_trusts_xff_only_from_trusted_peer(monkeypatch):
+    monkeypatch.delenv("KATER_TRUST_PROXY", raising=False)
+    assert resolve_client_ip("198.51.100.1, 10.0.0.2", "127.0.0.1") == "198.51.100.1"
+    assert resolve_client_ip("198.51.100.1", "10.0.0.4") == "198.51.100.1"
+    assert resolve_client_ip("198.51.100.1", "8.8.8.8") == "8.8.8.8"
+
+    monkeypatch.setenv("KATER_TRUST_PROXY", "1")
+    assert resolve_client_ip("198.51.100.1", "8.8.8.8") == "198.51.100.1"
 
 
 def test_check_auth_oauth_valid_token():

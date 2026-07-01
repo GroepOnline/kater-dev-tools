@@ -67,4 +67,21 @@ def test_doctor_ok_for_public_oauth(monkeypatch, tmp_path) -> None:
     report = run_doctor(profiles={"core"})
 
     assert not any(f.code == "public_without_auth" for f in report.findings)
+    assert not any(f.code == "public_oauth_open_registration" for f in report.findings)
     assert any(f.code == "public_oauth_ready" for f in report.findings)
+
+
+def test_doctor_flags_dynamic_registration_without_token(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "oauth")
+    monkeypatch.setenv("KATER_ALLOW_DYNAMIC_REGISTRATION", "1")
+    monkeypatch.delenv("KATER_REGISTRATION_TOKEN", raising=False)
+
+    report = run_doctor(profiles={"core"})
+
+    assert any(
+        f.code == "public_oauth_registration_token_missing"
+        and f.severity == "error"
+        for f in report.findings
+    )

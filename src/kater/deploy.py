@@ -62,6 +62,7 @@ def render_docker_config(
     image: str = "kater-dev-tools:latest",
     api_port: int = 9091,
     mcp_port: int = 9090,
+    cors_origins: str = "https://kater.example.com",
 ) -> dict[str, Any]:
     """Docker Compose snippet for self-hosted deployment."""
     return {
@@ -72,7 +73,15 @@ def render_docker_config(
                 "kater": {
                     "image": image,
                     "restart": "unless-stopped",
-                    "environment": {"KATER_PROFILE": profile},
+                    "command": ["kater", "serve", "--host", "0.0.0.0"],  # noqa: S104
+                    "environment": {
+                        "KATER_PROFILE": profile,
+                        "KATER_PUBLIC": "1",
+                        "KATER_AUTH_MODE": "oauth",
+                        "KATER_RATE_LIMIT": "60",
+                        "KATER_CORS_ORIGINS": cors_origins,
+                        "KATER_HOST": "0.0.0.0",  # noqa: S104
+                    },
                     "ports": [
                         f"{mcp_port}:9090",
                         f"{api_port}:9091",

@@ -163,7 +163,7 @@ Keyboard shortcuts: `1-5` switch views, `Ctrl+K` focuses command bar.
 | `/api/spec` | GET | OpenAPI 3.1 spec |
 | `/authorize` | GET | OAuth consent page |
 | `/token` | POST | OAuth token exchange |
-| `/register` | POST | OAuth client registration |
+| `/register` | POST | OAuth client registration; public mode requires explicit opt-in |
 | `/.well-known/oauth-authorization-server` | GET | OAuth discovery |
 
 Full spec: `GET /api/spec`
@@ -178,6 +178,16 @@ Pre-flight:
 KATER_PUBLIC=1 KATER_AUTH_MODE=oauth kater doctor
 ```
 
+Public dynamic OAuth registration is disabled by default. Enable it only for an
+operator-controlled bootstrap flow:
+
+```bash
+export KATER_ALLOW_DYNAMIC_REGISTRATION=1
+export KATER_REGISTRATION_TOKEN="$(openssl rand -hex 24)"
+```
+
+Use `KATER_ADMIN_KEY` for public dashboard/API settings changes.
+
 ### Docker (local)
 
 ```bash
@@ -191,6 +201,7 @@ docker compose up -d
 cloudflared tunnel login   # once
 export KATER_PUBLIC=1
 export KATER_AUTH_MODE=oauth
+export KATER_ADMIN_KEY="$(openssl rand -hex 24)"
 ./scripts/deploy-cloudflare.sh kater.yourdomain.com kater
 ```
 
@@ -203,6 +214,7 @@ Dashboard: `https://kater.yourdomain.com/dashboard` (OAuth sign-in).
 export KATER_PUBLIC=1
 export KATER_AUTH_MODE=apikey
 export KATER_API_KEY="$(openssl rand -hex 24)"
+export KATER_ADMIN_KEY="$(openssl rand -hex 24)"
 uv run kater serve
 ```
 

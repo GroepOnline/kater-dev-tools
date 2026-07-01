@@ -24,8 +24,8 @@ _CSS = r"""
   /* Legacy alias: any stray purple usage stays on-brand amber. */
   --purple: #ffb224;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
-  --radius: 14px;
-  --radius-sm: 9px;
+  --radius: 8px;
+  --radius-sm: 6px;
   --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code', 'Consolas', monospace;
   --shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
@@ -80,8 +80,8 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 #bg-gradient {
   position: fixed; inset: 0; z-index: 0;
   background:
-    radial-gradient(ellipse 900px 640px at 18% 20%, rgba(255,178,36,0.05), transparent 60%),
-    radial-gradient(ellipse 700px 820px at 84% 78%, rgba(92,200,224,0.035), transparent 60%),
+    linear-gradient(135deg, rgba(255,178,36,0.035), transparent 34%),
+    linear-gradient(315deg, rgba(92,200,224,0.025), transparent 42%),
     var(--bg);
 }
 /* Faint engineering grid — the console sits on a measured surface. */
@@ -117,10 +117,11 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 /* ── Topbar ────────────────────────────── */
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 20px; height: 52px; min-height: 52px;
+  padding: 0 20px; min-height: 56px;
   border-bottom: 1px solid var(--border);
   background: rgba(10, 14, 20, 0.8);
   backdrop-filter: blur(12px);
+  gap: 16px;
 }
 .topbar-left { display: flex; align-items: center; gap: 16px; }
 .brand {
@@ -158,14 +159,21 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   background: var(--accent); color: #000; border-color: var(--accent);
   box-shadow: 0 0 16px var(--accent-glow);
 }
-.topbar-right { display: flex; align-items: center; gap: 12px; }
-.auth-badge {
+.topbar-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.status-chip, .auth-badge {
   font-family: var(--mono); font-size: 11px; color: var(--text-dim);
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 7px;
+  min-height: 32px; padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.018);
 }
-.auth-dot {
+.auth-dot, .status-dot {
   width: 6px; height: 6px; border-radius: 50%; background: var(--green);
 }
+.status-dot.off { background: var(--text-dim); }
+.status-dot.warn { background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+.status-dot.on { background: var(--green); box-shadow: 0 0 10px var(--green-glow); }
 
 /* ── Bento Grid ────────────────────────── */
 .bento {
@@ -400,7 +408,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 .tab {
   font-family: var(--mono); font-size: 11px; font-weight: 600;
   letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim);
-  padding: 0 14px; cursor: pointer; border: none; background: transparent;
+  min-height: 44px; padding: 0 16px; cursor: pointer; border: none; background: transparent;
   display: flex; align-items: center; position: relative;
   transition: var(--transition); white-space: nowrap;
 }
@@ -410,11 +418,6 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   content: ''; position: absolute; bottom: 0; left: 14px; right: 14px;
   height: 2px; background: var(--accent); border-radius: 2px 2px 0 0;
 }
-.tab .tab-num {
-  font-size: 9px; color: var(--text-dim); margin-left: 6px;
-  opacity: 0.6; font-weight: 400;
-}
-
 /* ── Views ────────────────────────────── */
 .view { display: none; flex: 1; overflow: hidden; }
 .view.active { display: flex; flex-direction: column; }
@@ -486,21 +489,21 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   -webkit-box-orient: vertical; overflow: hidden;
 }
 .toggle-switch {
-  width: 36px; height: 20px; border-radius: 10px;
+  width: 44px; height: 24px; border-radius: 12px;
   background: var(--border); position: relative; cursor: pointer;
   transition: var(--transition); flex-shrink: 0;
 }
 .toggle-switch::after {
   content: ''; position: absolute; top: 2px; left: 2px;
-  width: 16px; height: 16px; border-radius: 50%;
+  width: 20px; height: 20px; border-radius: 50%;
   background: var(--text-dim); transition: var(--transition);
 }
 .toggle-switch.on { background: var(--green); }
-.toggle-switch.on::after { left: 18px; background: #fff; }
+.toggle-switch.on::after { left: 22px; background: #fff; }
 /* Mid-stage: switched on, but missing credentials — not actually connected. */
 .toggle-switch.pending { background: var(--accent-soft); }
 .toggle-switch.pending::after {
-  left: 18px; background: #000;
+  left: 22px; background: #000;
   animation: toggle-pulse 1.6s ease-in-out infinite;
 }
 @keyframes toggle-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -583,8 +586,12 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim);
   display: block; margin-bottom: 6px;
 }
+.form-help {
+  color: var(--text-dim); font-size: 12px; line-height: 1.45;
+  margin-top: 6px;
+}
 .form-input, .form-select {
-  width: 100%; padding: 8px 12px;
+  width: 100%; min-height: 44px; padding: 9px 12px;
   background: var(--bg2); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-family: var(--mono); font-size: 13px; color: var(--text);
@@ -593,7 +600,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 .form-input:focus, .form-select:focus { border-color: var(--accent); }
 .btn-save {
   font-family: var(--mono); font-size: 12px; font-weight: 600;
-  padding: 8px 20px; border-radius: var(--radius-sm); cursor: pointer;
+  min-height: 44px; padding: 9px 20px; border-radius: var(--radius-sm); cursor: pointer;
   border: 1px solid var(--accent); background: var(--accent); color: #000;
   text-transform: uppercase; letter-spacing: 0.5px;
   transition: var(--transition);
@@ -647,7 +654,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 }
 #auth-gate.show { display: flex; }
 .auth-card {
-  width: min(420px, 92vw);
+  width: min(460px, 92vw);
   background: var(--surface-solid);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -655,7 +662,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   box-shadow: var(--shadow);
 }
 .auth-card h2 {
-  font-size: 18px; color: var(--text-bright); margin-bottom: 8px;
+  font-size: 20px; color: var(--text-bright); margin-bottom: 8px;
 }
 .auth-card p { color: var(--text-dim); margin-bottom: 20px; font-size: 13px; }
 .auth-card input {
@@ -664,16 +671,28 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   border-radius: var(--radius-sm); color: var(--text);
   font-family: var(--mono); font-size: 13px;
 }
-.auth-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.auth-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 /* ── Responsive ────────────────────────── */
+@media (max-width: 980px) {
+  .topbar { align-items: flex-start; flex-direction: column; padding: 12px 14px; }
+  .topbar-left, .topbar-right { width: 100%; flex-wrap: wrap; }
+  .topbar-right { justify-content: flex-start; }
+  .profile-pills { max-width: 100%; overflow-x: auto; padding-bottom: 2px; }
+}
 @media (max-width: 768px) {
+  html, body { overflow: auto; }
+  #app { height: auto; min-height: 100dvh; }
+  .nav-tabs { padding: 0 8px; }
+  .tab { flex: 1 0 auto; justify-content: center; padding: 0 12px; }
   .bento { grid-template-columns: 1fr; grid-template-rows: 1fr 200px auto; }
   .constellation-tile { grid-column: 1; }
   .telemetry-tile { grid-column: 1; grid-row: 2; }
   .stats-row { grid-column: 1; grid-row: 3; grid-template-columns: 1fr; }
-  .profile-pills { display: none; }
-  .detail-panel { width: 100%; }
+  .detail-panel { top: 0; bottom: 0; width: 100%; }
+  .command-bar { min-height: 48px; }
+  .cmd-hint { display: none; }
+  .auth-actions { grid-template-columns: 1fr; }
 }
 """
 
@@ -708,6 +727,10 @@ _HTML_SHELL_TOP = r"""
       <div class="profile-pills" id="profile-pills" role="group" aria-label="Profiles"></div>
     </div>
     <div class="topbar-right">
+      <div class="status-chip">
+        <div class="status-dot off" id="ws-dot"></div>
+        <span id="ws-status">ws offline</span>
+      </div>
       <div class="auth-badge">
         <div class="auth-dot" id="auth-dot"></div>
         <span id="auth-mode">none</span>
@@ -805,7 +828,7 @@ _VIEW_CATALOG = r"""
     <div class="view-scroll">
       <div class="catalog-toolbar">
         <input class="form-input" id="catalog-search" type="search"
-          placeholder="Zoek servers (bijv. search, github)..." autocomplete="off"
+          placeholder="Search servers" autocomplete="off"
           aria-label="Search servers">
       </div>
       <div class="server-grid" id="catalog-grid">
@@ -862,7 +885,7 @@ _VIEW_SETTINGS = r"""
     <div class="view-scroll">
       <div class="settings-form">
         <div class="form-field">
-          <label class="form-label">Auth Mode</label>
+          <label class="form-label" for="set-auth-mode">Auth Mode</label>
           <select class="form-select" id="set-auth-mode">
             <option value="none">none</option>
             <option value="apikey">apikey</option>
@@ -870,20 +893,22 @@ _VIEW_SETTINGS = r"""
           </select>
         </div>
         <div class="form-field">
-          <label class="form-label">Default Profile</label>
+          <label class="form-label" for="set-profile">Default Profile</label>
           <input class="form-input" id="set-profile" type="text" />
         </div>
         <div class="form-field">
-          <label class="form-label">CORS Origins (comma-separated)</label>
+          <label class="form-label" for="set-cors">CORS Origins</label>
           <input class="form-input" id="set-cors" type="text" />
+          <div class="form-help">Comma-separated origins allowed to call the dashboard API.</div>
         </div>
         <div class="form-field">
-          <label class="form-label">Rate Limit / min (0 = off)</label>
+          <label class="form-label" for="set-rate-limit">Rate Limit / min</label>
           <input class="form-input" id="set-rate-limit" type="number"
             min="0" />
+          <div class="form-help">Public deployments should keep this above zero.</div>
         </div>
         <div class="form-field">
-          <label class="form-label">Storage Backend</label>
+          <label class="form-label" for="set-storage">Storage Backend</label>
           <select class="form-select" id="set-storage">
             <option value="sqlite">sqlite</option>
             <option value="jsonl">jsonl</option>
@@ -900,9 +925,8 @@ _HTML_SHELL_BOTTOM = r"""
     <span class="cmd-prompt">&gt;</span>
     <label for="cmd-input" class="sr-only">Command</label>
     <input id="cmd-input"
-      placeholder="type a command... (toggle github, profile ops)"
+      placeholder="Command"
       autocomplete="off" />
-    <span class="cmd-hint">tab</span>
   </div>
 </div>
 
@@ -1049,11 +1073,36 @@ function authHeaders() {
   return h;
 }
 
-function wsUrlWithAuth() {
+async function wsUrlWithAuth() {
   const token = sessionStorage.getItem(AUTH_STORAGE);
   if (!token) return WS_URL;
-  const sep = WS_URL.includes('?') ? '&' : '?';
-  return WS_URL + sep + 'token=' + encodeURIComponent(token);
+  try {
+    const data = await apiPost('/api/ws-ticket', {});
+    if (data.ticket) {
+      const sepTicket = WS_URL.includes('?') ? '&' : '?';
+      return WS_URL + sepTicket + 'ticket=' + encodeURIComponent(data.ticket);
+    }
+  } catch (e) {
+    // Local/dev mode can still use the bare WS URL; auth failures surface below.
+  }
+  return WS_URL;
+}
+
+function setWsStatus(status) {
+  const dot = document.getElementById('ws-dot');
+  const label = document.getElementById('ws-status');
+  if (!dot || !label) return;
+  dot.classList.remove('off', 'warn', 'on');
+  if (status === 'online') {
+    dot.classList.add('on');
+    label.textContent = 'ws online';
+  } else if (status === 'connecting') {
+    dot.classList.add('warn');
+    label.textContent = 'ws connecting';
+  } else {
+    dot.classList.add('off');
+    label.textContent = 'ws offline';
+  }
 }
 
 function b64url(bytes) {
@@ -1074,7 +1123,7 @@ function randomVerifier() {
 
 async function exchangeOAuthCode(code) {
   const verifier = sessionStorage.getItem('pkce_verifier') || '';
-  const clientId = sessionStorage.getItem('oauth_client_id') || '';
+  const clientId = 'kater-dashboard';
   const redirect = location.origin + location.pathname;
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
@@ -1103,23 +1152,9 @@ async function startOAuthLogin() {
   const challenge = await pkceChallenge(verifier);
   sessionStorage.setItem('pkce_verifier', verifier);
   const redirect = location.origin + location.pathname;
-  const regResp = await fetch('/register', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_name: 'kater-dashboard',
-      redirect_uris: [redirect],
-    }),
-  });
-  const reg = await regResp.json().catch(() => ({}));
-  if (!regResp.ok || !reg.client_id) {
-    toast('OAuth registration failed: ' + (reg.error || regResp.status), 'error');
-    return;
-  }
-  sessionStorage.setItem('oauth_client_id', reg.client_id);
   const q = new URLSearchParams({
     response_type: 'code',
-    client_id: reg.client_id,
+    client_id: 'kater-dashboard',
     redirect_uri: redirect,
     code_challenge: challenge,
     code_challenge_method: 'S256',
@@ -1130,11 +1165,6 @@ async function startOAuthLogin() {
 
 async function handleAuthBootstrap() {
   const params = new URLSearchParams(location.search);
-  if (params.get('api_key')) {
-    sessionStorage.setItem(AUTH_STORAGE, params.get('api_key'));
-    params.delete('api_key');
-    history.replaceState({}, '', location.pathname + (params.toString() ? '?' + params : ''));
-  }
   if (params.get('code') && sessionStorage.getItem('pkce_verifier')) {
     try {
       await exchangeOAuthCode(params.get('code'));
@@ -1720,10 +1750,13 @@ function openCredentialsModal(server) {
     for (const v of reqs) {
       const wrap = document.createElement('div');
       wrap.className = 'form-field';
+      const inputId = 'cred-' + v.replace(/[^a-z0-9_-]/gi, '-');
       const label = document.createElement('label');
       label.className = 'form-label';
+      label.setAttribute('for', inputId);
       label.textContent = v;
       const input = document.createElement('input');
+      input.id = inputId;
       input.className = 'form-input';
       input.type = 'password';
       input.autocomplete = 'off';
@@ -1950,16 +1983,21 @@ function closeWebSocket() {
   try { old.close(1000); } catch (e) {}
 }
 
-function initWebSocket() {
+async function initWebSocket() {
   closeWebSocket();
+  setWsStatus('connecting');
+  let url = WS_URL;
+  try { url = await wsUrlWithAuth(); } catch (e) { url = WS_URL; }
   try {
-    ws = new WebSocket(wsUrlWithAuth());
+    ws = new WebSocket(url);
   } catch (e) {
+    setWsStatus('offline');
     scheduleReconnect();
     return;
   }
   ws.onopen = () => {
     wsRetry = 0;
+    setWsStatus('online');
     // subscribe_all so we receive every broadcast without a `type` filter
     // (the previous {cmd:'subscribe'} was missing the required type field).
     try { ws.send(JSON.stringify({ cmd: 'subscribe_all' })); } catch (e) {}
@@ -1969,6 +2007,7 @@ function initWebSocket() {
   };
   ws.onclose = (e) => {
     ws = null;
+    setWsStatus('offline');
     // 1000 = clean close; don't auto-reconnect that. Everything else backs off.
     if (e.code !== 1000) scheduleReconnect();
   };

@@ -3,20 +3,50 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import secrets
 import struct
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from kater.settings import cors_allow_origin, load_settings
+from kater.settings import (
+    allow_query_api_key,
+    cors_allow_origin,
+    is_public_settings,
+    load_settings,
+    resolve_client_ip,
+)
 from kater.telemetry import status_overview
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_FRAME_SIZE = 1 << 20  # 1 MB — prevent attacker-controlled allocation
+WS_TICKET_TTL_SECONDS = 30
 
 _clients: set[Any] = set()
 _clients_lock = threading.Lock()
+_tickets: dict[str, float] = {}
+_tickets_lock = threading.Lock()
+
+
+def issue_ws_ticket() -> str:
+    ticket = secrets.token_urlsafe(32)
+    now = time.time()
+    with _tickets_lock:
+        expired = [key for key, expiry in _tickets.items() if expiry <= now]
+        for key in expired:
+            _tickets.pop(key, None)
+        _tickets[ticket] = now + WS_TICKET_TTL_SECONDS
+    return ticket
+
+
+def consume_ws_ticket(ticket: str | None) -> bool:
+    if not ticket:
+        return False
+    now = time.time()
+    with _tickets_lock:
+        expiry = _tickets.pop(ticket, 0)
+    return expiry > now
 
 
 class WSClient:
@@ -251,10 +281,17 @@ class WSHandler(BaseHTTPRequestHandler):
         finally:
             client.close()
 
-    def _authorization_header(self, query: dict[str, list[str]]) -> str | None:
+    def _authorization_header(
+        self,
+        query: dict[str, list[str]],
+        *,
+        allow_query_token: bool,
+    ) -> str | None:
         header = self.headers.get("Authorization")
         if header:
             return header
+        if not allow_query_token:
+            return None
         token = query.get("token", [None])[0]
         if token:
             return f"Bearer {token}"
@@ -269,10 +306,11 @@ class WSHandler(BaseHTTPRequestHandler):
 
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+        settings = load_settings()
         # Throttle connection attempts the same way REST/MCP are.
-        client_ip = (
-            self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or (self.client_address[0] if self.client_address else "unknown")
+        client_ip = resolve_client_ip(
+            self.headers.get("X-Forwarded-For"),
+            self.client_address[0] if self.client_address else "unknown",
         )
         if not check_transport_rate_limit(client_ip):
             self.send_response(429)
@@ -280,11 +318,20 @@ class WSHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"error": "Rate limit exceeded."}).encode())
             return False
+        if consume_ws_ticket(query.get("ticket", [None])[0]):
+            return True
         decision = authenticate(
             AuthContext(
-                settings=load_settings(),
-                authorization_header=self._authorization_header(query),
-                query_api_key=query.get("api_key", [None])[0],
+                settings=settings,
+                authorization_header=self._authorization_header(
+                    query,
+                    allow_query_token=not is_public_settings(settings),
+                ),
+                query_api_key=(
+                    query.get("api_key", [None])[0]
+                    if allow_query_api_key(settings)
+                    else None
+                ),
             )
         )
         if not decision.allowed:

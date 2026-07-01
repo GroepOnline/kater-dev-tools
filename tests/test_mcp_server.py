@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import Mock, patch
 
 import pytest
 
 from kater import mcp_server
+from kater.settings import AuthConfig, KaterSettings, save_settings
 
 
 def test_mcp_missing_package_message() -> None:
@@ -45,3 +47,47 @@ def test_create_server_does_not_start_proxy(monkeypatch: pytest.MonkeyPatch) -> 
         mcp_server.create_server(profile="core")
 
     proxy_start.assert_not_called()
+
+
+def test_mcp_rate_limit_ignores_spoofed_xff_from_public_peer(monkeypatch, tmp_path) -> None:
+    seen_clients: list[str] = []
+
+    class FakeLimiter:
+        def check(self, client_ip: str) -> bool:
+            seen_clients.append(client_ip)
+            return False
+
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.delenv("KATER_TRUST_PROXY", raising=False)
+    monkeypatch.setattr("kater.api._rate_limiter", FakeLimiter())
+    monkeypatch.chdir(tmp_path)
+    save_settings(KaterSettings(auth=AuthConfig(mode="none")))
+
+    async def app(scope, receive, send):
+        raise AssertionError("rate limit should stop request")
+
+    mw = mcp_server.AuthASGIMiddleware(app)
+    sent: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b""}
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(
+        mw(
+            {
+                "type": "http",
+                "path": "/sse",
+                "query_string": b"",
+                "headers": [(b"x-forwarded-for", b"198.51.100.1")],
+                "client": ("8.8.8.8", 12345),
+            },
+            receive,
+            send,
+        )
+    )
+
+    assert seen_clients == ["8.8.8.8"]
+    assert sent[0]["status"] == 429

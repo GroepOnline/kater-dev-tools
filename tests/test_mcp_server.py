@@ -59,7 +59,7 @@ def test_mcp_rate_limit_ignores_spoofed_xff_from_public_peer(monkeypatch, tmp_pa
 
     monkeypatch.setenv("KATER_PUBLIC", "1")
     monkeypatch.delenv("KATER_TRUST_PROXY", raising=False)
-    monkeypatch.setattr("kater.api._rate_limiter", FakeLimiter())
+    monkeypatch.setattr("kater.api.server._rate_limiter", FakeLimiter())
     monkeypatch.chdir(tmp_path)
     save_settings(KaterSettings(auth=AuthConfig(mode="none")))
 

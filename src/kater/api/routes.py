@@ -1,30 +1,32 @@
+"""All REST API route handlers.
+
+Importing this module has the side-effect of registering every endpoint
+into ``models.ROUTER`` via the ``@route`` decorator.
+"""
+
 from __future__ import annotations
 
-import json
-import logging
 import os
 import secrets
 import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
-from urllib.parse import parse_qs, quote, unquote_plus, urlencode, urlparse
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote, urlencode
 
 from kater.adapters.external import scan_adapters
+from kater.api.models import Request, Response, route
 from kater.chains import list_chains
+
+if TYPE_CHECKING:
+    from kater.profiles import ToolSource
 from kater.deploy import list_deploy_formats, render_deploy
 from kater.doctor import run_doctor
 from kater.profiles import get_source, list_profiles
 from kater.registry import tools_for_profile
 from kater.settings import (
-    RateLimiter,
     ServerOverride,
-    cors_allow_origin,
     is_public_settings,
     load_settings,
-    resolve_client_ip,
     save_settings,
     unsafe_public_settings_override_enabled,
 )
@@ -43,91 +45,11 @@ from kater.tunnel import (
     tunnel_overview,
 )
 
-_log = logging.getLogger(__name__)
+# OAuth consent nonce machinery (module-level state shared with handlers).
 _CONSENT_COOKIE = "kater_oauth_consent"
 _CONSENT_TTL_SECONDS = 600
 _consent_nonces: dict[str, float] = {}
 _consent_lock = threading.Lock()
-
-# ── Request / Response: the seam between the stdlib server and app logic ──
-
-
-@dataclass
-class Request:
-    method: str
-    path: str
-    query: dict[str, list[str]]
-    headers: dict[str, str]
-    raw_body: bytes
-    client_ip: str
-    base_url: str
-    params: dict[str, str] = field(default_factory=dict)
-
-    def query1(self, key: str, default: str | None = None) -> str | None:
-        return self.query.get(key, [default])[0]
-
-    def header(self, name: str) -> str | None:
-        return self.headers.get(name.lower())
-
-    @property
-    def json(self) -> dict[str, Any]:
-        if not self.raw_body:
-            return {}
-        try:
-            return json.loads(self.raw_body.decode("utf-8"))
-        except json.JSONDecodeError:
-            raise ValueError("Invalid JSON in request body") from None
-
-    @property
-    def form(self) -> dict[str, str]:
-        out: dict[str, str] = {}
-        try:
-            body_str = self.raw_body.decode("utf-8")
-        except UnicodeDecodeError:
-            raise ValueError("Request body is not valid UTF-8") from None
-        for pair in body_str.split("&"):
-            if "=" in pair:
-                k, v = pair.split("=", 1)
-                # unquote_plus converts '+' to space, which unquote does not —
-                # a verifier/code containing '+' would otherwise be misparsed.
-                out[unquote_plus(k)] = unquote_plus(v)
-        return out
-
-    @property
-    def json_or_form(self) -> dict[str, Any]:
-        ctype = self.header("content-type") or ""
-        return self.json if ctype.startswith("application/json") else self.form
-
-
-@dataclass
-class Response:
-    status: int = 200
-    payload: dict[str, Any] | None = None
-    body: bytes | None = None
-    content_type: str = "application/json; charset=utf-8"
-    headers: dict[str, str] = field(default_factory=dict)
-
-    @classmethod
-    def json(cls, status: int, payload: dict[str, Any]) -> Response:
-        return cls(status=status, payload=payload)
-
-    @classmethod
-    def html(cls, status: int, markup: str) -> Response:
-        return cls(
-            status=status,
-            body=markup.encode("utf-8"),
-            content_type="text/html; charset=utf-8",
-        )
-
-    @classmethod
-    def redirect(cls, location: str) -> Response:
-        return cls(status=302, body=b"", content_type="text/plain", headers={"Location": location})
-
-    def encoded(self) -> bytes:
-        if self.body is not None:
-            return self.body
-        return json.dumps(self.payload, ensure_ascii=False, indent=2).encode("utf-8")
-
 
 def _env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
@@ -172,78 +94,6 @@ def _consume_consent_nonce(req: Request) -> bool:
     with _consent_lock:
         expiry = _consent_nonces.pop(supplied, 0)
     return expiry > now
-
-
-# ── Route table: one dispatch mechanism for every endpoint ──────────
-
-
-@dataclass(frozen=True)
-class Route:
-    method: str
-    pattern: str
-    handler: Callable[[Request], Response]
-    public: bool = False
-    rate_limit: bool = True
-
-
-class RouteTable:
-    def __init__(self) -> None:
-        self._routes: list[Route] = []
-
-    def add(self, route: Route) -> None:
-        self._routes.append(route)
-
-    def match(self, method: str, path: str) -> tuple[Route, dict[str, str]] | None:
-        target = _segments(path)
-        exact: tuple[Route, dict[str, str]] | None = None
-        # Among parameterized matches, prefer the most specific one: the route
-        # with the fewest param segments wins, so a literal like
-        # /servers/{name}/credentials beats the generic /servers/{name}/{action}.
-        best_param: tuple[Route, dict[str, str]] | None = None
-        best_param_count: int | None = None
-        for route in self._routes:
-            if route.method != method:
-                continue
-            pat = _segments(route.pattern)
-            if len(pat) != len(target):
-                continue
-            captured: dict[str, str] = {}
-            ok = True
-            param_count = 0
-            for p, t in zip(pat, target, strict=True):
-                if p.startswith("{") and p.endswith("}"):
-                    captured[p[1:-1]] = t
-                    param_count += 1
-                elif p != t:
-                    ok = False
-                    break
-            if not ok:
-                continue
-            if param_count == 0:
-                exact = (route, captured)
-            elif best_param_count is None or param_count < best_param_count:
-                best_param = (route, captured)
-                best_param_count = param_count
-        return exact or best_param
-
-
-def _segments(path: str) -> list[str]:
-    stripped = path.strip("/")
-    return stripped.split("/") if stripped else []
-
-
-ROUTER = RouteTable()
-
-
-def route(method: str, pattern: str, *, public: bool = False) -> Callable[..., Any]:
-    def decorator(func: Callable[[Request], Response]) -> Callable[[Request], Response]:
-        ROUTER.add(Route(method, pattern, func, public=public))
-        return func
-
-    return decorator
-
-
-# ── Payload builders (unchanged domain logic) ──────────────────────
 
 
 def _adapter_payload(profile: str) -> dict[str, Any]:
@@ -314,82 +164,6 @@ def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
         broadcast_event({"type": event_type, **data, "ts": time.time()})
     except ImportError:
         pass
-
-
-def _resolve_client_ip(
-    forwarded_for: str | None, client_address_ip: str
-) -> str:
-    return resolve_client_ip(forwarded_for, client_address_ip)
-
-
-# ── Rate limiter (module-level) ────────────────────────────────────
-
-_rate_limiter: RateLimiter | None = None
-
-
-def _get_rate_limiter() -> RateLimiter:
-    global _rate_limiter
-    if _rate_limiter is None:
-        settings = load_settings()
-        _rate_limiter = RateLimiter(settings.rate_limit_per_min)
-    return _rate_limiter
-
-
-def check_transport_rate_limit(client_ip: str) -> bool:
-    """Shared rate-limit gate for non-REST transports (MCP /sse, WebSocket).
-
-    REST applies the limiter inside ``handle()``; MCP and WS call this so the
-    actual tool surface is throttled too. No-op when rate limiting is disabled.
-    """
-    return _get_rate_limiter().check(client_ip)
-
-
-def _reset_rate_limiter() -> None:
-    # Called after settings change so a new rate_limit_per_min takes effect
-    # immediately instead of being pinned to the value at first request.
-    global _rate_limiter
-    _rate_limiter = None
-
-
-# ── The pipeline: one function decides every request ───────────────
-
-
-def handle(request: Request) -> Response:
-    if request.method == "OPTIONS":
-        return Response.json(200, {"ok": True})
-
-    matched = ROUTER.match(request.method, request.path)
-    if matched is None:
-        return Response.json(404, {"error": f"Not found: {request.path}"})
-
-    matched_route, params = matched
-    request.params = params
-
-    if matched_route.rate_limit and not _get_rate_limiter().check(request.client_ip):
-        return Response.json(429, {"error": "Rate limit exceeded. Try again later."})
-
-    if not matched_route.public:
-        from kater.authgate import AuthContext, authenticate
-
-        decision = authenticate(
-            AuthContext(
-                settings=load_settings(),
-                authorization_header=request.header("authorization"),
-                query_api_key=request.query1("api_key"),
-                path=request.path,
-            )
-        )
-        if not decision.allowed:
-            return Response.json(401, {"error": decision.error or "Unauthorized"})
-
-    try:
-        return matched_route.handler(request)
-    except ValueError as exc:
-        return Response.json(400, {"error": str(exc)})
-    except Exception:
-        _log.exception("Internal error handling %s %s", request.method, request.path)
-        return Response.json(500, {"error": "Internal server error"})
-
 
 # ── Public endpoints (no auth) ─────────────────────────────────────
 
@@ -911,6 +685,7 @@ def _tunnel_stop(req: Request) -> Response:
 
 @route("POST", "/api/settings")
 def _update_settings(req: Request) -> Response:
+    from kater.api.server import _reset_rate_limiter
     from kater.settings import check_admin
 
     body = req.json
@@ -968,145 +743,3 @@ def _update_settings(req: Request) -> Response:
     return Response.json(200, settings.to_safe_dict())
 
 
-# ── Stdlib adapter: translate HTTP <-> Request/Response ────────────
-
-
-def _base_url(handler: BaseHTTPRequestHandler) -> str:
-    # Only trust X-Forwarded-Host when the connection originates from a
-    # loopback proxy (Cloudflare Tunnel / Tailscale Funnel connect from
-    # 127.0.0.1).  An external client connecting directly to 0.0.0.0 can
-    # forge the header and poison the OAuth issuer URL.
-    peer = handler.client_address[0] if handler.client_address else ""
-    host = handler.headers.get("Host", "localhost:9091")
-    if peer in ("127.0.0.1", "::1", ""):
-        xfh = handler.headers.get("X-Forwarded-Host")
-        if xfh:
-            host = xfh
-    scheme = "https" if handler.headers.get("X-Forwarded-Proto") == "https" else "http"
-    return f"{scheme}://{host}"
-
-
-class KaterAPIHandler(BaseHTTPRequestHandler):
-    server_version = "KaterAPI/1.0"
-
-    def log_message(self, fmt: str, *args: Any) -> None:
-        pass
-
-    def _build_request(self, method: str) -> Request | None:
-        parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/") or "/"
-        try:
-            length = int(self.headers.get("Content-Length", 0) or 0)
-        except (TypeError, ValueError):
-            self._write(Response.json(400, {"error": "Invalid Content-Length header"}))
-            return None
-        raw = b""
-        if length:
-            if length > load_settings().body_size_limit:
-                self._write(Response.json(400, {"error": "Request body too large"}))
-                return None
-            raw = self.rfile.read(length)
-        return Request(
-            method=method,
-            path=path,
-            query=parse_qs(parsed.query),
-            headers={k.lower(): v for k, v in self.headers.items()},
-            raw_body=raw,
-            client_ip=_resolve_client_ip(
-                self.headers.get("X-Forwarded-For"),
-                self.client_address[0] if self.client_address else "unknown",
-            ),
-            base_url=_base_url(self),
-        )
-
-    def _dispatch(self, method: str) -> None:
-        request = self._build_request(method)
-        if request is None:
-            return
-        self._write(handle(request))
-
-    def do_GET(self) -> None:
-        self._dispatch("GET")
-
-    def do_POST(self) -> None:
-        self._dispatch("POST")
-
-    def do_HEAD(self) -> None:
-        # HEAD is GET-for-routing with no body. Reuse the single pipeline so
-        # auth + rate limiting cannot drift from the GET path (previously do_HEAD
-        # re-implemented auth inline and skipped the rate limiter).
-        request = self._build_request("HEAD")
-        if request is None:
-            return
-        get_request = Request(
-            method="GET",
-            path=request.path,
-            query=request.query,
-            headers=request.headers,
-            raw_body=request.raw_body,
-            client_ip=request.client_ip,
-            base_url=request.base_url,
-            params=request.params,
-        )
-        response = handle(get_request)
-        # Same headers/status, but HEAD must not carry a body.
-        self._write(
-            Response(
-                status=response.status,
-                body=b"",
-                content_type=response.content_type,
-                headers=response.headers,
-            )
-        )
-
-    def do_OPTIONS(self) -> None:
-        # Apply rate limiting to OPTIONS (CORS preflight) to prevent DoS.
-        if _get_rate_limiter().check(_resolve_client_ip(
-            self.headers.get("X-Forwarded-For", ""),
-            self.client_address[0] if self.client_address else "",
-        )):
-            self._write(Response.json(200, {"ok": True}))
-        else:
-            self._write(Response.json(429, {"error": "rate limit exceeded"}))
-
-    def _write(self, response: Response) -> None:
-        body = response.encoded()
-        origin = self.headers.get("Origin")
-        allow = cors_allow_origin(load_settings(), origin)
-        self.send_response(response.status)
-        self.send_header("Content-Type", response.content_type)
-        self.send_header("Content-Length", str(len(body)))
-        if allow:
-            self.send_header("Access-Control-Allow-Origin", allow)
-            # Vary: Origin ensures CDNs/proxies don't cache a response
-            # with a permissive ACAO header and serve it to a different origin.
-            if allow != "*":
-                self.send_header("Vary", "Origin")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
-        self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; "
-            "img-src 'self' data:; object-src 'none'; base-uri 'none'; "
-            "frame-ancestors 'none'",
-        )
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
-        if self.headers.get("X-Forwarded-Proto") == "https":
-            self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-        for key, value in response.headers.items():
-            self.send_header(key, value)
-        self.end_headers()
-        if body:
-            self.wfile.write(body)
-
-
-def create_api_server(host: str = "127.0.0.1", port: int = 9091) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), KaterAPIHandler)
-
-
-def serve_api(host: str = "127.0.0.1", port: int = 9091) -> None:
-    server = create_api_server(host, port)
-    server.serve_forever()

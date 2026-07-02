@@ -828,7 +828,7 @@ _VIEW_CATALOG = r"""
     <div class="view-scroll">
       <div class="catalog-toolbar">
         <input class="form-input" id="catalog-search" type="search"
-          placeholder="Search servers" autocomplete="off"
+          placeholder="Search servers (e.g. search, github)..." autocomplete="off"
           aria-label="Search servers">
       </div>
       <div class="server-grid" id="catalog-grid">
@@ -867,7 +867,7 @@ _VIEW_DEPLOY = r"""
       <div class="code-preview">
         <div class="code-desc" id="deploy-desc"></div>
         <div class="code-wrap">
-          <button class="code-copy" onclick="copyDeployCode()"
+          <button class="code-copy" onclick="copyDeployCode(this)"
             aria-label="Copy deployment code">Copy</button>
           <pre class="code-block" id="deploy-code">Select a format above.</pre>
         </div>
@@ -2399,14 +2399,28 @@ async function selectDeployFormat(fmt) {
   }
 }
 
-function copyDeployCode() {
+function copyDeployCode(btn) {
+  if (btn.dataset.copying) return;
+  btn.dataset.copying = '1';
   const text = document.getElementById('deploy-code').textContent || '';
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(
-      () => toast('copied to clipboard', 'success'),
-      () => toast('clipboard access denied', 'error')
+      () => {
+        const old = btn.textContent;
+        btn.textContent = 'Copied!';
+        toast('copied to clipboard', 'success');
+        setTimeout(() => {
+          btn.textContent = old;
+          delete btn.dataset.copying;
+        }, 2000);
+      },
+      () => {
+        delete btn.dataset.copying;
+        toast('clipboard access denied', 'error');
+      }
     );
   } else {
+    delete btn.dataset.copying;
     toast('clipboard unavailable', 'error');
   }
 }

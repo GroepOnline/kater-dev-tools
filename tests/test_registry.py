@@ -37,3 +37,9 @@ def test_unknown_profile_has_core_tools_only() -> None:
     names = {t.name for t in tools_for_profile("unknown")}
     assert "kater_profiles" in names
     assert "demo_private_status" not in names
+
+
+def test_tools_for_profile_accepts_comma_separated_profiles() -> None:
+    names = {t.name for t in tools_for_profile("core,ops")}
+    assert "kater_profiles" in names
+    assert "kater_doctor" in names

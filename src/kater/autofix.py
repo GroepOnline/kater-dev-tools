@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from kater.doctor import FixAction
-from kater.profiles import TOOL_SOURCES
+from kater.profiles import all_tool_sources
 
 
 def render_cursor_snippet(
@@ -37,7 +37,7 @@ def render_env_example(profiles: set[str]) -> str:
         "",
     ]
     seen: set[str] = set()
-    for source in TOOL_SOURCES:
+    for source in all_tool_sources():
         if not source.profiles.intersection(profiles):
             continue
         for var in source.env:

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from kater.profiles import DEFAULT_PROFILE, TOOL_SOURCES, list_profiles
+from kater.profiles import DEFAULT_PROFILE, all_tool_sources, list_profiles
 
 KATER_DIR = ".kater"
 KATER_CONFIG = "config.json"
@@ -61,7 +61,7 @@ def _render_kater_config(profile: str) -> dict[str, Any]:
                 "risk": s.risk.value,
                 "profiles": sorted(s.profiles),
             }
-            for s in TOOL_SOURCES
+            for s in all_tool_sources()
             if s.transport != "native"
         ],
     }
@@ -76,7 +76,7 @@ def _render_env_file(profile: str) -> str:
         "",
     ]
     seen: set[str] = set()
-    for source in TOOL_SOURCES:
+    for source in all_tool_sources():
         if profile not in source.profiles and profile != "core":
             continue
         for var in source.env:

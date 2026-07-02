@@ -1,0 +1,48 @@
+name: No org leak
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  no-org-leak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Block org production domains
+        run: |
+          set -euo pipefail
+          if git grep -iE 'chefgroep\.(nl|online)' -- . ':!SPLIT_DECISION.md' ':!AUDIT.md' ':!.github/workflows/no-org-leak.yml'; then
+            echo 'ERROR: chefgroep production domain found outside split audit docs'
+            exit 1
+          fi
+
+      - name: Block onlinechefgroep outside attribution
+        run: |
+          set -euo pipefail
+          if git grep -i 'onlinechefgroep' -- . ':!README.md' ':!LICENSE' ':!CONTRIBUTING.md' ':!SECURITY.md' ':!pyproject.toml' ':!docs/deploy-server.md' ':!SPLIT_DECISION.md' ':!AUDIT.md' ':!.github/workflows/no-org-leak.yml'; then
+            echo 'ERROR: onlinechefgroep found outside allowed attribution files'
+            exit 1
+          fi
+
+      - name: Block credential-shaped connection strings
+        run: |
+          set -euo pipefail
+          if git grep -E '(postgres|redis|upstash)://[^"'\''[:space:]]+@' -- .; then
+            echo 'ERROR: connection string with embedded credentials detected'
+            exit 1
+          fi
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
+      - name: Gitleaks scan (full history on PR base)
+        run: gitleaks detect --source . --log-opts="--all" --config .gitleaks.toml --redact

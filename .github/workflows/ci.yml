@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -43,10 +44,14 @@ jobs:
         run: timeout 120s uv run pytest -vv -x --tb=short -ra
 
       - name: Linear MCP integration (optional)
-        if: ${{ secrets.LINEAR_API_KEY != '' }}
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-        run: uv run pytest tests/test_linear_mcp.py::test_live_linear_mcp_lists_tools -vv --tb=short
+        run: |
+          if [ -n "${LINEAR_API_KEY:-}" ]; then
+            uv run pytest tests/test_linear_mcp.py::test_live_linear_mcp_lists_tools -vv --tb=short
+          else
+            echo "LINEAR_API_KEY not set; skipping live Linear MCP test"
+          fi
 
       - name: Smoke test
         run: ./scripts/smoke.sh

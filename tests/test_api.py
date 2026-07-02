@@ -274,10 +274,10 @@ def test_private_server_hidden_in_public_mode(monkeypatch) -> None:
     from kater.api import _visible_source
 
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
-    assert _visible_source("utrecht") is not None
+    assert _visible_source("demo_private_server") is not None
 
     monkeypatch.setenv("KATER_PUBLIC", "1")
-    assert _visible_source("utrecht") is None
+    assert _visible_source("demo_private_server") is None
     assert _visible_source("github") is not None
 
 

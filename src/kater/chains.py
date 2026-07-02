@@ -36,26 +36,23 @@ CHAINS: tuple[ChainDefinition, ...] = (
             ChainStep(tool="sentry_issue_search", reason="Look for fresh regressions."),
         ],
     ),
-    ChainDefinition(
-        name="utrecht_status",
-        description="Check Utrecht Data OS status through its optional adapter.",
-        profiles={"utrecht"},
-        steps=[
-            ChainStep(tool="utrecht_pipeline_status", reason="Check local pipeline artifacts."),
-            ChainStep(tool="utrecht_fleet_inventory", reason="Summarize the safe Fleet inventory."),
-            ChainStep(tool="utrecht_agent_manifest", reason="Inspect Utrecht tool surface."),
-        ],
-    ),
 )
 
 
-def list_chains(profile: str | None = None) -> list[ChainDefinition]:
-    from kater.profiles import PRIVATE_PROFILES, is_public_mode
+def _all_chains() -> list[ChainDefinition]:
+    from kater.extensions import extension_attr
 
-    chains = list(CHAINS)
+    extra = extension_attr("CHAINS", ())
+    return list(CHAINS) + list(extra)
+
+
+def list_chains(profile: str | None = None) -> list[ChainDefinition]:
+    from kater.profiles import _private_profiles, is_public_mode
+
+    chains = _all_chains()
     if is_public_mode():
-        # Hide chains that only belong to private (org-specific) profiles.
-        chains = [c for c in chains if not (c.profiles and c.profiles.issubset(PRIVATE_PROFILES))]
+        private = _private_profiles()
+        chains = [c for c in chains if not (c.profiles and c.profiles.issubset(private))]
     if profile is None:
         return chains
     return [chain for chain in chains if profile in chain.profiles]

@@ -68,7 +68,7 @@ PUPPETEER_MCP_VERSION = "2025.5.12"
 EVERART_MCP_VERSION = "0.6.2"
 
 
-TOOL_SOURCES: tuple[ToolSource, ...] = (
+_BUILTIN_TOOL_SOURCES: tuple[ToolSource, ...] = (
     # ── Native ──────────────────────────────────────────────────────
     ToolSource(
         name="kater",
@@ -367,20 +367,6 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
     ),
     # ── Specialized ─────────────────────────────────────────────────
     ToolSource(
-        name="utrecht",
-        description="Utrecht Data OS pipeline, agent, and safe Fleet inventory adapter.",
-        transport=Transport.SSE,
-        risk=RiskLevel.LOW,
-        profiles={"utrecht"},
-        env=["UTRECHT_MCP_URL", "UTRECHT_FLEET_INVENTORY_PATH"],
-        context_cost=2,
-        homepage="https://utrecht-data-os.nl",
-        mcp=McpServerConfig(
-            url="${UTRECHT_MCP_URL}",
-            env_template={"UTRECHT_MCP_URL": "${UTRECHT_MCP_URL}"},
-        ),
-    ),
-    ToolSource(
         name="sequential-thinking",
         description="Sequential reasoning and thought-chain tools.",
         transport=Transport.STDIO,
@@ -510,11 +496,24 @@ TOOL_SOURCES: tuple[ToolSource, ...] = (
 )
 
 
-# Org-specific integrations that must never ship in a public deployment.
-# They stay in the source for private/self-hosted use, but are filtered out of
-# every public-facing surface (catalog, profiles, MCP tools, chains) whenever
-# KATER_PUBLIC=1. Tests run without that flag, so they keep full coverage.
-PRIVATE_PROFILES = frozenset({"utrecht"})
+def all_tool_sources() -> tuple[ToolSource, ...]:
+    from kater.extensions import extension_attr
+
+    extra = extension_attr("TOOL_SOURCES", ())
+    return _BUILTIN_TOOL_SOURCES + tuple(extra)
+
+
+# Back-compat alias for code/tests that expect the builtin catalog only.
+TOOL_SOURCES = _BUILTIN_TOOL_SOURCES
+
+
+# Private deployment extensions may register profile names via
+# KATER_EXTENSIONS_MODULE (see kater.extensions). Those profiles are hidden
+# from every public-facing surface when KATER_PUBLIC=1.
+def _private_profiles() -> frozenset[str]:
+    from kater.extensions import extension_attr
+
+    return frozenset(extension_attr("PRIVATE_PROFILES", ()))
 
 
 def is_public_mode() -> bool:
@@ -526,19 +525,19 @@ def is_public_mode() -> bool:
 
 
 def is_private_profile(profile: str) -> bool:
-    return profile in PRIVATE_PROFILES
+    return profile in _private_profiles()
 
 
 def is_private_source(source: ToolSource) -> bool:
-    # Private when it belongs only to private profiles (no public profile path).
-    return bool(source.profiles) and source.profiles.issubset(PRIVATE_PROFILES)
+    private = _private_profiles()
+    return bool(source.profiles) and source.profiles.issubset(private)
 
 
 def visible_tool_sources() -> tuple[ToolSource, ...]:
     """Tool sources for public-facing listings (hides private ones when public)."""
     if not is_public_mode():
-        return TOOL_SOURCES
-    return tuple(s for s in TOOL_SOURCES if not is_private_source(s))
+        return all_tool_sources()
+    return tuple(s for s in all_tool_sources() if not is_private_source(s))
 
 
 def list_profiles() -> list[str]:
@@ -546,20 +545,20 @@ def list_profiles() -> list[str]:
     for source in visible_tool_sources():
         profiles.update(source.profiles)
     if is_public_mode():
-        profiles -= set(PRIVATE_PROFILES)
+        profiles -= _private_profiles()
     return sorted(profiles)
 
 
 def sources_for_profiles(profile_names: set[str]) -> list[ToolSource]:
     selected = []
-    for source in TOOL_SOURCES:
+    for source in all_tool_sources():
         if source.default_enabled or source.profiles.intersection(profile_names):
             selected.append(source)
     return selected
 
 
 def get_source(name: str) -> ToolSource | None:
-    for source in TOOL_SOURCES:
+    for source in all_tool_sources():
         if source.name == name:
             return source
     return None

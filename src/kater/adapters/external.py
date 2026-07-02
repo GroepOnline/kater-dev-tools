@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from kater.profiles import TOOL_SOURCES, ToolSource
+from kater.profiles import ToolSource, all_tool_sources
 
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -48,7 +48,7 @@ def scan_adapters(
 
     settings = load_settings()
     inventory = AdapterInventory()
-    for source in TOOL_SOURCES:
+    for source in all_tool_sources():
         if source.transport == "native":
             continue
         if profiles and not source.profiles.intersection(profiles):

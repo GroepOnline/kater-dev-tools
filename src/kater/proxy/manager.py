@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from kater.adapters.external import resolve_remote_headers
-from kater.profiles import TOOL_SOURCES, RiskLevel, ToolSource, Transport
+from kater.profiles import RiskLevel, ToolSource, Transport, all_tool_sources
 from kater.proxy.aggregator import Aggregator
 from kater.proxy.base import BaseBackend
 from kater.proxy.models import BackendStatus
@@ -122,13 +122,15 @@ class ProxyManager:
 
     def _start_backends(self, profile: str) -> None:
         settings = load_settings()
-        for source in TOOL_SOURCES:
+        for source in all_tool_sources():
             if source.transport == Transport.NATIVE:
                 continue
-            default_enabled = source.default_enabled
+            # Match scan_adapters/api/cli: enabled unless explicitly disabled in
+            # settings. high_risk_default_disabled only gates HIGH-risk sources.
+            enabled_default = True
             if settings.high_risk_default_disabled and source.risk == RiskLevel.HIGH:
-                default_enabled = False
-            if not settings.is_server_enabled(source.name, default=default_enabled):
+                enabled_default = False
+            if not settings.is_server_enabled(source.name, default=enabled_default):
                 continue
             if profile not in source.profiles and profile != "core":
                 continue

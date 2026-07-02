@@ -10,7 +10,7 @@ import typer
 from kater.autofix import apply_fix_actions
 from kater.chains import list_chains
 from kater.doctor import parse_profiles, run_doctor
-from kater.profiles import DEFAULT_PROFILE, TOOL_SOURCES, get_source, list_profiles
+from kater.profiles import DEFAULT_PROFILE, all_tool_sources, get_source, list_profiles
 from kater.registry import tools_for_profile
 
 app = typer.Typer(help="Developer MCP gateway — one unified tool surface for code agents.")
@@ -338,7 +338,7 @@ def mcp_list_command(
     from kater.ansi import Table, error, success
 
     servers = []
-    for source in TOOL_SOURCES:
+    for source in all_tool_sources():
         if source.transport == "native":
             continue
         if profile and profile not in source.profiles:

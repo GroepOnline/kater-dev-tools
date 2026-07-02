@@ -39,19 +39,19 @@
     }
   },
   "enabledPlugins": {
-    "duckdb-skills@claude-plugins-official": true,
-    "ralph-loop@claude-plugins-official": true,
-    "miro@claude-plugins-official": true,
-    "sentry@xai-official": true,
-    "cloudflare@xai-official": true,
-    "productivity@knowledge-work-plugins": true,
-    "enterprise-search@knowledge-work-plugins": true,
-    "linear@openai-plugins": true,
-    "slack@openai-plugins": true,
-    "analyze-codebase@cc-marketplace": true,
-    "bitwarden-code-review@bitwarden-ai-plugins": true,
-    "agent-orchestration@wshobson-agents": true,
-    "agent-teams@wshobson-agents": true
+    "duckdb-skills@claude-plugins-official": false,
+    "ralph-loop@claude-plugins-official": false,
+    "miro@claude-plugins-official": false,
+    "sentry@xai-official": false,
+    "cloudflare@xai-official": false,
+    "productivity@knowledge-work-plugins": false,
+    "enterprise-search@knowledge-work-plugins": false,
+    "linear@openai-plugins": false,
+    "slack@openai-plugins": false,
+    "analyze-codebase@cc-marketplace": false,
+    "bitwarden-code-review@bitwarden-ai-plugins": false,
+    "agent-orchestration@wshobson-agents": false,
+    "agent-teams@wshobson-agents": false
   },
   "plugins": {
     "notion-workspace": { "enabled": false },

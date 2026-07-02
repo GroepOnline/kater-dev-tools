@@ -1,0 +1,13 @@
+[Unit]
+Description=Cloudflare Tunnel - MCP (chef-cloudflare-mcp)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel run --protocol http2 --token ${CLOUDFLARED_MCP_TOKEN}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

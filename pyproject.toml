@@ -77,6 +77,8 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 "src/kater/tunnel.py" = ["S603", "S607", "S110"]
 "src/kater/deploy.py" = ["S603", "S607"]
 "src/kater/proxy/stdio_backend.py" = ["S603", "S607"]
+# sync script runs git with list-form argv against SSOT marketplace URLs.
+"scripts/sync_cursor_plugins.py" = ["S603", "S607"]
 # websocket.py uses sha1 per RFC 6455 (the WS handshake mandates it).
 "src/kater/websocket.py" = ["S324"]
 # gateway/sse_backend only open operator-configured URLs (localhost API proxy,

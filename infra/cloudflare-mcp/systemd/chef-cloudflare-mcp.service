@@ -1,0 +1,15 @@
+[Unit]
+Description=Chef Cloudflare Global MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/chef-cloudflare-global-mcp
+EnvironmentFile=/home/ubuntu/chef-cloudflare-global-mcp/.env
+ExecStart=/usr/bin/node server-http.mjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

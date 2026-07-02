@@ -9,6 +9,7 @@ import pytest
 
 from kater.adapters.external import render_profile_config, scan_adapters
 from kater.profiles import TOOL_SOURCES
+from kater.proxy.base import MockBackend
 from kater.proxy.manager import ProxyManager
 from kater.proxy.streamable_http_backend import StreamableHTTPBackend
 
@@ -118,6 +119,31 @@ def test_proxy_manager_creates_streamable_backend_for_linear(monkeypatch):
     assert isinstance(backend, StreamableHTTPBackend)
     assert backend._url == "https://mcp.linear.app/mcp"
     assert backend._headers["Authorization"] == "Bearer lin_api_test"
+
+
+def test_proxy_manager_starts_linear_without_default_enabled(monkeypatch):
+    """Linear has default_enabled=False but must still start when env is set."""
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
+    linear = next(source for source in TOOL_SOURCES if source.name == "linear")
+    assert linear.default_enabled is False
+
+    def fake_create(self, source):
+        if source.name == "linear":
+            return MockBackend(tools=[{"name": "list_issues"}])
+        return None
+
+    monkeypatch.setattr(ProxyManager, "_create_backend", fake_create)
+    monkeypatch.setattr(
+        "kater.proxy.manager.all_tool_sources",
+        lambda: (linear,),
+    )
+
+    manager = ProxyManager()
+    manager.start("ops")
+    try:
+        assert "linear" in manager._backends
+    finally:
+        manager.stop()
 
 
 @pytest.mark.skipif(

@@ -45,7 +45,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 
 [tool.ruff]
 line-length = 100
@@ -72,12 +72,11 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 # profiles.py documents a catalog of MCP server launch commands (npx ...);
 # these are operator-chosen, not user input, so S603/S607 flagging is noise.
 "src/kater/profiles.py" = ["S603", "S607"]
-# subprocess invocations in tunnel/deploy/stdio_backend/utrecht use list-form
+# subprocess invocations in tunnel/deploy/stdio_backend use list-form
 # argv and operator-controlled binaries; bandit cannot see that.
 "src/kater/tunnel.py" = ["S603", "S607", "S110"]
 "src/kater/deploy.py" = ["S603", "S607"]
 "src/kater/proxy/stdio_backend.py" = ["S603", "S607"]
-"src/kater/adapters/utrecht.py" = ["S603", "S607"]
 # websocket.py uses sha1 per RFC 6455 (the WS handshake mandates it).
 "src/kater/websocket.py" = ["S324"]
 # gateway/sse_backend only open operator-configured URLs (localhost API proxy,

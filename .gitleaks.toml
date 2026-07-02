@@ -1,0 +1,8 @@
+title = "kater-dev-tools gitleaks config"
+
+[allowlist]
+description = "RFC 6455 WebSocket handshake test nonces are not secrets"
+paths = [
+  '''scripts/e2e-mcp.sh''',
+  '''tests/test_hardening.py''',
+]

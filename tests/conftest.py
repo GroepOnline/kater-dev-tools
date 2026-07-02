@@ -12,6 +12,11 @@ now drop the boilerplate entirely.
 
 from __future__ import annotations
 
+import os
+
+# Load optional private deployment extensions before Kater profile catalog import.
+os.environ.setdefault("KATER_EXTENSIONS_MODULE", "tests.fixtures.private_extension")
+
 import shutil
 from pathlib import Path
 

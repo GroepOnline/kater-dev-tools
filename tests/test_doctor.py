@@ -5,8 +5,19 @@ import json
 from kater.doctor import run_doctor
 
 
-def test_doctor_passes_core_profile() -> None:
-    report = run_doctor(profiles={"core"})
+def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
+    for var in (
+        "LINEAR_API_KEY",
+        "CLOUDFLARE_API_TOKEN",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "GITLAB_PERSONAL_ACCESS_TOKEN",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
 
     assert report.profiles == ["core"]
     assert [source["name"] for source in report.sources] == ["kater"]

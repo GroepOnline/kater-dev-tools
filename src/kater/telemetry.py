@@ -209,7 +209,7 @@ def status_overview() -> dict[str, Any]:
     import os
 
     from kater import __version__
-    from kater.profiles import TOOL_SOURCES
+    from kater.profiles import all_tool_sources
     from kater.settings import load_settings
 
     settings = load_settings()
@@ -218,7 +218,7 @@ def status_overview() -> dict[str, Any]:
     configured_count = 0
     missing_count = 0
 
-    for source in TOOL_SOURCES:
+    for source in all_tool_sources():
         if source.transport == "native":
             continue
         if settings.is_server_enabled(source.name, default=True):

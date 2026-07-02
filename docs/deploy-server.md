@@ -28,6 +28,17 @@ Cursor MCP snippet (private network):
 }
 ```
 
+## Private extensions (optional)
+
+Load org-specific profiles and native tools from a separate Python package:
+
+```bash
+export KATER_EXTENSIONS_MODULE=your_package.extensions
+```
+
+The module may export `TOOL_SOURCES`, `PRIVATE_PROFILES`, `NATIVE_TOOLS`, and
+`CHAINS`. See `src/kater/extensions.py`.
+
 ## Secured public deploy (Cloudflare Tunnel)
 
 Recommended for ChatGPT Remote MCP (OAuth + PKCE built in):

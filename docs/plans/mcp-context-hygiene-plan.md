@@ -1,23 +1,25 @@
 # Kater Dev MCP Gateway
 
+> **Historical planning doc (pre OSS/private split).** Built-in org-specific adapters
+> now load via `KATER_EXTENSIONS_MODULE` in a private deployment overlay, not in this
+> public repo.
+
 ## Problem Frame
 
-This should be a separate dev-tooling repository, not part of the Utrecht Data OS
-product runtime. The problem is agent ergonomics: code agents currently see too many
+This should be a separate dev-tooling repository, not part of any product runtime. The problem is agent ergonomics: code agents currently see too many
 MCP tools by default, including broad dev MCPs such as GitHub, Linear, Exa, Firecrawl,
 Hugging Face, Sanity, Sentry, Upstash, browser, Resend, Quiver, and plugin-provided
 tools.
 
 The goal is `kater`: one Docker-deployable dev MCP gateway that exposes curated
 profiles, simple command wrappers, doctor/autofix checks, and optional tool chains.
-Utrecht Data OS can be one adapter/profile, but the gateway itself is for developer
-convenience now, not for end-user product delivery.
+External product adapters can plug in via `KATER_EXTENSIONS_MODULE`, but the gateway
+itself is for developer convenience, not for end-user product delivery.
 
 ## Current State To Preserve
 
-- Utrecht Data OS already has `utrecht mcp serve` and a container-hub sketch. Treat
-  these as reference patterns and an optional adapter target, not the place where
-  Kater is implemented.
+- External MCP products may expose their own `mcp serve` endpoints. Treat those as
+  optional adapter targets configured through extension modules, not as in-tree code.
 - The current Cursor/project MCP setup shows the real tool list to support: project
   MCPs, plugin MCPs, remote MCPs, stdio MCPs, and per-project approval state.
 - Dev tools must stay profile-gated so an agent doing a local code task does not get
@@ -31,8 +33,8 @@ convenience now, not for end-user product delivery.
   `kater-mcp-gateway`.
 - Runtime: Docker Compose first. Supported targets are local Docker and one
   self-managed server. No Cloudflare in the initial plan.
-- Scope: pure developer tooling. Do not optimize for Utrecht end users, public product
-  APIs, or hosted product reliability.
+- Scope: pure developer tooling. Do not optimize for end-user product APIs or hosted
+  product reliability.
 - Default profile: very small, usually filesystem-safe diagnostics plus profile/doctor
   tools. All high-surface MCPs are opt-in by profile.
 - Adapter model: wrap or route to external MCPs through named adapters and chains; do
@@ -40,7 +42,7 @@ convenience now, not for end-user product delivery.
 - Autofix model: `doctor` reports, `doctor --fix-plan` emits a patch/action plan, and
   `doctor --apply --yes` performs explicit selected changes.
 - Profiles: group by task intent, for example `core`, `code`, `ops`, `research`,
-  `web`, `cloud`, `content`, `email`, `image`, `utrecht`.
+  `web`, `cloud`, `content`, `email`, `image`, plus optional extension profiles.
 
 ## Implementation Units
 
@@ -79,11 +81,10 @@ Provide local Docker Compose and self-managed Docker Compose recipes over
 Tailscale/SSH. Cursor connects to Kater as one MCP server; Kater decides which tool
 profile is active.
 
-### U7. Utrecht Data OS Adapter
+### U7. External Product Adapter (extension module)
 
-Add Utrecht Data OS as an optional profile/adapter without coupling Kater to the
-product repo. Treat Utrecht as a configured external project via mounted repo path or
-existing MCP endpoint.
+Add optional external product adapters via `KATER_EXTENSIONS_MODULE` without coupling
+Kater to any product repo. Configure via mounted repo path or existing MCP endpoint.
 
 ## Verification
 
@@ -92,11 +93,11 @@ existing MCP endpoint.
 - Docker build and container smoke test.
 - Manual Cursor smoke: connect to one Kater MCP endpoint and confirm the default tool
   list is small.
-- Utrecht smoke only for the optional adapter/profile, not as a core product test.
+- Extension adapter smoke only for optional profiles, not as a core product test.
 
 ## Deferred
 
 - Editing global Cursor plugin cache files.
 - Cloudflare deployment or edge hosting.
-- Product-facing Utrecht Data OS runtime changes.
+- In-tree product runtime adapters (use private extension overlays instead).
 - Paid cloud resources.

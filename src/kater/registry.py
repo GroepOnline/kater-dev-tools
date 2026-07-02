@@ -37,21 +37,6 @@ def chains_list_tool(profile: str = "core") -> dict[str, Any]:
     return {"chains": [chain.model_dump(mode="json") for chain in chains]}
 
 
-def utrecht_status_tool() -> dict[str, Any]:
-    from kater.adapters.utrecht import utrecht_status
-    return utrecht_status()
-
-
-def utrecht_pipeline_tool() -> dict[str, Any]:
-    from kater.adapters.utrecht import utrecht_pipeline_status
-    return utrecht_pipeline_status()
-
-
-def utrecht_fleet_inventory_tool() -> dict[str, Any]:
-    from kater.adapters.utrecht import utrecht_fleet_inventory_summary
-    return utrecht_fleet_inventory_summary()
-
-
 def adapter_inventory_tool(profile: str = "core") -> dict[str, Any]:
     inventory = scan_adapters({profile})
     return {
@@ -75,8 +60,14 @@ def config_render_tool(profile: str = "core") -> dict[str, Any]:
     return render_profile_config(profile, include_secrets=False)
 
 
+def _extension_native_tools() -> list[NativeTool]:
+    from kater.extensions import extension_attr
+
+    return list(extension_attr("NATIVE_TOOLS", []))
+
+
 def build_native_tools() -> list[NativeTool]:
-    return [
+    tools = [
         NativeTool(
             name="kater_profiles",
             description="List available Kater tool profiles.",
@@ -99,27 +90,6 @@ def build_native_tools() -> list[NativeTool]:
             handler=chains_list_tool,
         ),
         NativeTool(
-            name="utrecht_status",
-            description="Check Utrecht Data OS adapter configuration.",
-            profile="utrecht",
-            risk="low",
-            handler=utrecht_status_tool,
-        ),
-        NativeTool(
-            name="utrecht_pipeline_status",
-            description="Inspect Utrecht Data OS pipeline artifacts.",
-            profile="utrecht",
-            risk="low",
-            handler=utrecht_pipeline_tool,
-        ),
-        NativeTool(
-            name="utrecht_fleet_inventory",
-            description="Summarize the safe Utrecht Fleet inventory without private host data.",
-            profile="utrecht",
-            risk="low",
-            handler=utrecht_fleet_inventory_tool,
-        ),
-        NativeTool(
             name="kater_adapters",
             description="Scan which external MCP adapters are configured.",
             profile="core",
@@ -134,6 +104,8 @@ def build_native_tools() -> list[NativeTool]:
             handler=config_render_tool,
         ),
     ]
+    tools.extend(_extension_native_tools())
+    return tools
 
 
 def tools_for_profile(profile: str) -> list[NativeTool]:

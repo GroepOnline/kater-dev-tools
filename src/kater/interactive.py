@@ -142,14 +142,14 @@ def _render(profile: str) -> None:
     )
     print(f"{DIM}{'─' * 72}{RESET}")
 
-    from kater.profiles import TOOL_SOURCES
+    from kater.profiles import all_tool_sources
     from kater.settings import load_settings
     settings = load_settings()
 
     print(f"  {BOLD}SERVER STATUS{RESET}")
     print()
 
-    for source in TOOL_SOURCES:
+    for source in all_tool_sources():
         if source.transport == "native":
             continue
         if profile not in source.profiles and profile != "core":

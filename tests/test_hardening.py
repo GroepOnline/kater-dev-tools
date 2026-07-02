@@ -481,7 +481,7 @@ def test_public_mode_true_hides_private_profiles(monkeypatch):
     monkeypatch.setenv("KATER_PUBLIC", "true")
     assert is_public_mode() is True
     profiles = list_profiles()
-    assert "utrecht" not in profiles
+    assert "demo_private" not in profiles
 
 
 def test_public_mode_yes_hides_private_profiles(monkeypatch):

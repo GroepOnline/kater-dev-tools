@@ -24,4 +24,4 @@ def test_lists_known_profiles() -> None:
 
     assert "core" in profiles
     assert "ops" in profiles
-    assert "utrecht" in profiles
+    assert "demo_private" in profiles

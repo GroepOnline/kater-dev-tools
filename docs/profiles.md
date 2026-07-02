@@ -17,7 +17,13 @@ Kater profiles keep code-agent tool context scoped to the current task.
 | `cloud` | Cloud-ish dev support | Hugging Face, Upstash |
 | `content` | CMS and publishing | Sanity, Notion, Resend |
 | `email` | Email operations | Resend |
-| `image` | Image/vector generation | QuiverAI |
-| `utrecht` | Utrecht Data OS adapter | Existing Utrecht MCP or CLI |
+| `image` | Image/vector generation | QuiverAI, Figma, EverArt |
+| `reasoning` | Thought chains and memory | sequential-thinking, memory |
+| `docs` | Library and repo documentation | context7, deepwiki |
+| `utils` | Small utility tools | time |
+
+Private/org-specific profiles can be added via `KATER_EXTENSIONS_MODULE` (see `src/kater/extensions.py`).
+
+See the README MCP catalog table for the full server-to-profile mapping.
 
 High-surface tools should stay out of `core`. Prefer selecting a profile per task.

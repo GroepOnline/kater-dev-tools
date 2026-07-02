@@ -131,7 +131,6 @@ All commands support `--json` for structured output.
 | memory | stdio | reasoning |
 | sequential-thinking | stdio | reasoning, research |
 | time | stdio | utils |
-| utrecht | sse | utrecht |
 
 ## Web Dashboard
 
@@ -220,6 +219,16 @@ uv run kater serve
 
 See [docs/deploy-server.md](docs/deploy-server.md) and [SECURITY.md](SECURITY.md).
 
+### Private deployment extensions
+
+Org-specific profiles and adapters can live in a separate private repo and load at
+runtime via `KATER_EXTENSIONS_MODULE` (see `src/kater/extensions.py` and
+`.env.example`).
+
+```bash
+export KATER_EXTENSIONS_MODULE=your_package.extensions
+```
+
 ### Tailscale Funnel
 
 ```bash
@@ -285,4 +294,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Status
 
-v1.0.0 — 388 tests, 29 MCP servers, loopback-by-default with OAuth/API-key auth for public deploys.
+v1.0.0 — 417 tests, 29 MCP servers, loopback-by-default with OAuth/API-key auth for public deploys.

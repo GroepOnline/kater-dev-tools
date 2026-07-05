@@ -442,6 +442,12 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   padding: 48px 20px; text-align: center;
   font-family: var(--mono); font-size: 12px; color: var(--text-dim);
 }
+.view-empty-link {
+  color: var(--accent); cursor: pointer; text-decoration: underline;
+  background: transparent; border: none; font-family: inherit; font-size: inherit;
+  padding: 0; margin-left: 4px;
+}
+.view-empty-link:hover { color: var(--text-bright); }
 .catalog-toolbar {
   padding: 10px 12px 0;
   position: sticky; top: 0; z-index: 2;
@@ -823,13 +829,13 @@ _VIEW_CATALOG = r"""
     aria-labelledby="tab-catalog" tabindex="0" hidden>
     <div class="view-header">
       <span class="view-title">Server Catalog</span>
-      <span class="tile-title" id="catalog-count">0 servers</span>
+      <span class="tile-title" id="catalog-count" aria-live="polite">0 servers</span>
     </div>
     <div class="view-scroll">
       <div class="catalog-toolbar">
         <input class="form-input" id="catalog-search" type="search"
           placeholder="Search servers (e.g. search, github)..." autocomplete="off"
-          aria-label="Search servers">
+          aria-label="Search servers" aria-describedby="catalog-count">
       </div>
       <div class="server-grid" id="catalog-grid">
         <div class="view-empty">Loading catalog...</div>
@@ -1369,11 +1375,13 @@ async function loadProfiles() {
   el.innerHTML = '';
   for (const p of profiles) {
     const pill = document.createElement('div');
-    pill.className = 'pill' + (p === activeProfile ? ' active' : '');
+    const isActive = p === activeProfile;
+    pill.className = 'pill' + (isActive ? ' active' : '');
     pill.textContent = p;
     pill.dataset.profile = p;
     pill.setAttribute('tabindex', '0');
     pill.setAttribute('role', 'button');
+    pill.setAttribute('aria-pressed', String(isActive));
     el.appendChild(pill);
   }
 }
@@ -1382,7 +1390,9 @@ function switchProfile(p) {
   if (profiles.indexOf(p) === -1) { toast('unknown profile: ' + p, 'error'); return; }
   activeProfile = p;
   document.querySelectorAll('.pill').forEach(el => {
-    el.classList.toggle('active', el.dataset.profile === p);
+    const isActive = el.dataset.profile === p;
+    el.classList.toggle('active', isActive);
+    el.setAttribute('aria-pressed', String(isActive));
   });
   loadCatalog();
   if (currentView === 'catalog') loadCatalogView();
@@ -1830,6 +1840,16 @@ async function detailToggle(enable) {
   if (enable && fresh && fresh.env_configured === false) promptCredentials(name);
 }
 
+function clearSearch() {
+  const input = document.getElementById('catalog-search');
+  if (input) {
+    input.value = '';
+    catalogQuery = '';
+    loadCatalog();
+    if (currentView === 'catalog') loadCatalogView();
+  }
+}
+
 function initCatalogSearch() {
   const input = document.getElementById('catalog-search');
   if (!input || input.dataset.bound) return;
@@ -2215,9 +2235,16 @@ async function loadCatalogView() {
     const empty = document.createElement('div');
     empty.className = 'view-empty';
     empty.style.gridColumn = '1 / -1';
-    empty.textContent = catalogQuery
-      ? 'No servers match "' + catalogQuery + '". Clear the search to see all.'
-      : 'No servers in this profile. Switch profiles in the top bar.';
+    if (catalogQuery) {
+      empty.textContent = 'No servers match "' + catalogQuery + '".';
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'view-empty-link';
+      clearBtn.textContent = 'Clear search';
+      clearBtn.onclick = clearSearch;
+      empty.appendChild(clearBtn);
+    } else {
+      empty.textContent = 'No servers in this profile. Switch profiles in the top bar.';
+    }
     grid.appendChild(empty);
     return;
   }

@@ -9,7 +9,7 @@ import typer
 
 from kater.autofix import apply_fix_actions
 from kater.chains import list_chains
-from kater.doctor import parse_profiles, run_doctor
+from kater.doctor import DoctorReport, parse_profiles, run_doctor
 from kater.profiles import DEFAULT_PROFILE, all_tool_sources, get_source, list_profiles
 from kater.registry import tools_for_profile
 
@@ -61,7 +61,36 @@ def _prepare_public_bind_environment(host: str) -> None:
     if "*" in cors_origins:
         raise typer.BadParameter("public bind must not use wildcard KATER_CORS_ORIGINS")
 
+
 # ── doctor ─────────────────────────────────────────────────────────
+
+
+def _apply_doctor_fixes(
+    apply: bool, yes: bool, report: DoctorReport, profiles_set: set[str]
+) -> dict[str, Any] | None:
+    if apply and yes and report.fix_actions:
+        output_dir = Path.cwd()
+        return apply_fix_actions(
+            actions=report.fix_actions,
+            output_dir=output_dir,
+            profile=",".join(sorted(profiles_set)),
+        )
+    return None
+
+
+def _print_doctor_text_report(report: DoctorReport, apply_result: dict[str, Any] | None) -> None:
+    typer.echo(f"Profiles: {', '.join(report.profiles)}")
+    typer.echo(f"Sources: {len(report.sources)}")
+    typer.echo(f"Findings: {len(report.findings)}")
+    for finding in report.findings:
+        prefix = f"[{finding.severity}] {finding.code}"
+        suffix = f" ({finding.source})" if finding.source else ""
+        typer.echo(f"{prefix}{suffix}: {finding.message}")
+    if apply_result:
+        for item in apply_result.get("applied", []):
+            typer.echo(f"  Applied: {item['action']} -> {item['target']}")
+        for item in apply_result.get("errors", []):
+            typer.echo(f"  Error: {item['action']} -> {item['target']}: {item['error']}")
 
 
 @app.command("doctor")
@@ -98,32 +127,14 @@ def doctor_command(
         cursor_mcp_path=cursor_mcp,
         include_fix_plan=fix_plan or apply,
     )
-    apply_result = None
-    if apply and yes and report.fix_actions:
-        output_dir = Path.cwd()
-        apply_result = apply_fix_actions(
-            actions=report.fix_actions,
-            output_dir=output_dir,
-            profile=",".join(sorted(profiles_set)),
-        )
+    apply_result = _apply_doctor_fixes(apply, yes, report, profiles_set)
     if json_output:
         payload = report.model_dump(mode="json")
         if apply_result:
             payload["apply_result"] = apply_result
         _print_json(payload)
         return
-    typer.echo(f"Profiles: {', '.join(report.profiles)}")
-    typer.echo(f"Sources: {len(report.sources)}")
-    typer.echo(f"Findings: {len(report.findings)}")
-    for finding in report.findings:
-        prefix = f"[{finding.severity}] {finding.code}"
-        suffix = f" ({finding.source})" if finding.source else ""
-        typer.echo(f"{prefix}{suffix}: {finding.message}")
-    if apply_result:
-        for item in apply_result.get("applied", []):
-            typer.echo(f"  Applied: {item['action']} -> {item['target']}")
-        for item in apply_result.get("errors", []):
-            typer.echo(f"  Error: {item['action']} -> {item['target']}: {item['error']}")
+    _print_doctor_text_report(report, apply_result)
 
 
 # ── profiles ───────────────────────────────────────────────────────
@@ -203,6 +214,7 @@ def chain_run_command(
             break
     if chain is None:
         from kater.telemetry import record_chain_run
+
         record_chain_run(chain_name, steps=0, success=False, profile=profile)
         typer.echo(f"Error: chain '{chain_name}' not found for profile '{profile}'.", err=True)
         raise typer.Exit(code=1)
@@ -216,6 +228,7 @@ def chain_run_command(
         ],
     }
     from kater.telemetry import record_chain_run
+
     record_chain_run(chain.name, steps=len(chain.steps), profile=profile)
     if json_output:
         _print_json(result)
@@ -284,10 +297,7 @@ def adapters_command(
     if json_output:
         _print_json(payload)
         return
-    msg = (
-        f"Profile: {profile} — "
-        f"{payload['configured']}/{payload['total']} adapters configured"
-    )
+    msg = f"Profile: {profile} — {payload['configured']}/{payload['total']} adapters configured"
     typer.echo(msg)
     for a in payload["adapters"]:
         status = "+" if a["configured"] else "-"
@@ -330,7 +340,8 @@ def mcp_list_command(
         typer.Option("--profile", help="Filter by profile."),
     ] = None,
     configured_only: Annotated[
-        bool, typer.Option("--configured", help="Only show configured servers."),
+        bool,
+        typer.Option("--configured", help="Only show configured servers."),
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
@@ -442,9 +453,7 @@ def serve_command(
         serve(profile=profile, host=host, port=mcp_port)
         return
 
-    typer.echo(
-        f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port}"
-    )
+    typer.echo(f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port}")
     from kater.serve import serve_unified
     from kater.settings import resolve_listen_config
 
@@ -697,7 +706,7 @@ def status_command(
         ("Servers", f"{s['enabled']}/{s['total']} enabled ({s['configured']} configured)"),
         ("Events", f"{t['total_events']} total ({t['tool_calls']} calls, {t['errors']} errors)"),
         ("Success", f"{t['success_rate']}%"),
-        ("Rate limit", f"{data['rate_limit']}/min" if data['rate_limit'] else "unlimited"),
+        ("Rate limit", f"{data['rate_limit']}/min" if data["rate_limit"] else "unlimited"),
     ]
     typer.echo(kv_grid(items))
 
@@ -705,9 +714,7 @@ def status_command(
 @app.command("telemetry")
 def telemetry_command(
     limit: Annotated[int, typer.Option("--limit", help="Only show last N events.")] = 0,
-    event_type: Annotated[
-        str | None, typer.Option("--type", help="Filter by event type.")
-    ] = None,
+    event_type: Annotated[str | None, typer.Option("--type", help="Filter by event type.")] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """View raw telemetry events."""
@@ -846,12 +853,8 @@ def tunnel_start_command(
         str,
         typer.Option("--provider", "-p", help="cloudflare or tailscale"),
     ] = "cloudflare",
-    domain: Annotated[
-        str, typer.Option("--domain", help="Domain for Cloudflare tunnel.")
-    ] = "",
-    port: Annotated[
-        int, typer.Option("--port", help="Port for Tailscale Funnel.")
-    ] = 9090,
+    domain: Annotated[str, typer.Option("--domain", help="Domain for Cloudflare tunnel.")] = "",
+    port: Annotated[int, typer.Option("--port", help="Port for Tailscale Funnel.")] = 9090,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Start a tunnel to expose Kater publicly."""
@@ -906,9 +909,7 @@ def tunnel_config_command(
         str,
         typer.Option("--provider", "-p", help="cloudflare or tailscale"),
     ] = "cloudflare",
-    domain: Annotated[
-        str, typer.Option("--domain", help="Domain for Cloudflare.")
-    ] = "",
+    domain: Annotated[str, typer.Option("--domain", help="Domain for Cloudflare.")] = "",
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Generate tunnel configuration."""
@@ -939,12 +940,8 @@ def tunnel_config_command(
 
 @app.command("interactive")
 def interactive_command(
-    profile: Annotated[
-        str, typer.Option("--profile", help="Starting profile.")
-    ] = DEFAULT_PROFILE,
-    refresh: Annotated[
-        float, typer.Option("--refresh", help="Refresh interval in seconds.")
-    ] = 3.0,
+    profile: Annotated[str, typer.Option("--profile", help="Starting profile.")] = DEFAULT_PROFILE,
+    refresh: Annotated[float, typer.Option("--refresh", help="Refresh interval in seconds.")] = 3.0,
 ) -> None:
     """Live interactive dashboard in the terminal."""
     from kater.interactive import interactive_loop

@@ -2,7 +2,31 @@ from __future__ import annotations
 
 import json
 
-from kater.doctor import run_doctor
+from kater.doctor import parse_profiles, run_doctor
+from kater.profiles import DEFAULT_PROFILE
+
+
+def test_parse_profiles():
+    # Null or empty inputs
+    assert parse_profiles(None) == {DEFAULT_PROFILE}
+    assert parse_profiles("") == {DEFAULT_PROFILE}
+
+    # Whitespace/empty tokens
+    assert parse_profiles("   ") == {DEFAULT_PROFILE}
+    assert parse_profiles(",,") == {DEFAULT_PROFILE}
+    assert parse_profiles(" , ") == {DEFAULT_PROFILE}
+
+    # Single item
+    assert parse_profiles("core") == {"core"}
+    assert parse_profiles("  core  ") == {"core"}
+
+    # Multiple items
+    assert parse_profiles("core,research") == {"core", "research"}
+    assert parse_profiles(" core , research ") == {"core", "research"}
+
+    # Mixed with empty tokens
+    assert parse_profiles("core,,research,") == {"core", "research"}
+    assert parse_profiles("core,  , research") == {"core", "research"}
 
 
 def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:

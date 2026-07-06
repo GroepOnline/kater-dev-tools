@@ -451,9 +451,7 @@ def _build_paths() -> dict[str, Any]:
         )
     }
 
-    paths["/api/tunnel"] = {
-        "get": _response("Tunnel status overview", {"type": "object"})
-    }
+    paths["/api/tunnel"] = {"get": _response("Tunnel status overview", {"type": "object"})}
 
     paths["/api/tunnel/{provider}/start"] = {
         "post": {
@@ -543,7 +541,7 @@ def _provider_param() -> dict[str, Any]:
     }
 
 
-def _build_schemas() -> dict[str, Any]:
+def _build_core_schemas() -> dict[str, Any]:
     return {
         "Health": {
             "type": "object",
@@ -558,107 +556,6 @@ def _build_schemas() -> dict[str, Any]:
             "type": "object",
             "required": ["profiles"],
             "properties": {"profiles": {"type": "array", "items": {"type": "string"}}},
-        },
-        "Chains": {
-            "type": "object",
-            "required": ["chains"],
-            "properties": {"chains": {"type": "array", "items": {"type": "object"}}},
-        },
-        "ChainRunRequest": {
-            "type": "object",
-            "required": ["name"],
-            "properties": {
-                "name": {"type": "string"},
-                "profile": {"type": "string", "default": "core"},
-            },
-        },
-        "ChainRunResult": {
-            "type": "object",
-            "properties": {
-                "chain": {"type": "string"},
-                "description": {"type": "string"},
-                "profile": {"type": "string"},
-                "steps": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "step": {"type": "integer"},
-                            "tool": {"type": "string"},
-                            "reason": {"type": "string"},
-                        },
-                    },
-                },
-            },
-        },
-        "McpServer": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "description": {"type": "string"},
-                "transport": {"type": "string"},
-                "risk": {"type": "string"},
-                "profiles": {"type": "array", "items": {"type": "string"}},
-                "env_required": {"type": "array", "items": {"type": "string"}},
-                "env_configured": {"type": "boolean"},
-                "homepage": {"type": ["string", "null"]},
-                "mcp": {},
-                "enabled": {"type": "boolean"},
-            },
-        },
-        "McpServerList": {
-            "type": "object",
-            "required": ["total", "servers"],
-            "properties": {
-                "total": {"type": "integer"},
-                "servers": {
-                    "type": "array",
-                    "items": {"$ref": "#/components/schemas/McpServer"},
-                },
-            },
-        },
-        "ServerToggle": {
-            "type": "object",
-            "required": ["name", "enabled"],
-            "properties": {
-                "name": {"type": "string"},
-                "enabled": {"type": "boolean"},
-            },
-        },
-        "AuthConfig": {
-            "type": "object",
-            "properties": {
-                "mode": {"type": "string"},
-                "api_keys": {"type": "array", "items": {"type": "string"}},
-                "oauth_issuer": {"type": ["string", "null"]},
-                "oauth_audience": {"type": ["string", "null"]},
-                "oauth_jwks_url": {"type": ["string", "null"]},
-            },
-        },
-        "Settings": {
-            "type": "object",
-            "properties": {
-                "version": {"type": "integer"},
-                "default_profile": {"type": "string"},
-                "auth": {"$ref": "#/components/schemas/AuthConfig"},
-                "cors_origins": {"type": "array", "items": {"type": "string"}},
-                "rate_limit_per_min": {"type": "integer"},
-                "api_port": {"type": "integer"},
-                "mcp_port": {"type": "integer"},
-                "storage_backend": {"type": "string"},
-                "db_path": {"type": "string"},
-            },
-        },
-        "SettingsUpdate": {
-            "type": "object",
-            "additionalProperties": True,
-            "description": "Partial settings patch.",
-            "properties": {
-                "auth": {"$ref": "#/components/schemas/AuthConfig"},
-                "cors_origins": {"type": "array", "items": {"type": "string"}},
-                "rate_limit_per_min": {"type": "integer"},
-                "default_profile": {"type": "string"},
-            },
         },
         "DoctorReport": {
             "type": "object",
@@ -698,6 +595,127 @@ def _build_schemas() -> dict[str, Any]:
             "required": ["error"],
             "properties": {"error": {"type": "string"}},
         },
+    }
+
+
+def _build_chain_schemas() -> dict[str, Any]:
+    return {
+        "Chains": {
+            "type": "object",
+            "required": ["chains"],
+            "properties": {"chains": {"type": "array", "items": {"type": "object"}}},
+        },
+        "ChainRunRequest": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string"},
+                "profile": {"type": "string", "default": "core"},
+            },
+        },
+        "ChainRunResult": {
+            "type": "object",
+            "properties": {
+                "chain": {"type": "string"},
+                "description": {"type": "string"},
+                "profile": {"type": "string"},
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "step": {"type": "integer"},
+                            "tool": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+
+def _build_mcp_schemas() -> dict[str, Any]:
+    return {
+        "McpServer": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "transport": {"type": "string"},
+                "risk": {"type": "string"},
+                "profiles": {"type": "array", "items": {"type": "string"}},
+                "env_required": {"type": "array", "items": {"type": "string"}},
+                "env_configured": {"type": "boolean"},
+                "homepage": {"type": ["string", "null"]},
+                "mcp": {},
+                "enabled": {"type": "boolean"},
+            },
+        },
+        "McpServerList": {
+            "type": "object",
+            "required": ["total", "servers"],
+            "properties": {
+                "total": {"type": "integer"},
+                "servers": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/McpServer"},
+                },
+            },
+        },
+        "ServerToggle": {
+            "type": "object",
+            "required": ["name", "enabled"],
+            "properties": {
+                "name": {"type": "string"},
+                "enabled": {"type": "boolean"},
+            },
+        },
+    }
+
+
+def _build_settings_schemas() -> dict[str, Any]:
+    return {
+        "AuthConfig": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string"},
+                "api_keys": {"type": "array", "items": {"type": "string"}},
+                "oauth_issuer": {"type": ["string", "null"]},
+                "oauth_audience": {"type": ["string", "null"]},
+                "oauth_jwks_url": {"type": ["string", "null"]},
+            },
+        },
+        "Settings": {
+            "type": "object",
+            "properties": {
+                "version": {"type": "integer"},
+                "default_profile": {"type": "string"},
+                "auth": {"$ref": "#/components/schemas/AuthConfig"},
+                "cors_origins": {"type": "array", "items": {"type": "string"}},
+                "rate_limit_per_min": {"type": "integer"},
+                "api_port": {"type": "integer"},
+                "mcp_port": {"type": "integer"},
+                "storage_backend": {"type": "string"},
+                "db_path": {"type": "string"},
+            },
+        },
+        "SettingsUpdate": {
+            "type": "object",
+            "additionalProperties": True,
+            "description": "Partial settings patch.",
+            "properties": {
+                "auth": {"$ref": "#/components/schemas/AuthConfig"},
+                "cors_origins": {"type": "array", "items": {"type": "string"}},
+                "rate_limit_per_min": {"type": "integer"},
+                "default_profile": {"type": "string"},
+            },
+        },
+    }
+
+
+def _build_auth_schemas() -> dict[str, Any]:
+    return {
         "TokenResponse": {
             "type": "object",
             "required": ["access_token", "token_type", "expires_in"],
@@ -719,6 +737,16 @@ def _build_schemas() -> dict[str, Any]:
                 "token_endpoint_auth_method": {"type": "string"},
             },
         },
+    }
+
+
+def _build_schemas() -> dict[str, Any]:
+    return {
+        **_build_core_schemas(),
+        **_build_chain_schemas(),
+        **_build_mcp_schemas(),
+        **_build_settings_schemas(),
+        **_build_auth_schemas(),
     }
 
 

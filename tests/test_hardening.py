@@ -22,6 +22,7 @@ import pytest
 
 from kater.api import create_api_server
 from kater.oauth import (
+    ConsentContext,
     register_client,
     render_consent_page,
 )
@@ -88,11 +89,13 @@ def _get_err_post(
 def test_consent_page_escapes_state_attribute_injection():
     """state with quote/quote chars must not break out of the href attribute."""
     html = render_consent_page(
-        client_name="App",
-        redirect_uri="https://app.example.com/cb",
-        state='x" onfocus=alert(1) autofocus x="',
-        authorize_url="https://kater.example.com/authorize?x=1",
-        profile="core",
+        ConsentContext(
+            client_name="App",
+            redirect_uri="https://app.example.com/cb",
+            state='x" onfocus=alert(1) autofocus x="',
+            authorize_url="https://kater.example.com/authorize?x=1",
+            profile="core",
+        )
     )
     # The raw injection payload must not appear unescaped.
     assert 'onfocus=alert' not in html
@@ -103,10 +106,12 @@ def test_consent_page_escapes_state_attribute_injection():
 
 def test_consent_page_escapes_client_name():
     html = render_consent_page(
-        client_name="<script>alert(1)</script>",
-        redirect_uri="https://app.example.com/cb",
-        state=None,
-        authorize_url="https://kater.example.com/authorize?x=1",
+        ConsentContext(
+            client_name="<script>alert(1)</script>",
+            redirect_uri="https://app.example.com/cb",
+            state=None,
+            authorize_url="https://kater.example.com/authorize?x=1",
+        )
     )
     assert "<script>" not in html
     assert "&lt;script&gt;" in html

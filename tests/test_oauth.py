@@ -12,6 +12,7 @@ import pytest
 from kater.api import create_api_server
 from kater.oauth import (
     DASHBOARD_CLIENT_ID,
+    ConsentContext,
     cleanup_expired,
     create_auth_code,
     create_token,
@@ -172,11 +173,13 @@ def test_resource_metadata():
 
 def test_render_consent_page():
     html = render_consent_page(
-        client_name="ChatGPT",
-        redirect_uri="https://chat.openai.com/cb",
-        state="xyz",
-        authorize_url="https://kater.example.com/authorize?...",
-        profile="ops",
+        ConsentContext(
+            client_name="ChatGPT",
+            redirect_uri="https://chat.openai.com/cb",
+            state="xyz",
+            authorize_url="https://kater.example.com/authorize?...",
+            profile="ops",
+        )
     )
     assert "<!DOCTYPE html>" in html
     assert "ChatGPT" in html

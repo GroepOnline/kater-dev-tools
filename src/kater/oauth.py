@@ -53,6 +53,16 @@ class ClientRegistration:
 
 
 @dataclass
+class ConsentContext:
+    client_name: str
+    redirect_uri: str
+    authorize_url: str
+    state: str | None = None
+    profile: str = "core"
+    consent_nonce: str | None = None
+
+
+@dataclass
 class AuthCode:
     code: str
     client_id: str
@@ -404,33 +414,26 @@ def cleanup_expired() -> int:
     return len(expired) + len(old_codes)
 
 
-def render_consent_page(
-    client_name: str,
-    redirect_uri: str,
-    state: str | None,
-    authorize_url: str,
-    profile: str = "core",
-    consent_nonce: str | None = None,
-) -> str:
+def render_consent_page(context: ConsentContext) -> str:
     # Escape for HTML text content AND attribute values. The prior code only
     # stripped < and >, which let `state` break out of an href attribute and
     # run script (reflected XSS). html.escape(quote=True) covers &, <, >, ", '.
-    safe_name = html.escape(client_name or "", quote=True)
-    safe_uri = html.escape(redirect_uri or "", quote=True)
-    safe_profile = html.escape(profile or "", quote=True)
+    safe_name = html.escape(context.client_name or "", quote=True)
+    safe_uri = html.escape(context.redirect_uri or "", quote=True)
+    safe_profile = html.escape(context.profile or "", quote=True)
     # state is interpolated into an href query parameter; URL-encode it so it
     # cannot inject & / = / quotes, then HTML-escape the result for safety.
-    if state:
+    if context.state:
         from urllib.parse import quote_plus
 
-        state_param = f"&state={html.escape(quote_plus(state), quote=True)}"
+        state_param = f"&state={html.escape(quote_plus(context.state), quote=True)}"
     else:
         state_param = ""
-    if consent_nonce:
+    if context.consent_nonce:
         from urllib.parse import quote_plus
 
         nonce_param = (
-            f"&consent_nonce={html.escape(quote_plus(consent_nonce), quote=True)}"
+            f"&consent_nonce={html.escape(quote_plus(context.consent_nonce), quote=True)}"
         )
     else:
         nonce_param = ""
@@ -512,10 +515,10 @@ p {{ color:var(--dim); font-size:14px; margin-bottom:24px; }}
   exposed by this profile.</p>
   <div class="btn-row">
     <a class="btn btn-allow"
-      href="{authorize_url}&approve=1{state_param}{nonce_param}" role="button"
+      href="{context.authorize_url}&approve=1{state_param}{nonce_param}" role="button"
       aria-label="Allow {safe_name} to connect">Allow</a>
     <a class="btn btn-deny"
-      href="{authorize_url}&approve=0{state_param}{nonce_param}" role="button"
+      href="{context.authorize_url}&approve=0{state_param}{nonce_param}" role="button"
       aria-label="Deny access">Deny</a>
   </div>
   <div class="meta">Redirect: {safe_uri}</div>

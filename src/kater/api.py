@@ -430,6 +430,7 @@ def _oauth_resource(req: Request) -> Response:
 @route("GET", "/authorize", public=True)
 def _authorize(req: Request) -> Response:
     from kater.oauth import (
+        ConsentContext,
         create_auth_code,
         get_client,
         get_or_create_dashboard_client,
@@ -503,12 +504,14 @@ def _authorize(req: Request) -> Response:
     response = Response.html(
         200,
         render_consent_page(
-            client_name=client.client_name,
-            redirect_uri=redirect_uri,
-            state=state,
-            authorize_url=authorize_self,
-            profile=profile,
-            consent_nonce=consent_nonce,
+            ConsentContext(
+                client_name=client.client_name,
+                redirect_uri=redirect_uri,
+                state=state,
+                authorize_url=authorize_self,
+                profile=profile,
+                consent_nonce=consent_nonce,
+            )
         ),
     )
     response.headers["Set-Cookie"] = (

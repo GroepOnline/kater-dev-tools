@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from kater.storage import _jsonl_query, _row_to_dict
+from kater.storage import _jsonl_clear, _jsonl_query, _row_to_dict
 
 
 def test_jsonl_query_skips_corrupt_lines(tmp_path, monkeypatch) -> None:
@@ -45,3 +45,25 @@ def test_row_to_dict_tolerates_corrupt_metadata() -> None:
     result = _row_to_dict(row)
     assert result["metadata"] == {"_parse_error": True}
     assert result["success"] is False
+
+
+def test_jsonl_clear_empty(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "telemetry.jsonl"
+    monkeypatch.setattr("kater.storage._jsonl_path", lambda: path)
+
+    # File does not exist yet
+    assert not path.exists()
+    assert _jsonl_clear() == 0
+
+
+def test_jsonl_clear_with_events(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "telemetry.jsonl"
+    lines = "".join(
+        f'{{"type":"tool_call","name":"n{i}","timestamp":{i}}}\n' for i in range(5)
+    )
+    path.write_text(lines, encoding="utf-8")
+    monkeypatch.setattr("kater.storage._jsonl_path", lambda: path)
+
+    assert path.exists()
+    assert _jsonl_clear() == 5
+    assert not path.exists()

@@ -61,12 +61,8 @@ def _post(port: int, path: str, body, headers: dict | None = None) -> dict:
 
 
 def test_settings_does_not_leak_api_keys(api_server):
-    _post(9930, "/api/settings", {
-        "auth": {"mode": "apikey", "api_keys": ["secret-key-123"]}
-    })
-    data = _get(9930, "/api/settings", headers={
-        "Authorization": "Bearer secret-key-123"
-    })
+    _post(9930, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["secret-key-123"]}})
+    data = _get(9930, "/api/settings", headers={"Authorization": "Bearer secret-key-123"})
     auth = data["auth"]
     assert auth["mode"] == "apikey"
     if isinstance(auth.get("api_keys"), int):
@@ -76,12 +72,8 @@ def test_settings_does_not_leak_api_keys(api_server):
 
 
 def test_export_does_not_leak_api_keys(api_server):
-    _post(9930, "/api/settings", {
-        "auth": {"mode": "apikey", "api_keys": ["secret-key-456"]}
-    })
-    data = _get(9930, "/api/export", headers={
-        "Authorization": "Bearer secret-key-456"
-    })
+    _post(9930, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["secret-key-456"]}})
+    data = _get(9930, "/api/export", headers={"Authorization": "Bearer secret-key-456"})
     auth = data["auth"]
     assert "secret-key-456" not in json.dumps(auth)
 
@@ -107,28 +99,20 @@ def test_export_does_not_leak_server_credentials(api_server):
 
 
 def test_apikey_blocks_without_key(api_server):
-    _post(9930, "/api/settings", {
-        "auth": {"mode": "apikey", "api_keys": ["test-secret"]}
-    })
+    _post(9930, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
     err = _get_err(9930, "/api/profiles")
     assert err.code == 401
 
 
 def test_apikey_allows_with_valid_key(api_server):
-    _post(9930, "/api/settings", {
-        "auth": {"mode": "apikey", "api_keys": ["test-secret"]}
-    })
-    data = _get(9930, "/api/profiles", headers={
-        "Authorization": "Bearer test-secret"
-    })
+    _post(9930, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
+    data = _get(9930, "/api/profiles", headers={"Authorization": "Bearer test-secret"})
     assert "core" in data["profiles"]
 
 
 def test_oauth_blocks_invalid_token(api_server):
     _post(9930, "/api/settings", {"auth": {"mode": "oauth"}})
-    err = _get_err(9930, "/api/profiles", headers={
-        "Authorization": "Bearer tok_nonexistent"
-    })
+    err = _get_err(9930, "/api/profiles", headers={"Authorization": "Bearer tok_nonexistent"})
     assert err.code == 401
 
 
@@ -137,16 +121,12 @@ def test_oauth_allows_valid_token(api_server):
 
     token = create_token("test_client", "tools", "core")
     _post(9930, "/api/settings", {"auth": {"mode": "oauth"}})
-    data = _get(9930, "/api/profiles", headers={
-        "Authorization": f"Bearer {token['access_token']}"
-    })
+    data = _get(9930, "/api/profiles", headers={"Authorization": f"Bearer {token['access_token']}"})
     assert "core" in data["profiles"]
 
 
 def test_health_always_open(api_server):
-    _post(9930, "/api/settings", {
-        "auth": {"mode": "apikey", "api_keys": ["test-secret"]}
-    })
+    _post(9930, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
     data = _get(9930, "/health")
     assert data["status"] == "ok"
 
@@ -155,26 +135,29 @@ def test_health_always_open(api_server):
 
 
 def test_oauth_redirect_uri_validated(api_server):
-    reg = _post(9930, "/register",
-        json.dumps({
-            "client_name": "TestApp",
-            "redirect_uris": ["https://app.example.com/callback"]
-        }),
+    reg = _post(
+        9930,
+        "/register",
+        json.dumps(
+            {"client_name": "TestApp", "redirect_uris": ["https://app.example.com/callback"]}
+        ),
     )
-    err = _get_err(9930,
+    err = _get_err(
+        9930,
         f"/authorize?client_id={reg['client_id']}"
         f"&redirect_uri=https://evil.com/callback"
-        f"&code_challenge=test&code_challenge_method=S256"
+        f"&code_challenge=test&code_challenge_method=S256",
     )
     assert err.code in (400, 403, 401)
 
 
 def test_oauth_redirect_uri_allowed(api_server):
-    reg = _post(9930, "/register",
-        json.dumps({
-            "client_name": "TestApp",
-            "redirect_uris": ["https://app.example.com/callback"]
-        }),
+    reg = _post(
+        9930,
+        "/register",
+        json.dumps(
+            {"client_name": "TestApp", "redirect_uris": ["https://app.example.com/callback"]}
+        ),
     )
     resp = urllib.request.urlopen(
         f"http://127.0.0.1:9930/authorize?client_id={reg['client_id']}"
@@ -228,6 +211,9 @@ def test_body_size_limit(api_server):
     except urllib.error.HTTPError as e:
         assert e.code in (400, 413)
         return
+    except urllib.error.URLError as e:
+        assert "Broken pipe" in str(e.reason)
+        return
     pytest.fail("Expected body size error")
 
 
@@ -235,9 +221,7 @@ def test_body_size_limit(api_server):
 
 
 def test_cors_reflects_allowed_origin(api_server):
-    _post(9930, "/api/settings", {
-        "cors_origins": ["https://allowed.example.com"]
-    })
+    _post(9930, "/api/settings", {"cors_origins": ["https://allowed.example.com"]})
     req = urllib.request.Request(
         "http://127.0.0.1:9930/api/profiles",
         headers={"Origin": "https://allowed.example.com"},
@@ -247,9 +231,7 @@ def test_cors_reflects_allowed_origin(api_server):
 
 
 def test_cors_rejects_unallowed_origin(api_server):
-    _post(9930, "/api/settings", {
-        "cors_origins": ["https://allowed.example.com"]
-    })
+    _post(9930, "/api/settings", {"cors_origins": ["https://allowed.example.com"]})
     req = urllib.request.Request(
         "http://127.0.0.1:9930/api/profiles",
         headers={"Origin": "https://evil.example.com"},
@@ -375,9 +357,7 @@ def test_authgate_unknown_mode_fails_closed():
     from kater.settings import AuthConfig, KaterSettings
 
     settings = KaterSettings(auth=AuthConfig(mode="weird"))
-    decision = authenticate(
-        AuthContext(settings=settings, authorization_header="Bearer x")
-    )
+    decision = authenticate(AuthContext(settings=settings, authorization_header="Bearer x"))
     assert decision.allowed is False
 
 

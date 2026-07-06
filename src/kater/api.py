@@ -19,6 +19,7 @@ from kater.doctor import run_doctor
 from kater.profiles import get_source, list_profiles
 from kater.registry import tools_for_profile
 from kater.settings import (
+    KaterSettings,
     RateLimiter,
     ServerOverride,
     cors_allow_origin,
@@ -148,7 +149,7 @@ def _cookie_value(req: Request, name: str) -> str:
     for part in cookie.split(";"):
         part = part.strip()
         if part.startswith(prefix):
-            return part[len(prefix):]
+            return part[len(prefix) :]
     return ""
 
 
@@ -316,9 +317,7 @@ def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
         pass
 
 
-def _resolve_client_ip(
-    forwarded_for: str | None, client_address_ip: str
-) -> str:
+def _resolve_client_ip(forwarded_for: str | None, client_address_ip: str) -> str:
     return resolve_client_ip(forwarded_for, client_address_ip)
 
 
@@ -512,8 +511,7 @@ def _authorize(req: Request) -> Response:
         ),
     )
     response.headers["Set-Cookie"] = (
-        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; "
-        "HttpOnly; SameSite=Lax; Max-Age=600"
+        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; HttpOnly; SameSite=Lax; Max-Age=600"
     )
     return response
 
@@ -909,26 +907,11 @@ def _tunnel_stop(req: Request) -> Response:
     return Response.json(200, {"provider": provider, "stopped": ok, "running": False})
 
 
-@route("POST", "/api/settings")
-def _update_settings(req: Request) -> Response:
-    from kater.settings import check_admin
-
-    body = req.json
-    settings = load_settings()
-    # Sensitive settings mutations (auth mode, CORS, rate limit, api_keys)
-    # require the operator/admin credential when KATER_ADMIN_KEY is set, so a
-    # compromised tool-credential cannot weaken the gateway.
-    if not check_admin(req.header("authorization"), settings):
-        return Response.json(403, {"error": "admin credential required for settings changes"})
-
+def _apply_settings_patch(settings: KaterSettings, body: dict[str, Any]) -> Response | None:
     if "auth" in body:
         auth_patch = body["auth"]
         if not isinstance(auth_patch, dict):
             return Response.json(400, {"error": "auth must be an object"})
-        # Merge instead of rebuild: only fields the client actually sent are
-        # overwritten. A partial patch (e.g. just {"mode"}) can no longer wipe
-        # api_keys / OAuth config — fixing a silent data-loss bug where every
-        # Save from the dashboard reset the whole AuthConfig.
         current = settings.auth.model_dump()
         current.update({k: v for k, v in auth_patch.items() if k in current})
         settings.auth = type(settings.auth).model_validate(current)
@@ -947,6 +930,10 @@ def _update_settings(req: Request) -> Response:
         if backend not in ("sqlite", "jsonl"):
             return Response.json(400, {"error": "storage_backend must be sqlite or jsonl"})
         settings.storage_backend = backend
+    return None
+
+
+def _validate_public_mode(settings: KaterSettings) -> Response | None:
     unsafe = unsafe_public_settings_override_enabled()
     if is_public_settings(settings) and not unsafe:
         if settings.auth.mode == "none":
@@ -964,6 +951,27 @@ def _update_settings(req: Request) -> Response:
                 400,
                 {"error": "rate_limit_per_min=0 is blocked in public mode"},
             )
+    return None
+
+
+@route("POST", "/api/settings")
+def _update_settings(req: Request) -> Response:
+    from kater.settings import check_admin
+
+    body = req.json
+    settings = load_settings()
+    # Sensitive settings mutations (auth mode, CORS, rate limit, api_keys)
+    # require the operator/admin credential when KATER_ADMIN_KEY is set, so a
+    # compromised tool-credential cannot weaken the gateway.
+    if not check_admin(req.header("authorization"), settings):
+        return Response.json(403, {"error": "admin credential required for settings changes"})
+
+    if err := _apply_settings_patch(settings, body):
+        return err
+
+    if err := _validate_public_mode(settings):
+        return err
+
     save_settings(settings)
     return Response.json(200, settings.to_safe_dict())
 
@@ -1061,10 +1069,12 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         # Apply rate limiting to OPTIONS (CORS preflight) to prevent DoS.
-        if _get_rate_limiter().check(_resolve_client_ip(
-            self.headers.get("X-Forwarded-For", ""),
-            self.client_address[0] if self.client_address else "",
-        )):
+        if _get_rate_limiter().check(
+            _resolve_client_ip(
+                self.headers.get("X-Forwarded-For", ""),
+                self.client_address[0] if self.client_address else "",
+            )
+        ):
             self._write(Response.json(200, {"ok": True}))
         else:
             self._write(Response.json(429, {"error": "rate limit exceeded"}))

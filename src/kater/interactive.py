@@ -48,9 +48,7 @@ def interactive_loop(
                 last_refresh = now
                 refresh_needed = False
 
-            sys.stdout.write(
-                f"\n{DIM}> {RESET}"
-            )
+            sys.stdout.write(f"\n{DIM}> {RESET}")
             sys.stdout.flush()
 
             try:
@@ -90,6 +88,7 @@ def interactive_loop(
                 refresh_needed = True
             elif cmd == "clear":
                 from kater.telemetry import clear_events
+
                 count = clear_events()
                 _print_ok(f"cleared {count} events")
                 time.sleep(1)
@@ -105,10 +104,15 @@ def interactive_loop(
 
 
 def _render(profile: str) -> None:
+    _clear()
+    _render_overview()
+    _render_servers(profile)
+    _render_events()
+
+
+def _render_overview() -> None:
     from kater.ansi import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW
     from kater.telemetry import status_overview
-
-    _clear()
 
     data = status_overview()
     s = data["servers"]
@@ -120,9 +124,7 @@ def _render(profile: str) -> None:
         f"  {YELLOW}auth:{RESET} {data['auth_mode']}"
         f"  {DIM}storage:{RESET} {data['storage_backend']}"
     )
-    print(
-        f"{DIM}{'─' * 72}{RESET}"
-    )
+    print(f"{DIM}{'─' * 72}{RESET}")
     print(
         f"  Servers: {GREEN if s['enabled'] == s['total'] else YELLOW}"
         f"{s['enabled']}/{s['total']}{RESET} enabled"
@@ -142,8 +144,12 @@ def _render(profile: str) -> None:
     )
     print(f"{DIM}{'─' * 72}{RESET}")
 
+
+def _render_servers(profile: str) -> None:
+    from kater.ansi import BOLD, DIM, GREEN, RED, RESET, YELLOW
     from kater.profiles import all_tool_sources
     from kater.settings import load_settings
+
     settings = load_settings()
 
     print(f"  {BOLD}SERVER STATUS{RESET}")
@@ -171,14 +177,17 @@ def _render(profile: str) -> None:
 
         risk_color = RED if risk == "high" else YELLOW if risk == "medium" else GREEN
 
-        print(
-            f"  {status} {name} {DIM}{transport}{RESET} {risk_color}{risk}{RESET}"
-        )
+        print(f"  {status} {name} {DIM}{transport}{RESET} {risk_color}{risk}{RESET}")
 
     print(f"{DIM}{'─' * 72}{RESET}")
+
+
+def _render_events() -> None:
+    from kater.ansi import BOLD, DIM, GREEN, RED, RESET
+    from kater.telemetry import load_events
+
     print(f"  {BOLD}RECENT EVENTS{RESET}")
 
-    from kater.telemetry import load_events
     events = load_events()
     for e in events[-5:]:
         ok = e.get("success", True)
@@ -191,8 +200,10 @@ def _render(profile: str) -> None:
         print(f"  {DIM}(no events){RESET}")
 
     print(f"{DIM}{'─' * 72}{RESET}")
-    print(f"  {DIM}commands: toggle <name> | enable <name> | disable <name> | "
-          f"profile <name> | status | clear | help | quit{RESET}")
+    print(
+        f"  {DIM}commands: toggle <name> | enable <name> | disable <name> | "
+        f"profile <name> | status | clear | help | quit{RESET}"
+    )
 
 
 def _handle_toggle(action: str, server_name: str) -> None:
@@ -221,11 +232,13 @@ def _handle_toggle(action: str, server_name: str) -> None:
 
 def _print_ok(msg: str) -> None:
     from kater.ansi import GREEN, RESET
+
     print(f"  {GREEN}✓ {msg}{RESET}")
 
 
 def _print_err(msg: str) -> None:
     from kater.ansi import RED, RESET
+
     print(f"  {RED}✗ {msg}{RESET}")
 
 

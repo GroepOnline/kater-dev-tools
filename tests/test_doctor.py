@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from kater.doctor import run_doctor
+from kater.doctor import load_cursor_mcp, run_doctor
 
 
 def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
@@ -96,3 +96,42 @@ def test_doctor_flags_dynamic_registration_without_token(monkeypatch, tmp_path) 
         and f.severity == "error"
         for f in report.findings
     )
+
+
+def test_load_cursor_mcp_none_path() -> None:
+    assert load_cursor_mcp(None) == {}
+
+
+def test_load_cursor_mcp_non_existent_path(tmp_path) -> None:
+    path = tmp_path / "non_existent.json"
+    assert load_cursor_mcp(path) == {}
+
+
+def test_load_cursor_mcp_valid_dict(tmp_path) -> None:
+    path = tmp_path / "valid.json"
+    path.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
+    assert load_cursor_mcp(path) == {"mcpServers": {}}
+
+
+def test_load_cursor_mcp_invalid_json(tmp_path) -> None:
+    path = tmp_path / "invalid.json"
+    path.write_text("{invalid_json: true", encoding="utf-8")
+    assert load_cursor_mcp(path) == {}
+
+
+def test_load_cursor_mcp_not_dict(tmp_path) -> None:
+    path = tmp_path / "not_dict.json"
+    path.write_text(json.dumps(["a", "list"]), encoding="utf-8")
+    assert load_cursor_mcp(path) == {}
+
+
+def test_load_cursor_mcp_os_error(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "valid.json"
+    path.write_text(json.dumps({}), encoding="utf-8")
+
+    # Mock Path.read_text to raise OSError
+    def mock_read_text(*args, **kwargs):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(type(path), "read_text", mock_read_text)
+    assert load_cursor_mcp(path) == {}

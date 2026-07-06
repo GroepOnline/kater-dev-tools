@@ -128,17 +128,22 @@ def _sqlite_query(
 ) -> list[dict[str, Any]]:
     with _storage_lock:
         db = _get_db()
-        query = "SELECT * FROM events WHERE 1=1"
+        conditions: list[str] = []
         params: list[Any] = []
+
         if event_type:
-            query += " AND type = ?"
+            conditions.append("type = ?")
             params.append(event_type)
         if name:
-            query += " AND name = ?"
+            conditions.append("name = ?")
             params.append(name)
         if since:
-            query += " AND timestamp >= ?"
+            conditions.append("timestamp >= ?")
             params.append(since)
+
+        where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+        query = f"SELECT * FROM events{where_clause}"
+
         if limit > 0:
             query += " ORDER BY timestamp ASC LIMIT ?"
             params.append(limit)

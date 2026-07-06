@@ -1,6 +1,9 @@
 from __future__ import annotations
+import subprocess
+import pytest
 
 from kater.tunnel import (
+    stop_cloudflared,
     detect_cloudflared,
     detect_tailscale,
     generate_cloudflare_config,
@@ -51,3 +54,33 @@ def test_tunnel_overview_defaults(monkeypatch):
     monkeypatch.delenv("KATER_DOMAIN", raising=False)
     overview = tunnel_overview()
     assert overview["suggested_domain"] == "kater.example.com"
+
+
+def test_stop_cloudflared_with_managed_unit_success(monkeypatch):
+    monkeypatch.setattr("kater.tunnel._managed_unit", lambda: "test.service")
+    monkeypatch.setattr("kater.tunnel._systemctl", lambda *args: subprocess.CompletedProcess(args, 0, stdout=""))
+    assert stop_cloudflared() is True
+
+def test_stop_cloudflared_with_managed_unit_failure(monkeypatch):
+    monkeypatch.setattr("kater.tunnel._managed_unit", lambda: "test.service")
+    monkeypatch.setattr("kater.tunnel._systemctl", lambda *args: subprocess.CompletedProcess(args, 1, stdout=""))
+    assert stop_cloudflared() is False
+
+def test_stop_cloudflared_with_managed_unit_none(monkeypatch):
+    monkeypatch.setattr("kater.tunnel._managed_unit", lambda: "test.service")
+    monkeypatch.setattr("kater.tunnel._systemctl", lambda *args: None)
+    assert stop_cloudflared() is False
+
+def test_stop_cloudflared_no_managed_unit_success(monkeypatch):
+    monkeypatch.setattr("kater.tunnel._managed_unit", lambda: None)
+    def mock_run(args, **kwargs):
+        pass
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    assert stop_cloudflared() is True
+
+def test_stop_cloudflared_no_managed_unit_failure(monkeypatch):
+    monkeypatch.setattr("kater.tunnel._managed_unit", lambda: None)
+    def mock_run(args, **kwargs):
+        raise Exception("Command failed")
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    assert stop_cloudflared() is False

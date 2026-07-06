@@ -229,72 +229,76 @@ def _security_check() -> list[Finding]:
                 code="public_cors_wildcard",
                 severity="warning",
                 message="CORS allows any origin on a public deployment.",
-                suggested_action=(
-                    "Set KATER_CORS_ORIGINS to your dashboard origin only."
-                ),
+                suggested_action=("Set KATER_CORS_ORIGINS to your dashboard origin only."),
             )
         )
 
     if is_public and settings.auth.mode == "oauth":
-        allow_dynamic_registration = (
-            os.environ.get("KATER_ALLOW_DYNAMIC_REGISTRATION", "").strip().lower()
-            in {"1", "true", "yes", "on"}
-        )
-        registration_token_set = bool(os.environ.get("KATER_REGISTRATION_TOKEN"))
-        if allow_dynamic_registration and not registration_token_set:
-            findings.append(
-                Finding(
-                    code="public_oauth_registration_token_missing",
-                    severity="error",
-                    message=(
-                        "Dynamic OAuth registration is enabled but "
-                        "KATER_REGISTRATION_TOKEN is not set, so /register will stay "
-                        "disabled in public mode."
-                    ),
-                    suggested_action=(
-                        "Set KATER_REGISTRATION_TOKEN and pass it as "
-                        "X-Registration-Token, or remove KATER_ALLOW_DYNAMIC_REGISTRATION."
-                    ),
-                )
-            )
-        elif registration_token_set and not allow_dynamic_registration:
-            findings.append(
-                Finding(
-                    code="public_oauth_registration_disabled",
-                    severity="info",
-                    message=(
-                        "KATER_REGISTRATION_TOKEN is set, but dynamic OAuth "
-                        "registration is disabled in public mode."
-                    ),
-                    suggested_action=(
-                        "Set KATER_ALLOW_DYNAMIC_REGISTRATION=1 only if you need "
-                        "runtime client registration."
-                    ),
-                )
-            )
-        if not os.environ.get("KATER_ADMIN_KEY"):
-            findings.append(
-                Finding(
-                    code="public_no_admin_key",
-                    severity="info",
-                    message=(
-                        "KATER_ADMIN_KEY is not set; public settings mutations are "
-                        "disabled."
-                    ),
-                    suggested_action=(
-                        "Set KATER_ADMIN_KEY when the dashboard or API must change "
-                        "settings in public mode."
-                    ),
-                )
-            )
+        findings.extend(_check_public_oauth())
+
+    return findings
+
+
+def _check_public_oauth() -> list[Finding]:
+    findings: list[Finding] = []
+    allow_dynamic_registration = os.environ.get(
+        "KATER_ALLOW_DYNAMIC_REGISTRATION", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    registration_token_set = bool(os.environ.get("KATER_REGISTRATION_TOKEN"))
+
+    if allow_dynamic_registration and not registration_token_set:
         findings.append(
             Finding(
-                code="public_oauth_ready",
-                severity="info",
-                message="OAuth auth enabled — compatible with ChatGPT Remote MCP.",
-                suggested_action="Use https://<your-domain>/sse as the MCP server URL.",
+                code="public_oauth_registration_token_missing",
+                severity="error",
+                message=(
+                    "Dynamic OAuth registration is enabled but "
+                    "KATER_REGISTRATION_TOKEN is not set, so /register will stay "
+                    "disabled in public mode."
+                ),
+                suggested_action=(
+                    "Set KATER_REGISTRATION_TOKEN and pass it as "
+                    "X-Registration-Token, or remove KATER_ALLOW_DYNAMIC_REGISTRATION."
+                ),
             )
         )
+    elif registration_token_set and not allow_dynamic_registration:
+        findings.append(
+            Finding(
+                code="public_oauth_registration_disabled",
+                severity="info",
+                message=(
+                    "KATER_REGISTRATION_TOKEN is set, but dynamic OAuth "
+                    "registration is disabled in public mode."
+                ),
+                suggested_action=(
+                    "Set KATER_ALLOW_DYNAMIC_REGISTRATION=1 only if you need "
+                    "runtime client registration."
+                ),
+            )
+        )
+
+    if not os.environ.get("KATER_ADMIN_KEY"):
+        findings.append(
+            Finding(
+                code="public_no_admin_key",
+                severity="info",
+                message=("KATER_ADMIN_KEY is not set; public settings mutations are disabled."),
+                suggested_action=(
+                    "Set KATER_ADMIN_KEY when the dashboard or API must change "
+                    "settings in public mode."
+                ),
+            )
+        )
+
+    findings.append(
+        Finding(
+            code="public_oauth_ready",
+            severity="info",
+            message="OAuth auth enabled — compatible with ChatGPT Remote MCP.",
+            suggested_action="Use https://<your-domain>/sse as the MCP server URL.",
+        )
+    )
 
     return findings
 

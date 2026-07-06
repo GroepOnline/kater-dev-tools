@@ -4,7 +4,6 @@ import logging
 import os
 import shutil
 import subprocess
-import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -234,7 +233,10 @@ def start_cloudflared(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(1)
+        try:
+            proc.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            pass
         return TunnelInfo(
             provider="cloudflare",
             name=tunnel_name,
@@ -290,7 +292,10 @@ def start_tailscale_funnel(port: int = 9090) -> TunnelInfo:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(1)
+        try:
+            proc.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            pass
         hostname = ts_status.get("hostname", "machine")
         return TunnelInfo(
             provider="tailscale",

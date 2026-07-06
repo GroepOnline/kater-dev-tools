@@ -430,6 +430,7 @@ def _oauth_resource(req: Request) -> Response:
 @route("GET", "/authorize", public=True)
 def _authorize(req: Request) -> Response:
     from kater.oauth import (
+        AuthCodeRequest,
         create_auth_code,
         get_client,
         get_or_create_dashboard_client,
@@ -463,13 +464,15 @@ def _authorize(req: Request) -> Response:
             return Response.json(403, {"error": "consent_required"})
         try:
             code = create_auth_code(
-                client_id=client_id,
-                redirect_uri=redirect_uri,
-                code_challenge=challenge,
-                code_challenge_method=method,
-                scope=scope,
-                state=state,
-                profile=profile,
+                AuthCodeRequest(
+                    client_id=client_id,
+                    redirect_uri=redirect_uri,
+                    code_challenge=challenge,
+                    code_challenge_method=method,
+                    scope=scope,
+                    state=state,
+                    profile=profile,
+                )
             )
         except ValueError:
             return Response.json(

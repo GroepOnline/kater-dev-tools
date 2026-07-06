@@ -22,6 +22,7 @@ import pytest
 
 from kater.api import create_api_server
 from kater.oauth import (
+    AuthCodeRequest,
     register_client,
     render_consent_page,
 )
@@ -254,28 +255,34 @@ def test_confidential_client_requires_secret_for_token():
         hashlib.sha256(verifier.encode()).digest()
     ).decode().rstrip("=")
     code = create_auth_code(
-        client_id=client.client_id,
-        redirect_uri="https://app.example.com/cb",
-        code_challenge=challenge,
-        code_challenge_method="S256",
+        AuthCodeRequest(
+            client_id=client.client_id,
+            redirect_uri="https://app.example.com/cb",
+            code_challenge=challenge,
+            code_challenge_method="S256",
+        )
     )
     # Missing secret -> rejected.
     assert exchange_code(code, client.client_id, verifier, client_secret=None) is None
 
     code2 = create_auth_code(
-        client_id=client.client_id,
-        redirect_uri="https://app.example.com/cb",
-        code_challenge=challenge,
-        code_challenge_method="S256",
+        AuthCodeRequest(
+            client_id=client.client_id,
+            redirect_uri="https://app.example.com/cb",
+            code_challenge=challenge,
+            code_challenge_method="S256",
+        )
     )
     # Wrong secret -> rejected.
     assert exchange_code(code2, client.client_id, verifier, client_secret="wrong") is None
 
     code3 = create_auth_code(
-        client_id=client.client_id,
-        redirect_uri="https://app.example.com/cb",
-        code_challenge=challenge,
-        code_challenge_method="S256",
+        AuthCodeRequest(
+            client_id=client.client_id,
+            redirect_uri="https://app.example.com/cb",
+            code_challenge=challenge,
+            code_challenge_method="S256",
+        )
     )
     # Correct secret -> accepted.
     result = exchange_code(code3, client.client_id, verifier, client_secret=client.client_secret)
@@ -297,10 +304,12 @@ def test_public_client_works_without_secret():
         hashlib.sha256(verifier.encode()).digest()
     ).decode().rstrip("=")
     code = create_auth_code(
-        client_id=client.client_id,
-        redirect_uri="https://app.example.com/cb",
-        code_challenge=challenge,
-        code_challenge_method="S256",
+        AuthCodeRequest(
+            client_id=client.client_id,
+            redirect_uri="https://app.example.com/cb",
+            code_challenge=challenge,
+            code_challenge_method="S256",
+        )
     )
     result = exchange_code(code, client.client_id, verifier, client_secret=None)
     assert result is not None

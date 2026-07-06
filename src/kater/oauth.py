@@ -53,6 +53,16 @@ class ClientRegistration:
 
 
 @dataclass
+class AuthCodeRequest:
+    client_id: str
+    redirect_uri: str
+    code_challenge: str
+    code_challenge_method: str = "S256"
+    scope: str = ""
+    state: str | None = None
+    profile: str = "core"
+
+@dataclass
 class AuthCode:
     code: str
     client_id: str
@@ -252,29 +262,21 @@ def validate_redirect_uri(
     return redirect_uri in client.redirect_uris
 
 
-def create_auth_code(
-    client_id: str,
-    redirect_uri: str,
-    code_challenge: str,
-    code_challenge_method: str = "S256",
-    scope: str = "",
-    state: str | None = None,
-    profile: str = "core",
-) -> str:
-    if code_challenge_method != "S256":
+def create_auth_code(req: AuthCodeRequest) -> str:
+    if req.code_challenge_method != "S256":
         raise ValueError("Only S256 code challenge method is supported")
     with _lock:
         data = _load()
         code = f"code_{secrets.token_hex(16)}"
         data["codes"][code] = {
             "code": code,
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "code_challenge": code_challenge,
-            "code_challenge_method": code_challenge_method,
-            "scope": scope,
-            "state": state,
-            "profile": profile,
+            "client_id": req.client_id,
+            "redirect_uri": req.redirect_uri,
+            "code_challenge": req.code_challenge,
+            "code_challenge_method": req.code_challenge_method,
+            "scope": req.scope,
+            "state": req.state,
+            "profile": req.profile,
             "created_at": time.time(),
             "used": False,
         }

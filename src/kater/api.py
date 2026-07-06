@@ -427,13 +427,97 @@ def _oauth_resource(req: Request) -> Response:
     return Response.json(200, resource_metadata(req.base_url))
 
 
+def _handle_authorize_approve(
+    req: Request,
+    client_id: str,
+    redirect_uri: str,
+    challenge: str,
+    method: str,
+    scope: str,
+    state: str | None,
+    profile: str,
+) -> Response:
+    from kater.oauth import create_auth_code
+
+    if not _consume_consent_nonce(req):
+        return Response.json(403, {"error": "consent_required"})
+    try:
+        code = create_auth_code(
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=challenge,
+            code_challenge_method=method,
+            scope=scope,
+            state=state,
+            profile=profile,
+        )
+    except ValueError:
+        return Response.json(
+            400,
+            {"error": "invalid_request", "detail": "unsupported code_challenge_method"},
+        )
+    sep = "&" if "?" in redirect_uri else "?"
+    location = f"{redirect_uri}{sep}code={quote(code, safe='')}"
+    if state:
+        location += f"&state={quote(state, safe='')}"
+    return Response.redirect(location)
+
+
+def _handle_authorize_deny(req: Request, redirect_uri: str) -> Response:
+    _consume_consent_nonce(req)
+    sep = "&" if "?" in redirect_uri else "?"
+    return Response.redirect(f"{redirect_uri}{sep}error=access_denied")
+
+
+def _render_authorize_consent(
+    req: Request,
+    client_name: str,
+    client_id: str,
+    redirect_uri: str,
+    challenge: str,
+    method: str,
+    scope: str,
+    state: str | None,
+    profile: str,
+) -> Response:
+    from kater.oauth import render_consent_page
+
+    consent_params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "code_challenge": challenge,
+        "code_challenge_method": method,
+        "profile": profile,
+    }
+    if scope:
+        consent_params["scope"] = scope
+    authorize_self = f"{req.base_url}/authorize?{urlencode(consent_params)}"
+    consent_nonce = _new_consent_nonce()
+
+    response = Response.html(
+        200,
+        render_consent_page(
+            client_name=client_name,
+            redirect_uri=redirect_uri,
+            state=state,
+            authorize_url=authorize_self,
+            profile=profile,
+            consent_nonce=consent_nonce,
+        ),
+    )
+    response.headers["Set-Cookie"] = (
+        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; "
+        "HttpOnly; SameSite=Lax; Max-Age=600"
+    )
+    return response
+
+
 @route("GET", "/authorize", public=True)
 def _authorize(req: Request) -> Response:
     from kater.oauth import (
-        create_auth_code,
         get_client,
         get_or_create_dashboard_client,
-        render_consent_page,
         validate_redirect_uri,
     )
 
@@ -459,63 +543,16 @@ def _authorize(req: Request) -> Response:
         return Response.json(400, {"error": "invalid_redirect_uri"})
 
     if approve == "1":
-        if not _consume_consent_nonce(req):
-            return Response.json(403, {"error": "consent_required"})
-        try:
-            code = create_auth_code(
-                client_id=client_id,
-                redirect_uri=redirect_uri,
-                code_challenge=challenge,
-                code_challenge_method=method,
-                scope=scope,
-                state=state,
-                profile=profile,
-            )
-        except ValueError:
-            return Response.json(
-                400,
-                {"error": "invalid_request", "detail": "unsupported code_challenge_method"},
-            )
-        sep = "&" if "?" in redirect_uri else "?"
-        location = f"{redirect_uri}{sep}code={quote(code, safe='')}"
-        if state:
-            location += f"&state={quote(state, safe='')}"
-        return Response.redirect(location)
-
+        return _handle_authorize_approve(
+            req, client_id, redirect_uri, challenge, method, scope, state, profile
+        )
     if approve == "0":
-        _consume_consent_nonce(req)
-        sep = "&" if "?" in redirect_uri else "?"
-        return Response.redirect(f"{redirect_uri}{sep}error=access_denied")
+        return _handle_authorize_deny(req, redirect_uri)
 
-    consent_params = {
-        "response_type": "code",
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "code_challenge": challenge,
-        "code_challenge_method": method,
-        "profile": profile,
-    }
-    if scope:
-        consent_params["scope"] = scope
-    authorize_self = f"{req.base_url}/authorize?{urlencode(consent_params)}"
-    consent_nonce = _new_consent_nonce()
+    return _render_authorize_consent(
+        req, client.client_name, client_id, redirect_uri, challenge, method, scope, state, profile
+    )
 
-    response = Response.html(
-        200,
-        render_consent_page(
-            client_name=client.client_name,
-            redirect_uri=redirect_uri,
-            state=state,
-            authorize_url=authorize_self,
-            profile=profile,
-            consent_nonce=consent_nonce,
-        ),
-    )
-    response.headers["Set-Cookie"] = (
-        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; "
-        "HttpOnly; SameSite=Lax; Max-Age=600"
-    )
-    return response
 
 
 @route("POST", "/token", public=True)

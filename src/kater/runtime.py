@@ -54,16 +54,25 @@ class KaterRuntime:
         load_settings().apply_credentials_to_env()
 
         if self._use_proxy:
-            try:
-                from kater.proxy import get_proxy
+            self._start_proxy()
 
-                get_proxy().start(self._profile)
-            except Exception as exc:
-                _log.warning("proxy startup failed: %s", exc)
+        self._start_api()
+        self._start_ws()
+        self._start_mcp()
+        self._start_maintenance()
 
+        self._started = True
+
+    def _start_proxy(self) -> None:
+        try:
+            from kater.proxy import get_proxy
+
+            get_proxy().start(self._profile)
+        except Exception as exc:
+            _log.warning("proxy startup failed: %s", exc)
+
+    def _start_api(self) -> None:
         from kater.api import create_api_server
-        from kater.mcp_server import build_sse_app
-        from kater.websocket import create_ws_server
 
         self._api_server = create_api_server(self._listen.host, self._listen.api_port)
         self._api_thread = threading.Thread(
@@ -73,6 +82,9 @@ class KaterRuntime:
         )
         self._api_thread.start()
 
+    def _start_ws(self) -> None:
+        from kater.websocket import create_ws_server
+
         self._ws_server = create_ws_server(self._listen.host, self._listen.ws_port)
         self._ws_thread = threading.Thread(
             target=self._ws_server.serve_forever,
@@ -80,6 +92,9 @@ class KaterRuntime:
             name="kater-ws",
         )
         self._ws_thread.start()
+
+    def _start_mcp(self) -> None:
+        from kater.mcp_server import build_sse_app
 
         mcp_app = build_sse_app(profile=self._profile, use_proxy=self._use_proxy)
         config = uvicorn.Config(
@@ -96,14 +111,13 @@ class KaterRuntime:
         )
         self._mcp_thread.start()
 
+    def _start_maintenance(self) -> None:
         self._maintenance_thread = threading.Thread(
             target=self._maintenance_loop,
             daemon=True,
             name="kater-janitor",
         )
         self._maintenance_thread.start()
-
-        self._started = True
 
     def _maintenance_loop(self) -> None:
         """Periodically purge expired OAuth state and trim telemetry to cap."""

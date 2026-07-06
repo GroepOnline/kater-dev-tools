@@ -1,13 +1,13 @@
 from __future__ import annotations
+
 import subprocess
-import pytest
 
 from kater.tunnel import (
-    stop_cloudflared,
     detect_cloudflared,
     detect_tailscale,
     generate_cloudflare_config,
     generate_tailscale_funnel_cmd,
+    stop_cloudflared,
     tunnel_overview,
 )
 
@@ -58,12 +58,16 @@ def test_tunnel_overview_defaults(monkeypatch):
 
 def test_stop_cloudflared_with_managed_unit_success(monkeypatch):
     monkeypatch.setattr("kater.tunnel._managed_unit", lambda: "test.service")
-    monkeypatch.setattr("kater.tunnel._systemctl", lambda *args: subprocess.CompletedProcess(args, 0, stdout=""))
+    monkeypatch.setattr(
+        "kater.tunnel._systemctl", lambda *args: subprocess.CompletedProcess(args, 0, stdout="")
+    )
     assert stop_cloudflared() is True
 
 def test_stop_cloudflared_with_managed_unit_failure(monkeypatch):
     monkeypatch.setattr("kater.tunnel._managed_unit", lambda: "test.service")
-    monkeypatch.setattr("kater.tunnel._systemctl", lambda *args: subprocess.CompletedProcess(args, 1, stdout=""))
+    monkeypatch.setattr(
+        "kater.tunnel._systemctl", lambda *args: subprocess.CompletedProcess(args, 1, stdout="")
+    )
     assert stop_cloudflared() is False
 
 def test_stop_cloudflared_with_managed_unit_none(monkeypatch):

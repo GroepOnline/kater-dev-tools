@@ -31,7 +31,6 @@ def interactive_loop(
     refresh_interval: float = 3.0,
 ) -> None:
     from kater.ansi import DIM, RESET
-    from kater.profiles import list_profiles
 
     current_profile = profile
     running = True
@@ -66,42 +65,52 @@ def interactive_loop(
             if not line:
                 continue
 
-            parts = shlex.split(line)
-            cmd = parts[0].lower() if parts else ""
-
-            if cmd in ("q", "quit", "exit"):
-                running = False
-            elif cmd == "profile" and len(parts) > 1:
-                if parts[1] in list_profiles():
-                    current_profile = parts[1]
-                    os.environ["KATER_PROFILE"] = current_profile
-                    refresh_needed = True
-                else:
-                    _print_err(f"unknown profile: {parts[1]}")
-                    time.sleep(1)
-            elif cmd in ("toggle", "enable", "disable") and len(parts) > 1:
-                _handle_toggle(parts[0], parts[1])
-                refresh_needed = True
-            elif cmd == "status":
-                refresh_needed = True
-            elif cmd == "help":
-                _print_help()
-                time.sleep(2)
-                refresh_needed = True
-            elif cmd == "clear":
-                from kater.telemetry import clear_events
-                count = clear_events()
-                _print_ok(f"cleared {count} events")
-                time.sleep(1)
-                refresh_needed = True
-            else:
-                _print_err(f"unknown: {line} (type 'help')")
-                time.sleep(1)
+            running, refresh_needed, current_profile = _process_command(line, current_profile)
 
     finally:
         _show_cursor()
         _clear()
         print(f"{DIM}kater interactive stopped.{RESET}")
+
+
+def _process_command(line: str, current_profile: str) -> tuple[bool, bool, str]:
+    from kater.profiles import list_profiles
+
+    parts = shlex.split(line)
+    cmd = parts[0].lower() if parts else ""
+    running = True
+    refresh_needed = False
+
+    if cmd in ("q", "quit", "exit"):
+        running = False
+    elif cmd == "profile" and len(parts) > 1:
+        if parts[1] in list_profiles():
+            current_profile = parts[1]
+            os.environ["KATER_PROFILE"] = current_profile
+            refresh_needed = True
+        else:
+            _print_err(f"unknown profile: {parts[1]}")
+            time.sleep(1)
+    elif cmd in ("toggle", "enable", "disable") and len(parts) > 1:
+        _handle_toggle(parts[0], parts[1])
+        refresh_needed = True
+    elif cmd == "status":
+        refresh_needed = True
+    elif cmd == "help":
+        _print_help()
+        time.sleep(2)
+        refresh_needed = True
+    elif cmd == "clear":
+        from kater.telemetry import clear_events
+        count = clear_events()
+        _print_ok(f"cleared {count} events")
+        time.sleep(1)
+        refresh_needed = True
+    else:
+        _print_err(f"unknown: {line} (type 'help')")
+        time.sleep(1)
+
+    return running, refresh_needed, current_profile
 
 
 def _render(profile: str) -> None:

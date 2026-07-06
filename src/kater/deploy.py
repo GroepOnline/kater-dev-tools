@@ -25,8 +25,7 @@ def render_stdio_config(
     return {
         "format": "claude-desktop",
         "description": (
-            "Add this to "
-            "~/Library/Application Support/Claude/claude_desktop_config.json"
+            "Add this to ~/Library/Application Support/Claude/claude_desktop_config.json"
         ),
         "mcpServers": {
             "kater": {
@@ -190,6 +189,53 @@ WantedBy=multi-user.target"""
     }
 
 
+def _render_k8s_deployment(profile: str, image: str) -> dict[str, Any]:
+    return {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {"name": "kater"},
+        "spec": {
+            "replicas": 1,
+            "selector": {"matchLabels": {"app": "kater"}},
+            "template": {
+                "metadata": {"labels": {"app": "kater"}},
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "kater",
+                            "image": image,
+                            "ports": [
+                                {"containerPort": 9090, "name": "mcp"},
+                                {"containerPort": 9091, "name": "api"},
+                            ],
+                            "env": [{"name": "KATER_PROFILE", "value": profile}],
+                            "livenessProbe": {
+                                "httpGet": {"path": "/health", "port": 9091},
+                                "periodSeconds": 30,
+                            },
+                        }
+                    ]
+                },
+            },
+        },
+    }
+
+
+def _render_k8s_service() -> dict[str, Any]:
+    return {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {"name": "kater"},
+        "spec": {
+            "selector": {"app": "kater"},
+            "ports": [
+                {"port": 9090, "name": "mcp"},
+                {"port": 9091, "name": "api"},
+            ],
+        },
+    }
+
+
 def render_k8s_config(
     profile: str = "core",
     image: str = "kater-dev-tools:latest",
@@ -200,47 +246,8 @@ def render_k8s_config(
         "format": "kubernetes",
         "description": "Deploy to Kubernetes",
         "manifests": {
-            "deployment": {
-                "apiVersion": "apps/v1",
-                "kind": "Deployment",
-                "metadata": {"name": "kater"},
-                "spec": {
-                    "replicas": 1,
-                    "selector": {"matchLabels": {"app": "kater"}},
-                    "template": {
-                        "metadata": {"labels": {"app": "kater"}},
-                        "spec": {
-                            "containers": [
-                                {
-                                    "name": "kater",
-                                    "image": image,
-                                    "ports": [
-                                        {"containerPort": 9090, "name": "mcp"},
-                                        {"containerPort": 9091, "name": "api"},
-                                    ],
-                                    "env": [{"name": "KATER_PROFILE", "value": profile}],
-                                    "livenessProbe": {
-                                        "httpGet": {"path": "/health", "port": 9091},
-                                        "periodSeconds": 30,
-                                    },
-                                }
-                            ]
-                        },
-                    },
-                },
-            },
-            "service": {
-                "apiVersion": "v1",
-                "kind": "Service",
-                "metadata": {"name": "kater"},
-                "spec": {
-                    "selector": {"app": "kater"},
-                    "ports": [
-                        {"port": 9090, "name": "mcp"},
-                        {"port": 9091, "name": "api"},
-                    ],
-                },
-            },
+            "deployment": _render_k8s_deployment(profile, image),
+            "service": _render_k8s_service(),
         },
     }
 
@@ -256,10 +263,7 @@ DEPLOY_FORMATS: dict[str, tuple[str, Callable[..., dict[str, Any]]]] = {
 
 
 def list_deploy_formats() -> list[dict[str, str]]:
-    return [
-        {"name": name, "description": desc}
-        for name, (desc, _) in DEPLOY_FORMATS.items()
-    ]
+    return [{"name": name, "description": desc} for name, (desc, _) in DEPLOY_FORMATS.items()]
 
 
 def render_deploy(

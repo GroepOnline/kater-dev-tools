@@ -181,39 +181,26 @@ def generate_tailscale_funnel_cmd(
     return ["tailscale", "funnel", f"--set-path=/{scope}", str(port)]
 
 
-def start_cloudflared(
-    tunnel_name: str = "kater",
-    config_path: str | None = None,
-    domain: str | None = None,
+def _start_managed_cloudflared(unit: str, resolved_domain: str) -> TunnelInfo:
+    result = _systemctl("start", unit)
+    ok = bool(result and result.returncode == 0)
+    # `systemctl start` returns once activation is requested; the unit may
+    # report active a moment later. Trust the command result so a freshly
+    # started unit isn't reported as down.
+    running = ok or _unit_active(unit)
+    return TunnelInfo(
+        provider="cloudflare",
+        name=unit,
+        url=f"https://{resolved_domain}" if running else None,
+        running=running,
+        error=None if ok else "Failed to start tunnel unit.",
+        config={"managed_unit": unit, "domain": resolved_domain},
+    )
+
+
+def _start_unmanaged_cloudflared(
+    tunnel_name: str, config_path: str | None, resolved_domain: str
 ) -> TunnelInfo:
-    if not detect_cloudflared():
-        return TunnelInfo(
-            provider="cloudflare",
-            name=tunnel_name,
-            error="cloudflared not installed. Install: brew install cloudflared",
-        )
-
-    resolved_domain = domain or os.environ.get("KATER_DOMAIN", "kater.example.com")
-
-    # Prefer the managed systemd unit so start/stop stay consistent and the
-    # tunnel isn't fought over by a stray Popen process.
-    unit = _managed_unit()
-    if unit:
-        result = _systemctl("start", unit)
-        ok = bool(result and result.returncode == 0)
-        # `systemctl start` returns once activation is requested; the unit may
-        # report active a moment later. Trust the command result so a freshly
-        # started unit isn't reported as down.
-        running = ok or _unit_active(unit)
-        return TunnelInfo(
-            provider="cloudflare",
-            name=unit,
-            url=f"https://{resolved_domain}" if running else None,
-            running=running,
-            error=None if ok else "Failed to start tunnel unit.",
-            config={"managed_unit": unit, "domain": resolved_domain},
-        )
-
     if config_path is None:
         config_path = os.path.expanduser(f"~/.cloudflared/{tunnel_name}.yml")
 
@@ -234,7 +221,10 @@ def start_cloudflared(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(1)
+        try:
+            proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
         return TunnelInfo(
             provider="cloudflare",
             name=tunnel_name,
@@ -249,6 +239,29 @@ def start_cloudflared(
             name=tunnel_name,
             error=str(exc),
         )
+
+
+def start_cloudflared(
+    tunnel_name: str = "kater",
+    config_path: str | None = None,
+    domain: str | None = None,
+) -> TunnelInfo:
+    if not detect_cloudflared():
+        return TunnelInfo(
+            provider="cloudflare",
+            name=tunnel_name,
+            error="cloudflared not installed. Install: brew install cloudflared",
+        )
+
+    resolved_domain = domain or os.environ.get("KATER_DOMAIN", "kater.example.com")
+
+    # Prefer the managed systemd unit so start/stop stay consistent and the
+    # tunnel isn't fought over by a stray Popen process.
+    unit = _managed_unit()
+    if unit:
+        return _start_managed_cloudflared(unit, resolved_domain)
+
+    return _start_unmanaged_cloudflared(tunnel_name, config_path, resolved_domain)
 
 
 def stop_cloudflared() -> bool:

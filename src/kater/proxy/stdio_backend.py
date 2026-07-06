@@ -11,18 +11,20 @@ from kater.proxy.base import BaseBackend
 
 
 class StdioBackend(BaseBackend):
-    _SAFE_ENV_PASSTHROUGH = frozenset({
-        "PATH",
-        "HOME",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "TMPDIR",
-        "TERM",
-        "SystemRoot",
-        "PATHEXT",
-        "USERPROFILE",
-    })
+    _SAFE_ENV_PASSTHROUGH = frozenset(
+        {
+            "PATH",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "LC_CTYPE",
+            "TMPDIR",
+            "TERM",
+            "SystemRoot",
+            "PATHEXT",
+            "USERPROFILE",
+        }
+    )
 
     def __init__(
         self,
@@ -44,11 +46,7 @@ class StdioBackend(BaseBackend):
 
     @classmethod
     def _build_safe_env(cls, env: dict[str, str] | None) -> dict[str, str]:
-        safe = {
-            key: os.environ[key]
-            for key in cls._SAFE_ENV_PASSTHROUGH
-            if key in os.environ
-        }
+        safe = {key: os.environ[key] for key in cls._SAFE_ENV_PASSTHROUGH if key in os.environ}
         safe.update(env or {})
         return safe
 
@@ -89,9 +87,7 @@ class StdioBackend(BaseBackend):
             except (OSError, ValueError):
                 pass
 
-        self._stderr_thread = threading.Thread(
-            target=_drain, daemon=True
-        )
+        self._stderr_thread = threading.Thread(target=_drain, daemon=True)
         self._stderr_thread.start()
 
     def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -105,19 +101,29 @@ class StdioBackend(BaseBackend):
         # and expect no response — fire and forget, otherwise we'd block until
         # timeout waiting for a reply that never comes.
         if method.startswith("notifications/"):
-            msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
-            if params:
-                msg["params"] = params
-            with self._lock:
-                try:
-                    stdin.write((json.dumps(msg) + "\n").encode())
-                    stdin.flush()
-                except OSError as exc:
-                    self._status.error = str(exc)
-                    self._status.healthy = False
-                    return {"error": str(exc)}
-            return {"result": {}}
+            return self._send_notification(method, params, stdin)
 
+        return self._send_request(method, params, stdin, stdout)
+
+    def _send_notification(
+        self, method: str, params: dict[str, Any] | None, stdin: Any
+    ) -> dict[str, Any]:
+        msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        if params:
+            msg["params"] = params
+        with self._lock:
+            try:
+                stdin.write((json.dumps(msg) + "\n").encode())
+                stdin.flush()
+            except OSError as exc:
+                self._status.error = str(exc)
+                self._status.healthy = False
+                return {"error": str(exc)}
+        return {"result": {}}
+
+    def _send_request(
+        self, method: str, params: dict[str, Any] | None, stdin: Any, stdout: Any
+    ) -> dict[str, Any]:
         msg = {
             "jsonrpc": "2.0",
             "id": self._next_id,

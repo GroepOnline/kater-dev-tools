@@ -61,6 +61,7 @@ def _prepare_public_bind_environment(host: str) -> None:
     if "*" in cors_origins:
         raise typer.BadParameter("public bind must not use wildcard KATER_CORS_ORIGINS")
 
+
 # ── doctor ─────────────────────────────────────────────────────────
 
 
@@ -203,6 +204,7 @@ def chain_run_command(
             break
     if chain is None:
         from kater.telemetry import record_chain_run
+
         record_chain_run(chain_name, steps=0, success=False, profile=profile)
         typer.echo(f"Error: chain '{chain_name}' not found for profile '{profile}'.", err=True)
         raise typer.Exit(code=1)
@@ -216,6 +218,7 @@ def chain_run_command(
         ],
     }
     from kater.telemetry import record_chain_run
+
     record_chain_run(chain.name, steps=len(chain.steps), profile=profile)
     if json_output:
         _print_json(result)
@@ -284,10 +287,7 @@ def adapters_command(
     if json_output:
         _print_json(payload)
         return
-    msg = (
-        f"Profile: {profile} — "
-        f"{payload['configured']}/{payload['total']} adapters configured"
-    )
+    msg = f"Profile: {profile} — {payload['configured']}/{payload['total']} adapters configured"
     typer.echo(msg)
     for a in payload["adapters"]:
         status = "+" if a["configured"] else "-"
@@ -330,7 +330,8 @@ def mcp_list_command(
         typer.Option("--profile", help="Filter by profile."),
     ] = None,
     configured_only: Annotated[
-        bool, typer.Option("--configured", help="Only show configured servers."),
+        bool,
+        typer.Option("--configured", help="Only show configured servers."),
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
@@ -442,9 +443,7 @@ def serve_command(
         serve(profile=profile, host=host, port=mcp_port)
         return
 
-    typer.echo(
-        f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port}"
-    )
+    typer.echo(f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port}")
     from kater.serve import serve_unified
     from kater.settings import resolve_listen_config
 
@@ -697,7 +696,7 @@ def status_command(
         ("Servers", f"{s['enabled']}/{s['total']} enabled ({s['configured']} configured)"),
         ("Events", f"{t['total_events']} total ({t['tool_calls']} calls, {t['errors']} errors)"),
         ("Success", f"{t['success_rate']}%"),
-        ("Rate limit", f"{data['rate_limit']}/min" if data['rate_limit'] else "unlimited"),
+        ("Rate limit", f"{data['rate_limit']}/min" if data["rate_limit"] else "unlimited"),
     ]
     typer.echo(kv_grid(items))
 
@@ -705,9 +704,7 @@ def status_command(
 @app.command("telemetry")
 def telemetry_command(
     limit: Annotated[int, typer.Option("--limit", help="Only show last N events.")] = 0,
-    event_type: Annotated[
-        str | None, typer.Option("--type", help="Filter by event type.")
-    ] = None,
+    event_type: Annotated[str | None, typer.Option("--type", help="Filter by event type.")] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """View raw telemetry events."""
@@ -739,21 +736,9 @@ def telemetry_command(
     typer.echo(table.render())
 
 
-@app.command("evals")
-def evals_command(
-    json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
-) -> None:
-    """Aggregated eval metrics from telemetry."""
-    from kater.ansi import Table, dim, error, success
-    from kater.telemetry import eval_summary
+def _print_eval_summary(data: dict[str, Any]) -> None:
+    from kater.ansi import error, success
 
-    data = eval_summary()
-    if json_output:
-        _print_json(data)
-        return
-    if data["total_events"] == 0:
-        typer.echo(dim("No telemetry data yet."))
-        return
     summary = data["summary"]
     typer.echo(f"Evals — {data['total_events']} events")
     rate = summary["overall_success_rate"]
@@ -768,30 +753,61 @@ def evals_command(
     typer.echo(f"  Chain runs: {summary['total_chain_runs']}")
     typer.echo(f"  Errors: {summary['total_errors']}")
 
-    if data["tool_calls"]["per_tool"]:
-        table = Table(["Tool", "Calls", "Success", "Failed", "Rate", "Avg ms"], "Tool Performance")
-        for name, stats in sorted(
-            data["tool_calls"]["per_tool"].items(),
-            key=lambda x: x[1]["total"],
-            reverse=True,
-        ):
-            rate_str = f"{stats['success_rate']}%"
-            rate_str = success(rate_str) if stats["success_rate"] >= 90 else error(rate_str)
-            table.add_row(
-                name,
-                str(stats["total"]),
-                str(stats["success"]),
-                str(stats["failed"]),
-                rate_str,
-                f"{stats['avg_duration_ms']:.1f}",
-            )
-        typer.echo(table.render())
 
-    if data["chain_runs"]["per_chain"]:
-        table = Table(["Chain", "Runs", "Success", "Failed"], "Chain Performance")
-        for name, stats in data["chain_runs"]["per_chain"].items():
-            table.add_row(name, str(stats["total"]), str(stats["success"]), str(stats["failed"]))
-        typer.echo(table.render())
+def _print_eval_tool_performance(per_tool: dict[str, Any]) -> None:
+    if not per_tool:
+        return
+    from kater.ansi import Table, error, success
+
+    table = Table(["Tool", "Calls", "Success", "Failed", "Rate", "Avg ms"], "Tool Performance")
+    for name, stats in sorted(
+        per_tool.items(),
+        key=lambda x: x[1]["total"],
+        reverse=True,
+    ):
+        rate_str = f"{stats['success_rate']}%"
+        rate_str = success(rate_str) if stats["success_rate"] >= 90 else error(rate_str)
+        table.add_row(
+            name,
+            str(stats["total"]),
+            str(stats["success"]),
+            str(stats["failed"]),
+            rate_str,
+            f"{stats['avg_duration_ms']:.1f}",
+        )
+    typer.echo(table.render())
+
+
+def _print_eval_chain_performance(per_chain: dict[str, Any]) -> None:
+    if not per_chain:
+        return
+    from kater.ansi import Table
+
+    table = Table(["Chain", "Runs", "Success", "Failed"], "Chain Performance")
+    for name, stats in per_chain.items():
+        table.add_row(name, str(stats["total"]), str(stats["success"]), str(stats["failed"]))
+    typer.echo(table.render())
+
+
+@app.command("evals")
+def evals_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
+) -> None:
+    """Aggregated eval metrics from telemetry."""
+    from kater.ansi import dim
+    from kater.telemetry import eval_summary
+
+    data = eval_summary()
+    if json_output:
+        _print_json(data)
+        return
+    if data["total_events"] == 0:
+        typer.echo(dim("No telemetry data yet."))
+        return
+
+    _print_eval_summary(data)
+    _print_eval_tool_performance(data["tool_calls"]["per_tool"])
+    _print_eval_chain_performance(data["chain_runs"]["per_chain"])
 
 
 @app.command("telemetry-clear")
@@ -846,12 +862,8 @@ def tunnel_start_command(
         str,
         typer.Option("--provider", "-p", help="cloudflare or tailscale"),
     ] = "cloudflare",
-    domain: Annotated[
-        str, typer.Option("--domain", help="Domain for Cloudflare tunnel.")
-    ] = "",
-    port: Annotated[
-        int, typer.Option("--port", help="Port for Tailscale Funnel.")
-    ] = 9090,
+    domain: Annotated[str, typer.Option("--domain", help="Domain for Cloudflare tunnel.")] = "",
+    port: Annotated[int, typer.Option("--port", help="Port for Tailscale Funnel.")] = 9090,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Start a tunnel to expose Kater publicly."""
@@ -906,9 +918,7 @@ def tunnel_config_command(
         str,
         typer.Option("--provider", "-p", help="cloudflare or tailscale"),
     ] = "cloudflare",
-    domain: Annotated[
-        str, typer.Option("--domain", help="Domain for Cloudflare.")
-    ] = "",
+    domain: Annotated[str, typer.Option("--domain", help="Domain for Cloudflare.")] = "",
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Generate tunnel configuration."""
@@ -939,12 +949,8 @@ def tunnel_config_command(
 
 @app.command("interactive")
 def interactive_command(
-    profile: Annotated[
-        str, typer.Option("--profile", help="Starting profile.")
-    ] = DEFAULT_PROFILE,
-    refresh: Annotated[
-        float, typer.Option("--refresh", help="Refresh interval in seconds.")
-    ] = 3.0,
+    profile: Annotated[str, typer.Option("--profile", help="Starting profile.")] = DEFAULT_PROFILE,
+    refresh: Annotated[float, typer.Option("--refresh", help="Refresh interval in seconds.")] = 3.0,
 ) -> None:
     """Live interactive dashboard in the terminal."""
     from kater.interactive import interactive_loop

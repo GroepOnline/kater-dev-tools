@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from importlib import import_module
@@ -68,34 +69,28 @@ def _build_proxy_handler(
     properties = input_schema.get("properties") or {}
     required = set(input_schema.get("required") or [])
 
-    if not properties:
-        def handler() -> Any:
-            return proxy.call_tool(tool_name, {})
+    def handler(**kwargs: Any) -> Any:
+        args = {k: v for k, v in kwargs.items() if v is not None}
+        return proxy.call_tool(tool_name, args)
 
-        handler.__doc__ = tool_name
-        return handler
-
-    params: list[str] = []
-    body: list[str] = ["    args: dict[str, Any] = {}"]
-    required_params: list[str] = []
-    optional_params: list[str] = []
+    params: list[inspect.Parameter] = []
     for prop_name in properties:
-        if prop_name in required:
-            required_params.append(prop_name)
-            body.append(f"    if {prop_name} is not None:")
-            body.append(f"        args[{prop_name!r}] = {prop_name}")
-        else:
-            optional_params.append(f"{prop_name}=None")
-            body.append(f"    if {prop_name} is not None:")
-            body.append(f"        args[{prop_name!r}] = {prop_name}")
+        is_required = prop_name in required
+        default = inspect.Parameter.empty if is_required else None
 
-    params = required_params + optional_params
+        params.append(
+            inspect.Parameter(
+                prop_name,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default=default,
+                annotation=Any,
+            )
+        )
 
-    body.append(f"    return proxy.call_tool({tool_name!r}, args)")
-    source = f"def handler({', '.join(params)}):\n" + "\n".join(body)
-    namespace: dict[str, Any] = {"Any": Any, "proxy": proxy}
-    exec(source, namespace)  # noqa: S102 — schema-driven signature; props are catalog-controlled
-    handler = namespace["handler"]
+    # Non-default parameters must come before those with defaults
+    params.sort(key=lambda p: p.default is not inspect.Parameter.empty)
+    handler.__signature__ = inspect.Signature(parameters=params)  # type: ignore
+    handler.__name__ = tool_name
     handler.__doc__ = tool_name
     return handler
 

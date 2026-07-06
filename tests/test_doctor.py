@@ -96,3 +96,57 @@ def test_doctor_flags_dynamic_registration_without_token(monkeypatch, tmp_path) 
         and f.severity == "error"
         for f in report.findings
     )
+
+import pathlib
+from pathlib import Path
+from kater.doctor import resolve_cursor_mcp
+
+def test_resolve_cursor_mcp_provided_path_exists(tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text("{}")
+    assert resolve_cursor_mcp(mcp_path) == mcp_path
+
+
+def test_resolve_cursor_mcp_provided_path_missing(tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    assert resolve_cursor_mcp(mcp_path) is None
+
+
+def test_resolve_cursor_mcp_cwd_candidate(monkeypatch, tmp_path) -> None:
+    mock_cwd = tmp_path / "cwd"
+    mock_cwd.mkdir()
+    monkeypatch.chdir(mock_cwd)
+
+    cwd_mcp = mock_cwd / ".cursor" / "mcp.json"
+    cwd_mcp.parent.mkdir()
+    cwd_mcp.write_text("{}")
+
+    assert resolve_cursor_mcp(None) == cwd_mcp
+
+
+def test_resolve_cursor_mcp_home_candidate(monkeypatch, tmp_path) -> None:
+    mock_cwd = tmp_path / "cwd"
+    mock_cwd.mkdir()
+    monkeypatch.chdir(mock_cwd)
+
+    mock_home = tmp_path / "home"
+    mock_home.mkdir()
+    monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: mock_home))
+
+    home_mcp = mock_home / ".cursor" / "mcp.json"
+    home_mcp.parent.mkdir()
+    home_mcp.write_text("{}")
+
+    assert resolve_cursor_mcp(None) == home_mcp
+
+
+def test_resolve_cursor_mcp_none_found(monkeypatch, tmp_path) -> None:
+    mock_cwd = tmp_path / "cwd"
+    mock_cwd.mkdir()
+    monkeypatch.chdir(mock_cwd)
+
+    mock_home = tmp_path / "home"
+    mock_home.mkdir()
+    monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: mock_home))
+
+    assert resolve_cursor_mcp(None) is None

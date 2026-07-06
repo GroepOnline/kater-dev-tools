@@ -246,15 +246,10 @@ def resolve_client_ip(forwarded_for: str | None, client_address_ip: str) -> str:
     return client_address_ip
 
 
-def _settings_from_env() -> KaterSettings:
-    host = os.environ.get("KATER_HOST", "127.0.0.1")
-    is_public = _is_public_deploy(host)
-
+def _get_auth_from_env(is_public: bool) -> AuthConfig:
     auth_mode = os.environ.get("KATER_AUTH_MODE", "")
     if not auth_mode:
         auth_mode = "oauth" if is_public else "none"
-
-    auth = AuthConfig(mode=auth_mode)
 
     if auth_mode == "apikey":
         keys_raw = os.environ.get("KATER_API_KEYS", "")
@@ -265,40 +260,51 @@ def _settings_from_env() -> KaterSettings:
                 api_keys = [single]
         if is_public and not api_keys:
             api_keys = [_generate_default_key()]
-        auth = AuthConfig(mode="apikey", api_keys=api_keys)
+        return AuthConfig(mode="apikey", api_keys=api_keys)
     elif auth_mode == "oauth":
-        auth = AuthConfig(
+        return AuthConfig(
             mode="oauth",
             oauth_issuer=os.environ.get("KATER_OAUTH_ISSUER"),
             oauth_audience=os.environ.get("KATER_OAUTH_AUDIENCE"),
             oauth_jwks_url=os.environ.get("KATER_OAUTH_JWKS_URL"),
         )
 
+    return AuthConfig(mode=auth_mode)
+
+
+def _get_cors_from_env(is_public: bool) -> list[str]:
     cors_raw = os.environ.get("KATER_CORS_ORIGINS", "")
     if cors_raw:
-        cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
-    else:
-        cors_origins = ["http://localhost:9091"] if is_public else ["*"]
+        return [o.strip() for o in cors_raw.split(",") if o.strip()]
+    return ["http://localhost:9091"] if is_public else ["*"]
 
-    def _safe_int(env_var: str, default: int) -> int:
-        raw = os.environ.get(env_var, "").strip()
-        if not raw:
-            return default
-        try:
-            return int(raw)
-        except ValueError:
-            return default
 
-    rate_limit = _safe_int("KATER_RATE_LIMIT", 60 if is_public else 0)
+def _safe_env_int(env_var: str, default: int) -> int:
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _settings_from_env() -> KaterSettings:
+    host = os.environ.get("KATER_HOST", "127.0.0.1")
+    is_public = _is_public_deploy(host)
+
+    auth = _get_auth_from_env(is_public)
+    cors_origins = _get_cors_from_env(is_public)
+    rate_limit = _safe_env_int("KATER_RATE_LIMIT", 60 if is_public else 0)
 
     return KaterSettings(
         auth=auth,
         cors_origins=cors_origins,
         rate_limit_per_min=rate_limit,
         host=host,
-        api_port=_safe_int("KATER_API_PORT", 9091),
-        mcp_port=_safe_int("KATER_MCP_PORT", 9090),
-        ws_port=_safe_int("KATER_WS_PORT", 9092),
+        api_port=_safe_env_int("KATER_API_PORT", 9091),
+        mcp_port=_safe_env_int("KATER_MCP_PORT", 9090),
+        ws_port=_safe_env_int("KATER_WS_PORT", 9092),
     )
 
 

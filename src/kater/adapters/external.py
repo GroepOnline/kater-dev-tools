@@ -48,6 +48,7 @@ def scan_adapters(
 
     settings = load_settings()
     inventory = AdapterInventory()
+    env = dict(os.environ)
     for source in all_tool_sources():
         if source.transport == "native":
             continue
@@ -55,7 +56,7 @@ def scan_adapters(
             continue
         if not settings.is_server_enabled(source.name, default=True):
             continue
-        missing = [var for var in source.env if not os.environ.get(var)]
+        missing = [var for var in source.env if not env.get(var)]
         configured = len(missing) == 0
         launch = (
             _build_launch_hint(source, include_secrets=include_secrets)

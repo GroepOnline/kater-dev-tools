@@ -739,12 +739,47 @@ def telemetry_command(
     typer.echo(table.render())
 
 
+def _print_evals_tool_performance(tool_calls_data: dict[str, Any]) -> None:
+    from kater.ansi import Table, error, success
+
+    if not tool_calls_data["per_tool"]:
+        return
+    table = Table(["Tool", "Calls", "Success", "Failed", "Rate", "Avg ms"], "Tool Performance")
+    for name, stats in sorted(
+        tool_calls_data["per_tool"].items(),
+        key=lambda x: x[1]["total"],
+        reverse=True,
+    ):
+        rate_str = f"{stats['success_rate']}%"
+        rate_str = success(rate_str) if stats["success_rate"] >= 90 else error(rate_str)
+        table.add_row(
+            name,
+            str(stats["total"]),
+            str(stats["success"]),
+            str(stats["failed"]),
+            rate_str,
+            f"{stats['avg_duration_ms']:.1f}",
+        )
+    typer.echo(table.render())
+
+
+def _print_evals_chain_performance(chain_runs_data: dict[str, Any]) -> None:
+    from kater.ansi import Table
+
+    if not chain_runs_data["per_chain"]:
+        return
+    table = Table(["Chain", "Runs", "Success", "Failed"], "Chain Performance")
+    for name, stats in chain_runs_data["per_chain"].items():
+        table.add_row(name, str(stats["total"]), str(stats["success"]), str(stats["failed"]))
+    typer.echo(table.render())
+
+
 @app.command("evals")
 def evals_command(
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Aggregated eval metrics from telemetry."""
-    from kater.ansi import Table, dim, error, success
+    from kater.ansi import dim, error, success
     from kater.telemetry import eval_summary
 
     data = eval_summary()
@@ -768,30 +803,8 @@ def evals_command(
     typer.echo(f"  Chain runs: {summary['total_chain_runs']}")
     typer.echo(f"  Errors: {summary['total_errors']}")
 
-    if data["tool_calls"]["per_tool"]:
-        table = Table(["Tool", "Calls", "Success", "Failed", "Rate", "Avg ms"], "Tool Performance")
-        for name, stats in sorted(
-            data["tool_calls"]["per_tool"].items(),
-            key=lambda x: x[1]["total"],
-            reverse=True,
-        ):
-            rate_str = f"{stats['success_rate']}%"
-            rate_str = success(rate_str) if stats["success_rate"] >= 90 else error(rate_str)
-            table.add_row(
-                name,
-                str(stats["total"]),
-                str(stats["success"]),
-                str(stats["failed"]),
-                rate_str,
-                f"{stats['avg_duration_ms']:.1f}",
-            )
-        typer.echo(table.render())
-
-    if data["chain_runs"]["per_chain"]:
-        table = Table(["Chain", "Runs", "Success", "Failed"], "Chain Performance")
-        for name, stats in data["chain_runs"]["per_chain"].items():
-            table.add_row(name, str(stats["total"]), str(stats["success"]), str(stats["failed"]))
-        typer.echo(table.render())
+    _print_evals_tool_performance(data["tool_calls"])
+    _print_evals_chain_performance(data["chain_runs"])
 
 
 @app.command("telemetry-clear")

@@ -2,7 +2,33 @@ from __future__ import annotations
 
 import json
 
-from kater.doctor import run_doctor
+from kater.doctor import load_cursor_mcp, run_doctor
+
+
+def test_load_cursor_mcp_invalid_json(tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text("{invalid_json: true", encoding="utf-8")
+    assert load_cursor_mcp(mcp_path) == {}
+
+
+def test_load_cursor_mcp_oserror(monkeypatch, tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text("{}", encoding="utf-8")
+
+    # Path is used by pathlib, we can just monkeypatch pathlib.Path.read_text
+    import pathlib
+    def mock_read_text(*args, **kwargs):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(pathlib.Path, "read_text", mock_read_text)
+
+    assert load_cursor_mcp(mcp_path) == {}
+
+
+def test_load_cursor_mcp_not_dict(tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text('["list", "instead", "of", "dict"]', encoding="utf-8")
+    assert load_cursor_mcp(mcp_path) == {}
 
 
 def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:

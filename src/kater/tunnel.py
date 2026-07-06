@@ -234,7 +234,15 @@ def start_cloudflared(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(1)
+
+        # Dynamic wait for initialization or early crash
+        for _ in range(20):
+            if proc.poll() is not None:
+                break
+            if _is_cloudflared_running():
+                break
+            time.sleep(0.05)
+
         return TunnelInfo(
             provider="cloudflare",
             name=tunnel_name,
@@ -290,7 +298,15 @@ def start_tailscale_funnel(port: int = 9090) -> TunnelInfo:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(1)
+
+        # Dynamic wait for initialization or early crash
+        for _ in range(20):
+            if proc.poll() is not None:
+                break
+            if _check_tailscale_funnel():
+                break
+            time.sleep(0.05)
+
         hostname = ts_status.get("hostname", "machine")
         return TunnelInfo(
             provider="tailscale",

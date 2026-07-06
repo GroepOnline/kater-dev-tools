@@ -1304,7 +1304,7 @@ async function bootSequence() {
     { t: 'connecting backends...', d: 300 },
     { t: '', d: 100 },
   ];
-  el.innerHTML = '';
+  el.textContent = '';
   for (const line of lines) {
     const div = document.createElement('div');
     const prompt = document.createElement('span');
@@ -1372,7 +1372,7 @@ async function loadProfiles() {
   const data = await api('/api/profiles');
   profiles = data.profiles || [];
   const el = document.getElementById('profile-pills');
-  el.innerHTML = '';
+  el.textContent = '';
   for (const p of profiles) {
     const pill = document.createElement('div');
     const isActive = p === activeProfile;
@@ -1647,7 +1647,7 @@ function openDetail(node) {
   document.getElementById('detail-desc').textContent = node.description || '-';
 
   const badges = document.getElementById('detail-badges');
-  badges.innerHTML = '';
+  badges.textContent = '';
   badges.appendChild(makeBadge(node.transport, node.transport));
   badges.appendChild(makeBadge(node.risk, node.risk));
   badges.appendChild(makeBadge(
@@ -1660,7 +1660,7 @@ function openDetail(node) {
   const missing = configured ? [] : reqs;
 
   const envEl = document.getElementById('detail-env');
-  envEl.innerHTML = '';
+  envEl.textContent = '';
   if (reqs.length) {
     for (const e of reqs) {
       const line = document.createElement('div');
@@ -1751,7 +1751,7 @@ function openCredentialsModal(server) {
   document.getElementById('cred-title').textContent = 'Connect ' + server.name;
   const sub = document.getElementById('cred-sub');
   const fields = document.getElementById('cred-fields');
-  fields.innerHTML = '';
+  fields.textContent = '';
   if (!reqs.length) {
     sub.textContent = server.name + ' needs no credentials — just enable it.';
   } else {
@@ -2230,7 +2230,7 @@ async function loadCatalogView() {
   const grid = document.getElementById('catalog-grid');
   const items = filterServers(data.servers || []);
   document.getElementById('catalog-count').textContent = items.length + ' servers';
-  grid.innerHTML = '';
+  grid.textContent = '';
   if (!items.length) {
     const empty = document.createElement('div');
     empty.className = 'view-empty';
@@ -2336,7 +2336,7 @@ async function loadEvalsView() {
   const tc = data.tool_calls || {};
 
   const sumEl = document.getElementById('eval-summary');
-  sumEl.innerHTML = '';
+  sumEl.textContent = '';
   const stats = [
     ['calls', tc.total || 0],
     ['tools', tc.unique_tools || 0],
@@ -2357,7 +2357,7 @@ async function loadEvalsView() {
   const perTool = tc.per_tool || {};
   const entries = Object.entries(perTool).sort((a, b) => b[1].total - a[1].total);
   const tbody = document.getElementById('eval-tbody');
-  tbody.innerHTML = '';
+  tbody.textContent = '';
   if (!entries.length) {
     const tr = document.createElement('tr');
     const cell = td('');
@@ -2397,7 +2397,7 @@ async function loadDeployView() {
   const data = await api('/api/deploy');
   deployFormats = data.formats || [];
   const tabs = document.getElementById('deploy-tabs');
-  tabs.innerHTML = '';
+  tabs.textContent = '';
   for (const f of deployFormats) {
     const btn = document.createElement('button');
     btn.className = 'code-tab';

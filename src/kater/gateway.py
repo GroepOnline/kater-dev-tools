@@ -21,7 +21,7 @@ from kater.settings import load_settings
 class _NoRedirect(request.HTTPRedirectHandler):
     """Do not follow redirects — OAuth /authorize must reach the browser as 302."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
         return None
 
 
@@ -37,10 +37,7 @@ async def _proxy_to_api(scope: dict, receive: Any, send: Any, api_port: int) -> 
     if query:
         url = f"{url}?{query}"
 
-    headers = {
-        k.decode("latin-1"): v.decode("latin-1")
-        for k, v in scope.get("headers", [])
-    }
+    headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope.get("headers", [])}
     host = headers.get("host")
     if host:
         headers["X-Forwarded-Host"] = host

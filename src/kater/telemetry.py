@@ -108,29 +108,7 @@ def clear_events() -> int:
 # ── Aggregation / Evals ────────────────────────────────────────────
 
 
-def eval_summary() -> dict[str, Any]:
-    events = query_events()
-    if not events:
-        return {
-            "total_events": 0,
-            "time_span_s": 0,
-            "tool_calls": {"total": 0, "unique_tools": 0, "per_tool": {}},
-            "chain_runs": {"total": 0, "unique_chains": 0, "per_chain": {}},
-            "errors": {"total": 0, "recent": []},
-            "server_toggles": 0,
-            "summary": {
-                "total_tool_calls": 0,
-                "total_chain_runs": 0,
-                "total_errors": 0,
-                "overall_success_rate": 0.0,
-            },
-        }
-
-    tool_calls = [e for e in events if e["type"] == "tool_call"]
-    chain_runs = [e for e in events if e["type"] == "chain_run"]
-    errors = [e for e in events if e["type"] == "error"]
-    toggles = [e for e in events if e["type"] == "server_toggle"]
-
+def _aggregate_tool_stats(tool_calls: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     tool_stats: dict[str, dict[str, Any]] = {}
     for tc in tool_calls:
         name = tc["name"]
@@ -161,7 +139,10 @@ def eval_summary() -> dict[str, Any]:
                 stats["success"] / stats["total"] * 100, 1
             ) if stats["total"] else 0.0,
         }
+    return per_tool
 
+
+def _aggregate_chain_stats(chain_runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     chain_stats: dict[str, dict[str, Any]] = {}
     for cr in chain_runs:
         name = cr["name"]
@@ -172,6 +153,34 @@ def eval_summary() -> dict[str, Any]:
             chain_stats[name]["success"] += 1
         else:
             chain_stats[name]["failed"] += 1
+    return chain_stats
+
+
+def eval_summary() -> dict[str, Any]:
+    events = query_events()
+    if not events:
+        return {
+            "total_events": 0,
+            "time_span_s": 0,
+            "tool_calls": {"total": 0, "unique_tools": 0, "per_tool": {}},
+            "chain_runs": {"total": 0, "unique_chains": 0, "per_chain": {}},
+            "errors": {"total": 0, "recent": []},
+            "server_toggles": 0,
+            "summary": {
+                "total_tool_calls": 0,
+                "total_chain_runs": 0,
+                "total_errors": 0,
+                "overall_success_rate": 0.0,
+            },
+        }
+
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    chain_runs = [e for e in events if e["type"] == "chain_run"]
+    errors = [e for e in events if e["type"] == "error"]
+    toggles = [e for e in events if e["type"] == "server_toggle"]
+
+    per_tool = _aggregate_tool_stats(tool_calls)
+    chain_stats = _aggregate_chain_stats(chain_runs)
 
     # events is non-empty here (empty case returned early above).
     time_span = round(events[-1]["timestamp"] - events[0]["timestamp"], 1)

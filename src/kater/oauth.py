@@ -26,6 +26,94 @@ MAX_TOKENS = 5000
 DASHBOARD_CLIENT_ID = "kater-dashboard"
 DASHBOARD_CLIENT_NAME = "kater-dashboard"
 
+_CONSENT_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Kater — Authorize</title>
+<style>
+:root {{
+  --bg:#0a0e14; --surface:#121826; --border:#1e2733;
+  --text:#e2e8f0; --dim:#64748b; --accent:#f59e0b;
+  --green:#22c55e; --mono:'SF Mono','Consolas',monospace;
+  color-scheme: dark;
+}}
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+:focus-visible {{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}}
+@media (prefers-reduced-motion: reduce) {{
+  *, *::before, *::after {{
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }}
+}}
+body {{
+  background:var(--bg); color:var(--text);
+  font-family:system-ui,sans-serif;
+  display:flex; align-items:center; justify-content:center;
+  min-height:100vh;
+}}
+.card {{
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:16px; padding:40px; max-width:420px; width:90%;
+  text-align:center;
+}}
+.logo {{
+  font-family:var(--mono); font-weight:700; font-size:20px;
+  letter-spacing:2px; color:var(--accent); margin-bottom:24px;
+}}
+.logo::before {{
+  content:''; display:inline-block; width:8px; height:8px;
+  border-radius:50%; background:var(--accent);
+  box-shadow:0 0 12px var(--accent); margin-right:8px;
+  vertical-align:middle;
+}}
+h1 {{ font-size:18px; margin-bottom:8px; }}
+p {{ color:var(--dim); font-size:14px; margin-bottom:24px; }}
+.app-name {{
+  font-family:var(--mono); font-weight:600; color:var(--text);
+  padding:2px 8px; background:rgba(255,255,255,0.05);
+  border-radius:4px; font-size:13px;
+}}
+.btn-row {{ display:flex; gap:12px; justify-content:center; }}
+.btn {{
+  font-family:var(--mono); font-size:13px; font-weight:600;
+  padding:10px 24px; border-radius:8px; cursor:pointer;
+  border:none; text-decoration:none; letter-spacing:0.5px;
+  text-transform:uppercase; transition:200ms;
+}}
+.btn-allow {{ background:var(--green); color:#000; }}
+.btn-allow:hover {{ opacity:0.9; }}
+.btn-deny {{
+  background:transparent; border:1px solid var(--border);
+  color:var(--dim);
+}}
+.btn-deny:hover {{ color:var(--text); border-color:var(--text); }}
+.meta {{
+  margin-top:24px; padding-top:16px; border-top:1px solid var(--border);
+  font-size:11px; color:var(--dim); font-family:var(--mono);
+}}
+</style></head><body>
+<div class="card">
+  <div class="logo">KATER</div>
+  <h1>Authorize <span class="app-name">{safe_name}</span></h1>
+  <p>This app wants to connect to your Kater MCP gateway
+  (profile: {safe_profile}). It will be able to call tools
+  exposed by this profile.</p>
+  <div class="btn-row">
+    <a class="btn btn-allow"
+      href="{authorize_url}&approve=1{state_param}{nonce_param}" role="button"
+      aria-label="Allow {safe_name} to connect">Allow</a>
+    <a class="btn btn-deny"
+      href="{authorize_url}&approve=0{state_param}{nonce_param}" role="button"
+      aria-label="Deny access">Deny</a>
+  </div>
+  <div class="meta">Redirect: {safe_uri}</div>
+</div>
+</body></html>"""
+
 
 def _is_safe_redirect_uri(uri: str) -> bool:
     """Reject dangerous redirect_uri schemes and non-https non-loopback hosts."""
@@ -434,93 +522,14 @@ def render_consent_page(
         )
     else:
         nonce_param = ""
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Kater — Authorize</title>
-<style>
-:root {{
-  --bg:#0a0e14; --surface:#121826; --border:#1e2733;
-  --text:#e2e8f0; --dim:#64748b; --accent:#f59e0b;
-  --green:#22c55e; --mono:'SF Mono','Consolas',monospace;
-  color-scheme: dark;
-}}
-* {{ margin:0; padding:0; box-sizing:border-box; }}
-:focus-visible {{
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}}
-@media (prefers-reduced-motion: reduce) {{
-  *, *::before, *::after {{
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }}
-}}
-body {{
-  background:var(--bg); color:var(--text);
-  font-family:system-ui,sans-serif;
-  display:flex; align-items:center; justify-content:center;
-  min-height:100vh;
-}}
-.card {{
-  background:var(--surface); border:1px solid var(--border);
-  border-radius:16px; padding:40px; max-width:420px; width:90%;
-  text-align:center;
-}}
-.logo {{
-  font-family:var(--mono); font-weight:700; font-size:20px;
-  letter-spacing:2px; color:var(--accent); margin-bottom:24px;
-}}
-.logo::before {{
-  content:''; display:inline-block; width:8px; height:8px;
-  border-radius:50%; background:var(--accent);
-  box-shadow:0 0 12px var(--accent); margin-right:8px;
-  vertical-align:middle;
-}}
-h1 {{ font-size:18px; margin-bottom:8px; }}
-p {{ color:var(--dim); font-size:14px; margin-bottom:24px; }}
-.app-name {{
-  font-family:var(--mono); font-weight:600; color:var(--text);
-  padding:2px 8px; background:rgba(255,255,255,0.05);
-  border-radius:4px; font-size:13px;
-}}
-.btn-row {{ display:flex; gap:12px; justify-content:center; }}
-.btn {{
-  font-family:var(--mono); font-size:13px; font-weight:600;
-  padding:10px 24px; border-radius:8px; cursor:pointer;
-  border:none; text-decoration:none; letter-spacing:0.5px;
-  text-transform:uppercase; transition:200ms;
-}}
-.btn-allow {{ background:var(--green); color:#000; }}
-.btn-allow:hover {{ opacity:0.9; }}
-.btn-deny {{
-  background:transparent; border:1px solid var(--border);
-  color:var(--dim);
-}}
-.btn-deny:hover {{ color:var(--text); border-color:var(--text); }}
-.meta {{
-  margin-top:24px; padding-top:16px; border-top:1px solid var(--border);
-  font-size:11px; color:var(--dim); font-family:var(--mono);
-}}
-</style></head><body>
-<div class="card">
-  <div class="logo">KATER</div>
-  <h1>Authorize <span class="app-name">{safe_name}</span></h1>
-  <p>This app wants to connect to your Kater MCP gateway
-  (profile: {safe_profile}). It will be able to call tools
-  exposed by this profile.</p>
-  <div class="btn-row">
-    <a class="btn btn-allow"
-      href="{authorize_url}&approve=1{state_param}{nonce_param}" role="button"
-      aria-label="Allow {safe_name} to connect">Allow</a>
-    <a class="btn btn-deny"
-      href="{authorize_url}&approve=0{state_param}{nonce_param}" role="button"
-      aria-label="Deny access">Deny</a>
-  </div>
-  <div class="meta">Redirect: {safe_uri}</div>
-</div>
-</body></html>"""
+    return _CONSENT_PAGE_TEMPLATE.format(
+        safe_name=safe_name,
+        safe_profile=safe_profile,
+        authorize_url=authorize_url,
+        state_param=state_param,
+        nonce_param=nonce_param,
+        safe_uri=safe_uri,
+    )
 
 
 def discovery_metadata(base_url: str) -> dict[str, Any]:

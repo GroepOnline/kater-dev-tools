@@ -79,11 +79,29 @@
       "skillPath": "happyhorse-1-0/SKILL.md",
       "computedHash": "72e88987147814fdbd695d5986155d36de07e15e7c34ef78522b80face4d7c1c"
     },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "e7694fb15d34d28e0ba055010516e61e85dfaf0299fafdd9e78eef08610f6d83"
+    },
+    "industrial-brutalist-ui": {
+      "source": "leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/brutalist-skill/SKILL.md",
+      "computedHash": "e66e5a2a8b73cef79ab6546459c665e8b983645689c5f3772f7eed8b9f1e8e0e"
+    },
     "kibana-dashboards": {
       "source": "elastic/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/kibana/kibana-dashboards/SKILL.md",
       "computedHash": "282a3b196d4b14b1aa3f915e385b55ed0c50f23d4c140a9a9ec383618b083e2d"
+    },
+    "minimalist-ui": {
+      "source": "leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/minimalist-skill/SKILL.md",
+      "computedHash": "7e88897e0371184e97a82b8d9ef080323c13f21eb067b58ef71eb05173a08ac2"
     },
     "modern-web-guidance": {
       "source": "googlechrome/modern-web-guidance",

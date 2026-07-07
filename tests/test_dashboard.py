@@ -103,6 +103,8 @@ def test_dashboard_tabs_have_complete_aria_contract():
 # stand in for the {name}/{fmt}/{provider}/{action} params.
 DASHBOARD_ENDPOINTS = [
     ("GET", "/api/status"),
+    ("GET", "/api/events"),
+    ("GET", "/api/backends"),
     ("GET", "/api/profiles"),
     ("GET", "/api/catalog"),
     ("GET", "/api/evals"),

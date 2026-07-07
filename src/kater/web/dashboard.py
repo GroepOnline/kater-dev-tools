@@ -137,7 +137,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   border: 1px solid var(--line); border-right-width: 0;
   color: var(--ink-dim); background: var(--paper);
   cursor: pointer; user-select: none;
-  transition: background var(--motion-fast) var(--motion-ease-in-out);
+  transition: background var(--motion-fast) var(--motion-ease-out);
 }
 .pill:last-child { border-right-width: 1px; }
 .pill:hover { color: var(--ink); }
@@ -238,7 +238,6 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 /* New telemetry row entrance — opacity + translateY only. */
 .feed-row {
   opacity: 1;
-  will-change: transform, opacity;
 }
 .feed-row.kater-rowin {
   opacity: 0; transform: translateY(6px);
@@ -252,7 +251,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 .feed--accent { color: var(--accent); }
 .feed--ok { color: var(--ok); }
 /* One restrained status emphasis on a colored row. Never particles. */
-.feed-row.kater-pulse { animation: kater-statuspulse var(--motion-base) var(--motion-ease-in-out); }
+.telegraph.kater-pulse { animation: kater-statuspulse var(--motion-base) var(--motion-ease-out); }
 @keyframes kater-statuspulse {
   0% { opacity: 1; }
   25% { opacity: 0.55; }
@@ -405,7 +404,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   padding: 4px 10px; border-radius: var(--radius); cursor: pointer;
   border: 1px solid var(--line); color: var(--ink);
   background: var(--paper); user-select: none;
-  transition: background var(--motion-fast) var(--motion-ease-in-out);
+  transition: background var(--motion-fast) var(--motion-ease-out);
 }
 .btn-tunnel:hover { background: var(--paper-2); }
 .btn-tunnel.active { background: var(--ok); border-color: var(--ok); color: var(--paper); }
@@ -460,7 +459,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   width: 28px; height: 28px; border-radius: var(--radius);
   border: 1px solid var(--line);
   display: flex; align-items: center; justify-content: center;
-  transition: background var(--motion-fast) var(--motion-ease-in-out);
+  transition: background var(--motion-fast) var(--motion-ease-out);
 }
 .detail-close:hover { color: var(--err); background: var(--accent-bg); }
 .detail-section {
@@ -513,7 +512,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   padding: 8px; border-radius: var(--radius); cursor: pointer;
   border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
   text-transform: uppercase; letter-spacing: 0.5px;
-  transition: background var(--motion-fast) var(--motion-ease-in-out);
+  transition: background var(--motion-fast) var(--motion-ease-out);
 }
 .btn-action:hover { background: var(--paper); color: var(--ink); }
 .btn-action:active { transform: translateY(1px); }
@@ -549,7 +548,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   letter-spacing: 1px; text-transform: uppercase; color: var(--ink-dim);
   min-height: 44px; padding: 0 16px; cursor: pointer; border: none; background: transparent;
   display: flex; align-items: center; position: relative;
-  transition: color var(--motion-fast) var(--motion-ease-in-out); white-space: nowrap;
+  transition: color var(--motion-fast) var(--motion-ease-out); white-space: nowrap;
   border-right: 1px solid var(--line-soft);
 }
 .tab:hover { color: var(--ink); }
@@ -603,7 +602,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   position: relative;
   background: var(--paper); border: 0;
   border-radius: var(--radius); padding: 14px; cursor: pointer;
-  transition: background var(--motion-fast) var(--motion-ease-in-out);
+  transition: background var(--motion-fast) var(--motion-ease-out);
 }
 .server-card:hover { background: var(--paper-2); }
 .server-card-head {
@@ -625,7 +624,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   width: 44px; height: 24px; border-radius: var(--radius);
   background: var(--paper-2); position: relative; cursor: pointer;
   border: 1px solid var(--line);
-  transition: background var(--motion-fast) var(--motion-ease-in-out); flex-shrink: 0;
+  transition: background var(--motion-fast) var(--motion-ease-out); flex-shrink: 0;
 }
 .toggle-switch::after {
   content: ''; position: absolute; top: 2px; left: 2px;
@@ -746,6 +745,8 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   background: var(--paper); border: 2px solid var(--err); max-width: 440px; width: 100%;
 }
 .confirm-overlay:not(.hidden) .confirm-card { transform: translateY(0); opacity: 1; }
+/* Keyboard-initiated open (Emil rule): show the dialog instantly, no entrance motion. */
+.confirm-overlay.no-anim, .confirm-overlay.no-anim .confirm-card { transition: none !important; }
 .confirm-head {
   padding: 10px 14px; border-bottom: 1px solid var(--line);
   font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px;
@@ -789,7 +790,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   min-height: 44px; padding: 9px 20px; border-radius: var(--radius); cursor: pointer;
   border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
   text-transform: uppercase; letter-spacing: 0.5px;
-  transition: background var(--motion-fast) var(--motion-ease-in-out);
+  transition: background var(--motion-fast) var(--motion-ease-out);
 }
 .btn-save:hover { background: var(--paper); color: var(--ink); }
 .btn-save:active { transform: translateY(1px); }
@@ -1621,7 +1622,9 @@ function switchView(view, opts) {
       if (Kater.motion && Kater.motion.viewIn) Kater.motion.viewIn(p, opts);
     } else {
       if (Kater.motion && Kater.motion.viewOut) Kater.motion.viewOut(p, opts);
-      p.hidden = true;
+      // Delay hiding until the exit motion has painted (140ms), so the
+      // fade/translate actually shows instead of being clipped by hidden.
+      trackedTimeout(() => { p.hidden = true; }, 160);
     }
   });
   try { history.replaceState(null, '', '#' + view); } catch (e) {}
@@ -2002,6 +2005,7 @@ function detailToggle(name) {
 
   const panel = $('detail-panel');
   panel.classList.remove('hidden');
+  panel.classList.add('open');
   panel.setAttribute('aria-hidden', 'false');
   panel.setAttribute('aria-expanded', 'true');
 }
@@ -2015,6 +2019,7 @@ function envKeys(s) {
 function closeDetail() {
   const panel = $('detail-panel');
   if (!panel) return;
+  panel.classList.remove('open');
   panel.classList.add('hidden');
   panel.setAttribute('aria-hidden', 'true');
   panel.setAttribute('aria-expanded', 'false');
@@ -2026,7 +2031,7 @@ function btnKey(e, fn) {
 
 // ── Confirm dialog (dangerous-action interception) ────────────────────────
 let confirmCtx = null;
-function confirmAction(action, name) {
+function confirmAction(action, name, viaKeyboard) {
   confirmCtx = {
     action: action,
     name: name,
@@ -2047,6 +2052,11 @@ function confirmAction(action, name) {
   const t = $('confirm-title'), b = $('confirm-body');
   if (t) t.textContent = titles[action] || 'CONFIRM';
   if (b) b.textContent = bodies[action] || '';
+  // Emil keyboard rule: no entrance motion for keyboard users (Ent; real
+  // users get the sharp .confirm-overlay transition). viaKeyboard may be an
+  // event (detail===0 ⇒ keyboard) or a boolean flag.
+  const kb = viaKeyboard === true || (viaKeyboard && viaKeyboard.detail === 0);
+  dlg.classList.toggle('no-anim', !!kb);
   dlg.classList.remove('hidden');
   dlg.setAttribute('aria-hidden', 'false');
   // Sharp emphasis in/out handled by CSS (.confirm-overlay state transition).
@@ -2092,7 +2102,7 @@ function initConfirmTriggers() {
       if (btn.dataset.confirm === 'tunnel') return;
       e.preventDefault();
       e.stopPropagation();
-      confirmAction(btn.dataset.confirm, btn.dataset.name || '');
+      confirmAction(btn.dataset.confirm, btn.dataset.name || '', e);
     });
   });
   onEl(document, 'keydown', (e) => {

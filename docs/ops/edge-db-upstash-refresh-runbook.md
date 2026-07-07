@@ -87,6 +87,36 @@ ssh <app-host> '
 '
 ```
 
+### Verify Database Readiness
+
+After the service is running with `DATABASE_URL` configured, confirm the
+database is accepting connections and reports as ready before proceeding with
+the refresh:
+
+```bash
+curl -fsS https://<edge-host>/health | jq .
+curl -fsS -H "Authorization: Bearer <operator-token>" https://<edge-host>/<readyz-path> | jq '.db_ready'
+```
+
+Pass criteria:
+
+- `/health` returns `status: ok`.
+- `<readyz-path>` returns `"db_ready": true`.
+
+If the database is not ready, investigate before continuing:
+
+- Check the Postgres container logs: `ssh <app-host> 'docker logs --tail 50 utrecht-pg'`
+- Verify the connection string works from the host:
+  ```bash
+  ssh <app-host> 'source <app-dir>/.env && psql "$DATABASE_URL" -c "SELECT 1;"'
+  ```
+- Confirm migrations are applied:
+  ```bash
+  ssh <app-host> 'cd <app-dir> && uv run alembic current 2>/dev/null || uv run kater db migrate'
+  ```
+
+Do not proceed to the refresh step until `db_ready: true` is confirmed.
+
 ## Refresh Edge Artifacts
 
 From the remote app directory, run the existing artifact generation and deploy

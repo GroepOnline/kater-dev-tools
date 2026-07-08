@@ -64,13 +64,32 @@ class StdioBackend(BaseBackend):
 
     def _disconnect(self) -> None:
         if self._proc:
+            proc = self._proc
+            # terminate() raises ProcessLookupError when the child is already
+            # dead. The previous implementation caught that as OSError and
+            # skipped wait(), leaking the defunct child as a zombie until the
+            # parent (kater serve) exited. Always call wait() to reap the
+            # child, whether terminate() succeeded or the child was already
+            # gone.
             try:
-                self._proc.terminate()
-                self._proc.wait(timeout=5)
+                proc.terminate()
+            except (OSError, ProcessLookupError):
+                # Already dead — fall through to wait() to reap the zombie.
+                pass
+            try:
+                proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self._proc.kill()
-                self._proc.wait(timeout=2)
-            except OSError:
+                # Stuck — force kill and reap.
+                try:
+                    proc.kill()
+                except (OSError, ProcessLookupError):
+                    pass
+                try:
+                    proc.wait(timeout=2)
+                except (OSError, subprocess.TimeoutExpired, ChildProcessError):
+                    pass
+            except (OSError, ChildProcessError):
+                # Already reaped or invalid handle; nothing more to do.
                 pass
             self._proc = None
         self._stderr_thread = None

@@ -7,7 +7,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._-]+$")
-_SAFE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
+_SAFE_PATH = re.compile(r"^[A-Za-z0-9._/\\:-]+$")
+
 
 
 class DeployTarget(BaseModel):

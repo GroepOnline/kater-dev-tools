@@ -25,6 +25,22 @@ import pytest
 KATER_DIR = Path.cwd() / ".kater"
 
 
+def _rmtree_robust(path: Path) -> None:
+    import time
+    import gc
+    gc.collect()
+    for _ in range(15):
+        try:
+            if path.exists():
+                shutil.rmtree(path)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+            gc.collect()
+    if path.exists():
+        shutil.rmtree(path)
+
+
 @pytest.fixture(autouse=True)
 def clean_kater_state():
     """Reset all module-global state before and after every test."""
@@ -37,12 +53,11 @@ def clean_kater_state():
     reset_state()
     invalidate_settings_cache()
     api_mod._reset_rate_limiter()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
+    _rmtree_robust(KATER_DIR)
     yield
     reset_db_cache()
     reset_state()
     invalidate_settings_cache()
     api_mod._reset_rate_limiter()
-    if KATER_DIR.exists():
-        shutil.rmtree(KATER_DIR)
+    _rmtree_robust(KATER_DIR)
+

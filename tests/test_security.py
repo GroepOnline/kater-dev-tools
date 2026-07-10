@@ -228,10 +228,12 @@ def test_body_size_limit(api_server):
     except urllib.error.HTTPError as e:
         assert e.code in (400, 413)
         return
-    except urllib.error.URLError as e:
-        assert "Broken pipe" in str(e.reason)
+    except (ConnectionResetError, urllib.error.URLError):
+        # On some platforms (e.g. Windows), the server drops the TCP connection
+        # immediately, which raises a socket-level error. This is expected.
         return
     pytest.fail("Expected body size error")
+
 
 
 # ── CORS ──────────────────────────────────────────────────────────

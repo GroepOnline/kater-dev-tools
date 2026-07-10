@@ -41,11 +41,18 @@ def test_settings_roundtrip(tmp_path: Path):
 
 
 def test_save_settings_uses_owner_only_permissions(tmp_path: Path):
+    import os
+
+    import pytest
+    if os.name == "nt":
+        pytest.skip("Windows does not support POSIX permission modes")
+
     settings = KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["secret"]))
     path = save_settings(settings, tmp_path)
 
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
 
 
 def test_check_auth_none_mode():

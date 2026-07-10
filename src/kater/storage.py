@@ -142,7 +142,7 @@ def _sqlite_query(
             params.append(since)
 
         where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
-        query = f"SELECT * FROM events{where_clause}"
+        query = f"SELECT * FROM events{where_clause}"  # noqa: S608
 
         if limit > 0:
             query += " ORDER BY timestamp ASC LIMIT ?"

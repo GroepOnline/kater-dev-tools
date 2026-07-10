@@ -362,6 +362,69 @@ def _build_paths() -> dict[str, Any]:
         )
     }
 
+    paths["/api/events"] = {
+        "get": {
+            "summary": "List telemetry events",
+            "parameters": [
+                {
+                    "name": "limit",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "integer", "default": 50},
+                    "description": "Max events to return.",
+                },
+                {
+                    "name": "since",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string"},
+                    "description": "Filter events since ISO timestamp or epoch seconds.",
+                },
+                {
+                    "name": "name",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string"},
+                    "description": "Filter by tool name.",
+                },
+                {
+                    "name": "success",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string", "enum": ["true", "false"]},
+                    "description": "Filter by success status.",
+                },
+            ],
+            "responses": {
+                "200": {
+                    "description": "List of events.",
+                    "content": {
+                        "application/json": {
+                            "schema": _ref("EventList")
+                        }
+                    },
+                }
+            },
+        }
+    }
+
+    paths["/api/backends"] = {
+        "get": {
+            "summary": "Get status of backends",
+            "responses": {
+                "200": {
+                    "description": "Backend status list.",
+                    "content": {
+                        "application/json": {
+                            "schema": _ref("BackendList")
+                        }
+                    },
+                }
+            },
+        }
+    }
+
+
     paths["/api/evals"] = {
         "get": _response(
             "Aggregated eval metrics",
@@ -683,6 +746,64 @@ def _build_schemas() -> dict[str, Any]:
                 "events": {"type": "array", "items": {"type": "object"}},
             },
         },
+        "Event": {
+            "type": "object",
+            "required": ["type", "name", "timestamp", "success"],
+            "properties": {
+                "id": {"type": "integer"},
+                "type": {"type": "string"},
+                "name": {"type": "string"},
+                "timestamp": {"type": "number"},
+                "duration_ms": {"type": "integer"},
+                "success": {"type": "boolean"},
+                "profile": {"type": "string"},
+                "metadata": {"type": "object"},
+            },
+        },
+        "EventList": {
+            "type": "object",
+            "required": ["total", "events"],
+            "properties": {
+                "total": {"type": "integer"},
+                "events": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/Event"},
+                },
+            },
+        },
+        "BackendServer": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "healthy": {"type": "boolean"},
+                "tool_count": {"type": "integer"},
+                "latency_ms": {"type": "integer"},
+                "breaker_state": {"type": "string"},
+                "enabled": {"type": "boolean"},
+                "configured": {"type": "boolean"},
+                "missing_env": {"type": "boolean"},
+            },
+        },
+        "BackendList": {
+            "type": "object",
+            "required": ["servers", "totals"],
+            "properties": {
+                "servers": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/BackendServer"},
+                },
+                "totals": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {"type": "integer"},
+                        "disabled": {"type": "integer"},
+                        "configured": {"type": "integer"},
+                        "missing_env": {"type": "integer"},
+                    },
+                },
+            },
+        },
+
         "Evals": {
             "type": "object",
             "additionalProperties": True,

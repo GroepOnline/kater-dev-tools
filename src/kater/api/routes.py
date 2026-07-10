@@ -18,10 +18,11 @@ from kater.api.models import Request, Response, route
 from kater.chains import list_chains
 
 if TYPE_CHECKING:
-    from kater.profiles import ToolSource
+    pass
 from kater.deploy import list_deploy_formats, render_deploy
 from kater.doctor import run_doctor
 from kater.profiles import get_source, list_profiles
+from kater.proxy import get_proxy
 from kater.registry import tools_for_profile
 from kater.settings import (
     ServerOverride,
@@ -30,6 +31,7 @@ from kater.settings import (
     save_settings,
     unsafe_public_settings_override_enabled,
 )
+from kater.storage import query_events
 from kater.telemetry import (
     eval_summary,
     load_events,
@@ -465,6 +467,109 @@ def _deploy_render(req: Request) -> Response:
 @route("GET", "/api/status")
 def _status(_: Request) -> Response:
     return Response.json(200, status_overview())
+
+
+def _parse_limit(req: Request, default: int = 50, maximum: int = 1000) -> int:
+    raw = req.query1("limit")
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid limit: {raw!r}") from None
+    if value < 1:
+        value = 1
+    return min(value, maximum)
+
+
+def _parse_since(req: Request) -> float | None:
+    raw = req.query1("since")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        pass
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError as exc:
+        raise ValueError(f"Invalid since: {raw!r}") from exc
+
+
+@route("GET", "/api/events")
+def _events(req: Request) -> Response:
+    try:
+        limit = _parse_limit(req)
+        since = _parse_since(req)
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    name = req.query1("name")
+    success_raw = req.query1("success")
+    # query_events filters by event_type, not name-based tool success; we fetch
+    # by name/since then filter the success boolean in memory.
+    rows = query_events(limit=limit, name=name or None, since=since)
+    if success_raw is not None:
+        wanted = success_raw.lower() == "true"
+        rows = [r for r in rows if bool(r.get("success")) is wanted]
+    events = []
+    for idx, r in enumerate(rows):
+        events.append(
+            {
+                "id": r.get("id", idx + 1),
+                "type": r.get("type"),
+                "name": r.get("name"),
+                "timestamp": r.get("timestamp"),
+                "duration_ms": int(r.get("duration_ms") or 0),
+                "success": bool(r.get("success")),
+                "profile": r.get("profile"),
+                "metadata": r.get("metadata") or {},
+            }
+        )
+    return Response.json(200, {"total": len(events), "events": events})
+
+
+@route("GET", "/api/backends")
+def _backends(_: Request) -> Response:
+    overview = status_overview().get("servers", {})
+    per_server: dict[str, dict[str, bool]] = {}
+    for source in __import__("kater.profiles", fromlist=["all_tool_sources"]).all_tool_sources():
+        if source.transport == "native":
+            continue
+        import os
+
+        env_present = all(os.environ.get(v) for v in source.env)
+        per_server[source.name] = {
+            "enabled": load_settings().is_server_enabled(source.name, default=True),
+            "configured": bool(env_present),
+            "missing_env": not env_present,
+        }
+    result = []
+    try:
+        proxy = get_proxy()
+        statuses = proxy.statuses()
+    except Exception:
+        statuses = []
+    for status in statuses:
+        d = status.to_dict()
+        extra = per_server.get(d["name"], {})
+        d["enabled"] = extra.get("enabled")
+        d["configured"] = extra.get("configured")
+        d["missing_env"] = extra.get("missing_env")
+        result.append(d)
+    return Response.json(
+        200,
+        {
+            "servers": result,
+            "totals": {
+                "enabled": overview.get("enabled", 0),
+                "disabled": overview.get("disabled", 0),
+                "configured": overview.get("configured", 0),
+                "missing_env": overview.get("missing_env", 0),
+            },
+        },
+    )
 
 
 @route("GET", "/api/telemetry")

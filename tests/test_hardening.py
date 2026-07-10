@@ -758,7 +758,10 @@ def test_base_url_trusts_forwarded_host_only_from_loopback():
 
 def test_oauth_file_permissions():
     """oauth.json is created with owner-only permissions (0o600)."""
+    import os
     import stat
+    if os.name == "nt":
+        pytest.skip("Windows does not support POSIX permission modes")
 
     from kater.oauth import _db_path, _save
 
@@ -766,6 +769,7 @@ def test_oauth_file_permissions():
     mode = stat.S_IMODE(_db_path().stat().st_mode)
     # Owner can read/write; group and others must have no access.
     assert mode & 0o077 == 0
+
 
 
 def test_cors_vary_origin_header():

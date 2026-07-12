@@ -63,7 +63,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgres://<user>:<pass>@<host>:5432/<db>
+      - DATABASE_URL=postgres://<host>:5432/<db>?user=<user>&password=<pass>
     depends_on:
       db:
         condition: service_healthy

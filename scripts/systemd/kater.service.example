@@ -14,10 +14,34 @@ Environment=KATER_HOST=127.0.0.1
 # Set your public hostname (example — replace before deploy):
 Environment=KATER_DOMAIN=kater.example.com
 Environment=KATER_CORS_ORIGINS=https://kater.example.com
-ExecStartPre=-/usr/bin/pkill -f '%h/kater-dev-tools/.venv/bin/kater serve'
+# Validate config + connectivity before serving (systemd already guarantees a
+# single instance, so no pkill is needed).
+ExecStartPre=%h/kater-dev-tools/.venv/bin/kater doctor
 ExecStart=%h/kater-dev-tools/.venv/bin/kater serve --profile core --host 127.0.0.1
 Restart=always
 RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=15
+KillMode=mixed
+
+# Hardening: drop privileges/capabilities and restrict filesystem/process surface.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+UMask=0077
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Kater keeps SQLite state under .kater/ and a runtime dir.
+ReadWritePaths=%h/kater-dev-tools/.kater
+RuntimeDirectory=kater
+StateDirectory=kater
 
 [Install]
 WantedBy=default.target

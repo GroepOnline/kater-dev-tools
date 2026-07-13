@@ -7,10 +7,12 @@ Requires=kater.service
 [Service]
 Type=simple
 EnvironmentFile=%h/.config/kater/tunnel.env
-ExecStartPre=-/usr/bin/pkill -f 'cloudflared tunnel run'
+# Readiness gate: only start the tunnel once Kater is locally healthy.
+ExecStartPre=/usr/bin/bash -c 'deadline=$((SECONDS+30)); until curl -fsS http://127.0.0.1:9091/health >/dev/null 2>&1; do [ $SECONDS -lt $deadline ] || exit 1; sleep 1; done'
 ExecStart=/usr/local/bin/cloudflared tunnel run --token ${KATER_TUNNEL_TOKEN}
 Restart=always
 RestartSec=5
+TimeoutStartSec=30
 
 [Install]
 WantedBy=default.target

@@ -59,16 +59,35 @@ echo ""
 
 uv run kater serve &
 KATER_PID=$!
-sleep 2
 
-if ! curl -sf "http://127.0.0.1:9091/health" >/dev/null; then
-    echo "ERROR: Kater failed to start. Check logs above."
-    kill "$KATER_PID" 2>/dev/null || true
+# Wait (with a deadline) for Kater to become locally healthy before exposing it.
+wait_for_health() {
+    local url="$1" deadline label pid
+    deadline=$((SECONDS + 30))
+    label="$2"
+    pid="$3"
+    until curl -fsS "$url" >/dev/null 2>&1; do
+        if [[ $SECONDS -ge $deadline ]]; then
+            echo "ERROR: $label did not become healthy within 30s. Check logs above."
+            kill "$pid" 2>/dev/null || true
+            return 1
+        fi
+        sleep 1
+    done
+    echo "$label healthy at $url"
+}
+
+if ! wait_for_health "http://127.0.0.1:9091/health" "Kater" "$KATER_PID"; then
     exit 1
 fi
 
 cloudflared tunnel --config "$CONFIG_FILE" run "$TUNNEL_NAME" &
 TUNNEL_PID=$!
+
+# Deadline-based wait for the public tunnel endpoint to serve a healthy Kater.
+if ! wait_for_health "https://$DOMAIN/health" "Tunnel ($DOMAIN)" "$TUNNEL_PID"; then
+    exit 1
+fi
 
 echo ""
 echo "Kater PID: $KATER_PID"

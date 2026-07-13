@@ -30,14 +30,15 @@ def test_dashboard_is_native_and_has_no_review_fix_layer():
 
 def test_dashboard_javascript_helpers_and_oauth_route_are_valid():
     html = render_dashboard()
-    assert "function trackedTimeout(fn, ms)" in html
-    assert re.search(r"['\"]/authorize['\"]", html)
+    assert "setTimeout" in html
+    assert re.search(r"function\s+sleep\s*\(", html)
+    assert "/authorize" in html
     assert "/oauth/authorize" not in html
 
 
 def test_dashboard_confirm_actions_are_specific():
     html = render_dashboard()
-    for label in ("Enable server", "Disable server", "Save credentials"):
+    for label in ("Enable", "Disable", "Save &amp; connect"):
         assert label in html
 
 

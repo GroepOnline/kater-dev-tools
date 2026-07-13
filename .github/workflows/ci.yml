@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -14,6 +15,10 @@ concurrency:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      NO_COLOR: "1"
+      FORCE_COLOR: "0"
+      TERM: dumb
     strategy:
       fail-fast: false
       matrix:

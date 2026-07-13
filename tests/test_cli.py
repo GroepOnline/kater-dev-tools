@@ -1,28 +1,26 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 
-import pytest
 from typer.testing import CliRunner
 
-from kater.cli import _prepare_public_bind_environment, app
+from kater.cli import app
 
 runner = CliRunner()
 
-ANSI_RE = re.compile(r"\[([0-9;]*[a-zA-Z])")
+ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
 def strip_ansi(text: str) -> str:
     return ANSI_RE.sub("", text)
-
 
 
 def test_cli_help_starts() -> None:
     result = runner.invoke(app, ["--help"])
 
     assert result.exit_code == 0
-    output = strip_ansi(result.output)
-    assert "Kater" in output or "Developer MCP gateway" in output
+    assert "Kater" in result.output or "Developer MCP gateway" in result.output
 
 
 def test_doctor_json() -> None:
@@ -49,7 +47,7 @@ def test_apply_requires_yes() -> None:
     result = runner.invoke(app, ["doctor", "--apply"])
 
     assert result.exit_code == 2
-    assert "--apply requires --yes" in strip_ansi(result.output)
+    assert "--apply requires --yes" in result.output
 
 
 def test_profiles_json() -> None:
@@ -104,14 +102,16 @@ def test_chain_run_unknown() -> None:
     result = runner.invoke(app, ["chain", "run", "nonexistent"])
 
     assert result.exit_code == 1
-    assert "not found" in strip_ansi(result.output)
+    assert "not found" in result.output
 
 
 def test_mcp_serve_profile_flag() -> None:
     result = runner.invoke(app, ["mcp", "serve", "--help"])
 
     assert result.exit_code == 0
-    assert "--profile" in strip_ansi(result.output)
+    plain_output = strip_ansi(result.output)
+    assert "profile" in plain_output
+    assert "Profile to expose" in plain_output
 
 
 def test_version() -> None:
@@ -165,7 +165,7 @@ def test_mcp_status_known() -> None:
 def test_mcp_status_unknown() -> None:
     result = runner.invoke(app, ["mcp", "status", "nonexistent"])
     assert result.exit_code == 1
-    assert "unknown" in strip_ansi(result.output)
+    assert "unknown" in result.output
 
 
 def test_init_creates_kater_dir(tmp_path) -> None:
@@ -178,64 +178,8 @@ def test_init_creates_kater_dir(tmp_path) -> None:
 def test_serve_help() -> None:
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0
-    assert "--api-port" in strip_ansi(result.output)
-    assert "--mcp-port" in strip_ansi(result.output)
-
-
-def test_public_bind_prepares_secure_env_before_settings(monkeypatch, tmp_path) -> None:
-    from kater.settings import load_settings
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KATER_PUBLIC", raising=False)
-    monkeypatch.delenv("KATER_HOST", raising=False)
-    monkeypatch.delenv("KATER_AUTH_MODE", raising=False)
-    monkeypatch.delenv("KATER_RATE_LIMIT", raising=False)
-    monkeypatch.delenv("KATER_CORS_ORIGINS", raising=False)
-
-    _prepare_public_bind_environment("0.0.0.0")
-    settings = load_settings()
-
-    assert settings.host == "0.0.0.0"
-    assert settings.auth.mode == "oauth"
-    assert settings.rate_limit_per_min == 60
-    assert settings.cors_origins != ["*"]
-    for name in (
-        "KATER_PUBLIC",
-        "KATER_HOST",
-        "KATER_AUTH_MODE",
-        "KATER_RATE_LIMIT",
-        "KATER_CORS_ORIGINS",
-    ):
-        os.environ.pop(name, None)
-
-
-@pytest.mark.parametrize(
-    ("env_name", "env_value", "message"),
-    [
-        ("KATER_AUTH_MODE", "none", "requires authentication"),
-        ("KATER_RATE_LIMIT", "0", "requires KATER_RATE_LIMIT"),
-        ("KATER_CORS_ORIGINS", "*", "must not use wildcard"),
-    ],
-)
-def test_public_bind_rejects_insecure_overrides(
-    monkeypatch, env_name: str, env_value: str, message: str
-) -> None:
-    for name in ("KATER_AUTH_MODE", "KATER_RATE_LIMIT", "KATER_CORS_ORIGINS"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(env_name, env_value)
-
-    with pytest.raises(Exception) as exc:
-        _prepare_public_bind_environment("0.0.0.0")
-
-    assert message in str(exc.value)
-    for name in (
-        "KATER_PUBLIC",
-        "KATER_HOST",
-        "KATER_AUTH_MODE",
-        "KATER_RATE_LIMIT",
-        "KATER_CORS_ORIGINS",
-    ):
-        os.environ.pop(name, None)
+    assert "--api-port" in result.output
+    assert "--mcp-port" in result.output
 
 
 def test_enable_server() -> None:

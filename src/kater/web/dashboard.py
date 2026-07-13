@@ -111,6 +111,12 @@ th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: 
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover td { background: var(--surface-2); }
 .empty { padding: 26px !important; color: var(--muted); text-align: center !important; white-space: normal; }
+.view-empty-link {
+  display: inline-block; margin-top: 10px; padding: 4px 0;
+  background: none; border: 0; cursor: pointer;
+  font: 11px var(--mono); color: var(--cyan); text-decoration: underline;
+}
+.view-empty-link:hover { color: var(--text); }
 
 .badge {
   display: inline-flex; align-items: center; gap: 5px; min-height: 20px; padding: 2px 6px;
@@ -331,10 +337,10 @@ _VIEW_CATALOG = r"""
 <section class="view" id="view-catalog" role="tabpanel" aria-labelledby="tab-catalog" tabindex="0" hidden>
   <header class="view-header">
     <div><h1>Server catalog</h1><p>Control backend availability and configure declared credentials.</p></div>
-    <span id="catalog-count" class="badge">— servers</span>
+    <span id="catalog-count" class="badge" aria-live="polite">— servers</span>
   </header>
   <div class="filters">
-    <div class="field"><label for="catalog-search">Search</label><input id="catalog-search" class="input" type="search" placeholder="Name or description"></div>
+    <div class="field"><label for="catalog-search">Search</label><input id="catalog-search" class="input" type="search" placeholder="Name or description" aria-describedby="catalog-count"></div>
     <div class="field"><label for="catalog-profile">Profile</label><select id="catalog-profile"><option value="">All profiles</option></select></div>
     <div class="field"><label for="catalog-status">Status</label><select id="catalog-status"><option value="">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="configured">Configured</option><option value="missing">Needs credentials</option></select></div>
   </div>
@@ -799,7 +805,23 @@ function renderCatalog() {
       + '<div class="server-actions"><button class="switch' + (pending ? ' pending' : '') + '" type="button" role="switch" aria-label="'
       + (server.enabled ? 'Disable ' : 'Enable ') + esc(server.name) + '" aria-checked="' + String(!!server.enabled)
       + '" data-confirm="server" data-server-toggle="' + esc(server.name) + '"' + (pending ? ' disabled' : '') + '></button></div></article>';
-  }).join('') : '<div class="empty">No servers match these filters.</div>';
+  }).join('') : catalogEmptyHtml();
+}
+function catalogEmptyHtml() {
+  const query = $('catalog-search').value.trim();
+  if (query) {
+    return '<div class="empty">No servers match "' + esc(query) + '".<br>'
+      + '<button class="view-empty-link" type="button" onclick="clearCatalogSearch()">Clear search</button></div>';
+  }
+  return '<div class="empty">No servers match these filters.</div>';
+}
+function clearCatalogSearch() {
+  const search = $('catalog-search');
+  if (search) {
+    search.value = '';
+    renderCatalog();
+    search.focus();
+  }
 }
 async function loadCatalog() {
   try {

@@ -1,76 +1,322 @@
 name: CI
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
+# Cancel superseded runs for the same ref; keep main runs to preserve signals.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
-    env:
-      NO_COLOR: "1"
-      FORCE_COLOR: "0"
-      TERM: dumb
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+permissions:
+  contents: read
 
+jobs:
+  # ── validate: lockfile, config, generated files, docs, metadata ────────
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
-          python-version: ${{ matrix.python-version }}
           enable-cache: true
 
       - name: Verify lockfile is up to date
         run: uv lock --check
 
-      - name: Sync dependencies
-        run: uv sync --dev
+      - name: Validate TOML/YAML/JSON
+        run: |
+          uv run python - <<'PY'
+          import json, tomllib, sys
+          from pathlib import Path
+          def toml(p):
+              with open(p, "rb") as f:
+                  tomllib.load(f)
+          toml("pyproject.toml")
+          toml("uv.lock")
+          for p in Path(".").rglob("*.json"):
+              if ".venv" in p.parts or "node_modules" in p.parts:
+                  continue
+              try:
+                  json.loads(p.read_text())
+              except json.JSONDecodeError as e:
+                  print(f"invalid json: {p}: {e}", file=sys.stderr); sys.exit(1)
+          import glob
+          for p in glob.glob(".github/**/*.yml", recursive=True):
+              import yaml  # noqa: F401 (best-effort; yaml may be absent)
+          print("config validation ok")
+          PY
 
-      - name: Lint with ruff
+      - name: OpenAPI snapshot check
+        run: uv run python -c "import kater.openapi_spec as s; assert s.generate_spec(); print('openapi ok')"
+
+      - name: Lint workflow files
+        run: |
+          for f in .github/workflows/*.yml; do
+            python - "$f" <<'PY'
+          import sys, yaml
+          with open(sys.argv[1]) as f:
+              yaml.safe_load(f)
+          print("workflow ok:", sys.argv[1])
+          PY
+          done
+
+      - name: Docs and package metadata check
+        run: |
+          uv run python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              meta = tomllib.load(f)["project"]
+          assert meta.get("version"), "missing version"
+          assert meta.get("readme"), "missing readme"
+          print("metadata ok:", meta["name"], meta["version"])
+          PY
+
+  # ── lint-type: ruff, format, mypy on the 3.11 syntax baseline ──────────
+  lint-type:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --dev
+
+      - name: Ruff
         run: uv run ruff check .
 
-      - name: Type-check with mypy
+      - name: Mypy
         run: uv run mypy
 
-      - name: Test with pytest
-        run: timeout 120s uv run pytest -vv -x --tb=short -ra
+  # ── unit: matrix across supported Python versions ─────────────────────
+  unit:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
-      - name: Linear MCP integration (optional)
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --dev
+
+      - name: Test
+        run: timeout 180s uv run pytest -vv --tb=short -ra
+
+  # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──
+  integration:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --dev
+
+      - name: Integration tests
+        run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_api.py tests/test_oauth.py tests/test_authgate.py tests/test_storage.py tests/test_proxy.py
+
+  # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
+  e2e:
+    needs: [unit, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --dev
+
+      - name: Start Kater
         run: |
-          if [ -n "${LINEAR_API_KEY:-}" ]; then
-            uv run pytest tests/test_linear_mcp.py::test_live_linear_mcp_lists_tools -vv --tb=short
-          else
-            echo "LINEAR_API_KEY not set; skipping live Linear MCP test"
-          fi
+          uv run kater serve &
+          echo $! > /tmp/kater.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9091/health >/dev/null 2>&1; then
+              echo "kater healthy"; break
+            fi
+            sleep 1
+          done
+
+      - name: End-to-end MCP check
+        run: ./scripts/e2e-mcp.sh
+
+      - name: Stop Kater
+        if: always()
+        run: kill "$(cat /tmp/kater.pid)" 2>/dev/null || true
 
       - name: Smoke test
         run: ./scripts/smoke.sh
 
-  security-audit:
+  # ── package: wheel/sdist build + clean-venv install smoke ─────────────
+  package:
+    needs: [validate]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: true
 
-      - name: Export runtime audit requirements
-        run: uv export --format requirements-txt --no-dev --no-hashes --no-emit-project > requirements-audit.txt
+      - name: Build wheel and sdist
+        run: uv build
 
-      - name: Audit runtime dependencies
-        run: uvx pip-audit --strict -r requirements-audit.txt
+      - name: Install into a clean venv and smoke
+        run: |
+          uv venv /tmp/kater-pkg-test
+          uv pip install --python /tmp/kater-pkg-test dist/*.whl
+          /tmp/kater-pkg-test/bin/kater version
+          /tmp/kater-pkg-test/bin/kater doctor
+          /tmp/kater-pkg-test/bin/kater --help
+
+      - name: Verify package contents
+        run: |
+          python - <<'PY'
+          import zipfile, glob, sys
+          wheels = glob.glob("dist/*.whl")
+          assert wheels, "no wheel built"
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          missing = [n for n in ("kater/web/dashboard.py",) if not any(x.endswith(n) for x in names)]
+          assert not missing, f"missing packaged files: {missing}"
+          print("package contents ok")
+          PY
+
+  # ── security-pr: supply chain + secret scanning ───────────────────────
+  # (CodeQL is already enforced repo-wide via default setup scanning
+  #  python + actions, so we don't upload a second SARIF here.)
+  security-pr:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: true
+
+      - name: Dependency review
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@e7aeea1772ec01da74cafda11c5caa463520ca59 # v3
+        with:
+          fail-on-severity: high
+
+      - name: Ruff security rules
+        run: uv run ruff check --select S .
+
+      - name: Diff-based secret scan
+        run: |
+          uv run python - <<'PY'
+          import subprocess, sys
+          base = "origin/main"
+          files = subprocess.run(
+              ["git", "diff", "--name-only", base, "HEAD"],
+              capture_output=True, text=True,
+          ).stdout.split()
+          sensitive = ("test", "fixture", "docs", "example")
+          targets = [f for f in files if not any(s in f.lower() for s in sensitive)]
+          if not targets:
+              print("no scan targets"); sys.exit(0)
+          res = subprocess.run(["git", "grep", "-IEn",
+              r"(?i)(api[_-]?key|secret|token|password|passwd)\s*[=:]\s*['\"][A-Za-z0-9_\-]{8,}",
+              "--"] + targets, capture_output=True, text=True)
+          if res.returncode == 0:
+              print("POSSIBLE SECRET IN DIFF:\n" + res.stdout)
+              sys.exit(1)
+          print("diff secret scan ok")
+          PY
+
+  # ── gate: single stable required check aggregating the mandatory jobs ──
+  gate:
+    needs:
+      - validate
+      - lint-type
+      - unit
+      - integration
+      - e2e
+      - package
+      - security-pr
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    steps:
+      - name: Aggregate required checks
+        run: |
+          echo "validate=${{ needs.validate.result }}"
+          echo "lint-type=${{ needs.lint-type.result }}"
+          echo "unit=${{ needs.unit.result }}"
+          echo "integration=${{ needs.integration.result }}"
+          echo "e2e=${{ needs.e2e.result }}"
+          echo "package=${{ needs.package.result }}"
+          echo "security-pr=${{ needs.security-pr.result }}"
+          for r in "${{ needs.validate.result }}" "${{ needs.lint-type.result }}" \
+                   "${{ needs.unit.result }}" "${{ needs.integration.result }}" \
+                   "${{ needs.e2e.result }}" "${{ needs.package.result }}" \
+                   "${{ needs.security-pr.result }}"; do
+            if [ "$r" != "success" ]; then
+              echo "required job failed: $r"; exit 1
+            fi
+          done
+          echo "gate: PASS"

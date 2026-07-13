@@ -178,8 +178,9 @@ def test_init_creates_kater_dir(tmp_path) -> None:
 def test_serve_help() -> None:
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0
-    assert "--api-port" in result.output
-    assert "--mcp-port" in result.output
+    output = strip_ansi(result.output)
+    assert "--api-port" in output
+    assert "--mcp-port" in output
 
 
 def test_enable_server() -> None:

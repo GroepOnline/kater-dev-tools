@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from kater.adapters.external import render_profile_config, scan_adapters
 from kater.chains import list_chains
 from kater.doctor import parse_profiles, run_doctor
+from kater.pr_control import pr_gate_tool, pr_list_tool, pr_status_tool
 from kater.profiles import list_profiles
 
 ToolHandler = Callable[..., dict[str, Any]]
@@ -102,6 +103,27 @@ def build_native_tools() -> list[NativeTool]:
             profile="core",
             risk="low",
             handler=config_render_tool,
+        ),
+        NativeTool(
+            name="kater_pr_list",
+            description="List GitHub pull requests with merge-readiness summary.",
+            profile="core",
+            risk="low",
+            handler=pr_list_tool,
+        ),
+        NativeTool(
+            name="kater_pr_status",
+            description="Show status and merge-readiness gate for one PR.",
+            profile="core",
+            risk="low",
+            handler=pr_status_tool,
+        ),
+        NativeTool(
+            name="kater_pr_gate",
+            description="Evaluate the deterministic merge gate (PASS/WARN/BLOCK) for a PR.",
+            profile="core",
+            risk="low",
+            handler=pr_gate_tool,
         ),
     ]
     tools.extend(_extension_native_tools())

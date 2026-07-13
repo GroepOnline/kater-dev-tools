@@ -33,6 +33,10 @@ button, input, select, textarea { color: inherit; font: inherit; }
 button, select { cursor: pointer; }
 button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity: .55; }
 a { color: var(--cyan); }
+/* Keep focused controls clear of host/topbar chrome (IDE browser overlays). */
+a, button, input, select, textarea, [role="switch"], [tabindex] {
+  scroll-margin-top: 64px;
+}
 :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 ::selection { background: var(--cyan); color: #071013; }
 .sr-only {
@@ -50,7 +54,12 @@ a { color: var(--cyan); }
 .danger { color: var(--red); }
 
 .topbar {
-  position: sticky; z-index: 20; top: 0; min-height: 50px; padding: 0 18px;
+  position: sticky; z-index: 20; top: 0;
+  /* border-box: include inset in min-height so content stays ~50px and matches .nav offset */
+  min-height: calc(50px + env(safe-area-inset-top, 0px));
+  /* safe-area top padding only — do not mirror onto bottom via 2-value shorthand */
+  padding: 0 18px;
+  padding-top: env(safe-area-inset-top, 0px);
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   background: var(--surface); border-bottom: 1px solid var(--line);
 }
@@ -65,7 +74,7 @@ a { color: var(--cyan); }
 .dot.bad { background: var(--red); }
 
 .nav {
-  position: sticky; z-index: 19; top: 50px; display: flex; align-items: stretch;
+  position: sticky; z-index: 19; top: calc(50px + env(safe-area-inset-top, 0px)); display: flex; align-items: stretch;
   padding: 0 18px; overflow-x: auto; background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .nav button {
@@ -244,7 +253,10 @@ pre { flex: 1; margin: 0; padding: 15px; overflow: auto; background: #0d1115; co
   .server-row .server-transport, .server-row .server-state { display: none; }
 }
 @media (max-width: 650px) {
-  .topbar { padding: 0 12px; }
+  .topbar {
+    padding: 0 12px;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
   .brand small, .top-status .status-item:first-child { display: none; }
   .nav { padding: 0; }
   .nav button { min-width: 88px; padding-inline: 10px; }
@@ -1250,7 +1262,7 @@ def render_dashboard(ws_port: int = 9092) -> str:
         "<!DOCTYPE html>\n"
         '<html lang="en">\n<head>\n'
         '<meta charset="UTF-8">\n'
-        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">\n'
         "<title>Kater — Gateway control plane</title>\n"
         '<meta name="color-scheme" content="dark">\n'
         '<meta name="theme-color" content="#0b0e11">\n'

@@ -41,6 +41,7 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.15.20",
     "mypy>=1.10",
+    "pyyaml>=6.0",
 ]
 
 [tool.pytest.ini_options]
@@ -79,6 +80,8 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 "src/kater/proxy/stdio_backend.py" = ["S603", "S607"]
 # sync script runs git with list-form argv against SSOT marketplace URLs.
 "scripts/sync_cursor_plugins.py" = ["S603", "S607"]
+# no_org_leak.py runs git with list-form argv (operator-controlled).
+"scripts/no_org_leak.py" = ["S603", "S607"]
 # websocket.py uses sha1 per RFC 6455 (the WS handshake mandates it).
 "src/kater/websocket.py" = ["S324"]
 # gateway/sse_backend only open operator-configured URLs (localhost API proxy,

@@ -5,44 +5,50 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    # Full-history scan on a controlled cadence (not per-PR).
+    - cron: "27 4 * * *"
+  release:
+    types: [published]
+
+permissions:
+  contents: read
 
 jobs:
   no-org-leak:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          fetch-depth: 0
+          persist-credentials: false
+          # Full history only for scheduled/release full scans; PRs diff-scan.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
 
-      - name: Block org production domains
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: true
+
+      - name: Org-leak guard (explicit allowlist script)
+        run: uv run python scripts/no_org_leak.py --base "${{ github.event_name == 'pull_request' && 'origin/main' || '' }}"
+
+      - name: Install gitleaks (checksum-validated)
         run: |
           set -euo pipefail
-          if git grep -iE 'chefgroep\.(nl|online)' -- . ':!SPLIT_DECISION.md' ':!AUDIT.md' ':!.github/workflows/no-org-leak.yml'; then
-            echo 'ERROR: chefgroep production domain found outside split audit docs'
-            exit 1
-          fi
-
-      - name: Block onlinechefgroep outside attribution
-        run: |
-          set -euo pipefail
-          if git grep -i 'onlinechefgroep' -- . ':!README.md' ':!LICENSE' ':!CONTRIBUTING.md' ':!SECURITY.md' ':!pyproject.toml' ':!docs/deploy-server.md' ':!SPLIT_DECISION.md' ':!AUDIT.md' ':!.github/workflows/no-org-leak.yml'; then
-            echo 'ERROR: onlinechefgroep found outside allowed attribution files'
-            exit 1
-          fi
-
-      - name: Block credential-shaped connection strings
-        run: |
-          set -euo pipefail
-          if git grep -E '(postgres|redis|upstash)://[^"'\''[:space:]]+@' -- .; then
-            echo 'ERROR: connection string with embedded credentials detected'
-            exit 1
-          fi
-
-      - name: Install gitleaks
-        run: |
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz -o gitleaks.tar.gz
+          VER=8.24.2
+          URL="https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          curl -sSfL "$URL" -o gitleaks.tar.gz
+          echo "fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e  gitleaks.tar.gz" > gitleaks.sha256
+          sha256sum -c gitleaks.sha256
           tar -xzf gitleaks.tar.gz gitleaks
           sudo mv gitleaks /usr/local/bin/gitleaks
 
-      - name: Gitleaks scan (full history on PR base)
-        run: gitleaks detect --source . --log-opts="--all" --config .gitleaks.toml --redact
+      - name: Gitleaks diff scan (PR only)
+        if: github.event_name == 'pull_request'
+        run: gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
+
+      - name: Gitleaks full-history scan (scheduled/release/push)
+        if: github.event_name != 'pull_request'
+        run: gitleaks detect --source . --log-opts="--all" --config .gitleaks.toml --redact --no-banner

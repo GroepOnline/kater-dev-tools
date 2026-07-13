@@ -82,6 +82,9 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 "scripts/sync_cursor_plugins.py" = ["S603", "S607"]
 # no_org_leak.py runs git with list-form argv (operator-controlled).
 "scripts/no_org_leak.py" = ["S603", "S607"]
+# pr_control shells out to the operator's gh CLI (read-only) and uses constant
+# verdict constants; S603/S607/S105 flagging is noise here.
+"src/kater/pr_control.py" = ["S603", "S607", "S105"]
 # websocket.py uses sha1 per RFC 6455 (the WS handshake mandates it).
 "src/kater/websocket.py" = ["S324"]
 # gateway/sse_backend only open operator-configured URLs (localhost API proxy,

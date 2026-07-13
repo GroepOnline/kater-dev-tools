@@ -1,466 +1,1200 @@
-# ruff: noqa: E501
 from __future__ import annotations
 
 _CSS = r"""
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
 :root {
+  /* Cool near-black canvas with layered luminance steps (no color hierarchy). */
+  --bg: #0b0d10;
+  --surface: #111419;
+  --surface-2: #171b22;
+  --elevated: #1d222c;
+  --border: rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.13);
+  --text: #e6e9ef;
+  --text-muted: #98a1b1;
+  --text-faint: #5d6675;
+  /* One disciplined accent: teal = gateway / flow. Used as punctuation only. */
+  --accent: #2dd4bf;
+  --accent-dim: rgba(45,212,191,0.14);
+  --accent-line: rgba(45,212,191,0.35);
+  /* Inverted, near-white primary CTA (brand color stays as accent, not paint). */
+  --cta: #f2f4f7;
+  --cta-text: #0b0d10;
+  /* Semantics: vivid, small-area, paired with icon + label (never color-alone). */
+  --ok: #3ddc97;
+  --ok-dim: rgba(61,220,151,0.13);
+  --warn: #e8b84a;
+  --warn-dim: rgba(232,184,74,0.13);
+  --err: #f87171;
+  --err-dim: rgba(248,113,113,0.13);
+  --info: #6cb6ff;
+  --idle: #5d6675;
+
+  --sans: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --sidebar-w: 216px;
+  --cmd-h: 38px;
+  --radius: 6px;
+  --radius-sm: 4px;
   color-scheme: dark;
-  --bg: #0b0e11;
-  --surface: #11151a;
-  --surface-2: #161b21;
-  --surface-3: #1b2128;
-  --line: #29313a;
-  --line-strong: #3a4550;
-  --text: #d8dee5;
-  --muted: #87919c;
-  --faint: #59636d;
-  --cyan: #58c4d8;
-  --green: #63c58b;
-  --amber: #d9a84e;
-  --red: #e06c75;
-  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-* { box-sizing: border-box; }
-html, body { min-height: 100%; }
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
 body {
-  margin: 0;
-  background: var(--bg);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--text);
-  font: 13px/1.45 var(--sans);
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-button, input, select, textarea { color: inherit; font: inherit; }
-button, select { cursor: pointer; }
-button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity: .55; }
-a { color: var(--cyan); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+::selection { background: var(--accent-dim); }
+
 /* Keep focused controls clear of host/topbar chrome (IDE browser overlays). */
 a, button, input, select, textarea, [role="switch"], [tabindex] {
   scroll-margin-top: 64px;
 }
-:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-::selection { background: var(--cyan); color: #071013; }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
 .skip-link:focus {
-  position: fixed; z-index: 100; top: 8px; left: 8px; width: auto; height: auto;
-  padding: 8px 12px; clip: auto; background: var(--text); color: var(--bg);
+  position: fixed; left: 12px; top: 8px; z-index: 999;
+  width: auto; height: auto; padding: 8px 12px; clip: auto; overflow: visible;
+  background: var(--elevated); color: var(--text); border: 1px solid var(--border-strong);
+  text-decoration: none; border-radius: var(--radius-sm);
 }
-[hidden], .hidden { display: none !important; }
-.mono { font-family: var(--mono); }
-.num { font-variant-numeric: tabular-nums; text-align: right; }
-.muted { color: var(--muted); }
-.danger { color: var(--red); }
 
-.topbar {
-  position: sticky; z-index: 20; top: 0;
-  /* border-box: include inset in min-height so content stays ~50px and matches .nav offset */
-  min-height: calc(50px + env(safe-area-inset-top, 0px));
-  /* safe-area top padding only — do not mirror onto bottom via 2-value shorthand */
-  padding: 0 18px;
-  padding-top: env(safe-area-inset-top, 0px);
-  display: flex; align-items: center; justify-content: space-between; gap: 20px;
-  background: var(--surface); border-bottom: 1px solid var(--line);
-}
-.brand { display: flex; align-items: center; gap: 10px; font: 600 13px var(--mono); letter-spacing: .08em; }
-.brand-mark { width: 9px; height: 9px; background: var(--cyan); }
-.brand small { color: var(--faint); font-weight: 400; letter-spacing: 0; }
-.top-status { display: flex; align-items: center; gap: 14px; color: var(--muted); font: 11px var(--mono); }
-.status-item { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-.dot.ok { background: var(--green); }
-.dot.warn { background: var(--amber); }
-.dot.bad { background: var(--red); }
-
-.nav {
-  position: sticky; z-index: 19; top: calc(50px + env(safe-area-inset-top, 0px)); display: flex; align-items: stretch;
-  padding: 0 18px; overflow-x: auto; background: var(--surface); border-bottom: 1px solid var(--line);
-}
-.nav button {
-  min-width: 104px; padding: 11px 14px; border: 0; border-bottom: 2px solid transparent;
-  background: transparent; color: var(--muted); text-align: left; font: 12px var(--mono);
-}
-.nav button:hover { color: var(--text); background: var(--surface-2); }
-.nav button[aria-selected="true"] { color: var(--cyan); border-bottom-color: var(--cyan); }
-.nav-key { float: right; color: var(--faint); font-size: 10px; }
-
-#app { min-height: calc(100vh - 92px); padding-bottom: 45px; }
-.view { max-width: 1600px; margin: 0 auto; padding: 20px 22px 28px; }
-.view-header {
-  min-height: 45px; margin-bottom: 14px; display: flex; align-items: flex-start;
-  justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line);
-}
-.view-header h1 { margin: 0; font-size: 16px; font-weight: 600; }
-.view-header p { margin: 3px 0 11px; color: var(--muted); font-size: 12px; }
-.view-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-
-.panel { min-width: 0; background: var(--surface); border: 1px solid var(--line); }
-.panel-head {
-  min-height: 39px; padding: 9px 12px; display: flex; align-items: center;
-  justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line);
-}
-.panel-head h2 { margin: 0; font: 600 11px var(--mono); letter-spacing: .05em; }
-.panel-body { padding: 13px; }
-.section-note { color: var(--muted); font-size: 11px; }
-
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); }
-.metric { min-height: 92px; padding: 13px 15px; background: var(--surface); border-right: 1px solid var(--line); }
-.metric:last-child { border-right: 0; }
-.metric-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .06em; }
-.metric-value { margin-top: 8px; font: 500 28px/1 var(--mono); font-variant-numeric: tabular-nums; }
-.metric-meta { margin-top: 9px; color: var(--faint); font: 10px var(--mono); }
-.dashboard-grid { display: grid; grid-template-columns: minmax(540px, 1.6fr) minmax(320px, .8fr); gap: 12px; margin-top: 12px; }
-.stack { display: grid; align-content: start; gap: 12px; }
-
-.table-wrap { overflow: auto; }
-table { width: 100%; border-collapse: collapse; white-space: nowrap; }
-th, td { height: 37px; padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; }
-th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--muted); font: 10px var(--mono); letter-spacing: .04em; }
-tbody tr:last-child td { border-bottom: 0; }
-tbody tr:hover td { background: var(--surface-2); }
-.empty { padding: 26px !important; color: var(--muted); text-align: center !important; white-space: normal; }
-.view-empty-link {
-  display: inline-block; margin-top: 10px; padding: 4px 0;
-  background: none; border: 0; cursor: pointer;
-  font: 11px var(--mono); color: var(--cyan); text-decoration: underline;
-}
-.view-empty-link:hover { color: var(--text); }
-
-.badge {
-  display: inline-flex; align-items: center; gap: 5px; min-height: 20px; padding: 2px 6px;
-  border: 1px solid var(--line-strong); color: var(--muted); font: 10px var(--mono); white-space: nowrap;
-}
-.badge.ok { color: var(--green); border-color: #315a43; }
-.badge.warn { color: var(--amber); border-color: #614d2b; }
-.badge.bad { color: var(--red); border-color: #66363b; }
-.badge.info { color: var(--cyan); border-color: #315a62; }
-
-.btn {
-  min-height: 31px; padding: 5px 10px; border: 1px solid var(--line-strong);
-  background: var(--surface-2); color: var(--text); font: 11px var(--mono);
-}
-.btn:hover { border-color: var(--muted); background: var(--surface-3); }
-.btn-primary { border-color: #3b707a; color: var(--cyan); }
-.btn-danger { border-color: #66363b; color: var(--red); }
-.btn-small { min-height: 26px; padding: 3px 8px; font-size: 10px; }
-
-.field { display: grid; gap: 5px; }
-.field label, .field-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .04em; }
-.input, select, textarea {
-  width: 100%; min-height: 34px; padding: 7px 9px; border: 1px solid var(--line-strong);
-  border-radius: 0; background: #0d1115;
-}
-.input::placeholder, textarea::placeholder { color: var(--faint); }
-textarea { resize: vertical; }
-.filters { display: grid; grid-template-columns: minmax(220px, 1fr) 180px 160px; gap: 8px; }
-
-.tunnel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
-.tunnel { padding: 12px; background: var(--surface); }
-.tunnel-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tunnel-meta { margin: 9px 0 0; color: var(--muted); font: 10px var(--mono); overflow-wrap: anywhere; }
-#constellation-canvas { display: block; width: 100%; height: 220px; background: #0d1115; }
-
-.feed { height: 220px; overflow: auto; padding: 4px 10px; background: #0d1115; font: 10px/1.6 var(--mono); }
-.feed-row { display: grid; grid-template-columns: 64px 92px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid #1e252c; }
-.feed-row .ok { color: var(--green); }
-.feed-row .bad { color: var(--red); }
-.feed-row .warn { color: var(--amber); }
-
-.catalog-grid { margin-top: 10px; border: 1px solid var(--line); }
-.server-row {
-  display: grid; grid-template-columns: minmax(190px, 1fr) minmax(260px, 2fr) 110px 100px 120px;
-  align-items: center; gap: 10px; min-height: 58px; padding: 8px 10px;
-  border-bottom: 1px solid var(--line); background: var(--surface);
-}
-.server-row:last-child { border-bottom: 0; }
-.server-row:hover { background: var(--surface-2); }
-.server-name { font: 600 12px var(--mono); color: var(--text); }
-.server-desc { color: var(--muted); font-size: 11px; }
-.server-actions { display: flex; justify-content: flex-end; gap: 6px; }
-.switch {
-  position: relative; width: 34px; height: 18px; padding: 0; border: 1px solid var(--line-strong); background: var(--surface-3);
-}
-.switch::after { content: ""; position: absolute; width: 10px; height: 10px; top: 3px; left: 4px; background: var(--muted); }
-.switch[aria-checked="true"] { border-color: #315a43; }
-.switch[aria-checked="true"]::after { left: 18px; background: var(--green); }
-.switch.pending::after { background: var(--amber); }
-
-.eval-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-bottom: 12px; background: var(--line); border: 1px solid var(--line); }
-.eval-stat { padding: 12px; background: var(--surface); }
-.eval-stat strong { display: block; margin-top: 5px; font: 19px var(--mono); }
-
-.deploy-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 480px; }
-.deploy-tabs { border-right: 1px solid var(--line); }
-.deploy-tab {
-  width: 100%; padding: 11px 12px; border: 0; border-bottom: 1px solid var(--line);
-  background: transparent; color: var(--muted); text-align: left;
-}
-.deploy-tab:hover { background: var(--surface-2); color: var(--text); }
-.deploy-tab.active { box-shadow: inset 2px 0 var(--cyan); color: var(--cyan); background: var(--surface-2); }
-.deploy-tab small { display: block; margin-top: 3px; color: var(--faint); }
-.code-area { min-width: 0; display: flex; flex-direction: column; }
-.code-toolbar { height: 42px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
-pre { flex: 1; margin: 0; padding: 15px; overflow: auto; background: #0d1115; color: #bdc6cf; font: 11px/1.6 var(--mono); tab-size: 2; }
-
-.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
-.field-wide { grid-column: 1 / -1; }
-.callout { padding: 10px 12px; border-left: 2px solid var(--amber); background: #17150f; color: #b9aa8a; font-size: 11px; }
-
-.drawer {
-  position: fixed; z-index: 50; inset: 0 0 0 auto; width: min(480px, 100%);
-  background: var(--surface); border-left: 1px solid var(--line-strong); overflow: auto;
-}
-.drawer-head {
-  position: sticky; top: 0; z-index: 1; padding: 14px 16px; display: flex;
-  align-items: center; justify-content: space-between; background: var(--surface); border-bottom: 1px solid var(--line);
-}
-.drawer-body { padding: 16px; display: grid; gap: 16px; }
-.detail-list { margin: 0; display: grid; grid-template-columns: 120px 1fr; border-top: 1px solid var(--line); }
-.detail-list dt, .detail-list dd { margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
-.detail-list dt { color: var(--muted); font: 10px var(--mono); }
-.credential-fields { display: grid; gap: 10px; }
-
-.overlay { position: fixed; z-index: 70; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.72); }
-.dialog { width: min(440px, 100%); background: var(--surface); border: 1px solid var(--line-strong); }
-.dialog h2 { margin: 0; padding: 13px 15px; border-bottom: 1px solid var(--line); font-size: 13px; }
-.dialog-body { padding: 15px; color: var(--muted); }
-.dialog-actions { padding: 10px 15px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
-
-.command-bar {
-  position: fixed; z-index: 30; bottom: 0; left: 0; right: 0; height: 40px;
-  padding: 0 18px; display: flex; align-items: center; gap: 10px;
-  background: var(--surface); border-top: 1px solid var(--line-strong);
-}
-.command-bar span { color: var(--cyan); font: 12px var(--mono); }
-#cmd-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 11px var(--mono); }
-#telegraph { color: var(--muted); font: 10px var(--mono); white-space: nowrap; }
-.toast {
-  position: fixed; z-index: 90; right: 16px; bottom: 54px; max-width: 380px;
-  padding: 9px 12px; background: var(--surface-3); border: 1px solid var(--line-strong); font: 11px var(--mono);
-}
-.toast.ok { border-color: #315a43; color: var(--green); }
-.toast.bad { border-color: #66363b; color: var(--red); }
-
-@media (max-width: 960px) {
-  .metrics, .eval-summary { grid-template-columns: 1fr 1fr; }
-  .metric:nth-child(2) { border-right: 0; }
-  .metric:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
-  .dashboard-grid, .settings-grid { grid-template-columns: 1fr; }
-  .server-row { grid-template-columns: 1fr auto; }
-  .server-row .server-desc { grid-column: 1 / -1; }
-  .server-row .server-transport, .server-row .server-state { display: none; }
-}
-@media (max-width: 650px) {
-  .topbar {
-    padding: 0 12px;
-    padding-top: env(safe-area-inset-top, 0px);
+@media (prefers-reduced-motion: no-preference) {
+  .interactive {
+    transition: background-color 120ms ease, border-color 120ms ease,
+                color 120ms ease, transform 80ms ease, opacity 120ms ease;
   }
-  .brand small, .top-status .status-item:first-child { display: none; }
-  .nav { padding: 0; }
-  .nav button { min-width: 88px; padding-inline: 10px; }
-  .nav-key { display: none; }
-  .view { padding: 14px 10px 24px; }
-  .view-header { display: block; }
-  .view-actions { margin-bottom: 10px; }
-  .filters, .form-grid { grid-template-columns: 1fr; }
-  .field-wide { grid-column: auto; }
-  .tunnel-grid { grid-template-columns: 1fr; }
-  .deploy-layout { grid-template-columns: 1fr; }
-  .deploy-tabs { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-  .deploy-tab { min-width: 150px; border-right: 1px solid var(--line); }
-  .deploy-tab.active { box-shadow: inset 0 -2px var(--cyan); }
-  #telegraph { display: none; }
+  .interactive:active { transform: scale(0.985); }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+#boot { display: none; }
+
+/* ── App shell ──────────────────────────────────────────────── */
+#app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  min-height: 0;
+}
+.sidebar-brand {
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.brand-row { display: flex; align-items: center; gap: 9px; }
+.brand-mark {
+  width: 22px; height: 22px; flex-shrink: 0;
+  border-radius: 6px;
+  background: linear-gradient(150deg, var(--accent), #119e8c);
+  position: relative;
+  box-shadow: 0 0 0 1px rgba(45,212,191,0.25), 0 4px 10px rgba(45,212,191,0.18);
+}
+.brand-mark::after {
+  content: ""; position: absolute; inset: 6px;
+  border-radius: 2px;
+  border: 1.5px solid rgba(11,13,16,0.85);
+  border-right-color: transparent; border-bottom-color: transparent;
+}
+.brand-name {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.brand-meta {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  gap: 2px;
+  flex: 1;
+}
+.nav-section {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 12px 10px 5px;
+}
+.tab {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 8px 10px;
+  border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted);
+  font-family: var(--sans); font-size: 13px; font-weight: 500;
+  text-align: left; cursor: pointer;
+  position: relative;
+}
+.tab:hover { background: var(--surface-2); color: var(--text); }
+.tab.active { background: var(--surface-2); color: var(--text); }
+.tab.active::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 2px; border-radius: 2px; background: var(--accent);
+}
+.tab-icon { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.85; }
+.tab.active .tab-icon { opacity: 1; color: var(--accent); }
+.tab-label { flex: 1; }
+.tab-kbd {
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; line-height: 16px;
+}
+
+.sidebar-foot {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.auth-badge {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+}
+.auth-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+.foot-hint {
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+  display: flex; align-items: center; gap: 6px;
+}
+.foot-hint kbd {
+  font-family: var(--mono); font-size: 9.5px;
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; color: var(--text-muted);
+}
+
+/* ── Workspace ──────────────────────────────────────────────── */
+.workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.page-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 11px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.page-title {
+  font-family: var(--sans); font-size: 14px; font-weight: 600;
+  color: var(--text); letter-spacing: -0.01em;
+}
+.toolbar-right { display: flex; align-items: center; gap: 12px; }
+.profile-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+.pill {
+  font-family: var(--mono); font-size: 11px;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-muted);
+  cursor: pointer; user-select: none; background: transparent;
+}
+.pill:hover { color: var(--text); border-color: var(--border-strong); }
+.pill.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent-line); }
+.palette-trigger {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--sans); font-size: 12px; color: var(--text-muted);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 5px 9px; cursor: pointer;
+}
+.palette-trigger:hover { border-color: var(--border-strong); color: var(--text); }
+.palette-trigger kbd {
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 4px;
+}
+
+.page-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+.view { display: none; flex: 1; min-height: 0; overflow: hidden; }
+.view.active { display: flex; flex-direction: column; }
+.view-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 0;
+}
+.view-title { font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--text); }
+.view-scroll {
+  flex: 1; overflow-y: auto; min-height: 0;
+  scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+.view-empty {
+  padding: 40px 18px; text-align: center;
+  font-family: var(--mono); font-size: 12px; color: var(--text-muted);
+}
+
+/* ── Overview ───────────────────────────────────────────────── */
+#view-dashboard { padding: 14px 18px 0; gap: 14px; }
+
+.exc-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.exc-item {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--text-muted);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 999px; padding: 5px 12px; cursor: pointer;
+}
+.exc-item:hover { border-color: var(--border-strong); color: var(--text); }
+.exc-item.active { border-color: var(--accent-line); color: var(--text); background: var(--surface-2); }
+.exc-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); }
+.exc-item.ok .dot { background: var(--ok); }
+.exc-item.warn .dot { background: var(--warn); }
+.exc-item.err .dot { background: var(--err); }
+.exc-item .n { color: var(--text); font-weight: 600; }
+.exc-spacer { flex: 1; }
+.live-indicator {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+}
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--ok); position: relative;
+}
+.live-dot.stale { background: var(--idle); }
+.live-dot::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  border: 1px solid var(--ok); opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .live-dot:not(.stale)::after { animation: pulse 2.4s ease-out infinite; }
+}
+@keyframes pulse {
+  0% { transform: scale(0.7); opacity: 0.7; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 15px 11px;
+  display: flex; flex-direction: column; gap: 4px;
+  min-height: 96px;
+}
+.kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kpi-label {
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+.kpi-value {
+  font-family: var(--mono); font-size: 27px; font-weight: 600; color: var(--text);
+  letter-spacing: -0.02em; line-height: 1.1;
+}
+.kpi-value.warn { color: var(--warn); }
+.kpi-value.err { color: var(--err); }
+.kpi-value .unit { font-size: 14px; color: var(--text-muted); font-weight: 500; }
+.kpi-sub { font-family: var(--mono); font-size: 10.5px; color: var(--text-muted); }
+.kpi-spark { width: 100%; height: 30px; margin-top: auto; display: block; }
+.trend {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  padding: 1px 6px; border-radius: 999px;
+}
+.trend:empty { display: none; }
+.trend.pos { color: var(--ok); background: var(--ok-dim); }
+.trend.neg { color: var(--err); background: var(--err-dim); }
+.trend.flat { color: var(--text-faint); background: rgba(125,133,150,0.1); }
+
+.spark-line { fill: none; stroke-width: 1.6; }
+.spark-area { stroke: none; }
+.spark-dot { r: 2.4; }
+
+.dash-cols {
+  flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 11px 14px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.panel-title {
+  font-family: var(--sans); font-size: 12px; font-weight: 600;
+  color: var(--text); display: flex; align-items: center; gap: 8px;
+}
+.panel-meta { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.panel-actions { display: flex; align-items: center; gap: 6px; }
+.mini-btn {
+  font-family: var(--mono); font-size: 10.5px;
+  padding: 3px 8px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+  cursor: pointer;
+}
+.mini-btn:hover { border-color: var(--border-strong); color: var(--text); }
+.mini-btn.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-dim); }
+
+.server-map { flex: 1; overflow: auto; min-height: 0; }
+.route-table { width: 100%; border-collapse: collapse; }
+.route-table th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface);
+  text-align: left; padding: 8px 14px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+}
+.route-table td {
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.route-table tbody tr { cursor: pointer; }
+.route-table tbody tr:hover td { background: var(--surface-2); }
+.route-table tbody tr.sel td { background: var(--accent-dim); }
+.route-table tbody tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.route-name { font-family: var(--mono); font-weight: 500; color: var(--text); }
+
+.status-chip { display: inline-flex; align-items: center; gap: 7px; }
+.status-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--idle); flex-shrink: 0;
+}
+.status-dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-dim); }
+.status-dot.warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-dim); }
+.status-dot.err { background: var(--err); box-shadow: 0 0 0 3px var(--err-dim); }
+.status-dot.off { background: var(--idle); }
+.status-dot.info { background: var(--info); box-shadow: 0 0 0 3px rgba(108,182,255,0.13); }
+.status-label { font-family: var(--mono); font-size: 11.5px; color: var(--text-muted); }
+
+/* Activity log */
+.log-panel .panel-head { gap: 8px; }
+.latency-wrap { padding: 8px 12px 6px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.latency-cap {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--mono); font-size: 9.5px; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px;
+}
+#latency-strip { width: 100%; height: 32px; display: block; }
+.telemetry-stream {
+  flex: 1; overflow-y: auto; padding: 6px 8px; min-height: 0;
+  font-family: var(--mono); font-size: 11px;
+}
+.telemetry-stream.errors-only .tlm-row:not(.is-err) { display: none; }
+.tlm-empty { padding: 24px 10px; text-align: center; color: var(--text-faint); }
+.tlm-row {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+  white-space: nowrap; border-radius: var(--radius-sm);
+}
+.tlm-row.faded { opacity: 0.5; }
+.tlm-row:hover { background: var(--surface-2); }
+.tlm-row.new { animation: tlm-in 220ms ease-out; }
+@keyframes tlm-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+.tlm-time { color: var(--text-faint); flex-shrink: 0; }
+.tlm-icon { width: 12px; flex-shrink: 0; text-align: center; }
+.tlm-icon.ok { color: var(--ok); }
+.tlm-icon.err { color: var(--err); }
+.tlm-name { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.tlm-count {
+  font-size: 9.5px; color: var(--accent); background: var(--accent-dim);
+  border-radius: 999px; padding: 0 5px; flex-shrink: 0;
+}
+.tlm-count:empty { display: none; }
+.tlm-ms { margin-left: auto; flex-shrink: 0; }
+.lat-pill {
+  font-family: var(--mono); font-size: 10px;
+  padding: 1px 6px; border-radius: 3px; border: 1px solid transparent;
+}
+.lat-pill.fast { color: var(--ok); border-color: var(--ok-dim); background: var(--ok-dim); }
+.lat-pill.mid { color: var(--warn); border-color: var(--warn-dim); background: var(--warn-dim); }
+.lat-pill.slow { color: var(--err); border-color: var(--err-dim); background: var(--err-dim); }
+
+.tunnel-bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 11px 14px; margin-bottom: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tunnel-bar .panel-title { margin-right: 4px; }
+.tunnel-item { display: flex; align-items: center; gap: 9px; }
+.tunnel-name { font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+.btn-tunnel {
+  font-family: var(--mono); font-size: 11px;
+  padding: 4px 11px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-muted); cursor: pointer;
+}
+.btn-tunnel:hover { border-color: var(--border-strong); color: var(--text); }
+.btn-tunnel.active { border-color: var(--ok); color: var(--ok); background: var(--ok-dim); }
+
+/* ── Catalog ────────────────────────────────────────────────── */
+.catalog-toolbar { padding: 14px 18px 4px; display: flex; flex-direction: column; gap: 10px; }
+#catalog-search {
+  max-width: 380px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.facet-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.facet {
+  font-family: var(--mono); font-size: 11px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-muted); cursor: pointer;
+}
+.facet:hover { color: var(--text); border-color: var(--border-strong); }
+.facet.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-dim); }
+.server-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px; padding: 12px 18px 18px;
+}
+.server-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 15px; cursor: pointer;
+}
+.server-card:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.server-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.server-card-name { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text); }
+.server-card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; min-height: 36px; }
+
+.server-card-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 10px; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+}
+.cost-dots { display: inline-flex; gap: 3px; align-items: center; }
+.cost-dots i {
+  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--border-strong);
+}
+.cost-dots i.on { background: var(--accent); }
+.route-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+.route-cost { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+
+.toggle-switch {
+  width: 36px; height: 20px; border-radius: 999px;
+  background: var(--border-strong); position: relative; cursor: pointer; flex-shrink: 0;
+}
+.toggle-switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%; background: var(--text-faint);
+  transition: left 140ms ease, background 140ms ease;
+}
+.toggle-switch.on { background: var(--ok); }
+.toggle-switch.on::after { left: 18px; background: #fff; }
+.toggle-switch.pending { background: var(--warn); }
+.toggle-switch.pending::after { left: 18px; background: #fff; }
+
+.badges { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 9px; }
+.badge {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-muted);
+  text-transform: lowercase;
+}
+.badge.stdio { border-color: var(--ok-dim); color: var(--ok); }
+.badge.sse, .badge.http { border-color: var(--accent-line); color: var(--accent); }
+.badge.native { border-color: var(--accent-line); color: var(--accent); }
+.badge.high { border-color: var(--err-dim); color: var(--err); }
+.badge.medium { border-color: var(--warn-dim); color: var(--warn); }
+.badge.low { border-color: var(--ok-dim); color: var(--ok); }
+
+/* ── Evals ──────────────────────────────────────────────────── */
+.eval-summary {
+  display: flex; gap: 12px; padding: 14px 18px; flex-wrap: wrap;
+}
+.eval-stat {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 16px; min-width: 110px;
+}
+.eval-stat .big-num { font-family: var(--mono); font-size: 22px; font-weight: 600; color: var(--text); display: block; letter-spacing: -0.02em; }
+.eval-stat .lbl { font-family: var(--mono); font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+.eval-table { width: 100%; border-collapse: collapse; }
+.eval-table th {
+  text-align: left; padding: 9px 18px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--bg);
+}
+.eval-table td {
+  padding: 10px 18px; border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px;
+}
+.eval-table tr:hover td { background: var(--surface); }
+.hbar { display: inline-flex; align-items: center; gap: 8px; }
+.hbar-track {
+  width: 64px; height: 6px; border-radius: 3px;
+  background: var(--border-strong); overflow: hidden;
+}
+.hbar-fill { display: block; height: 100%; border-radius: 3px; }
+.hbar-label { color: var(--text-muted); min-width: 34px; }
+
+/* ── Deploy ─────────────────────────────────────────────────── */
+.code-tabs { display: flex; gap: 5px; padding: 14px 18px 0; flex-wrap: wrap; }
+.code-tab {
+  font-family: var(--mono); font-size: 11px;
+  padding: 6px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-muted); cursor: pointer;
+}
+.code-tab:hover { color: var(--text); }
+.code-tab.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-dim); }
+.code-preview { padding: 14px 18px 18px; }
+.code-desc { font-family: var(--mono); font-size: 12px; color: var(--text-muted); margin-bottom: 9px; }
+.code-wrap { position: relative; }
+.code-block {
+  margin: 0; padding: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+  overflow: auto; max-height: 60vh; white-space: pre;
+}
+.code-copy {
+  position: absolute; top: 9px; right: 9px;
+  font-family: var(--mono); font-size: 10px;
+  padding: 5px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--elevated); color: var(--text-muted); cursor: pointer;
+}
+.code-copy:hover { color: var(--text); border-color: var(--border-strong); }
+
+/* ── Settings ───────────────────────────────────────────────── */
+.settings-form { padding: 18px; max-width: 520px; }
+.form-field { margin-bottom: 18px; }
+.form-label {
+  display: block; margin-bottom: 7px;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.form-input, .form-select {
+  width: 100%; padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text);
+  font-family: var(--mono); font-size: 13px;
+}
+.form-input:focus, .form-select:focus { border-color: var(--accent-line); outline: none; }
+.btn-save {
+  font-family: var(--sans); font-size: 13px; font-weight: 600;
+  padding: 9px 16px; border-radius: var(--radius-sm);
+  border: 1px solid var(--cta); background: var(--cta); color: var(--cta-text);
+  cursor: pointer;
+}
+.btn-save:hover { opacity: 0.9; }
+
+/* ── Command bar ────────────────────────────────────────────── */
+.command-bar {
+  height: var(--cmd-h); min-height: var(--cmd-h);
+  display: flex; align-items: center; gap: 9px;
+  padding: 0 14px; border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.cmd-prompt { font-family: var(--mono); color: var(--accent); }
+#cmd-input {
+  flex: 1; border: none; background: transparent; outline: none;
+  font-family: var(--mono); font-size: 12px; color: var(--text);
+}
+#cmd-input::placeholder { color: var(--text-faint); }
+.cmd-hint {
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+  padding: 2px 6px; border: 1px solid var(--border); border-radius: 3px;
+}
+
+/* ── Command palette ────────────────────────────────────────── */
+.palette-overlay {
+  position: fixed; inset: 0; z-index: 140;
+  display: none; align-items: flex-start; justify-content: center;
+  background: rgba(6,7,9,0.6); padding: 12vh 20px 20px;
+  backdrop-filter: blur(2px);
+}
+.palette-overlay.show { display: flex; }
+.palette {
+  width: min(560px, 96vw);
+  background: var(--elevated); border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.4);
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .palette-overlay.show .palette { animation: pop 160ms cubic-bezier(0.175,0.885,0.32,1.1); }
+}
+@keyframes pop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+.palette-input {
+  width: 100%; padding: 15px 16px;
+  border: none; border-bottom: 1px solid var(--border);
+  background: transparent; color: var(--text);
+  font-family: var(--sans); font-size: 15px; outline: none;
+}
+.palette-input::placeholder { color: var(--text-faint); }
+.palette-results { max-height: 340px; overflow-y: auto; padding: 6px; }
+.palette-group {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.07em;
+  padding: 8px 10px 4px;
+}
+.palette-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.palette-item.sel { background: var(--accent-dim); }
+.palette-item.sel .pi-label { color: var(--accent); }
+.pi-label { flex: 1; font-size: 13px; color: var(--text); }
+.pi-hint { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.palette-empty { padding: 22px 12px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--text-faint); }
+.palette-foot {
+  display: flex; gap: 16px; padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+}
+.palette-foot kbd {
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-right: 3px; color: var(--text-muted);
+}
+
+/* ── Detail drawer ──────────────────────────────────────────── */
+.detail-panel {
+  position: fixed; top: 0; right: 0; bottom: var(--cmd-h);
+  width: 380px; z-index: 50;
+  background: var(--surface);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -12px 0 32px rgba(0,0,0,0.35);
+  transform: translateX(100%);
+  transition: transform 180ms cubic-bezier(0.175,0.885,0.32,1.05);
+  display: flex; flex-direction: column; overflow-y: auto;
+}
+.detail-panel.open { transform: translateX(0); }
+.detail-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 18px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--surface); z-index: 1;
+}
+.detail-name { font-family: var(--mono); font-size: 16px; font-weight: 600; color: var(--text); }
+.detail-close {
+  width: 28px; height: 28px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--text-muted); font-size: 18px;
+}
+.detail-close:hover { color: var(--text); border-color: var(--border-strong); }
+.detail-section { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.detail-label {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 7px;
+}
+.detail-value { font-family: var(--mono); font-size: 12px; word-break: break-all; color: var(--text); }
+.detail-link { color: var(--accent); font-family: var(--mono); font-size: 12px; }
+.detail-status { font-family: var(--mono); font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.detail-status.ready { color: var(--ok); }
+.detail-status.needs { color: var(--warn); }
+.detail-status.off { color: var(--text-faint); }
+.detail-actions { padding: 16px 18px; display: flex; gap: 9px; }
+.btn-action {
+  flex: 1; padding: 9px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: transparent;
+  font-family: var(--mono); font-size: 11.5px; cursor: pointer; color: var(--text);
+}
+.btn-action:hover { border-color: var(--border-strong); }
+.btn-action.primary { border-color: var(--ok); color: var(--ok); }
+.btn-action.danger { border-color: var(--err); color: var(--err); }
+
+/* ── Modal ──────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 130;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(6,7,9,0.72); padding: 20px;
+}
+.modal-overlay.show { display: flex; }
+.modal-card {
+  width: min(460px, 96vw);
+  background: var(--elevated); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  padding: 22px; box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.modal-title { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+.modal-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 16px; }
+.modal-actions { display: flex; gap: 9px; margin-top: 10px; }
+.modal-actions .btn-action { flex: 1; text-transform: none; }
+.modal-actions .btn-action#cred-provider { flex: 0 0 auto; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+
+/* ── Auth gate ──────────────────────────────────────────────── */
+#auth-gate {
+  position: fixed; inset: 0; z-index: 120;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(6,7,9,0.92); padding: 20px;
+}
+#auth-gate.show { display: flex; }
+.auth-card {
+  width: min(420px, 92vw);
+  background: var(--elevated); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  padding: 28px;
+}
+.auth-card h2 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+.auth-card p { color: var(--text-muted); font-size: 13px; margin-bottom: 18px; }
+.auth-card input {
+  width: 100%; padding: 9px 11px; margin-bottom: 13px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); font-family: var(--mono); font-size: 13px;
+}
+.auth-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+
+/* ── Toast ──────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed; bottom: calc(var(--cmd-h) + 12px); left: 50%;
+  transform: translateX(-50%); z-index: 200;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.toast {
+  font-family: var(--mono); font-size: 12px;
+  padding: 9px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--elevated); color: var(--text);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .toast { animation: pop 150ms ease-out; }
+}
+.toast.success { border-color: var(--ok); }
+.toast.error { border-color: var(--err); }
+
+.big-num { font-family: var(--mono); font-weight: 600; }
+.big-sub { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+
+@media (max-width: 1080px) {
+  .dash-cols { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 820px) {
+  #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  .sidebar-nav { flex-direction: row; overflow-x: auto; }
+  .nav-section { display: none; }
+  .profile-pills, .palette-trigger { display: none; }
+  .detail-panel { width: 100%; }
+  .kpi-grid { grid-template-columns: 1fr; }
 }
 """
 
+
 _HTML_SHELL_TOP = r"""
-<a class="sr-only skip-link" href="#app">Skip to main content</a>
-<header class="topbar">
-  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>KATER <small>Control plane</small></div>
-  <div class="top-status">
-    <span class="status-item"><span id="api-dot" class="dot"></span><span id="api-status">API checking</span></span>
-    <span class="status-item"><span id="ws-dot" class="dot"></span><span id="ws-status">Live feed offline</span></span>
+<div id="boot"></div>
+<a href="#main-content" class="sr-only skip-link">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="grad-teal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="grad-ok" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3ddc97" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#3ddc97" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="grad-warn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8b84a" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#e8b84a" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div id="auth-gate">
+  <div class="auth-card">
+    <h2>Sign in</h2>
+    <p>This gateway requires authentication before you can manage servers.</p>
+    <label for="auth-key-input" class="sr-only">API key</label>
+    <input type="password" id="auth-key-input" placeholder="API key" autocomplete="off">
+    <div class="auth-actions">
+      <button class="btn-save" id="auth-oauth-btn" type="button">OAuth</button>
+      <button class="btn-save" id="auth-key-btn" type="button">Use API key</button>
+    </div>
   </div>
-</header>
-<nav class="nav" role="tablist" aria-label="Dashboard views">
-  <button id="tab-dashboard" role="tab" aria-selected="true" aria-controls="view-dashboard" tabindex="0" data-view="dashboard">Overview <span class="nav-key">1</span></button>
-  <button id="tab-catalog" role="tab" aria-selected="false" aria-controls="view-catalog" tabindex="-1" data-view="catalog">Catalog <span class="nav-key">2</span></button>
-  <button id="tab-evals" role="tab" aria-selected="false" aria-controls="view-evals" tabindex="-1" data-view="evals">Evals <span class="nav-key">3</span></button>
-  <button id="tab-deploy" role="tab" aria-selected="false" aria-controls="view-deploy" tabindex="-1" data-view="deploy">Deploy <span class="nav-key">4</span></button>
-  <button id="tab-settings" role="tab" aria-selected="false" aria-controls="view-settings" tabindex="-1" data-view="settings">Settings <span class="nav-key">5</span></button>
-</nav>
-<main id="app">
+</div>
+
+<div id="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-row">
+        <div class="brand-mark"></div>
+        <div class="brand-name">Kater</div>
+      </div>
+      <div class="brand-meta">MCP gateway · <span id="version-tag">v0.0.0</span></div>
+    </div>
+    <nav class="sidebar-nav" aria-label="Views">
+      <div class="nav-section">Operate</div>
+      <button class="tab active interactive" data-view="dashboard" onclick="switchView('dashboard')">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>
+        <span class="tab-label">Overview</span> <span class="tab-kbd">1</span>
+      </button>
+      <button class="tab interactive" data-view="catalog" onclick="switchView('catalog')">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><rect x="1.5" y="6.7" width="13" height="3" rx="1"/><rect x="1.5" y="10.9" width="13" height="3" rx="1"/></svg>
+        <span class="tab-label">Servers</span> <span class="tab-kbd">2</span>
+      </button>
+      <button class="tab interactive" data-view="evals" onclick="switchView('evals')">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 14.5h13"/><path d="M3.5 11v3"/><path d="M7 7v7"/><path d="M10.5 9v5"/><path d="M14 4v10"/></svg>
+        <span class="tab-label">Performance</span> <span class="tab-kbd">3</span>
+      </button>
+      <div class="nav-section">Configure</div>
+      <button class="tab interactive" data-view="deploy" onclick="switchView('deploy')">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.5l6 3v7l-6 3-6-3v-7z"/><path d="M2 4.5l6 3 6-3"/><path d="M8 7.5v7"/></svg>
+        <span class="tab-label">Deploy</span> <span class="tab-kbd">4</span>
+      </button>
+      <button class="tab interactive" data-view="settings" onclick="switchView('settings')">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg>
+        <span class="tab-label">Settings</span> <span class="tab-kbd">5</span>
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="auth-badge">
+        <div class="auth-dot" id="auth-dot"></div>
+        <span id="auth-mode">none</span>
+      </div>
+      <div class="foot-hint"><kbd>&#8984;</kbd><kbd>K</kbd> command palette</div>
+    </div>
+  </aside>
+
+  <div class="workspace">
+    <header class="page-toolbar">
+      <span class="page-title" id="page-title">Overview</span>
+      <div class="toolbar-right">
+        <div class="profile-pills" id="profile-pills" role="group" aria-label="Profiles"></div>
+        <button class="palette-trigger interactive" type="button" onclick="openPalette()" aria-label="Open command palette">
+          <span>Search</span><kbd>&#8984;K</kbd>
+        </button>
+      </div>
+    </header>
+    <main class="page-body" id="main-content">
 """
 
 _VIEW_DASHBOARD = r"""
-<section class="view" id="view-dashboard" role="tabpanel" aria-labelledby="tab-dashboard" tabindex="0">
-  <header class="view-header">
-    <div><h1>Gateway overview</h1><p>Runtime health, backend state, and current traffic.</p></div>
-    <div class="view-actions"><button class="btn" type="button" data-refresh="dashboard">Refresh</button></div>
-  </header>
-  <h2 class="sr-only">Key metrics</h2>
-  <div class="metrics" aria-label="Gateway metrics">
-    <div class="metric"><div class="metric-label">Enabled servers</div><div id="metric-servers" class="metric-value">—</div><div id="metric-servers-meta" class="metric-meta">Waiting for status</div></div>
-    <div class="metric"><div class="metric-label">Tool calls</div><div id="metric-calls" class="metric-value">—</div><div class="metric-meta">Recorded events</div></div>
-    <div class="metric"><div class="metric-label">Success rate</div><div id="metric-success" class="metric-value">—</div><div class="metric-meta">Across tool calls</div></div>
-    <div class="metric"><div class="metric-label">Errors</div><div id="metric-errors" class="metric-value">—</div><div id="metric-profile" class="metric-meta">Profile —</div></div>
-  </div>
-  <div class="dashboard-grid">
-    <div class="stack">
-      <section class="panel">
-        <div class="panel-head"><h2>Backend health</h2><span id="backend-summary" class="section-note">Loading</span></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Backend</th><th>Health</th><th>Configured</th><th class="num">Tools</th><th class="num">Latency</th><th>Breaker</th></tr></thead>
-          <tbody id="backend-body"><tr><td colspan="6" class="empty">Loading backend state…</td></tr></tbody>
-        </table></div>
+<div class="view active" id="view-dashboard">
+    <div class="exc-strip" id="exc-strip" role="group" aria-label="Server health summary">
+      <button class="exc-item active interactive" data-filter="all" type="button" aria-pressed="true">
+        <span class="dot"></span> all <span class="n" id="exc-all">0</span>
+      </button>
+      <button class="exc-item ok interactive" data-filter="ready" type="button" aria-pressed="false">
+        <span class="dot"></span> ready <span class="n" id="exc-ready">0</span>
+      </button>
+      <button class="exc-item warn interactive" data-filter="needs" type="button" aria-pressed="false">
+        <span class="dot"></span> need credentials <span class="n" id="exc-needs">0</span>
+      </button>
+      <button class="exc-item interactive" data-filter="disabled" type="button" aria-pressed="false">
+        <span class="dot"></span> disabled <span class="n" id="exc-disabled">0</span>
+      </button>
+      <div class="exc-spacer"></div>
+      <div class="live-indicator">
+        <span class="live-dot stale" id="live-dot"></span> <span id="live-label">connecting</span>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="kpi-top">
+          <span class="kpi-label">Success rate</span>
+          <span class="trend" id="trend-success"></span>
+        </div>
+        <div class="kpi-value tnum" id="stat-success">&mdash;</div>
+        <svg class="kpi-spark" id="spark-success" viewBox="0 0 120 30" preserveAspectRatio="none" aria-hidden="true">
+          <path class="spark-area" fill="url(#grad-ok)" d=""/>
+          <path class="spark-line" stroke="#3ddc97" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" d=""/>
+          <circle class="spark-dot" fill="#3ddc97" style="opacity:0" cx="0" cy="0"/>
+        </svg>
+      </div>
+      <div class="kpi">
+        <div class="kpi-top">
+          <span class="kpi-label">Live latency</span>
+          <span class="trend" id="trend-latency"></span>
+        </div>
+        <div class="kpi-value tnum" id="stat-latency">&mdash;<span class="unit"> ms</span></div>
+        <svg class="kpi-spark" id="spark-latency" viewBox="0 0 120 30" preserveAspectRatio="none" aria-hidden="true">
+          <path class="spark-area" fill="url(#grad-teal)" d=""/>
+          <path class="spark-line" stroke="#2dd4bf" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" d=""/>
+          <circle class="spark-dot" fill="#2dd4bf" style="opacity:0" cx="0" cy="0"/>
+        </svg>
+      </div>
+      <div class="kpi">
+        <div class="kpi-top"><span class="kpi-label">Servers enabled</span></div>
+        <div class="kpi-value tnum"><span id="stat-enabled">0</span><span class="unit"> / <span id="stat-tools">0</span></span></div>
+        <div class="kpi-sub" id="stat-servers-sub">routing coverage</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-top">
+          <span class="kpi-label">Events / poll</span>
+          <span class="trend" id="trend-events"></span>
+        </div>
+        <div class="kpi-value tnum" id="stat-events">&mdash;</div>
+        <div class="kpi-sub"><span id="stat-backends" class="tnum">0</span> tool calls · <span id="stat-events-total" class="tnum">0</span> events</div>
+        <svg class="kpi-spark" id="spark-events" viewBox="0 0 120 30" preserveAspectRatio="none" aria-hidden="true">
+          <path class="spark-area" fill="url(#grad-teal)" d=""/>
+          <path class="spark-line" stroke="#2dd4bf" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" d=""/>
+          <circle class="spark-dot" fill="#2dd4bf" style="opacity:0" cx="0" cy="0"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="dash-cols">
+      <section class="panel route-panel">
+        <div class="panel-head">
+          <span class="panel-title">Routing table</span>
+          <span class="panel-meta tnum" id="node-count">0 servers</span>
+        </div>
+        <div class="server-map" id="server-map"></div>
       </section>
-      <section class="panel">
-        <div class="panel-head"><h2>Recent calls</h2><span class="section-note">Newest first</span></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Time</th><th>Tool</th><th>Profile</th><th class="num">Duration</th><th>Result</th></tr></thead>
-          <tbody id="events-body"><tr><td colspan="5" class="empty">Loading recent calls…</td></tr></tbody>
-        </table></div>
+      <section class="panel log-panel">
+        <div class="panel-head">
+          <span class="panel-title">Activity</span>
+          <div class="panel-actions">
+            <button class="mini-btn interactive" id="btn-errors-only" type="button" onclick="toggleErrorsOnly()" aria-pressed="false">errors</button>
+            <button class="mini-btn interactive" id="btn-pause" type="button" onclick="toggleStreamPause()" aria-pressed="false">pause</button>
+            <button class="mini-btn interactive" id="btn-clear-stream" type="button" onclick="clearTelemetryStream()">clear</button>
+          </div>
+        </div>
+        <div class="latency-wrap">
+          <div class="latency-cap"><span>latency</span><span class="tnum" id="latency-now">&mdash;</span></div>
+          <canvas id="latency-strip" height="32"></canvas>
+        </div>
+        <div class="telemetry-stream" id="telemetry-stream">
+          <div class="tlm-empty">Waiting for tool calls&hellip;</div>
+        </div>
       </section>
     </div>
-    <div class="stack">
-      <section class="panel">
-        <div class="panel-head"><h2>Network exposure</h2><span id="tunnel-domain" class="section-note"></span></div>
-        <div id="tunnel-grid" class="tunnel-grid"><div class="tunnel">Loading tunnel state…</div></div>
-      </section>
-      <section class="panel">
-        <div class="panel-head"><h2>Backend topology</h2><span class="section-note">Gateway → active backends</span></div>
-        <canvas id="constellation-canvas" aria-label="Gateway backend topology"></canvas>
-      </section>
-      <section class="panel" id="telemetry-stream">
-        <div class="panel-head"><h2>Live event feed</h2><span class="section-note">WebSocket</span></div>
-        <div id="live-feed" class="feed" role="log" aria-live="polite"><div class="feed-row"><span>—</span><span>system</span><span>Waiting for events</span></div></div>
-      </section>
+
+    <div class="tunnel-bar">
+      <span class="panel-title">Tunnels</span>
+      <div class="tunnel-item">
+        <span class="tunnel-name">cloudflare</span>
+        <button class="btn-tunnel interactive" id="btn-cf" onclick="toggleTunnel('cloudflare')">Start</button>
+      </div>
+      <div class="tunnel-item">
+        <span class="tunnel-name">tailscale</span>
+        <button class="btn-tunnel interactive" id="btn-ts" onclick="toggleTunnel('tailscale')">Start</button>
+      </div>
     </div>
   </div>
-</section>
 """
 
 _VIEW_CATALOG = r"""
-<section class="view" id="view-catalog" role="tabpanel" aria-labelledby="tab-catalog" tabindex="0" hidden>
-  <header class="view-header">
-    <div><h1>Server catalog</h1><p>Control backend availability and configure declared credentials.</p></div>
-    <span id="catalog-count" class="badge" aria-live="polite">— servers</span>
-  </header>
-  <div class="filters">
-    <div class="field"><label for="catalog-search">Search</label><input id="catalog-search" class="input" type="search" placeholder="Name or description" aria-describedby="catalog-count"></div>
-    <div class="field"><label for="catalog-profile">Profile</label><select id="catalog-profile"><option value="">All profiles</option></select></div>
-    <div class="field"><label for="catalog-status">Status</label><select id="catalog-status"><option value="">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="configured">Configured</option><option value="missing">Needs credentials</option></select></div>
+<div class="view" id="view-catalog">
+    <div class="view-header">
+      <span class="view-title">Server catalog</span>
+      <span class="panel-meta tnum" id="catalog-count">0 servers</span>
+    </div>
+    <div class="view-scroll">
+      <div class="catalog-toolbar">
+        <input class="form-input" id="catalog-search" type="search"
+          placeholder="Search servers..." autocomplete="off"
+          aria-label="Search servers">
+        <div class="facet-row" id="catalog-facets" role="group" aria-label="Filter by status">
+          <button class="facet active interactive" type="button" data-cfilter="all" aria-pressed="true">All</button>
+          <button class="facet interactive" type="button" data-cfilter="ready" aria-pressed="false">Ready</button>
+          <button class="facet interactive" type="button" data-cfilter="needs" aria-pressed="false">Needs credentials</button>
+          <button class="facet interactive" type="button" data-cfilter="disabled" aria-pressed="false">Disabled</button>
+        </div>
+      </div>
+      <div class="server-grid" id="catalog-grid">
+        <div class="view-empty">Loading catalog...</div>
+      </div>
+    </div>
   </div>
-  <div id="catalog-grid" class="catalog-grid" aria-live="polite"><div class="empty">Loading server catalog…</div></div>
-</section>
 """
 
 _VIEW_EVALS = r"""
-<section class="view" id="view-evals" role="tabpanel" aria-labelledby="tab-evals" tabindex="0" hidden>
-  <header class="view-header">
-    <div><h1>Tool performance</h1><p>Observed reliability and latency from gateway events.</p></div>
-    <div class="view-actions"><button class="btn" type="button" data-refresh="evals">Refresh</button></div>
-  </header>
-  <div id="eval-summary" class="eval-summary">
-    <div class="eval-stat"><span class="field-label">Tool calls</span><strong id="eval-calls">—</strong></div>
-    <div class="eval-stat"><span class="field-label">Unique tools</span><strong id="eval-tools">—</strong></div>
-    <div class="eval-stat"><span class="field-label">Success rate</span><strong id="eval-success">—</strong></div>
-    <div class="eval-stat"><span class="field-label">Errors</span><strong id="eval-errors">—</strong></div>
+  <div class="view" id="view-evals">
+    <div class="view-header">
+      <span class="view-title">Tool performance</span>
+    </div>
+    <div class="view-scroll">
+      <div class="eval-summary" id="eval-summary"></div>
+      <table class="eval-table">
+        <thead><tr>
+          <th>Tool</th><th>Calls</th><th>Success</th><th>Avg latency</th>
+        </tr></thead>
+        <tbody id="eval-tbody"></tbody>
+      </table>
+    </div>
   </div>
-  <section class="panel">
-    <div class="panel-head"><h2>Per-tool performance</h2><span id="eval-span" class="section-note"></span></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Tool</th><th class="num">Calls</th><th class="num">Succeeded</th><th class="num">Failed</th><th class="num">Success rate</th><th class="num">Average latency</th></tr></thead>
-      <tbody id="eval-body"><tr><td colspan="6" class="empty">Loading evaluation telemetry…</td></tr></tbody>
-    </table></div>
-  </section>
-</section>
 """
+
+
 
 _VIEW_DEPLOY = r"""
-<section class="view" id="view-deploy" role="tabpanel" aria-labelledby="tab-deploy" tabindex="0" hidden>
-  <header class="view-header">
-    <div><h1>Deployment configs</h1><p>Generated, profile-aware client and infrastructure configuration.</p></div>
-  </header>
-  <section class="panel deploy-layout">
-    <div id="deploy-tabs" class="deploy-tabs" role="tablist" aria-label="Deployment formats"><div class="empty">Loading formats…</div></div>
-    <div class="code-area">
-      <div class="code-toolbar"><span id="deploy-description" class="section-note">Select a format</span><button id="deploy-copy" class="btn btn-small" type="button">Copy</button></div>
-      <pre id="deploy-code" tabindex="0">Waiting for deployment configuration…</pre>
+  <div class="view" id="view-deploy">
+    <div class="view-header">
+      <span class="view-title">Deployment configs</span>
     </div>
-  </section>
-</section>
+    <div class="view-scroll">
+      <div class="code-tabs" id="deploy-tabs"></div>
+      <div class="code-preview">
+        <div class="code-desc" id="deploy-desc"></div>
+        <div class="code-wrap">
+          <button class="code-copy interactive" onclick="copyDeployCode()"
+            aria-label="Copy deployment code">Copy</button>
+          <pre class="code-block" id="deploy-code">Select a format above.</pre>
+        </div>
+      </div>
+    </div>
+  </div>
 """
+
+
 
 _VIEW_SETTINGS = r"""
-<section class="view" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden>
-  <header class="view-header">
-    <div><h1>Gateway config</h1><p>Authentication policy, profile defaults, limits, and storage.</p></div>
-    <div class="view-actions"><button id="settings-save" class="btn btn-primary" type="button">Save settings</button></div>
-  </header>
-  <div class="settings-grid">
-    <section class="panel">
-      <div class="panel-head"><h2>Runtime policy</h2></div>
-      <form id="settings-form" class="panel-body form-grid">
-        <div class="field"><label for="set-auth-mode">Authentication mode</label><select id="set-auth-mode"><option value="none">None</option><option value="apikey">API key</option><option value="oauth">OAuth</option></select></div>
-        <div class="field"><label for="set-profile">Default profile</label><select id="set-profile"><option value="core">core</option></select></div>
-        <div class="field"><label for="set-rate-limit">Requests per minute</label><input id="set-rate-limit" class="input" type="number" min="0" step="1" inputmode="numeric"></div>
-        <div class="field"><label for="set-storage">Storage backend</label><select id="set-storage"><option value="sqlite">SQLite</option><option value="jsonl">JSONL</option></select></div>
-        <div class="field field-wide"><label for="set-cors">CORS origins</label><textarea id="set-cors" rows="4" placeholder="One origin per line"></textarea></div>
-      </form>
-    </section>
-    <section class="panel">
-      <div class="panel-head"><h2>Effective configuration</h2></div>
-      <div class="panel-body">
-        <dl id="settings-effective" class="detail-list"><dt>Status</dt><dd>Loading settings…</dd></dl>
-        <p class="callout">Public deployments reject authentication disabled, wildcard CORS, and unlimited request rates. An admin credential may be required to save changes.</p>
+  <div class="view" id="view-settings">
+    <div class="view-header">
+      <span class="view-title">Settings</span>
+    </div>
+    <div class="view-scroll">
+      <div class="settings-form">
+        <div class="form-field">
+          <label class="form-label" for="set-auth-mode">Auth mode</label>
+          <select class="form-select" id="set-auth-mode">
+            <option value="none">none</option>
+            <option value="apikey">apikey</option>
+            <option value="oauth">oauth</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="set-profile">Default profile</label>
+          <input class="form-input" id="set-profile" type="text" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="set-cors">CORS origins (comma-separated)</label>
+          <input class="form-input" id="set-cors" type="text" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="set-rate-limit">Rate limit / min (0 = off)</label>
+          <input class="form-input" id="set-rate-limit" type="number" min="0" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="set-storage">Storage backend</label>
+          <select class="form-select" id="set-storage">
+            <option value="sqlite">sqlite</option>
+            <option value="jsonl">jsonl</option>
+          </select>
+        </div>
+        <button class="btn-save interactive" onclick="saveSettings()">Save settings</button>
       </div>
-    </section>
+    </div>
   </div>
-</section>
 """
 
+
+
 _HTML_SHELL_BOTTOM = r"""
-</main>
-<div class="command-bar">
-  <span aria-hidden="true">:</span>
-  <label class="sr-only" for="cmd-input">Command</label>
-  <input id="cmd-input" type="text" placeholder="Command" autocomplete="off" spellcheck="false">
-  <output id="telegraph" aria-live="polite">Type help for navigation commands</output>
-</div>
-<aside id="detail-drawer" class="drawer" aria-labelledby="detail-name" aria-hidden="true" hidden>
-  <div class="drawer-head"><div><div class="field-label">Server detail</div><strong id="detail-name" class="mono">—</strong></div><button class="btn btn-small" type="button" data-close-drawer>Close</button></div>
-  <div class="drawer-body">
-    <div id="detail-badges"></div>
-    <p id="detail-description" class="muted"></p>
-    <dl id="detail-list" class="detail-list"></dl>
-    <section><h2 class="field-label">Declared credentials</h2><div id="credential-fields" class="credential-fields"></div></section>
-    <div class="view-actions"><button id="credentials-save" class="btn btn-primary" type="button">Save credentials</button><button id="detail-toggle" class="btn" type="button">—</button></div>
+    </main>
+  <div class="command-bar">
+    <span class="cmd-prompt">&gt;</span>
+    <label for="cmd-input" class="sr-only">Command</label>
+    <input id="cmd-input"
+      placeholder="type a command... (toggle github, profile ops)"
+      autocomplete="off" />
+    <span class="cmd-hint">tab</span>
   </div>
-</aside>
-<div id="confirm" class="overlay" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" hidden>
-  <div class="dialog">
-    <h2 id="confirm-title">Confirm action</h2>
-    <div id="confirm-body" class="dialog-body"></div>
-    <div class="dialog-actions"><button id="confirm-cancel" class="btn" type="button">Cancel</button><button id="confirm-ok" class="btn btn-danger" type="button">Confirm</button></div>
   </div>
 </div>
-<div id="auth-gate" class="overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title" hidden>
-  <div class="dialog">
-    <h2 id="auth-title">Authentication required</h2>
-    <div class="dialog-body">
-      <p>This gateway requires an operator credential.</p>
-      <div class="field"><label for="auth-key">API key</label><input id="auth-key" class="input" type="password" autocomplete="current-password"></div>
+
+<div class="palette-overlay" id="cmd-palette" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="palette">
+    <input id="palette-input" class="palette-input" type="text"
+      placeholder="Search commands, servers, views..." autocomplete="off"
+      aria-label="Command palette search" />
+    <div class="palette-results" id="palette-results"></div>
+    <div class="palette-foot">
+      <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span>
+      <span><kbd>&#8629;</kbd> run</span>
+      <span><kbd>esc</kbd> close</span>
     </div>
-    <div class="dialog-actions"><button id="auth-oauth" class="btn" type="button">Continue with OAuth</button><button id="auth-key-submit" class="btn btn-primary" type="button">Use API key</button></div>
   </div>
 </div>
-<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<div class="detail-panel" id="detail-panel">
+  <div class="detail-header">
+    <span class="detail-name" id="detail-name">-</span>
+    <div class="detail-close interactive" onclick="closeDetail()" role="button"
+      tabindex="0" aria-label="Close details"
+      onkeydown="btnKey(event,closeDetail)">&times;</div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-label">Status</div>
+    <div class="detail-status" id="detail-status">-</div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-label">Transport / Risk</div>
+    <div class="badges" id="detail-badges"></div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-label">Description</div>
+    <div class="detail-value" id="detail-desc">-</div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-label">Environment</div>
+    <div class="detail-value" id="detail-env">-</div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-label">Launch command</div>
+    <div class="detail-value" id="detail-cmd">-</div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-label">Profiles</div>
+    <div class="detail-value" id="detail-profiles">-</div>
+  </div>
+  <div class="detail-section" id="detail-homepage-row" style="display:none">
+    <div class="detail-label">Homepage</div>
+    <a class="detail-link" id="detail-homepage" href="#" target="_blank" rel="noopener">-</a>
+  </div>
+  <div class="detail-section" id="detail-connect-row" style="display:none">
+    <button class="btn-action primary interactive" id="btn-connect" type="button"
+      onclick="connectSelected()" style="width:100%">Connect&hellip;</button>
+  </div>
+  <div class="detail-actions">
+    <button class="btn-action primary interactive" id="btn-enable" onclick="detailToggle(true)">Enable</button>
+    <button class="btn-action danger interactive" id="btn-disable"
+      onclick="detailToggle(false)">Disable</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="cred-modal" role="dialog" aria-modal="true"
+  aria-labelledby="cred-title">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span class="modal-title" id="cred-title">Connect</span>
+      <div class="detail-close interactive" onclick="closeCredentialsModal()" role="button"
+        tabindex="0" aria-label="Close"
+        onkeydown="btnKey(event,closeCredentialsModal)">&times;</div>
+    </div>
+    <p class="modal-sub" id="cred-sub">Paste a token to connect this server.</p>
+    <div id="cred-fields"></div>
+    <div class="modal-actions">
+      <a class="btn-action" id="cred-provider" href="#" target="_blank"
+        rel="noopener" style="display:none">Get a token &#8599;</a>
+      <button class="btn-action primary interactive" id="cred-save" type="button"
+        onclick="saveCredentials()">Save &amp; connect</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container" aria-live="polite"></div>
 """
 
 _HTML = (
@@ -473,799 +1207,1988 @@ _HTML = (
     + _HTML_SHELL_BOTTOM
 )
 
+
+
+
 _JS = r"""
-'use strict';
 
-const CONFIG = window.KATER_CONFIG || {wsPort: 9092};
-const views = ['dashboard', 'catalog', 'evals', 'deploy', 'settings'];
-const state = {
-  token: sessionStorage.getItem('kater_auth') || '',
-  catalog: [], profiles: [], backends: [], deploy: [], deployFormat: '',
-  drawerServer: null,
-  ws: null, wsConnecting: false, wsOpen: false, wsRetry: null, wsAttempt: 0, wsGeneration: 0,
-  destroyed: false,
-};
-const timers = new Set();
-const controllers = new Set();
-const listeners = [];
-let confirmCtx = null;
+const API = '';
+const MONO_FONT = "'JetBrains Mono',ui-monospace,monospace";
+const AUTH_STORAGE = 'kater_bearer';
+const WS_PORT = (window.KATER_CONFIG && window.KATER_CONFIG.wsPort) || 9092;
+const WS_SCHEME = location.protocol === 'https:' ? 'wss' : 'ws';
+const WS_URL = (location.protocol === 'https:')
+  ? ('wss://' + location.host + '/ws')
+  : (WS_SCHEME + '://' + location.hostname + ':' + WS_PORT + '/ws');
+let ws = null;
+let wsRetry = 0;
+let wsTimer = null;
+let appReady = false;
+let catalogQuery = '';
+let catalogReloadTimer = null;
+let catalogSearchTimer = null;
+const recentTelemetry = new Map();
+const TELEMETRY_DEDUPE_MS = 2500;
+let servers = [];
+let profiles = [];
+let activeProfile = 'core';
+let selectedNode = null;
 
-function $(id) { return document.getElementById(id); }
-function qsa(selector, root) { return Array.from((root || document).querySelectorAll(selector)); }
-function esc(value) {
-  return String(value == null ? '' : value)
+// Overview live state.
+let routeFilter = 'all';
+let routeSel = -1;
+let routeRows = [];
+let streamPaused = false;
+let streamErrorsOnly = false;
+let catalogFilter = 'all';
+let catalogItems = [];
+let lastEventTotal = null;
+let lastLiveMs = 0;
+const HIST = 40;
+const histSuccess = [];
+const histEvents = [];
+const histLatency = [];
+const recentActivity = new Map(); // serverName -> last call ms age marker
+const IS_APPLE = /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');
+const MOD_KEY = IS_APPLE ? '\u2318' : 'Ctrl';
+
+// ── Helpers ────────────────────────────
+class ApiError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
+}
+
+// HTML-escape for the few places we still build markup from server data.
+function esc(s) {
+  return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-function pathPart(value) { return encodeURIComponent(String(value)); }
-function safeUrl(value) {
-  try {
-    const url = new URL(String(value), location.origin);
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
-  } catch (_) { return ''; }
-}
-function number(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : (fallback == null ? 0 : fallback);
-}
-function fmt(value) { return number(value).toLocaleString(); }
-function duration(value) { return number(value).toFixed(0) + ' ms'; }
-function time(value) {
-  const raw = typeof value === 'number' ? value * 1000 : value;
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString([], {hour12: false});
-}
-function badge(label, kind) { return '<span class="badge ' + (kind || '') + '">' + esc(label) + '</span>'; }
-function onEl(target, type, fn, options) {
-  target.addEventListener(type, fn, options);
-  listeners.push([target, type, fn, options]);
-}
-function trackedTimeout(fn, ms) {
-  const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
-  timers.add(id);
-  return id;
-}
-function trackedInterval(fn, ms) {
-  const id = setInterval(fn, ms);
-  timers.add(id);
-  return id;
-}
-async function trackedFetch(path, options) {
-  const controller = new AbortController();
-  const timeout = trackedTimeout(() => controller.abort(), 10000);
-  controllers.add(controller);
-  const opts = Object.assign({}, options || {});
-  opts.headers = Object.assign({}, state.token ? {Authorization: 'Bearer ' + state.token} : {}, opts.headers || {});
-  opts.signal = controller.signal;
-  try { return await fetch(path, opts); }
-  finally { clearTimeout(timeout); timers.delete(timeout); controllers.delete(controller); }
-}
-async function request(path, options) {
-  let response;
-  try { response = await trackedFetch(path, options); }
-  catch (error) {
-    if (error.name === 'AbortError') throw new Error('Request timed out');
-    throw error;
-  }
-  let data = {};
-  try { data = await response.json(); } catch (_) {}
-  if (!response.ok) {
-    const error = new Error(data.error || data.message || ('Request failed (' + response.status + ')'));
-    error.status = response.status;
-    error.data = data;
-    if (response.status === 401) showAuth();
-    throw error;
-  }
-  return data;
-}
-function apiGet(path) { return request(path, {method: 'GET'}); }
-function apiPost(path, body) {
-  return request(path, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body || {}),
-  });
-}
-function showToast(message, kind) {
-  const toast = $('toast');
-  toast.textContent = message;
-  toast.className = 'toast ' + (kind || '');
-  toast.hidden = false;
-  if (toast._hideTimer) clearTimeout(toast._hideTimer);
-  toast._hideTimer = trackedTimeout(() => { toast.hidden = true; }, 3600);
-}
-function errorMessage(error) { return error && error.message ? error.message : 'Unexpected error'; }
-function setApiStatus(ok) {
-  $('api-dot').className = 'dot ' + (ok ? 'ok' : 'bad');
-  $('api-status').textContent = ok ? 'API online' : 'API unavailable';
-}
-function dialogFocusables(dialog) {
-  return qsa('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', dialog)
-    .filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
-}
-function openDialog(dialog, initialFocus, onEscape) {
-  if (dialog._dialogState) return;
-  const priorFocus = document.activeElement;
-  const background = Array.from(document.body.children).filter((element) => element !== dialog).map((element) => ({
-    element,
-    inert: element.inert,
-    ariaHidden: element.getAttribute('aria-hidden'),
-  }));
-  background.forEach(({element}) => {
-    element.inert = true;
-    element.setAttribute('aria-hidden', 'true');
-  });
-  const keydown = (event) => {
-    event.stopPropagation();
-    if (event.key === 'Escape' && onEscape) {
-      event.preventDefault();
-      onEscape();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const focusables = dialogFocusables(dialog);
-    if (!focusables.length) { event.preventDefault(); dialog.focus(); return; }
-    const first = focusables[0], last = focusables[focusables.length - 1];
-    if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
-      event.preventDefault(); last.focus();
-    } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
-      event.preventDefault(); first.focus();
-    }
-  };
-  dialog._dialogState = {background, priorFocus, keydown};
-  dialog.hidden = false;
-  dialog.addEventListener('keydown', keydown);
-  const target = initialFocus || dialogFocusables(dialog)[0] || dialog;
-  if (target === dialog && !dialog.hasAttribute('tabindex')) dialog.setAttribute('tabindex', '-1');
-  target.focus();
-}
-function closeDialog(dialog) {
-  const dialogState = dialog._dialogState;
-  if (!dialogState) { dialog.hidden = true; return; }
-  dialog.hidden = true;
-  dialog.removeEventListener('keydown', dialogState.keydown);
-  dialogState.background.forEach(({element, inert, ariaHidden}) => {
-    element.inert = inert;
-    if (ariaHidden == null) element.removeAttribute('aria-hidden');
-    else element.setAttribute('aria-hidden', ariaHidden);
-  });
-  dialog._dialogState = null;
-  const priorFocus = dialogState.priorFocus;
-  if (priorFocus && priorFocus.isConnected && priorFocus.focus) priorFocus.focus();
+
+// Sanitize a value before it becomes a CSS class (badge transport/risk).
+function cls(s) {
+  return String(s == null ? '' : s).replace(/[^a-z0-9_-]/gi, '');
 }
 
-function activateView(name, focus) {
-  if (!views.includes(name)) return;
-  qsa('[role="tab"][data-view]').forEach((tab) => {
-    const active = tab.dataset.view === name;
-    tab.setAttribute('aria-selected', String(active));
-    tab.tabIndex = active ? 0 : -1;
-    if (active && focus) tab.focus();
-  });
-  views.forEach((view) => { $('view-' + view).hidden = view !== name; });
-  history.replaceState(null, '', '#' + name);
-  if (name === 'catalog' && !state.catalog.length) loadCatalog();
-  if (name === 'evals') loadEvals();
-  if (name === 'deploy' && !state.deploy.length) loadDeployFormats();
-  if (name === 'settings') loadSettings();
-}
-function initTabNavigation() {
-  const tabs = qsa('[role="tab"][data-view]');
-  tabs.forEach((tab, index) => {
-    onEl(tab, 'click', () => activateView(tab.dataset.view, false));
-    onEl(tab, 'keydown', (event) => {
-      let next = null;
-      if (event.key === 'ArrowRight') next = tabs[(index + 1) % tabs.length];
-      if (event.key === 'ArrowLeft') next = tabs[(index - 1 + tabs.length) % tabs.length];
-      if (event.key === 'Home') next = tabs[0];
-      if (event.key === 'End') next = tabs[tabs.length - 1];
-      if (next) { event.preventDefault(); next.focus(); }
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        activateView(tab.dataset.view, true);
-      }
-    });
-  });
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function authHeaders() {
+  const h = {};
+  const token = sessionStorage.getItem(AUTH_STORAGE);
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
 }
 
-function renderStatus(data) {
-  const servers = data.servers || {};
-  const telemetry = data.telemetry || {};
-  $('metric-servers').textContent = fmt(servers.enabled);
-  $('metric-servers-meta').textContent = fmt(servers.total) + ' total · ' + fmt(servers.configured) + ' configured';
-  $('metric-calls').textContent = fmt(telemetry.tool_calls);
-  $('metric-success').textContent = number(telemetry.success_rate).toFixed(1) + '%';
-  $('metric-errors').textContent = fmt(telemetry.errors);
-  $('metric-profile').textContent = 'Profile ' + (data.profile || 'core') + ' · v' + (data.version || '—');
-}
-async function loadStatus() {
-  try { renderStatus(await apiGet('/api/status')); setApiStatus(true); }
-  catch (error) { setApiStatus(false); if (error.status !== 401) showToast(errorMessage(error), 'bad'); }
-}
-function backendRows(data) {
-  const list = data.backends || data.servers || [];
-  state.backends = list;
-  $('backend-summary').textContent = list.length + ' backends';
-  $('backend-body').innerHTML = list.length ? list.map((item) => {
-    const healthy = item.healthy === true;
-    const configured = item.configured === true;
-    return '<tr><td class="mono">' + esc(item.name) + '</td>'
-      + '<td>' + badge(healthy ? 'Healthy' : 'Unavailable', healthy ? 'ok' : 'bad') + '</td>'
-      + '<td>' + badge(configured ? 'Ready' : 'Missing env', configured ? 'ok' : 'warn') + '</td>'
-      + '<td class="num">' + fmt(item.tool_count) + '</td>'
-      + '<td class="num">' + duration(item.latency_ms) + '</td>'
-      + '<td>' + badge(item.breaker_state || 'unknown', item.breaker_state === 'open' ? 'bad' : '') + '</td></tr>';
-  }).join('') : '<tr><td colspan="6" class="empty">No backend processes reported.</td></tr>';
-  drawTopology();
-}
-async function loadBackends() {
-  try { backendRows(await apiGet('/api/backends')); }
-  catch (error) {
-    state.backends = [];
-    $('backend-body').innerHTML = '<tr><td colspan="6" class="empty danger">' + esc(errorMessage(error)) + '</td></tr>';
-    drawTopology();
-  }
-}
-function renderEvents(data) {
-  const events = (data.events || []).filter((event) => event.type === 'tool_call' || event.name);
-  $('events-body').innerHTML = events.length ? events.map((event) => {
-    const ok = event.success === true;
-    return '<tr><td class="mono">' + esc(time(event.timestamp)) + '</td><td class="mono">' + esc(event.name || '—')
-      + '</td><td>' + esc(event.profile || '—') + '</td><td class="num">' + duration(event.duration_ms)
-      + '</td><td>' + badge(ok ? 'Success' : 'Failed', ok ? 'ok' : 'bad') + '</td></tr>';
-  }).join('') : '<tr><td colspan="5" class="empty">No recent tool calls.</td></tr>';
-}
-async function loadEvents() {
-  try { renderEvents(await apiGet('/api/events?limit=50')); }
-  catch (error) { $('events-body').innerHTML = '<tr><td colspan="5" class="empty danger">' + esc(errorMessage(error)) + '</td></tr>'; }
+function wsUrlWithAuth() {
+  const token = sessionStorage.getItem(AUTH_STORAGE);
+  if (!token) return WS_URL;
+  const sep = WS_URL.includes('?') ? '&' : '?';
+  return WS_URL + sep + 'token=' + encodeURIComponent(token);
 }
 
-function tunnelRunning(info) { return !!(info && (info.running || info.status === 'running' || info.url)); }
-function renderTunnels(data) {
-  $('tunnel-domain').textContent = data.suggested_domain || '';
-  const available = data.available || {};
-  const rows = ['cloudflare', 'tailscale'].map((provider) => {
-    const info = data[provider] || {};
-    const running = tunnelRunning(info);
-    const isAvailable = available[provider] !== false;
-    return '<article class="tunnel"><div class="tunnel-top"><span class="mono">' + esc(provider) + '</span>'
-      + badge(running ? 'Running' : (isAvailable ? 'Stopped' : 'Not installed'), running ? 'ok' : (isAvailable ? '' : 'warn')) + '</div>'
-      + '<p class="tunnel-meta">' + esc(info.url || info.hostname || 'No active public endpoint') + '</p>'
-      + '<button class="btn btn-small ' + (running ? 'btn-danger' : 'btn-primary') + '" type="button" data-confirm="tunnel" data-tunnel-provider="'
-      + provider + '" data-tunnel-action="' + (running ? 'stop' : 'start') + '"' + (isAvailable ? '' : ' disabled')
-      + '>' + (running ? 'Stop tunnel' : 'Start tunnel') + '</button></article>';
-  });
-  $('tunnel-grid').innerHTML = rows.join('');
-}
-async function loadTunnels() {
-  try { renderTunnels(await apiGet('/api/tunnel')); }
-  catch (error) { $('tunnel-grid').innerHTML = '<div class="tunnel danger">' + esc(errorMessage(error)) + '</div>'; }
-}
-async function changeTunnel(provider, action, button) {
-  button.disabled = true;
-  button.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
-  try {
-    await apiPost('/api/tunnel/' + pathPart(provider) + '/' + action);
-    showToast(provider + ' tunnel ' + (action === 'start' ? 'started' : 'stopped'), 'ok');
-    await loadTunnels();
-  } catch (error) { showToast(errorMessage(error), 'bad'); await loadTunnels(); }
+function b64url(bytes) {
+  let s = btoa(String.fromCharCode(...bytes));
+  return s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function resizeCanvas(canvas) {
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.max(1, Math.round(rect.width * ratio));
-  canvas.height = Math.max(1, Math.round(rect.height * ratio));
-  const context = canvas.getContext('2d');
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  return [context, rect.width, rect.height];
-}
-function drawTopology() {
-  const canvas = $('constellation-canvas');
-  if (!canvas) return;
-  const [ctx, width, height] = resizeCanvas(canvas);
-  ctx.clearRect(0, 0, width, height);
-  const center = {x: width / 2, y: height / 2};
-  const list = state.backends.slice(0, 16);
-  const radius = {x: width * .38, y: height * .34};
-  ctx.font = '10px monospace';
-  ctx.textAlign = 'center';
-  list.forEach((server, index) => {
-    const angle = (Math.PI * 2 * index / Math.max(list.length, 1)) - Math.PI / 2;
-    const point = {x: center.x + Math.cos(angle) * radius.x, y: center.y + Math.sin(angle) * radius.y};
-    ctx.strokeStyle = '#29313a'; ctx.beginPath(); ctx.moveTo(center.x, center.y); ctx.lineTo(point.x, point.y); ctx.stroke();
-    ctx.fillStyle = server.healthy ? '#63c58b' : '#e06c75'; ctx.fillRect(point.x - 3, point.y - 3, 6, 6);
-    ctx.fillStyle = '#87919c'; ctx.fillText(String(server.name || '').slice(0, 18), point.x, point.y + 15);
-  });
-  ctx.fillStyle = '#58c4d8'; ctx.fillRect(center.x - 5, center.y - 5, 10, 10);
-  ctx.fillStyle = '#d8dee5'; ctx.fillText('gateway', center.x, center.y + 20);
+async function pkceChallenge(verifier) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return b64url(new Uint8Array(digest));
 }
 
-function profileName(profile) { return typeof profile === 'string' ? profile : (profile.name || profile.id || ''); }
-async function loadProfiles() {
-  try {
-    const data = await apiGet('/api/profiles');
-    state.profiles = data.profiles || [];
-    const options = state.profiles.map((profile) => '<option value="' + esc(profileName(profile)) + '">' + esc(profileName(profile)) + '</option>').join('');
-    $('catalog-profile').innerHTML = '<option value="">All profiles</option>' + options;
-    $('set-profile').innerHTML = options || '<option value="core">core</option>';
-  } catch (_) {}
-}
-function catalogFiltered() {
-  const query = $('catalog-search').value.trim().toLowerCase();
-  const profile = $('catalog-profile').value;
-  const status = $('catalog-status').value;
-  return state.catalog.filter((server) => {
-    const matchesText = !query || (server.name + ' ' + (server.description || '')).toLowerCase().includes(query);
-    const matchesProfile = !profile || (server.profiles || []).includes(profile) || profile === 'core';
-    const matchesStatus = !status
-      || (status === 'enabled' && server.enabled) || (status === 'disabled' && !server.enabled)
-      || (status === 'configured' && server.env_configured) || (status === 'missing' && !server.env_configured);
-    return matchesText && matchesProfile && matchesStatus;
-  });
-}
-function renderCatalog() {
-  const list = catalogFiltered();
-  $('catalog-count').textContent = list.length + ' of ' + state.catalog.length + ' servers';
-  $('catalog-grid').innerHTML = list.length ? list.map((server) => {
-    const pending = !!server._pending;
-    return '<article class="server-row" data-server-row="' + esc(server.name) + '">'
-      + '<div><button class="server-name btn btn-small" type="button" data-open-server="' + esc(server.name) + '">' + esc(server.name) + '</button></div>'
-      + '<div class="server-desc">' + esc(server.description || 'No description provided.') + '</div>'
-      + '<div class="server-transport">' + badge(server.transport || 'unknown', 'info') + '</div>'
-      + '<div class="server-state">' + badge(server.env_configured ? 'Configured' : 'Needs env', server.env_configured ? 'ok' : 'warn') + '</div>'
-      + '<div class="server-actions"><button class="switch' + (pending ? ' pending' : '') + '" type="button" role="switch" aria-label="'
-      + (server.enabled ? 'Disable ' : 'Enable ') + esc(server.name) + '" aria-checked="' + String(!!server.enabled)
-      + '" data-confirm="server" data-server-toggle="' + esc(server.name) + '"' + (pending ? ' disabled' : '') + '></button></div></article>';
-  }).join('') : catalogEmptyHtml();
-}
-function catalogEmptyHtml() {
-  const query = $('catalog-search').value.trim();
-  if (query) {
-    return '<div class="empty">No servers match "' + esc(query) + '".<br>'
-      + '<button class="view-empty-link" type="button" onclick="clearCatalogSearch()">Clear search</button></div>';
-  }
-  return '<div class="empty">No servers match these filters.</div>';
-}
-function clearCatalogSearch() {
-  const search = $('catalog-search');
-  if (search) {
-    search.value = '';
-    renderCatalog();
-    search.focus();
-  }
-}
-async function loadCatalog() {
-  try {
-    const data = await apiGet('/api/catalog');
-    state.catalog = data.servers || [];
-    renderCatalog();
-  } catch (error) { $('catalog-grid').innerHTML = '<div class="empty danger">' + esc(errorMessage(error)) + '</div>'; }
-}
-function serverByName(name) { return state.catalog.find((server) => server.name === name); }
-function showServer(name) {
-  const server = serverByName(name);
-  if (!server) return;
-  state.drawerServer = server;
-  $('detail-name').textContent = server.name;
-  $('detail-description').textContent = server.description || 'No description provided.';
-  $('detail-badges').innerHTML = badge(server.enabled ? 'Enabled' : 'Disabled', server.enabled ? 'ok' : '')
-    + ' ' + badge(server.env_configured ? 'Configured' : 'Needs credentials', server.env_configured ? 'ok' : 'warn')
-    + ' ' + badge(server.risk || 'unknown risk', server.risk === 'high' ? 'bad' : '');
-  const homepageUrl = safeUrl(server.homepage);
-  const homepage = homepageUrl ? '<a href="' + esc(homepageUrl) + '" target="_blank" rel="noopener noreferrer">' + esc(server.homepage) + '</a>' : '—';
-  $('detail-list').innerHTML = '<dt>Transport</dt><dd>' + esc(server.transport || '—') + '</dd><dt>Profiles</dt><dd>'
-    + esc((server.profiles || []).join(', ') || 'core') + '</dd><dt>Context cost</dt><dd>' + esc(server.context_cost || '—')
-    + '</dd><dt>Homepage</dt><dd>' + homepage + '</dd>';
-  const fields = server.env_required || [];
-  $('credential-fields').innerHTML = fields.length ? fields.map((key) =>
-    '<div class="field"><label for="cred-' + esc(key) + '">' + esc(key) + '</label><input class="input" id="cred-'
-    + esc(key) + '" type="password" autocomplete="off" data-credential-key="' + esc(key)
-    + '" placeholder="' + (server.env_configured ? 'Configured — enter to replace' : 'Required') + '"></div>'
-  ).join('') : '<p class="section-note">This server declares no credentials.</p>';
-  $('credentials-save').hidden = !fields.length;
-  $('detail-toggle').textContent = server.enabled ? 'Disable server' : 'Enable server';
-  $('detail-toggle').className = 'btn ' + (server.enabled ? 'btn-danger' : 'btn-primary');
-  const drawer = $('detail-drawer');
-  drawer.hidden = false; drawer.setAttribute('aria-hidden', 'false');
-  document.querySelector('[data-close-drawer]').focus();
-}
-function closeDrawer() {
-  const drawer = $('detail-drawer');
-  drawer.hidden = true; drawer.setAttribute('aria-hidden', 'true'); state.drawerServer = null;
+function randomVerifier() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return b64url(bytes);
 }
 
-function confirmAction(action, name, callback) {
-  const labels = {enable: 'Enable server', disable: 'Disable server', 'save-credentials': 'Save credentials', 'start-tunnel': 'Start tunnel', 'stop-tunnel': 'Stop tunnel'};
-  confirmCtx = {action, name, callback, ok: $('confirm-ok')};
-  $('confirm-title').textContent = labels[action] || 'Confirm action';
-  $('confirm-body').textContent = action === 'save-credentials'
-    ? 'Credential values will be stored in Kater settings and applied to the live process.'
-    : (labels[action] || 'Apply action') + (name ? ' “' + name + '”?' : '?');
-  confirmCtx.ok.textContent = labels[action] || 'Confirm';
-  openDialog($('confirm'), confirmCtx.ok, closeConfirm);
-}
-function closeConfirm() {
-  confirmCtx = null;
-  closeDialog($('confirm'));
-}
-async function runConfirmed() {
-  if (!confirmCtx) return;
-  const callback = confirmCtx.callback;
-  closeConfirm();
-  if (callback) await callback();
-}
-async function toggleServer(name, enabled) {
-  const server = serverByName(name);
-  if (!server || server._pending) return;
-  const original = server.enabled;
-  server.enabled = enabled; server._pending = true; renderCatalog();
-  if (state.drawerServer && state.drawerServer.name === name) showServer(name);
-  try {
-    await apiPost('/api/mcp/servers/' + pathPart(name) + '/' + (enabled ? 'enable' : 'disable'));
-    server._pending = false;
-    showToast(name + (enabled ? ' enabled' : ' disabled'), 'ok');
-    await Promise.all([loadCatalog(), loadStatus(), loadBackends()]);
-    if ($('detail-drawer').hidden === false) showServer(name);
-  } catch (error) {
-    server.enabled = original; server._pending = false; renderCatalog();
-    showToast(errorMessage(error), 'bad');
-  }
-}
-async function saveCredentials() {
-  const server = state.drawerServer;
-  if (!server) return;
-  const env = {};
-  qsa('[data-credential-key]', $('credential-fields')).forEach((input) => { if (input.value.trim()) env[input.dataset.credentialKey] = input.value.trim(); });
-  if (!Object.keys(env).length) { showToast('Enter at least one credential value', 'bad'); return; }
-  try {
-    await apiPost('/api/mcp/servers/' + pathPart(server.name) + '/credentials', {env});
-    showToast('Credentials saved for ' + server.name, 'ok');
-    await loadCatalog();
-    showServer(server.name);
-  } catch (error) { showToast(errorMessage(error), 'bad'); }
-}
-
-function renderEvals(data) {
-  const tools = data.tool_calls || {};
-  const summary = data.summary || {};
-  $('eval-calls').textContent = fmt(summary.total_tool_calls);
-  $('eval-tools').textContent = fmt(tools.unique_tools);
-  $('eval-success').textContent = number(summary.overall_success_rate).toFixed(1) + '%';
-  $('eval-errors').textContent = fmt(summary.total_errors);
-  $('eval-span').textContent = number(data.time_span_s).toFixed(1) + ' second observation span';
-  const rows = Object.entries(tools.per_tool || {}).sort((a, b) => number(b[1].total) - number(a[1].total));
-  $('eval-body').innerHTML = rows.length ? rows.map(([name, item]) => '<tr><td class="mono">' + esc(name)
-    + '</td><td class="num">' + fmt(item.total) + '</td><td class="num">' + fmt(item.success)
-    + '</td><td class="num">' + fmt(item.failed) + '</td><td class="num">' + number(item.success_rate).toFixed(1)
-    + '%</td><td class="num">' + duration(item.avg_duration_ms) + '</td></tr>').join('')
-    : '<tr><td colspan="6" class="empty">No evaluation events recorded.</td></tr>';
-}
-async function loadEvals() {
-  try { renderEvals(await apiGet('/api/evals')); }
-  catch (error) { $('eval-body').innerHTML = '<tr><td colspan="6" class="empty danger">' + esc(errorMessage(error)) + '</td></tr>'; }
-}
-
-async function loadDeployFormats() {
-  try {
-    const data = await apiGet('/api/deploy');
-    state.deploy = data.formats || [];
-    $('deploy-tabs').innerHTML = state.deploy.map((format) => '<button class="deploy-tab" type="button" role="tab" aria-selected="false" data-deploy-format="'
-      + esc(format.name) + '">' + esc(format.name) + '<small>' + esc(format.description || '') + '</small></button>').join('');
-    if (state.deploy.length) selectDeploy(state.deploy[0].name);
-  } catch (error) { $('deploy-code').textContent = errorMessage(error); }
-}
-async function selectDeploy(format) {
-  state.deployFormat = format;
-  qsa('[data-deploy-format]').forEach((tab) => {
-    const active = tab.dataset.deployFormat === format;
-    tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active));
-  });
-  $('deploy-code').textContent = 'Loading ' + format + ' configuration…';
-  try {
-    const data = await apiGet('/api/deploy/' + pathPart(format));
-    $('deploy-description').textContent = data.description || data.format || format;
-    $('deploy-code').textContent = JSON.stringify(data, null, 2);
-  } catch (error) { $('deploy-code').textContent = errorMessage(error); }
-}
-async function copyDeploy() {
-  try { await navigator.clipboard.writeText($('deploy-code').textContent); showToast('Deployment configuration copied', 'ok'); }
-  catch (_) { showToast('Clipboard access is unavailable', 'bad'); }
-}
-
-function setValue(id, value) { if (value != null) $(id).value = value; }
-function renderEffectiveSettings(data) {
-  $('settings-effective').innerHTML = '<dt>API</dt><dd class="mono">' + esc(data.host) + ':' + esc(data.api_port)
-    + '</dd><dt>MCP</dt><dd class="mono">' + esc(data.host) + ':' + esc(data.mcp_port)
-    + '</dd><dt>WebSocket</dt><dd class="mono">' + esc(data.host) + ':' + esc(data.ws_port)
-    + '</dd><dt>Database</dt><dd class="mono">' + esc(data.db_path || '—')
-    + '</dd><dt>API keys</dt><dd>' + fmt((data.auth || {}).api_keys) + ' configured</dd>';
-}
-async function loadSettings() {
-  try {
-    const data = await apiGet('/api/settings');
-    setValue('set-auth-mode', (data.auth || {}).mode);
-    setValue('set-profile', data.default_profile);
-    setValue('set-rate-limit', data.rate_limit_per_min);
-    setValue('set-storage', data.storage_backend);
-    setValue('set-cors', (data.cors_origins || []).join('\n'));
-    renderEffectiveSettings(data);
-  } catch (error) { showToast(errorMessage(error), 'bad'); }
-}
-async function saveSettings() {
-  const button = $('settings-save');
-  const rate = Number.parseInt($('set-rate-limit').value, 10);
-  if (!Number.isInteger(rate) || rate < 0) { showToast('Rate limit must be a non-negative integer', 'bad'); return; }
-  const payload = {
-    auth: {mode: $('set-auth-mode').value},
-    default_profile: $('set-profile').value,
-    cors_origins: $('set-cors').value.split(/\n|,/).map((item) => item.trim()).filter(Boolean),
-    rate_limit_per_min: rate,
-    storage_backend: $('set-storage').value,
-  };
-  button.disabled = true; button.textContent = 'Saving…';
-  try { renderEffectiveSettings(await apiPost('/api/settings', payload)); showToast('Settings saved', 'ok'); }
-  catch (error) { showToast(errorMessage(error), 'bad'); }
-  finally { button.disabled = false; button.textContent = 'Save settings'; }
-}
-
-function pushFeed(event) {
-  const feed = $('live-feed');
-  if (feed.children.length === 1 && feed.textContent.includes('Waiting for events')) feed.textContent = '';
-  const row = document.createElement('div');
-  row.className = 'feed-row';
-  const ok = event.success === true || /enabled|credentials/.test(event.type || '');
-  const bad = event.success === false || event.type === 'error';
-  const label = event.name || event.server || event.source || event.type || 'event';
-  const message = event.message || event.detail || event.type || 'Update received';
-  const timestamp = event.timestamp != null ? event.timestamp : (event.ts != null ? event.ts : Date.now() / 1000);
-  row.innerHTML = '<span>' + esc(time(timestamp)) + '</span><span class="'
-    + (bad ? 'bad' : (ok ? 'ok' : 'warn')) + '">' + esc(label) + '</span><span>' + esc(message) + '</span>';
-  feed.prepend(row);
-  while (feed.children.length > 100) feed.lastElementChild.remove();
-}
-async function websocketUrl() {
-  const ticket = await apiPost('/api/ws-ticket');
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return protocol + '//' + location.hostname + ':' + CONFIG.wsPort + '/ws?ticket=' + encodeURIComponent(ticket.ticket);
-}
-function setWsStatus(status) {
-  $('ws-dot').className = 'dot ' + (status === 'online' ? 'ok' : (status === 'connecting' ? 'warn' : 'bad'));
-  $('ws-status').textContent = 'Live feed ' + status;
-}
-function clearWsRetry() {
-  if (state.wsRetry == null) return;
-  clearTimeout(state.wsRetry);
-  timers.delete(state.wsRetry);
-  state.wsRetry = null;
-}
-function scheduleWsReconnect() {
-  if (state.destroyed || state.wsRetry != null || state.wsConnecting || state.wsOpen || state.ws) return;
-  const wait = Math.min(30000, 1000 * Math.pow(2, state.wsAttempt++));
-  state.wsRetry = trackedTimeout(() => {
-    state.wsRetry = null;
-    connectWebSocket();
-  }, wait);
-}
-async function connectWebSocket() {
-  if (state.destroyed || state.wsConnecting || state.wsOpen || state.ws) return;
-  clearWsRetry();
-  const generation = ++state.wsGeneration;
-  state.wsConnecting = true;
-  setWsStatus('connecting');
-  try {
-    const url = await websocketUrl();
-    if (state.destroyed || generation !== state.wsGeneration) return;
-    const socket = new WebSocket(url);
-    state.ws = socket;
-    socket.onopen = () => {
-      if (state.ws !== socket || state.destroyed || generation !== state.wsGeneration) return;
-      state.wsConnecting = false; state.wsOpen = true; state.wsAttempt = 0;
-      clearWsRetry();
-      setWsStatus('online');
-    };
-    socket.onmessage = (message) => {
-      if (state.ws !== socket || state.destroyed || generation !== state.wsGeneration) return;
-      try {
-        const event = JSON.parse(message.data);
-        pushFeed(event);
-        if (/server_|credentials/.test(event.type || '')) { loadCatalog(); loadBackends(); loadStatus(); }
-        if (event.type === 'tool_call' || event.type === 'error') { loadEvents(); loadStatus(); }
-      } catch (_) {}
-    };
-    socket.onerror = () => { if (state.ws === socket) socket.close(); };
-    socket.onclose = () => {
-      if (state.ws !== socket || generation !== state.wsGeneration) return;
-      state.ws = null; state.wsConnecting = false; state.wsOpen = false;
-      if (state.destroyed) return;
-      setWsStatus('offline');
-      scheduleWsReconnect();
-    };
-  } catch (_) {
-    if (generation !== state.wsGeneration) return;
-    state.ws = null; state.wsConnecting = false; state.wsOpen = false;
-    if (state.destroyed) return;
-    setWsStatus('offline');
-    scheduleWsReconnect();
-  }
-}
-
-function base64url(bytes) {
-  let binary = '';
-  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-async function beginOAuth() {
-  const random = new Uint8Array(32);
-  crypto.getRandomValues(random);
-  const verifier = base64url(random);
-  const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
-  const oauthState = base64url(crypto.getRandomValues(new Uint8Array(20)));
-  sessionStorage.setItem('kater_pkce_verifier', verifier);
-  sessionStorage.setItem('kater_oauth_state', oauthState);
+async function exchangeOAuthCode(code) {
+  const verifier = sessionStorage.getItem('pkce_verifier') || '';
+  const clientId = sessionStorage.getItem('oauth_client_id') || '';
   const redirect = location.origin + location.pathname;
-  const params = new URLSearchParams({
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: code,
+    client_id: clientId,
+    redirect_uri: redirect,
+    code_verifier: verifier,
+  });
+  const r = await fetch('/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ApiError(data.error || 'token exchange failed', r.status, data);
+  }
+  if (data.access_token) {
+    sessionStorage.setItem(AUTH_STORAGE, data.access_token);
+  }
+  sessionStorage.removeItem('pkce_verifier');
+}
+
+async function startOAuthLogin() {
+  const verifier = randomVerifier();
+  const challenge = await pkceChallenge(verifier);
+  sessionStorage.setItem('pkce_verifier', verifier);
+  const redirect = location.origin + location.pathname;
+  const regResp = await fetch('/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_name: 'kater-dashboard',
+      redirect_uris: [redirect],
+    }),
+  });
+  const reg = await regResp.json().catch(() => ({}));
+  if (!regResp.ok || !reg.client_id) {
+    toast('OAuth registration failed: ' + (reg.error || regResp.status), 'error');
+    return;
+  }
+  sessionStorage.setItem('oauth_client_id', reg.client_id);
+  const q = new URLSearchParams({
     response_type: 'code',
-    client_id: 'kater-dashboard',
+    client_id: reg.client_id,
     redirect_uri: redirect,
     code_challenge: challenge,
     code_challenge_method: 'S256',
-    state: oauthState,
+    scope: 'tools',
   });
-  const url = '/authorize' + '?' + params.toString();
-  location.assign(url);
-}
-async function finishOAuth() {
-  const params = new URLSearchParams(location.search);
-  const code = params.get('code');
-  if (!code) return false;
-  const expected = sessionStorage.getItem('kater_oauth_state');
-  const verifier = sessionStorage.getItem('kater_pkce_verifier');
-  if (!expected || params.get('state') !== expected || !verifier) {
-    showToast('OAuth response validation failed', 'bad');
-    history.replaceState(null, '', location.pathname);
-    return false;
-  }
-  const body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    client_id: 'kater-dashboard',
-    code_verifier: verifier,
-  });
-  const response = await trackedFetch('/token', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body.toString()});
-  const data = await response.json();
-  if (!response.ok || !data.access_token) throw new Error(data.error || 'OAuth exchange failed');
-  state.token = data.access_token;
-  sessionStorage.setItem('kater_auth', state.token);
-  closeDialog($('auth-gate'));
-  sessionStorage.removeItem('kater_oauth_state');
-  sessionStorage.removeItem('kater_pkce_verifier');
-  history.replaceState(null, '', location.pathname + (location.hash || ''));
-  return true;
-}
-function showAuth() { openDialog($('auth-gate'), $('auth-key')); }
-function submitApiKey() {
-  const key = $('auth-key').value.trim();
-  if (!key) return;
-  state.token = key; sessionStorage.setItem('kater_auth', key);
-  clearWsRetry();
-  closeDialog($('auth-gate'));
-  loadAll(); connectWebSocket();
+  location.href = '/authorize?' + q.toString();
 }
 
-function runCommand(command) {
-  const parts = command.trim().toLowerCase().split(/\s+/);
-  const aliases = {overview: 'dashboard', home: 'dashboard', servers: 'catalog', config: 'settings'};
-  const target = aliases[parts[0]] || parts[0];
-  if (views.includes(target)) {
-    activateView(target, true);
-    $('telegraph').textContent = 'Opened ' + target;
-  } else if (target === 'refresh') {
-    loadAll(); $('telegraph').textContent = 'Refresh requested';
-  } else if (target === 'help') {
-    $('telegraph').textContent = 'Commands: overview, catalog, evals, deploy, settings, refresh';
-  } else {
-    $('telegraph').textContent = 'Unknown local command. Type help.';
+async function handleAuthBootstrap() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('api_key')) {
+    sessionStorage.setItem(AUTH_STORAGE, params.get('api_key'));
+    params.delete('api_key');
+    history.replaceState({}, '', location.pathname + (params.toString() ? '?' + params : ''));
+  }
+  if (params.get('code') && sessionStorage.getItem('pkce_verifier')) {
+    try {
+      await exchangeOAuthCode(params.get('code'));
+      params.delete('code');
+      history.replaceState({}, '', location.pathname);
+    } catch (e) {
+      sessionStorage.removeItem(AUTH_STORAGE);
+      throw e;
+    }
+  }
+  if (params.get('error')) {
+    toast('OAuth denied: ' + params.get('error'), 'error');
+    params.delete('error');
+    history.replaceState({}, '', location.pathname);
   }
 }
-async function loadAll() {
-  await Promise.allSettled([loadStatus(), loadBackends(), loadEvents(), loadTunnels(), loadProfiles(), loadCatalog()]);
+
+function showAuthGate() {
+  const gate = document.getElementById('auth-gate');
+  gate.classList.add('show');
+  document.getElementById('boot').style.display = 'none';
+  document.getElementById('auth-oauth-btn').onclick = () => startOAuthLogin();
+  document.getElementById('auth-key-btn').onclick = async () => {
+    const key = document.getElementById('auth-key-input').value.trim();
+    if (!key) { toast('Enter an API key', 'error'); return; }
+    sessionStorage.setItem(AUTH_STORAGE, key);
+    gate.classList.remove('show');
+    if (appReady) {
+      try { await loadCatalog(); await loadStatus(); initWebSocket(); }
+      catch (e) { toast('Login refresh failed', 'error'); }
+      return;
+    }
+    init();
+  };
 }
-function initDelegation() {
-  onEl(document, 'click', (event) => {
-    const target = event.target;
-    const confirm = target.closest('[data-confirm]');
-    const refresh = target.closest('[data-refresh]');
-    if (refresh) { refresh.dataset.refresh === 'evals' ? loadEvals() : loadAll(); return; }
-    const opener = target.closest('[data-open-server]');
-    if (opener) { showServer(opener.dataset.openServer); return; }
-    const toggle = confirm && confirm.closest('[data-server-toggle]');
-    if (toggle) {
-      const name = toggle.dataset.serverToggle;
-      const enabled = toggle.getAttribute('aria-checked') !== 'true';
-      confirmAction(enabled ? 'enable' : 'disable', name, () => toggleServer(name, enabled));
-      return;
-    }
-    const tunnel = confirm && confirm.closest('[data-tunnel-provider]');
-    if (tunnel) {
-      const provider = tunnel.dataset.tunnelProvider, action = tunnel.dataset.tunnelAction;
-      confirmAction(action + '-tunnel', provider, () => changeTunnel(provider, action, tunnel));
-      return;
-    }
-    const deploy = target.closest('[data-deploy-format]');
-    if (deploy) { selectDeploy(deploy.dataset.deployFormat); return; }
-    if (target.closest('[data-close-drawer]')) closeDrawer();
+
+// Fail-aware fetch: throws ApiError on !ok or non-JSON, so callers can't
+// mistake a 401/500 for success and silently render undefined.
+async function api(path, opts = {}) {
+  opts.headers = { ...authHeaders(), ...(opts.headers || {}) };
+  const r = await fetch(API + path, opts);
+  const text = await r.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch (e) { data = null; }
+  }
+  if (!r.ok) {
+    const msg = (data && data.error) ? data.error : ('HTTP ' + r.status);
+    throw new ApiError(msg, r.status, data);
+  }
+  return data || {};
+}
+
+async function apiPost(path, body) {
+  return api(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
   });
 }
-function teardown() {
-  state.destroyed = true;
-  state.wsGeneration++;
-  clearWsRetry();
-  timers.forEach((id) => { clearTimeout(id); clearInterval(id); });
-  timers.clear();
-  controllers.forEach((controller) => controller.abort());
-  controllers.clear();
-  listeners.forEach(([target, type, fn, options]) => target.removeEventListener(type, fn, options));
-  listeners.length = 0;
-  state.wsConnecting = false; state.wsOpen = false;
-  if (state.ws) { const socket = state.ws; state.ws = null; socket.onclose = null; socket.close(1000); }
+
+function toast(msg, type = '') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.setAttribute('role', 'status');
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
 }
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function btnKey(e, fn) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+}
+
+function makeBadge(klass, text) {
+  const b = document.createElement('span');
+  b.className = 'badge ' + cls(klass);
+  b.textContent = text;
+  return b;
+}
+
+function td(text) {
+  const t = document.createElement('td');
+  if (text != null) t.textContent = text;
+  return t;
+}
+
+function filterServers(all) {
+  // 'core' is the superset; any other profile filters to its members. Makes
+  // the profile pills actually do something (the catalog payload carries a
+  // `profiles` list per server).
+  const seen = new Set();
+  return (activeProfile === 'core'
+    ? all
+    : all.filter(s => (s.profiles || []).indexOf(activeProfile) !== -1)
+  ).filter(s => {
+    if (seen.has(s.name)) return false;
+    seen.add(s.name);
+    return true;
+  });
+}
+
+function catalogApiPath() {
+  const params = new URLSearchParams();
+  if (catalogQuery) params.set('q', catalogQuery);
+  if (activeProfile && activeProfile !== 'core') params.set('profile', activeProfile);
+  const q = params.toString();
+  return '/api/catalog' + (q ? '?' + q : '');
+}
+
+function scheduleCatalogReload() {
+  if (catalogReloadTimer) return;
+  catalogReloadTimer = setTimeout(async () => {
+    catalogReloadTimer = null;
+    try {
+      await loadCatalog();
+      if (currentView === 'catalog') await loadCatalogView();
+    } catch (e) { /* ignore background refresh errors */ }
+  }, 300);
+}
+
+// ── Sparklines (dependency-free inline SVG) ──────────────────
+function pushHist(arr, v) {
+  arr.push(v);
+  while (arr.length > HIST) arr.shift();
+}
+
+function updateSpark(id, data) {
+  const svg = document.getElementById(id);
+  if (!svg) return;
+  const line = svg.querySelector('.spark-line');
+  const area = svg.querySelector('.spark-area');
+  const dot = svg.querySelector('.spark-dot');
+  if (!data || data.length < 2) {
+    if (line) line.setAttribute('d', '');
+    if (area) area.setAttribute('d', '');
+    if (dot) dot.style.opacity = '0';
+    return;
+  }
+  const w = 120, h = 30, pad = 3;
+  let mn = Math.min.apply(null, data), mx = Math.max.apply(null, data);
+  if (mn === mx) { mn -= 1; mx += 1; }
+  const X = i => pad + (i / (data.length - 1)) * (w - 2 * pad);
+  const Y = v => pad + (1 - (v - mn) / (mx - mn)) * (h - 2 * pad);
+  let d = '';
+  for (let i = 0; i < data.length; i++) {
+    d += (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(data[i]).toFixed(1) + ' ';
+  }
+  let ar = 'M' + X(0).toFixed(1) + ' ' + (h - pad);
+  for (let i = 0; i < data.length; i++) ar += ' L' + X(i).toFixed(1) + ' ' + Y(data[i]).toFixed(1);
+  ar += ' L' + X(data.length - 1).toFixed(1) + ' ' + (h - pad) + ' Z';
+  if (line) line.setAttribute('d', d);
+  if (area) area.setAttribute('d', ar);
+  if (dot) {
+    dot.setAttribute('cx', X(data.length - 1).toFixed(1));
+    dot.setAttribute('cy', Y(data[data.length - 1]).toFixed(1));
+    dot.style.opacity = '1';
+  }
+}
+
+function updateTrend(id, cur, prev, opts) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  opts = opts || {};
+  if (prev == null || isNaN(prev) || cur == null || isNaN(cur)) {
+    el.textContent = ''; el.className = 'trend'; return;
+  }
+  const diff = cur - prev;
+  const flat = Math.abs(diff) < (opts.eps || 0.5);
+  if (flat) { el.className = 'trend flat'; el.textContent = '\u2192 0' + (opts.unit || ''); return; }
+  const up = diff > 0;
+  // Higher is better unless invert (latency: lower is better).
+  const good = opts.invert ? !up : up;
+  el.className = 'trend ' + (good ? 'pos' : 'neg');
+  const mag = opts.pct ? Math.abs(diff).toFixed(1) : Math.round(Math.abs(diff));
+  el.textContent = (up ? '\u25B2 ' : '\u25BC ') + mag + (opts.unit || '');
+}
+
+function latencyClass(ms) { return ms < 250 ? 'fast' : ms < 900 ? 'mid' : 'slow'; }
+
+// ── Boot Sequence ──────────────────────
+async function bootSequence() {
+  const boot = document.getElementById('boot');
+  if (boot) boot.style.display = 'none';
+}
+
+// ── Init ───────────────────────────────
 async function init() {
-  initTabNavigation();
+  if (appReady) return;
+  try { await handleAuthBootstrap(); } catch (e) {
+    console.error('auth bootstrap:', e);
+    toast((e instanceof ApiError ? e.message : 'Login failed'), 'error');
+  }
+  try { await bootSequence(); } catch (e) {
+    console.error('boot failed:', e);
+  }
+  applyModKeyHints();
+  restoreUrlState();
+  // Server map MUST exist before loadCatalog() calls buildNodes().
+  initCanvas();
+  initExceptionStrip();
+  initCatalogFacets();
+  initLatencyStrip();
+  initPalette();
+  try {
+    await loadProfiles();
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) { showAuthGate(); return; }
+    console.error('profiles:', e);
+  }
+  try {
+    await loadCatalog();
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) { showAuthGate(); return; }
+    console.error('catalog:', e);
+  }
+  try {
+    await loadStatus();
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) { showAuthGate(); return; }
+    console.error('status:', e);
+  }
+  try { await loadTunnelStatus(); } catch (e) { console.error('tunnel:', e); }
   initDelegation();
-  onEl($('catalog-search'), 'input', renderCatalog);
-  onEl($('catalog-profile'), 'change', renderCatalog);
-  onEl($('catalog-status'), 'change', renderCatalog);
-  onEl($('credentials-save'), 'click', () => confirmAction('save-credentials', state.drawerServer && state.drawerServer.name, saveCredentials));
-  onEl($('detail-toggle'), 'click', () => {
-    const server = state.drawerServer;
-    if (server) confirmAction(server.enabled ? 'disable' : 'enable', server.name, () => toggleServer(server.name, !server.enabled));
-  });
-  onEl($('confirm-cancel'), 'click', closeConfirm);
-  onEl($('confirm-ok'), 'click', runConfirmed);
-  onEl($('confirm'), 'click', (event) => { if (event.target === $('confirm')) closeConfirm(); });
-  onEl($('settings-save'), 'click', saveSettings);
-  onEl($('settings-form'), 'submit', (event) => { event.preventDefault(); saveSettings(); });
-  onEl($('deploy-copy'), 'click', copyDeploy);
-  onEl($('auth-oauth'), 'click', beginOAuth);
-  onEl($('auth-key-submit'), 'click', submitApiKey);
-  onEl($('auth-key'), 'keydown', (event) => { if (event.key === 'Enter') submitApiKey(); });
-  onEl($('cmd-input'), 'keydown', (event) => {
-    if (event.key === 'Enter') { event.preventDefault(); runCommand(event.target.value); event.target.value = ''; }
-  });
-  onEl(document, 'keydown', (event) => {
-    if (event.key === 'Escape') { if (!$('confirm').hidden) closeConfirm(); else if (!$('detail-drawer').hidden) closeDrawer(); }
-    if ((event.ctrlKey || event.metaKey) && event.key === 'k') { event.preventDefault(); $('cmd-input').focus(); }
-    if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key) && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) activateView(views[Number(event.key) - 1], true);
-  });
-  onEl(window, 'resize', drawTopology);
-  onEl(window, 'beforeunload', teardown);
-  try { await finishOAuth(); } catch (error) { showToast(errorMessage(error), 'bad'); }
-  const initial = location.hash.slice(1);
-  activateView(views.includes(initial) ? initial : 'dashboard', false);
-  await loadAll();
-  connectWebSocket();
-  trackedInterval(loadStatus, 10000);
-  trackedInterval(loadBackends, 15000);
-  trackedInterval(loadEvents, 10000);
-  trackedInterval(loadTunnels, 30000);
+  initCommandBar();
+  initCatalogSearch();
+  initKeyboard();
+  initWebSocket();
+  window.addEventListener('popstate', onPopState);
+
+  setInterval(loadStatusSafe, 5000);
+  appReady = true;
+  // Apply restored view after data is loaded.
+  if (currentView && currentView !== 'dashboard') switchView(currentView);
+  else writeUrlState(true);
 }
-onEl(document, 'DOMContentLoaded', init);
+
+function applyModKeyHints() {
+  document.querySelectorAll('.foot-hint, .palette-trigger').forEach(el => {
+    el.innerHTML = el.innerHTML.replace(/\u2318/g, MOD_KEY).replace(/Ctrl/g, MOD_KEY);
+  });
+}
+
+function restoreUrlState() {
+  const p = new URLSearchParams(location.search);
+  const view = p.get('view');
+  if (view && ['dashboard','catalog','evals','deploy','settings'].indexOf(view) !== -1) {
+    currentView = view;
+  }
+  const profile = p.get('profile');
+  if (profile) activeProfile = profile;
+  const q = p.get('q');
+  if (q) {
+    catalogQuery = q;
+    const input = document.getElementById('catalog-search');
+    if (input) input.value = q;
+  }
+  const rf = p.get('filter');
+  if (rf && ['all','ready','needs','disabled'].indexOf(rf) !== -1) routeFilter = rf;
+  const cf = p.get('cfilter');
+  if (cf && ['all','ready','needs','disabled'].indexOf(cf) !== -1) catalogFilter = cf;
+}
+
+function writeUrlState(replace) {
+  const p = new URLSearchParams();
+  if (currentView && currentView !== 'dashboard') p.set('view', currentView);
+  if (activeProfile && activeProfile !== 'core') p.set('profile', activeProfile);
+  if (catalogQuery) p.set('q', catalogQuery);
+  if (routeFilter && routeFilter !== 'all') p.set('filter', routeFilter);
+  if (catalogFilter && catalogFilter !== 'all') p.set('cfilter', catalogFilter);
+  if (selectedNode && selectedNode.name) p.set('server', selectedNode.name);
+  const qs = p.toString();
+  const url = location.pathname + (qs ? '?' + qs : '');
+  if (replace) history.replaceState({}, '', url);
+  else if (url !== location.pathname + location.search) history.pushState({}, '', url);
+}
+
+function onPopState() {
+  restoreUrlState();
+  document.querySelectorAll('.pill').forEach(el => {
+    el.classList.toggle('active', el.dataset.profile === activeProfile);
+  });
+  setRouteFilter(routeFilter, true);
+  setCatalogFilter(catalogFilter, true);
+  switchView(currentView, true);
+  const server = new URLSearchParams(location.search).get('server');
+  if (server) openServerDetail(server);
+  else closeDetail();
+}
+
+async function loadStatusSafe() {
+  try { await loadStatus(); } catch (e) { /* swallow polled errors */ }
+}
+
+async function loadProfiles() {
+  const data = await api('/api/profiles');
+  profiles = data.profiles || [];
+  const el = document.getElementById('profile-pills');
+  el.innerHTML = '';
+  for (const p of profiles) {
+    const pill = document.createElement('div');
+    pill.className = 'pill interactive' + (p === activeProfile ? ' active' : '');
+    pill.textContent = p;
+    pill.dataset.profile = p;
+    pill.setAttribute('tabindex', '0');
+    pill.setAttribute('role', 'button');
+    el.appendChild(pill);
+  }
+}
+
+function switchProfile(p) {
+  if (profiles.indexOf(p) === -1) { toast('unknown profile: ' + p, 'error'); return; }
+  activeProfile = p;
+  document.querySelectorAll('.pill').forEach(el => {
+    el.classList.toggle('active', el.dataset.profile === p);
+  });
+  writeUrlState();
+  loadCatalog();
+  if (currentView === 'catalog') loadCatalogView();
+  toast('profile: ' + p);
+}
+
+async function loadCatalog() {
+  const data = await api(catalogApiPath());
+  servers = filterServers(data.servers || []);
+  buildNodes();
+  document.getElementById('node-count').textContent = servers.length + ' servers';
+}
+
+async function loadStatus() {
+  const data = await api('/api/status');
+  document.getElementById('version-tag').textContent = 'v' + (data.version || '');
+  document.getElementById('auth-mode').textContent = data.auth_mode || 'none';
+  const total = (data.servers && data.servers.total) || 0;
+  const enabled = (data.servers && data.servers.enabled) || 0;
+  const success = (data.telemetry && data.telemetry.success_rate) || 0;
+  const calls = (data.telemetry && data.telemetry.tool_calls) || 0;
+  const events = (data.telemetry && data.telemetry.total_events) || 0;
+
+  document.getElementById('stat-tools').textContent = total;
+  document.getElementById('stat-enabled').textContent = enabled;
+  const successEl = document.getElementById('stat-success');
+  // Don't show a scary red 0% when no calls have been made yet.
+  if (!calls) {
+    successEl.textContent = '\u2014';
+    successEl.className = 'kpi-value tnum';
+  } else {
+    successEl.textContent = success + '%';
+    successEl.className = 'kpi-value tnum' + (success >= 90 ? '' : success >= 50 ? ' warn' : ' err');
+  }
+  document.getElementById('stat-backends').textContent = calls;
+  const totalEl = document.getElementById('stat-events-total');
+  if (totalEl) totalEl.textContent = events;
+  document.getElementById('auth-dot').style.background =
+    data.auth_mode === 'none' ? 'var(--ok)' : 'var(--info)';
+
+  // Success rate trend + sparkline (only after we have real call volume).
+  if (calls) {
+    const prevSuccess = histSuccess.length ? histSuccess[histSuccess.length - 1] : null;
+    pushHist(histSuccess, success);
+    updateSpark('spark-success', histSuccess);
+    updateTrend('trend-success', success, prevSuccess, { unit: '%', pct: true, eps: 0.4 });
+  }
+
+  // Events/poll: delta since last poll — matches the sparkline and trend.
+  const eventsEl = document.getElementById('stat-events');
+  if (lastEventTotal != null) {
+    const delta = Math.max(0, events - lastEventTotal);
+    const prevDelta = histEvents.length ? histEvents[histEvents.length - 1] : null;
+    pushHist(histEvents, delta);
+    updateSpark('spark-events', histEvents);
+    updateTrend('trend-events', delta, prevDelta, { eps: 0.9 });
+    if (eventsEl) eventsEl.textContent = delta;
+  } else if (eventsEl) {
+    eventsEl.textContent = '\u2014';
+  }
+  lastEventTotal = events;
+}
+
+// ── Exception strip ──────────────────────
+function initExceptionStrip() {
+  const strip = document.getElementById('exc-strip');
+  if (!strip || strip.dataset.bound) return;
+  strip.dataset.bound = '1';
+  strip.addEventListener('click', (e) => {
+    const item = e.target.closest('.exc-item');
+    if (!item) return;
+    setRouteFilter(item.dataset.filter || 'all');
+  });
+}
+
+function setRouteFilter(filter, quiet) {
+  routeFilter = filter;
+  document.querySelectorAll('#exc-strip .exc-item').forEach(el => {
+    const on = el.dataset.filter === filter;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
+  });
+  routeSel = -1;
+  renderServerMap();
+  if (!quiet) writeUrlState();
+}
+
+function serverState(s) {
+  if (!s.enabled) return 'disabled';
+  if (s.env_configured === false) return 'needs';
+  return 'ready';
+}
+
+function updateExceptionStrip() {
+  let ready = 0, needs = 0, disabled = 0;
+  for (const s of servers) {
+    const st = serverState(s);
+    if (st === 'ready') ready++;
+    else if (st === 'needs') needs++;
+    else disabled++;
+  }
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('exc-all', servers.length);
+  set('exc-ready', ready);
+  set('exc-needs', needs);
+  set('exc-disabled', disabled);
+}
+
+// ── Server routing table ─────────────────
+function initCanvas() {
+  const el = document.getElementById('server-map');
+  if (!el || el.dataset.bound) return;
+  el.dataset.bound = '1';
+  el.addEventListener('click', onServerMapClick);
+  el.addEventListener('focusin', (e) => {
+    const row = e.target.closest('tr[data-name]');
+    if (!row) return;
+    const idx = routeRows.indexOf(row);
+    if (idx >= 0) { routeSel = idx; highlightRouteRow(); }
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const row = e.target.closest('tr[data-name]');
+      if (!row) return;
+      e.preventDefault();
+      routeSel = routeRows.indexOf(row);
+      openSelectedRoute();
+    }
+  });
+}
+
+function visibleRouteServers() {
+  if (routeFilter === 'all') return servers;
+  return servers.filter(s => serverState(s) === routeFilter);
+}
+
+function renderServerMap() {
+  const el = document.getElementById('server-map');
+  if (!el) return;
+  el.innerHTML = '';
+  routeRows = [];
+  const list = visibleRouteServers();
+  if (!list.length) {
+    const empty = document.createElement('div');
+    empty.className = 'view-empty';
+    empty.textContent = servers.length
+      ? 'No servers match this filter.'
+      : 'No servers in this profile.';
+    el.appendChild(empty);
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'route-table';
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  for (const h of ['Server', 'Transport', 'Risk', 'Cost', 'Status']) {
+    const th = document.createElement('th');
+    th.textContent = h;
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for (const s of list) {
+    const tr = document.createElement('tr');
+    tr.dataset.name = s.name;
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'button');
+    const name = document.createElement('td');
+    name.className = 'route-name';
+    name.textContent = s.name;
+    const transport = document.createElement('td');
+    transport.appendChild(makeBadge(s.transport, s.transport));
+    const risk = document.createElement('td');
+    risk.appendChild(makeBadge(s.risk || 'low', s.risk || 'low'));
+    const cost = document.createElement('td');
+    cost.className = 'route-cost';
+    const c = Math.max(0, Math.min(5, Number(s.context_cost) || 0));
+    cost.textContent = c ? ('\u25CF'.repeat(c) + '\u25CB'.repeat(Math.max(0, 5 - c))) : '\u2014';
+    cost.title = c ? ('context cost ' + c + '/5') : 'no cost data';
+    const status = document.createElement('td');
+    const chip = document.createElement('span');
+    chip.className = 'status-chip';
+    const dot = document.createElement('span');
+    dot.className = 'status-dot';
+    const label = document.createElement('span');
+    label.className = 'status-label';
+    const st = serverState(s);
+    if (st === 'disabled') { dot.classList.add('off'); label.textContent = 'Disabled'; }
+    else if (st === 'needs') { dot.classList.add('warn'); label.textContent = 'Needs credentials'; }
+    else { dot.classList.add('ok'); label.textContent = 'Ready'; }
+    chip.appendChild(dot);
+    chip.appendChild(label);
+    status.appendChild(chip);
+    tr.appendChild(name);
+    tr.appendChild(transport);
+    tr.appendChild(risk);
+    tr.appendChild(cost);
+    tr.appendChild(status);
+    tbody.appendChild(tr);
+    routeRows.push(tr);
+  }
+  table.appendChild(tbody);
+  el.appendChild(table);
+  highlightRouteRow();
+}
+
+function highlightRouteRow() {
+  routeRows.forEach((tr, i) => tr.classList.toggle('sel', i === routeSel));
+  if (routeSel >= 0 && routeRows[routeSel]) {
+    routeRows[routeSel].scrollIntoView({ block: 'nearest' });
+    try { routeRows[routeSel].focus({ preventScroll: true }); } catch (e) {}
+  }
+}
+
+function moveRouteSel(delta) {
+  if (!routeRows.length) return;
+  routeSel = Math.max(0, Math.min(routeRows.length - 1,
+    routeSel < 0 ? 0 : routeSel + delta));
+  highlightRouteRow();
+}
+
+async function openSelectedRoute() {
+  if (routeSel < 0 || !routeRows[routeSel]) return;
+  const name = routeRows[routeSel].dataset.name;
+  let node = servers.find(s => s.name === name);
+  if (!node) return;
+  if (!node.mcp) {
+    try { node = await api('/api/mcp/servers/' + encodeURIComponent(node.name)); }
+    catch (err) { /* fall back */ }
+  }
+  openDetail(node);
+}
+
+function buildNodes() {
+  renderServerMap();
+  updateExceptionStrip();
+  const count = document.getElementById('node-count');
+  if (count) count.textContent = servers.length + ' servers';
+}
+
+async function onServerMapClick(e) {
+  const row = e.target.closest('tr[data-name]');
+  if (!row) {
+    if (selectedNode) closeDetail();
+    return;
+  }
+  routeSel = routeRows.indexOf(row);
+  highlightRouteRow();
+  let node = servers.find(s => s.name === row.dataset.name);
+  if (!node) return;
+  if (!node.mcp) {
+    try { node = await api('/api/mcp/servers/' + encodeURIComponent(node.name)); }
+    catch (err) { /* fall back */ }
+  }
+  openDetail(node);
+}
+
+function startAnimationLoop() {}
+
+
+// ── Detail Panel ───────────────────────
+function formatLaunch(node) {
+  if (node.mcp && node.mcp.command) {
+    return node.mcp.command + ' ' + (node.mcp.args || []).join(' ');
+  }
+  if (node.mcp && node.mcp.url) return node.mcp.url;
+  return '-';
+}
+
+function openDetail(node) {
+  selectedNode = node;
+  document.getElementById('detail-name').textContent = node.name || '-';
+  document.getElementById('detail-desc').textContent = node.description || '-';
+
+  const badges = document.getElementById('detail-badges');
+  badges.innerHTML = '';
+  badges.appendChild(makeBadge(node.transport, node.transport));
+  badges.appendChild(makeBadge(node.risk, node.risk));
+  badges.appendChild(makeBadge(
+    node.env_configured ? 'low' : 'high',
+    node.env_configured ? 'configured' : 'missing env'
+  ));
+
+  const reqs = node.env_required || [];
+  const configured = !!node.env_configured;
+  const missing = configured ? [] : reqs;
+
+  const envEl = document.getElementById('detail-env');
+  envEl.innerHTML = '';
+  if (reqs.length) {
+    for (const e of reqs) {
+      const line = document.createElement('div');
+      const nameEl = document.createElement('span');
+      nameEl.textContent = e + ': ';
+      const val = document.createElement('span');
+      val.style.color = configured ? 'var(--ok)' : 'var(--err)';
+      val.textContent = configured ? 'set' : 'not set';
+      line.appendChild(nameEl);
+      line.appendChild(val);
+      envEl.appendChild(line);
+    }
+  } else {
+    envEl.textContent = 'No credentials required.';
+  }
+
+  // Status reads like a sentence the operator can act on.
+  const statusEl = document.getElementById('detail-status');
+  statusEl.className = 'detail-status';
+  if (!node.enabled) {
+    statusEl.classList.add('off');
+    statusEl.textContent = 'Disabled. Enable it to include it in this profile.';
+  } else if (missing.length) {
+    statusEl.classList.add('needs');
+    statusEl.textContent = 'Enabled, but not connected. Set ' + missing.join(', ') + '.';
+  } else if (reqs.length) {
+    statusEl.classList.add('ready');
+    statusEl.textContent = 'Enabled and configured. Ready to connect.';
+  } else {
+    statusEl.classList.add('ready');
+    statusEl.textContent = 'Enabled. No credentials needed.';
+  }
+
+  document.getElementById('detail-cmd').textContent = formatLaunch(node);
+  document.getElementById('detail-profiles').textContent =
+    (node.profiles || []).join(', ') || '-';
+
+  const homeRow = document.getElementById('detail-homepage-row');
+  const homeLink = document.getElementById('detail-homepage');
+  if (node.homepage) {
+    homeLink.href = node.homepage;
+    homeLink.textContent = node.homepage;
+    homeRow.style.display = '';
+  } else {
+    homeRow.style.display = 'none';
+  }
+
+  // Offer "Connect…" only when the server is missing the credentials it needs.
+  const connectRow = document.getElementById('detail-connect-row');
+  connectRow.style.display = (reqs.length && missing.length) ? '' : 'none';
+
+  const enableBtn = document.getElementById('btn-enable');
+  const disableBtn = document.getElementById('btn-disable');
+  enableBtn.disabled = !!node.enabled;
+  disableBtn.disabled = !node.enabled;
+  enableBtn.style.opacity = node.enabled ? '0.4' : '1';
+  disableBtn.style.opacity = node.enabled ? '1' : '0.4';
+
+  document.getElementById('detail-panel').classList.add('open');
+  writeUrlState();
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+  selectedNode = null;
+  writeUrlState();
+}
+
+// ── Credentials modal ──────────────────
+let credServer = null;
+
+function connectSelected() {
+  if (selectedNode && selectedNode.name) promptCredentials(selectedNode.name);
+}
+
+async function promptCredentials(name) {
+  // Always work from the full server doc: the catalog payload omits the list
+  // of required env vars, the detail endpoint has it.
+  try {
+    const server = await api('/api/mcp/servers/' + encodeURIComponent(name));
+    if (server && !server.error) openCredentialsModal(server);
+  } catch (e) {
+    toast('Could not load ' + name + ': ' + (e.message || 'failed'), 'error');
+  }
+}
+
+function openCredentialsModal(server) {
+  credServer = server;
+  const reqs = server.env_required || [];
+  document.getElementById('cred-title').textContent = 'Connect ' + server.name;
+  const sub = document.getElementById('cred-sub');
+  const fields = document.getElementById('cred-fields');
+  fields.innerHTML = '';
+  if (!reqs.length) {
+    sub.textContent = server.name + ' needs no credentials — just enable it.';
+  } else {
+    sub.textContent = 'Paste ' + (reqs.length > 1 ? 'these tokens' : 'a token')
+      + ' to connect ' + server.name + ', or open the provider to create one.';
+    for (const v of reqs) {
+      const wrap = document.createElement('div');
+      wrap.className = 'form-field';
+      const label = document.createElement('label');
+      label.className = 'form-label';
+      label.textContent = v;
+      const input = document.createElement('input');
+      input.className = 'form-input';
+      input.type = 'password';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.dataset.env = v;
+      input.placeholder = server.env_configured
+        ? 'set — leave blank to keep current'
+        : 'paste value';
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') saveCredentials();
+      });
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      fields.appendChild(wrap);
+    }
+  }
+  const prov = document.getElementById('cred-provider');
+  if (server.homepage) { prov.href = server.homepage; prov.style.display = ''; }
+  else { prov.style.display = 'none'; }
+  document.getElementById('cred-modal').classList.add('show');
+  const first = fields.querySelector('input');
+  if (first) first.focus();
+}
+
+function closeCredentialsModal() {
+  document.getElementById('cred-modal').classList.remove('show');
+  credServer = null;
+}
+
+async function saveCredentials() {
+  if (!credServer) return;
+  const inputs = document.querySelectorAll('#cred-fields input[data-env]');
+  const env = {};
+  let any = false;
+  inputs.forEach((i) => {
+    const val = i.value.trim();
+    if (val) { env[i.dataset.env] = val; any = true; }
+  });
+  if (!any) { toast('Enter at least one value to save.', 'error'); return; }
+  const name = credServer.name;
+  try {
+    const data = await apiPost(
+      '/api/mcp/servers/' + encodeURIComponent(name) + '/credentials', { env }
+    );
+    toast(name + (data.env_configured ? ' connected.' : ' credentials saved.'), 'success');
+    closeCredentialsModal();
+    await loadCatalog();
+    if (currentView === 'catalog') await loadCatalogView();
+    if (selectedNode && selectedNode.name === name) openServerDetail(name);
+  } catch (e) {
+    toast('Could not save credentials: ' + (e.message || 'failed'), 'error');
+  }
+}
+
+async function detailToggle(enable) {
+  if (!selectedNode) return;
+  const name = selectedNode.name;
+  const action = enable ? 'enable' : 'disable';
+  try {
+    await apiPost('/api/mcp/servers/' + encodeURIComponent(name) + '/' + action, {});
+    toast(enableHint(name, enable), enable ? 'success' : '');
+  } catch (e) {
+    toast(name + ': ' + (e.message || 'failed'), 'error');
+    return;
+  }
+  // Reload, then re-resolve selectedNode from the FRESH server list so we
+  // don't keep rendering a stale, optimistically-mutated object.
+  try { await loadCatalog(); } catch (e) { /* handled */ }
+  const fresh = servers.find(s => s.name === name);
+  if (fresh) openDetail(fresh);
+  // Enabling something that still needs a token? Bring up the connect popup.
+  if (enable && fresh && fresh.env_configured === false) promptCredentials(name);
+}
+
+function initCatalogSearch() {
+  const input = document.getElementById('catalog-search');
+  if (!input || input.dataset.bound) return;
+  input.dataset.bound = '1';
+  input.addEventListener('input', () => {
+    if (catalogSearchTimer) clearTimeout(catalogSearchTimer);
+    catalogSearchTimer = setTimeout(async () => {
+      catalogSearchTimer = null;
+      catalogQuery = input.value.trim();
+      writeUrlState();
+      try {
+        // Only refresh the catalog view — don't refilter the Overview
+        // routing table with the search query.
+        if (currentView === 'catalog') await loadCatalogView();
+      } catch (e) { /* ignore search errors while typing */ }
+    }, 200);
+  });
+}
+
+function initCatalogFacets() {
+  const row = document.getElementById('catalog-facets');
+  if (!row || row.dataset.bound) return;
+  row.dataset.bound = '1';
+  row.addEventListener('click', (e) => {
+    const btn = e.target.closest('.facet');
+    if (!btn) return;
+    setCatalogFilter(btn.dataset.cfilter || 'all');
+  });
+  setCatalogFilter(catalogFilter, true);
+}
+
+function setCatalogFilter(filter, quiet) {
+  catalogFilter = filter || 'all';
+  document.querySelectorAll('#catalog-facets .facet').forEach(el => {
+    const on = el.dataset.cfilter === catalogFilter;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
+  });
+  if (currentView === 'catalog') loadCatalogView();
+  if (!quiet) writeUrlState();
+}
+
+// ── Event delegation (catalog cards, deploy tabs, profile pills) ──
+function initDelegation() {
+  const grid = document.getElementById('catalog-grid');
+  grid.addEventListener('click', (e) => {
+    const toggle = e.target.closest('.toggle-switch');
+    if (toggle && toggle.dataset.name) {
+      e.stopPropagation();
+      toggleServerCard(toggle.dataset.name, toggle);
+      return;
+    }
+    const card = e.target.closest('.server-card');
+    if (card && card.dataset.name) openServerDetail(card.dataset.name);
+  });
+  grid.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const toggle = e.target.closest('.toggle-switch');
+      if (toggle && toggle.dataset.name) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleServerCard(toggle.dataset.name, toggle);
+        return;
+      }
+      const card = e.target.closest('.server-card');
+      if (card && card.dataset.name && e.target === card) {
+        e.preventDefault();
+        openServerDetail(card.dataset.name);
+      }
+    }
+  });
+
+  const tabs = document.getElementById('deploy-tabs');
+  tabs.addEventListener('click', (e) => {
+    const t = e.target.closest('.code-tab');
+    if (t && t.dataset.fmt) selectDeployFormat(t.dataset.fmt);
+  });
+
+  const pills = document.getElementById('profile-pills');
+  pills.addEventListener('click', (e) => {
+    const p = e.target.closest('.pill');
+    if (p && p.dataset.profile) switchProfile(p.dataset.profile);
+  });
+  pills.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const p = e.target.closest('.pill');
+      if (p && p.dataset.profile) {
+        e.preventDefault();
+        switchProfile(p.dataset.profile);
+      }
+    }
+  });
+}
+
+// ── Command Bar ────────────────────────
+const commands = [
+  { cmd: 'toggle', desc: 'toggle <server> — switch server on/off' },
+  { cmd: 'enable', desc: 'enable <server>' },
+  { cmd: 'disable', desc: 'disable <server>' },
+  { cmd: 'profile', desc: 'profile <name> — switch active profile' },
+  { cmd: 'status', desc: 'show instance status' },
+  { cmd: 'refresh', desc: 'reload catalog' },
+];
+
+function initCommandBar() {
+  const input = document.getElementById('cmd-input');
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      await runCommand(input.value.trim());
+      input.value = '';
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const parts = input.value.trim().split(/\s+/);
+      if (parts.length === 1) {
+        const match = commands.find(c => c.cmd.startsWith(parts[0]));
+        if (match) input.value = match.cmd + ' ';
+      } else if (parts.length === 2) {
+        const match = servers.find(s => s.name.startsWith(parts[1]));
+        if (match) input.value = parts[0] + ' ' + match.name;
+      }
+    }
+  });
+
+  const credModal = document.getElementById('cred-modal');
+  credModal.addEventListener('click', (e) => {
+    if (e.target === credModal) closeCredentialsModal();
+  });
+}
+
+async function runCommand(input) {
+  if (!input) return;
+  const parts = input.split(/\s+/);
+  const cmd = parts[0];
+
+  if ((cmd === 'toggle' || cmd === 'enable' || cmd === 'disable') && parts[1]) {
+    const server = parts[1];
+    const action = cmd === 'toggle' ? 'toggle' : cmd;
+    try {
+      await apiPost('/api/mcp/servers/' + encodeURIComponent(server) + '/' + action, {});
+      toast(server + ': ' + action + 'd', 'success');
+      await loadCatalog();
+    } catch (e) {
+      toast(server + ': ' + (e.message || 'failed'), 'error');
+    }
+  } else if (cmd === 'profile' && parts[1]) {
+    switchProfile(parts[1]);
+  } else if (cmd === 'status') {
+    try {
+      const data = await api('/api/status');
+      toast((data.servers.enabled) + '/' + (data.servers.total) + ' servers | '
+        + (data.telemetry.success_rate || 0) + '% success');
+    } catch (e) {
+      toast('status: ' + (e.message || 'failed'), 'error');
+    }
+  } else if (cmd === 'refresh') {
+    try { await loadCatalog(); toast('catalog refreshed'); }
+    catch (e) { toast('refresh failed', 'error'); }
+  } else {
+    toast('unknown: ' + input, 'error');
+  }
+}
+
+// ── Command palette (⌘K) ───────────────
+let paletteItems = [];
+let paletteFiltered = [];
+let paletteSel = 0;
+
+function initPalette() {
+  const input = document.getElementById('palette-input');
+  const overlay = document.getElementById('cmd-palette');
+  if (!input || input.dataset.bound) return;
+  input.dataset.bound = '1';
+  input.addEventListener('input', () => renderPalette(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); paletteSel = Math.min(paletteFiltered.length - 1, paletteSel + 1); paintPalette(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); paletteSel = Math.max(0, paletteSel - 1); paintPalette(); }
+    else if (e.key === 'Enter') { e.preventDefault(); runPaletteSel(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closePalette(); });
+  document.getElementById('palette-results').addEventListener('click', (e) => {
+    const it = e.target.closest('.palette-item');
+    if (!it) return;
+    paletteSel = parseInt(it.dataset.idx, 10) || 0;
+    runPaletteSel();
+  });
+}
+
+function buildPaletteItems() {
+  const items = [];
+  const views = [
+    ['dashboard', 'Overview'], ['catalog', 'Servers'],
+    ['evals', 'Performance'], ['deploy', 'Deploy'], ['settings', 'Settings'],
+  ];
+  for (const [v, label] of views) {
+    items.push({ group: 'Navigate', label: 'Go to ' + label, hint: 'view', run: () => switchView(v) });
+  }
+  items.push({ group: 'Actions', label: 'Refresh catalog', hint: 'refresh', run: () => loadCatalog().then(() => toast('catalog refreshed')) });
+  items.push({ group: 'Actions', label: 'Start cloudflare tunnel', hint: 'tunnel', run: () => toggleTunnel('cloudflare') });
+  items.push({ group: 'Actions', label: 'Start tailscale tunnel', hint: 'tunnel', run: () => toggleTunnel('tailscale') });
+  for (const p of profiles) {
+    items.push({ group: 'Profiles', label: 'Profile: ' + p, hint: 'profile', run: () => switchProfile(p) });
+  }
+  for (const s of servers) {
+    const st = serverState(s);
+    const verb = s.enabled ? 'Disable' : 'Enable';
+    items.push({
+      group: 'Servers', label: verb + ' ' + s.name,
+      hint: st === 'needs' ? 'needs creds' : (s.transport || ''),
+      run: () => openServerDetail(s.name),
+    });
+  }
+  return items;
+}
+
+function openPalette() {
+  paletteItems = buildPaletteItems();
+  paletteSel = 0;
+  document.getElementById('cmd-palette').classList.add('show');
+  const input = document.getElementById('palette-input');
+  input.value = '';
+  renderPalette('');
+  setTimeout(() => input.focus(), 0);
+}
+
+function closePalette() {
+  document.getElementById('cmd-palette').classList.remove('show');
+}
+
+function paletteIsOpen() {
+  return document.getElementById('cmd-palette').classList.contains('show');
+}
+
+function renderPalette(q) {
+  q = (q || '').trim().toLowerCase();
+  paletteFiltered = q
+    ? paletteItems.filter(it => it.label.toLowerCase().includes(q))
+    : paletteItems.slice();
+  paletteSel = 0;
+  paintPalette();
+}
+
+function paintPalette() {
+  const box = document.getElementById('palette-results');
+  box.innerHTML = '';
+  if (!paletteFiltered.length) {
+    const e = document.createElement('div');
+    e.className = 'palette-empty';
+    e.textContent = 'No matches.';
+    box.appendChild(e);
+    return;
+  }
+  let lastGroup = null;
+  paletteFiltered.forEach((it, i) => {
+    if (it.group !== lastGroup) {
+      lastGroup = it.group;
+      const g = document.createElement('div');
+      g.className = 'palette-group';
+      g.textContent = it.group;
+      box.appendChild(g);
+    }
+    const row = document.createElement('div');
+    row.className = 'palette-item' + (i === paletteSel ? ' sel' : '');
+    row.dataset.idx = i;
+    const lbl = document.createElement('span');
+    lbl.className = 'pi-label';
+    lbl.textContent = it.label;
+    const hint = document.createElement('span');
+    hint.className = 'pi-hint';
+    hint.textContent = it.hint || '';
+    row.appendChild(lbl);
+    row.appendChild(hint);
+    box.appendChild(row);
+  });
+  const sel = box.querySelector('.palette-item.sel');
+  if (sel) sel.scrollIntoView({ block: 'nearest' });
+}
+
+function runPaletteSel() {
+  const it = paletteFiltered[paletteSel];
+  if (!it) return;
+  closePalette();
+  try { it.run(); } catch (e) { toast('command failed', 'error'); }
+}
+
+// ── WebSocket ──────────────────────────
+function setLive(connected) {
+  const dot = document.getElementById('live-dot');
+  const label = document.getElementById('live-label');
+  if (dot) dot.classList.toggle('stale', !connected);
+  if (label) label.textContent = connected ? 'live' : 'reconnecting';
+}
+
+function closeWebSocket() {
+  if (wsTimer) { clearTimeout(wsTimer); wsTimer = null; }
+  if (!ws) return;
+  const old = ws;
+  ws = null;
+  old.onopen = null;
+  old.onmessage = null;
+  old.onerror = null;
+  old.onclose = null;
+  try { old.close(1000); } catch (e) {}
+}
+
+function initWebSocket() {
+  closeWebSocket();
+  try {
+    ws = new WebSocket(wsUrlWithAuth());
+  } catch (e) {
+    setLive(false);
+    scheduleReconnect();
+    return;
+  }
+  ws.onopen = () => {
+    wsRetry = 0;
+    setLive(true);
+    // subscribe_all so we receive every broadcast without a `type` filter
+    // (the previous {cmd:'subscribe'} was missing the required type field).
+    try { ws.send(JSON.stringify({ cmd: 'subscribe_all' })); } catch (e) {}
+  };
+  ws.onmessage = (e) => {
+    try { handleWSMessage(JSON.parse(e.data)); } catch (err) {}
+  };
+  ws.onclose = (e) => {
+    ws = null;
+    setLive(false);
+    // 1000 = clean close; don't auto-reconnect that. Everything else backs off.
+    if (e.code !== 1000) scheduleReconnect();
+  };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+
+function scheduleReconnect() {
+  if (wsTimer) return;
+  // Exponential backoff with jitter, capped at 30s — prevents tight retry
+  // loops when the WS port is unreachable (e.g. behind a tunnel).
+  const delay = Math.min(30000, 1000 * Math.pow(2, wsRetry++) + Math.random() * 500);
+  wsTimer = setTimeout(() => { wsTimer = null; initWebSocket(); }, delay);
+}
+
+function handleWSMessage(data) {
+  if (data.type === 'server_enabled'
+      || data.type === 'server_disabled'
+      || data.type === 'server_toggled') {
+    // The initiating action already toasts; just keep the view in sync, and
+    // refresh the open detail panel so its status reflects the change.
+    scheduleCatalogReload();
+    if (selectedNode && selectedNode.name === data.name) {
+      openServerDetail(data.name);
+    }
+  }
+  if (data.type === 'server_credentials') {
+    scheduleCatalogReload();
+    if (selectedNode && selectedNode.name === data.name) {
+      openServerDetail(data.name);
+    }
+  }
+  if (data.type === 'tool_call' || data.type === 'chain_run'
+      || data.type === 'telemetry') {
+    appendTelemetry(data);
+  }
+}
+
+// ── Telemetry: rAF-batched stream + canvas latency strip ─────
+const streamBuf = [];
+let streamRaf = null;
+const latencyRing = new Float32Array(256);
+let latIdx = 0, latLen = 0;
+
+function appendTelemetry(event) {
+  const stamp = event.ts || event.timestamp || (Date.now() / 1000);
+  const bucket = Math.round(Number(stamp) * 2);
+  const key = (event.type || '') + '|' + (event.name || '') + '|' + bucket;
+  const nowMs = Date.now();
+  const prev = recentTelemetry.get(key);
+  if (prev && nowMs - prev < TELEMETRY_DEDUPE_MS) return;
+  recentTelemetry.set(key, nowMs);
+  if (recentTelemetry.size > 200) {
+    for (const [k, t] of recentTelemetry) {
+      if (nowMs - t > TELEMETRY_DEDUPE_MS) recentTelemetry.delete(k);
+    }
+  }
+  const ms = Math.round(event.duration_ms || 0);
+  const isToolCall = event.type === 'tool_call' || (event.type === 'telemetry' && event.duration_ms != null);
+  // Only feed real tool-call latencies into the oscilloscope / KPI — chain_run
+  // events often arrive with 0ms and would flatten the chart.
+  if (isToolCall && ms > 0) {
+    latencyRing[latIdx] = ms;
+    latIdx = (latIdx + 1) % latencyRing.length;
+    latLen = Math.min(latLen + 1, latencyRing.length);
+    lastLiveMs = ms;
+  }
+  // Infer server name from tool prefix (e.g. github.search -> github).
+  const toolName = event.name || '';
+  const serverGuess = toolName.includes('.') || toolName.includes('__')
+    ? toolName.split(/[.__]/)[0]
+    : '';
+  if (serverGuess) recentActivity.set(serverGuess, nowMs);
+
+  streamBuf.push({
+    name: toolName || event.type || '',
+    ok: event.success !== false,
+    ms: ms,
+    ts: Number(stamp) * (Number(stamp) > 1e12 ? 1 : 1000), // accept s or ms
+    kind: event.type || 'tool_call',
+  });
+  if (streamBuf.length > 120) streamBuf.splice(0, streamBuf.length - 120);
+  if (!streamRaf) streamRaf = requestAnimationFrame(flushStream);
+}
+
+function flushStream() {
+  streamRaf = null;
+  const batch = streamBuf.splice(0, streamBuf.length);
+  if (!batch.length) return;
+
+  // Rolling latency average for the KPI tile + sparkline.
+  let sum = 0;
+  for (const b of batch) sum += b.ms;
+  const avg = Math.round(sum / batch.length);
+  const latEl = document.getElementById('stat-latency');
+  if (latEl) latEl.innerHTML = avg + '<span class="unit"> ms</span>';
+  const nowEl = document.getElementById('latency-now');
+  if (nowEl) nowEl.textContent = lastLiveMs + ' ms';
+  const prevLat = histLatency.length ? histLatency[histLatency.length - 1] : null;
+  pushHist(histLatency, avg);
+  updateSpark('spark-latency', histLatency);
+  updateTrend('trend-latency', avg, prevLat, { unit: 'ms', invert: true, eps: 5 });
+
+  drawLatencyStrip();
+
+  if (!streamPaused) {
+    const stream = document.getElementById('telemetry-stream');
+    const placeholder = stream.querySelector('.tlm-empty');
+    if (placeholder) placeholder.remove();
+    const frag = document.createDocumentFragment();
+    for (const ev of batch) {
+      // Burst grouping: same name+status as the current top row -> bump count.
+      const top = stream.firstChild;
+      if (top && top.classList && top.classList.contains('tlm-row')
+          && top.dataset.name === ev.name
+          && top.dataset.ok === String(ev.ok)) {
+        const c = top.querySelector('.tlm-count');
+        const n = (parseInt(top.dataset.count, 10) || 1) + 1;
+        top.dataset.count = n;
+        c.textContent = '\u00d7' + n;
+        const msEl = top.querySelector('.tlm-ms');
+        msEl.className = 'tlm-ms lat-pill ' + latencyClass(ev.ms);
+        msEl.textContent = ev.ms + 'ms';
+        continue;
+      }
+      frag.insertBefore(makeTlmRow(ev), frag.firstChild);
+    }
+    if (frag.childNodes.length) stream.insertBefore(frag, stream.firstChild);
+    while (stream.children.length > 80) stream.lastChild.remove();
+    ensureStreamEmptyHint();
+  }
+}
+
+function makeTlmRow(ev) {
+  const row = document.createElement('div');
+  row.className = 'tlm-row new' + (ev.ok ? '' : ' is-err');
+  row.dataset.name = ev.name;
+  row.dataset.ok = String(ev.ok);
+  row.dataset.count = '1';
+  const when = new Date(ev.ts || Date.now());
+  const ts = pad2(when.getHours()) + ':' + pad2(when.getMinutes()) + ':' + pad2(when.getSeconds());
+
+  const t = document.createElement('span'); t.className = 'tlm-time'; t.textContent = ts;
+  const ic = document.createElement('span');
+  ic.className = 'tlm-icon ' + (ev.ok ? 'ok' : 'err');
+  ic.textContent = ev.ok ? '\u2713' : '\u2717';
+  const nm = document.createElement('span');
+  nm.className = 'tlm-name';
+  nm.textContent = ev.name;
+  const cnt = document.createElement('span');
+  cnt.className = 'tlm-count';
+  const ms = document.createElement('span');
+  ms.className = 'tlm-ms lat-pill ' + latencyClass(ev.ms);
+  ms.textContent = (ev.ms > 0 ? ev.ms + 'ms' : ev.kind || '');
+
+  row.appendChild(t); row.appendChild(ic); row.appendChild(nm);
+  row.appendChild(cnt); row.appendChild(ms);
+  row.addEventListener('animationend', () => row.classList.remove('new'), { once: true });
+  setTimeout(() => row.classList.add('faded'), 8000);
+  return row;
+}
+
+function initLatencyStrip() {
+  drawLatencyStrip();
+  window.addEventListener('resize', () => { if (currentView === 'dashboard') drawLatencyStrip(); });
+}
+
+function drawLatencyStrip() {
+  const canvas = document.getElementById('latency-strip');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 320;
+  const cssH = 32;
+  if (canvas.width !== Math.round(cssW * dpr)) {
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  // Baseline.
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, cssH - 0.5); ctx.lineTo(cssW, cssH - 0.5); ctx.stroke();
+
+  if (latLen < 2) return;
+  const samples = [];
+  const start = latLen < latencyRing.length ? 0 : latIdx;
+  for (let n = 0; n < latLen; n++) samples.push(latencyRing[(start + n) % latencyRing.length]);
+  let max = 100;
+  for (const v of samples) if (v > max) max = v;
+
+  const cols = Math.max(1, Math.floor(cssW));
+  const spp = samples.length / cols;
+  ctx.strokeStyle = '#2dd4bf';
+  ctx.lineWidth = 1;
+  for (let col = 0; col < cols; col++) {
+    const a = Math.floor(col * spp), b = Math.floor((col + 1) * spp);
+    let lo = Infinity, hi = -Infinity;
+    for (let j = a; j < b; j++) { if (samples[j] < lo) lo = samples[j]; if (samples[j] > hi) hi = samples[j]; }
+    if (lo === Infinity) continue;
+    const y1 = cssH - (hi / max) * (cssH - 4) - 2;
+    const y2 = cssH - (lo / max) * (cssH - 4) - 2;
+    ctx.beginPath(); ctx.moveTo(col + 0.5, y1); ctx.lineTo(col + 0.5, y2 + 0.6); ctx.stroke();
+  }
+}
+
+function toggleStreamPause() {
+  streamPaused = !streamPaused;
+  const btn = document.getElementById('btn-pause');
+  btn.classList.toggle('active', streamPaused);
+  btn.setAttribute('aria-pressed', String(streamPaused));
+  btn.textContent = streamPaused ? 'paused' : 'pause';
+}
+
+function toggleErrorsOnly() {
+  streamErrorsOnly = !streamErrorsOnly;
+  const btn = document.getElementById('btn-errors-only');
+  btn.classList.toggle('active', streamErrorsOnly);
+  btn.setAttribute('aria-pressed', String(streamErrorsOnly));
+  const stream = document.getElementById('telemetry-stream');
+  stream.classList.toggle('errors-only', streamErrorsOnly);
+  ensureStreamEmptyHint();
+}
+
+function clearTelemetryStream() {
+  const stream = document.getElementById('telemetry-stream');
+  stream.innerHTML = '';
+  ensureStreamEmptyHint();
+}
+
+function ensureStreamEmptyHint() {
+  const stream = document.getElementById('telemetry-stream');
+  if (!stream) return;
+  const visible = Array.from(stream.children).filter(el => {
+    if (el.classList.contains('tlm-empty')) return false;
+    if (streamErrorsOnly && !el.classList.contains('is-err')) return false;
+    return true;
+  });
+  let hint = stream.querySelector('.tlm-empty');
+  if (visible.length) {
+    if (hint) hint.remove();
+    return;
+  }
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.className = 'tlm-empty';
+    stream.appendChild(hint);
+  }
+  hint.textContent = streamErrorsOnly
+    ? 'No errors in the current stream.'
+    : (streamPaused ? 'Stream paused.' : 'Waiting for tool calls\u2026');
+}
+
+// ── Tunnels ────────────────────────────
+function tunnelBtn(provider) {
+  return document.getElementById(provider === 'cloudflare' ? 'btn-cf' : 'btn-ts');
+}
+
+function setTunnelButton(provider, running) {
+  const btn = tunnelBtn(provider);
+  if (!btn) return;
+  btn.classList.toggle('active', !!running);
+  btn.textContent = running ? 'ON' : 'Start';
+  btn.disabled = false;
+}
+
+async function loadTunnelStatus() {
+  try {
+    const data = await api('/api/tunnel');
+    setTunnelButton('cloudflare', !!(data.cloudflare && data.cloudflare.running));
+    const ts = data.tailscale || {};
+    setTunnelButton('tailscale', !!ts.funnel);
+  } catch (e) { /* tiles just stay as-is */ }
+}
+
+async function toggleTunnel(provider) {
+  const btn = tunnelBtn(provider);
+  if (!btn) return;
+  const running = btn.classList.contains('active');
+  const action = running ? 'stop' : 'start';
+  // Stopping the cloudflare tunnel takes the public site offline — confirm it.
+  if (action === 'stop' && provider === 'cloudflare') {
+    if (!confirm('Stop the cloudflare tunnel? This takes the public site offline.')) {
+      return;
+    }
+  }
+  btn.textContent = '...';
+  btn.disabled = true;
+  toast('tunnel ' + provider + ': ' + action + 'ing...');
+  try {
+    const data = await apiPost(
+      '/api/tunnel/' + encodeURIComponent(provider) + '/' + action, {}
+    );
+    if (action === 'stop') {
+      setTunnelButton(provider, false);
+      toast('tunnel ' + provider + ' stopped.', '');
+    } else if (data.url || data.running) {
+      setTunnelButton(provider, true);
+      toast('tunnel: ' + (data.url || 'started'), 'success');
+    } else {
+      setTunnelButton(provider, false);
+      toast('tunnel ' + provider + ': ' + (data.error || 'no url'), 'error');
+    }
+  } catch (e) {
+    toast('tunnel ' + provider + ': ' + (e.message || 'failed'), 'error');
+  } finally {
+    // Reconcile with reality (e.g. a managed unit that refused to die).
+    await loadTunnelStatus();
+  }
+}
+
+// ── View Navigation ────────────────────
+let currentView = 'dashboard';
+
+const viewTitles = {
+  dashboard: 'Overview',
+  catalog: 'Servers',
+  evals: 'Performance',
+  deploy: 'Deploy',
+  settings: 'Settings',
+};
+
+function switchView(name, quiet) {
+  currentView = name;
+  const title = document.getElementById('page-title');
+  if (title) title.textContent = viewTitles[name] || name;
+  document.querySelectorAll('.view').forEach(v => {
+    v.classList.toggle('active', v.id === 'view-' + name);
+  });
+  document.querySelectorAll('.sidebar-nav .tab').forEach(t => {
+    const on = t.dataset.view === name;
+    t.classList.toggle('active', on);
+    if (on) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
+  });
+  if (name === 'dashboard') setTimeout(drawLatencyStrip, 0);
+  loadViewData(name);
+  if (!quiet) writeUrlState();
+}
+
+async function loadViewData(name) {
+  try {
+    if (name === 'catalog') await loadCatalogView();
+    else if (name === 'evals') await loadEvalsView();
+    else if (name === 'deploy') await loadDeployView();
+    else if (name === 'settings') await loadSettingsView();
+  } catch (e) {
+    console.error('view load error:', e);
+  }
+}
+
+async function loadCatalogView() {
+  const search = document.getElementById('catalog-search');
+  if (search && search.value.trim() !== catalogQuery) {
+    catalogQuery = search.value.trim();
+  }
+  const data = await api(catalogApiPath());
+  const grid = document.getElementById('catalog-grid');
+  catalogItems = filterServers(data.servers || []);
+  const items = catalogFilter === 'all'
+    ? catalogItems
+    : catalogItems.filter(s => serverState(s) === catalogFilter);
+  document.getElementById('catalog-count').textContent = items.length + ' servers';
+  grid.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'view-empty';
+    empty.style.gridColumn = '1 / -1';
+    if (catalogQuery) {
+      empty.textContent = 'No servers match "' + catalogQuery + '". Clear the search to see all.';
+    } else if (catalogFilter !== 'all') {
+      empty.textContent = 'No servers in this status. Switch the filter above.';
+    } else {
+      empty.textContent = 'No servers in this profile. Switch profiles in the top bar.';
+    }
+    grid.appendChild(empty);
+    return;
+  }
+  for (const s of items) {
+    const card = document.createElement('div');
+    card.className = 'server-card interactive';
+    card.dataset.name = s.name;
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', s.name + ', ' + serverState(s));
+
+    const head = document.createElement('div');
+    head.className = 'server-card-head';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'server-card-name';
+    nameEl.textContent = s.name;
+    const toggle = document.createElement('div');
+    const pending = s.enabled && s.env_configured === false;
+    toggle.className = 'toggle-switch'
+      + (s.enabled ? (pending ? ' pending' : ' on') : '');
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', String(!!s.enabled));
+    toggle.setAttribute('aria-label', 'Enable ' + s.name);
+    toggle.setAttribute('tabindex', '0');
+    toggle.title = pending ? 'On, but needs credentials to connect' : '';
+    toggle.dataset.name = s.name;
+    head.appendChild(nameEl);
+    head.appendChild(toggle);
+    card.appendChild(head);
+
+    const badges = document.createElement('div');
+    badges.className = 'badges';
+    badges.appendChild(makeBadge(s.transport, s.transport));
+    badges.appendChild(makeBadge(s.risk, s.risk));
+    const st = serverState(s);
+    badges.appendChild(makeBadge(
+      st === 'ready' ? 'low' : (st === 'needs' ? 'medium' : 'high'),
+      st === 'ready' ? 'ready' : (st === 'needs' ? 'needs credentials' : 'disabled')
+    ));
+    card.appendChild(badges);
+
+    const desc = document.createElement('div');
+    desc.className = 'server-card-desc';
+    desc.textContent = s.description || '';
+    card.appendChild(desc);
+
+    const meta = document.createElement('div');
+    meta.className = 'server-card-meta';
+    const cost = document.createElement('span');
+    cost.className = 'cost-dots';
+    cost.title = 'context cost';
+    const c = Math.max(0, Math.min(5, Number(s.context_cost) || 0));
+    for (let i = 0; i < 5; i++) {
+      const d = document.createElement('i');
+      if (i < c) d.className = 'on';
+      cost.appendChild(d);
+    }
+    const stChip = document.createElement('span');
+    stChip.className = 'status-chip';
+    const dot = document.createElement('span');
+    dot.className = 'status-dot ' + (st === 'ready' ? 'ok' : st === 'needs' ? 'warn' : 'off');
+    const lbl = document.createElement('span');
+    lbl.className = 'status-label';
+    lbl.textContent = st === 'ready' ? 'Ready' : st === 'needs' ? 'Needs credentials' : 'Disabled';
+    stChip.appendChild(dot); stChip.appendChild(lbl);
+    meta.appendChild(cost);
+    meta.appendChild(stChip);
+    card.appendChild(meta);
+
+    grid.appendChild(card);
+  }
+}
+
+function enableHint(name, enabled) {
+  // Tell the operator the truth: enabling a server with missing credentials
+  // does not connect it. Point them at exactly what's needed.
+  if (!enabled) return name + ' disabled.';
+  const s = servers.find(x => x.name === name);
+  if (s && s.env_required && s.env_required.length && !s.env_configured) {
+    return name + ' enabled. Set ' + s.env_required.join(', ') + ' to connect it.';
+  }
+  return name + ' enabled.';
+}
+
+async function toggleServerCard(name, el) {
+  try {
+    const data = await apiPost(
+      '/api/mcp/servers/' + encodeURIComponent(name) + '/toggle', {}
+    );
+    // Keep the in-memory catalog in sync even if WS is down.
+    const s = servers.find(x => x.name === name);
+    if (s) s.enabled = !!data.enabled;
+    const ci = catalogItems.find(x => x.name === name);
+    if (ci) ci.enabled = !!data.enabled;
+    const pending = data.enabled && s && s.env_configured === false;
+    el.classList.remove('on', 'pending');
+    if (data.enabled) el.classList.add(pending ? 'pending' : 'on');
+    el.setAttribute('aria-checked', String(!!data.enabled));
+    el.title = pending ? 'On, but needs credentials to connect' : '';
+    toast(enableHint(name, !!data.enabled), data.enabled ? 'success' : '');
+    buildNodes();
+    if (currentView === 'catalog') await loadCatalogView();
+    // Enabling something that still needs a token? Bring up the connect popup.
+    if (pending) promptCredentials(name);
+  } catch (e) {
+    toast(name + ': ' + (e.message || 'failed'), 'error');
+  }
+}
+
+async function openServerDetail(name) {
+  try {
+    const data = await api('/api/mcp/servers/' + encodeURIComponent(name));
+    openDetail(data);
+  } catch (e) {
+    toast(name + ': ' + (e.message || 'not found'), 'error');
+  }
+}
+
+async function loadEvalsView() {
+  const data = await api('/api/evals');
+  const summary = data.summary || {};
+  const tc = data.tool_calls || {};
+
+  const sumEl = document.getElementById('eval-summary');
+  sumEl.innerHTML = '';
+  const stats = [
+    ['calls', tc.total || 0],
+    ['tools', tc.unique_tools || 0],
+    ['success', (summary.overall_success_rate || 0) + '%'],
+    ['errors', summary.total_errors || 0],
+  ];
+  for (const [label, val] of stats) {
+    const stat = document.createElement('div');
+    stat.className = 'eval-stat';
+    const big = document.createElement('span');
+    big.className = 'big-num tnum';
+    big.textContent = val;
+    const lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    lbl.textContent = label;
+    stat.appendChild(big);
+    stat.appendChild(lbl);
+    sumEl.appendChild(stat);
+  }
+
+  const perTool = tc.per_tool || {};
+  const entries = Object.entries(perTool).sort((a, b) => b[1].total - a[1].total);
+  const tbody = document.getElementById('eval-tbody');
+  tbody.innerHTML = '';
+  if (!entries.length) {
+    const tr = document.createElement('tr');
+    const cell = td('');
+    cell.colSpan = 4;
+    cell.className = 'view-empty';
+    cell.textContent = 'No tool calls recorded yet. Run a tool to see it here.';
+    tr.appendChild(cell);
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const [name, s] of entries) {
+    const rate = s.success_rate || 0;
+    const color = rate >= 90 ? 'var(--ok)' : rate >= 50 ? 'var(--warn)' : 'var(--err)';
+    const avg = Math.round(s.avg_duration_ms || 0);
+    const tr = document.createElement('tr');
+    tr.appendChild(td(name));
+    tr.appendChild(td(String(s.total)));
+    const c = td('');
+    const hbar = document.createElement('span');
+    hbar.className = 'hbar';
+    const track = document.createElement('span');
+    track.className = 'hbar-track';
+    const fill = document.createElement('span');
+    fill.className = 'hbar-fill';
+    fill.style.width = rate + '%';
+    fill.style.background = color;
+    track.appendChild(fill);
+    const lbl = document.createElement('span');
+    lbl.className = 'hbar-label';
+    lbl.textContent = rate + '%';
+    hbar.appendChild(track);
+    hbar.appendChild(lbl);
+    c.appendChild(hbar);
+    tr.appendChild(c);
+    const latCell = td('');
+    const pill = document.createElement('span');
+    pill.className = 'lat-pill ' + latencyClass(avg);
+    pill.textContent = avg + 'ms';
+    latCell.appendChild(pill);
+    tr.appendChild(latCell);
+    tbody.appendChild(tr);
+  }
+}
+
+let deployFormats = [];
+
+async function loadDeployView() {
+  const data = await api('/api/deploy');
+  deployFormats = data.formats || [];
+  const tabs = document.getElementById('deploy-tabs');
+  tabs.innerHTML = '';
+  for (const f of deployFormats) {
+    const btn = document.createElement('button');
+    btn.className = 'code-tab interactive';
+    btn.dataset.fmt = f.name;
+    btn.textContent = f.name;
+    tabs.appendChild(btn);
+  }
+  if (deployFormats[0]) await selectDeployFormat(deployFormats[0].name);
+}
+
+async function selectDeployFormat(fmt) {
+  document.querySelectorAll('.code-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.fmt === fmt);
+  });
+  const code = document.getElementById('deploy-code');
+  const desc = document.getElementById('deploy-desc');
+  try {
+    const data = await api('/api/deploy/' + encodeURIComponent(fmt));
+    code.textContent = JSON.stringify(data, null, 2);
+    desc.textContent = data.description
+      || (deployFormats.find(f => f.name === fmt) || {}).description
+      || '';
+  } catch (e) {
+    code.textContent = '# ' + (e.message || 'error');
+    desc.textContent = '';
+  }
+}
+
+function copyDeployCode() {
+  const text = document.getElementById('deploy-code').textContent || '';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => toast('copied to clipboard', 'success'),
+      () => toast('clipboard access denied', 'error')
+    );
+  } else {
+    toast('clipboard unavailable', 'error');
+  }
+}
+
+async function loadSettingsView() {
+  const data = await api('/api/settings');
+  const auth = data.auth || {};
+  document.getElementById('set-auth-mode').value = (auth.mode in { none: 1, apikey: 1, oauth: 1 })
+    ? auth.mode : 'none';
+  document.getElementById('set-cors').value = (data.cors_origins || []).join(', ');
+  document.getElementById('set-rate-limit').value = data.rate_limit_per_min || 0;
+  document.getElementById('set-profile').value = data.default_profile || 'core';
+  document.getElementById('set-storage').value = data.storage_backend || 'sqlite';
+}
+
+async function saveSettings() {
+  const body = {
+    auth: { mode: document.getElementById('set-auth-mode').value },
+    cors_origins: document.getElementById('set-cors').value
+      .split(',').map(s => s.trim()).filter(Boolean),
+    rate_limit_per_min: parseInt(document.getElementById('set-rate-limit').value) || 0,
+    default_profile: document.getElementById('set-profile').value,
+    storage_backend: document.getElementById('set-storage').value,
+  };
+  try {
+    await apiPost('/api/settings', body);
+    toast('settings saved', 'success');
+  } catch (e) {
+    toast('failed to save settings: ' + (e.message || ''), 'error');
+  }
+}
+
+function initKeyboard() {
+  document.addEventListener('keydown', (e) => {
+    // Command palette: ⌘K / Ctrl+K toggles.
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      if (paletteIsOpen()) closePalette(); else openPalette();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (paletteIsOpen()) { closePalette(); return; }
+      if (document.getElementById('cred-modal').classList.contains('show')) {
+        closeCredentialsModal(); return;
+      }
+      closeDetail();
+      return;
+    }
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (paletteIsOpen()) return;
+
+    if (e.key >= '1' && e.key <= '5') {
+      const views = ['dashboard', 'catalog', 'evals', 'deploy', 'settings'];
+      const v = views[parseInt(e.key) - 1];
+      if (v) switchView(v);
+      return;
+    }
+    // Overview list navigation (vim-style).
+    if (currentView === 'dashboard') {
+      if (e.key === 'j') { e.preventDefault(); moveRouteSel(1); return; }
+      if (e.key === 'k') { e.preventDefault(); moveRouteSel(-1); return; }
+      if (e.key === 'Enter') { e.preventDefault(); openSelectedRoute(); return; }
+    }
+    if (e.key === '/') {
+      if (currentView === 'catalog') {
+        e.preventDefault();
+        const s = document.getElementById('catalog-search');
+        if (s) s.focus();
+      } else {
+        e.preventDefault();
+        openPalette();
+      }
+      return;
+    }
+    if (e.key === 'r') { loadViewData(currentView); loadStatusSafe(); }
+  });
+}
+
+// ── Start ──────────────────────────────
+window.addEventListener('DOMContentLoaded', init);
+
 """
 
 
 def render_dashboard(ws_port: int = 9092) -> str:
-    """Render the self-contained operator dashboard for the configured WS port."""
-
-    config = f"<script>window.KATER_CONFIG={{wsPort:{int(ws_port)}}};</script>\n"
+    config = f"<script>window.KATER_CONFIG={{wsPort:{int(ws_port)}}}</script>\n"
     return (
         "<!DOCTYPE html>\n"
         '<html lang="en">\n<head>\n'
         '<meta charset="UTF-8">\n'
-        '<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">\n'
-        "<title>Kater — Gateway control plane</title>\n"
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        "<title>Kater — MCP Gateway</title>\n"
         '<meta name="color-scheme" content="dark">\n'
-        '<meta name="theme-color" content="#0b0e11">\n'
         f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n"
         f"{_HTML}\n"

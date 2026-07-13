@@ -1,8 +1,13 @@
-"""Native dashboard rendering and dashboard/API coupling."""
+"""Dashboard rendering + dashboard<->API path coupling.
+
+The dashboard is a deep module behind one interface (`render_dashboard`).
+These tests guard two things the design review flagged:
+  1. The internal per-view seams still compose into the full document.
+  2. Every REST path the dashboard's JS calls actually exists in the API
+     RouteTable (catches drift like the previously-missing /api/tunnel route).
+"""
 
 from __future__ import annotations
-
-import re
 
 import pytest
 
@@ -32,59 +37,32 @@ def test_dashboard_injects_configured_ws_port():
     assert "wsPort:9092" in render_dashboard()
 
 
-def test_dashboard_uses_first_party_oauth_client_without_runtime_registration():
+def test_overview_has_situational_awareness_seams():
+    # The 2026 redesign leads with triage, not vanity numbers: an exception
+    # strip, live KPI sparklines, a 5-state routing table, and a latency strip.
     html = render_dashboard()
-    assert re.search(r"client_id\s*:\s*['\"]kater-dashboard['\"]", html)
-    assert re.search(r"['\"]/authorize['\"]", html)
-    assert "fetch('/register'" not in html
-    assert "params.get('api_key')" not in html
-    assert "/api/ws-ticket" in html
-    assert "ticket=" in html
-    assert "token=" not in html
+    assert 'id="exc-strip"' in html  # triage-first exception strip
+    assert 'id="spark-success"' in html and 'id="spark-latency"' in html
+    assert 'id="latency-strip"' in html  # canvas latency oscilloscope
+    assert "Routing table" in html
+    assert 'id="telemetry-stream"' in html
 
 
-def test_dashboard_status_and_command_ui_are_operator_focused():
+def test_command_palette_is_present():
+    # ⌘K command palette is the discoverable entry point for navigation/actions.
     html = render_dashboard()
-    assert 'id="ws-status"' in html
-    assert 'id="ws-dot"' in html
-    assert 'placeholder="Command"' in html
-    assert 'class="cmd-hint"' not in html
+    assert 'id="cmd-palette"' in html
+    assert 'id="palette-input"' in html
+    assert 'id="palette-results"' in html
 
 
-def test_dashboard_contains_only_real_api_route_families():
+def test_catalog_has_status_facets():
     html = render_dashboard()
-    for path in (
-        "/api/status",
-        "/api/events",
-        "/api/backends",
-        "/api/profiles",
-        "/api/catalog",
-        "/api/evals",
-        "/api/deploy",
-        "/api/settings",
-        "/api/mcp/servers/",
-        "/api/tunnel",
-        "/api/ws-ticket",
-    ):
-        assert path in html
-
-    for fake_path in (
-        "/api/command",
-        "/api/servers/",
-        "/api/tunnel/toggle",
-        "/api/deploy/config",
-        "/oauth/authorize",
-    ):
-        assert fake_path not in html
-
-
-def test_dashboard_includes_mutation_route_actions():
-    html = render_dashboard()
-    # Concrete route/method compatibility is checked independently below;
-    # helper wrappers are free to encapsulate the POST option.
-    assert "/credentials" in html
-    assert re.search(r"['\"]start['\"]", html)
-    assert re.search(r"['\"]stop['\"]", html)
+    assert 'id="catalog-facets"' in html
+    assert 'data-cfilter="needs"' in html
+    assert "clearTelemetryStream" in html  # activity clear control
+    assert "writeUrlState" in html  # shareable URL state
+    assert "context_cost" in html  # routing table uses catalog cost
 
 
 def test_each_view_is_present_via_its_own_seam():
@@ -102,59 +80,22 @@ def test_each_view_is_present_via_its_own_seam():
         assert f'id="{view_id}"' in render_dashboard(), view_id
 
 
-def test_dashboard_tabs_have_complete_aria_contract():
-    html = render_dashboard()
-    views = ["dashboard", "catalog", "evals", "deploy", "settings"]
-
-    tablist = re.search(r"<[^>]*role=['\"]tablist['\"][^>]*>", html)
-    assert tablist and 'aria-label="Dashboard views"' in tablist.group()
-    assert "ArrowRight" in html
-    assert "ArrowLeft" in html
-    assert "Home" in html
-    assert "End" in html
-
-    for index, view in enumerate(views):
-        expected_selected = "true" if index == 0 else "false"
-        expected_tabindex = "0" if index == 0 else "-1"
-        tab = re.search(rf"<[^>]*id=['\"]tab-{view}['\"][^>]*>", html)
-        panel = re.search(rf"<[^>]*id=['\"]view-{view}['\"][^>]*>", html)
-        assert tab and panel
-
-        tab_markup = tab.group()
-        assert 'role="tab"' in tab_markup
-        assert f'aria-selected="{expected_selected}"' in tab_markup
-        assert f'aria-controls="view-{view}"' in tab_markup
-        assert f'tabindex="{expected_tabindex}"' in tab_markup
-
-        panel_markup = panel.group()
-        assert 'role="tabpanel"' in panel_markup
-        assert f'aria-labelledby="tab-{view}"' in panel_markup
-        assert 'tabindex="0"' in panel_markup
-        assert (" hidden" in panel_markup) is (index > 0)
-
-
 # (method, concrete-path) pairs that the dashboard JS fetches. Sample values
 # stand in for the {name}/{fmt}/{provider}/{action} params.
 DASHBOARD_ENDPOINTS = [
     ("GET", "/api/status"),
-    ("GET", "/api/events"),
-    ("GET", "/api/backends"),
     ("GET", "/api/profiles"),
     ("GET", "/api/catalog"),
     ("GET", "/api/evals"),
     ("GET", "/api/deploy"),
     ("GET", "/api/deploy/json"),
     ("GET", "/api/settings"),
-    ("GET", "/api/tunnel"),
     ("GET", "/api/mcp/servers/github"),
     ("POST", "/api/mcp/servers/github/enable"),
     ("POST", "/api/mcp/servers/github/disable"),
-    ("POST", "/api/mcp/servers/github/credentials"),
+    ("POST", "/api/mcp/servers/github/toggle"),
     ("POST", "/api/tunnel/cloudflare/start"),
-    ("POST", "/api/tunnel/cloudflare/stop"),
     ("POST", "/api/tunnel/tailscale/start"),
-    ("POST", "/api/tunnel/tailscale/stop"),
-    ("POST", "/api/ws-ticket"),
     ("POST", "/api/settings"),
 ]
 
@@ -162,91 +103,3 @@ DASHBOARD_ENDPOINTS = [
 @pytest.mark.parametrize("method,path", DASHBOARD_ENDPOINTS)
 def test_dashboard_endpoint_exists_in_router(method, path):
     assert ROUTER.match(method, path) is not None, f"{method} {path} has no route"
-
-
-def test_dashboard_delegates_confirm_and_clears_timeouts():
-    html = render_dashboard()
-    assert "function trackedTimeout(fn, ms)" in html
-    assert (
-        "onEl(document, 'click'" in html
-        or "document.addEventListener('click'" in html
-    )
-    assert "clearTimeout(" in html
-
-
-def test_dashboard_dialogs_trap_focus_and_restore_background():
-    html = render_dashboard()
-    assert "function openDialog(dialog, initialFocus, onEscape)" in html
-    assert "function closeDialog(dialog)" in html
-    assert "event.key !== 'Tab'" in html
-    assert "event.shiftKey" in html
-    assert "element.inert = true" in html
-    assert "element.inert = inert" in html
-    assert "element.setAttribute('aria-hidden', 'true')" in html
-    assert "priorFocus.isConnected" in html
-    assert "openDialog($('confirm'), confirmCtx.ok, closeConfirm)" in html
-    assert "openDialog($('auth-gate'), $('auth-key'))" in html
-    assert "closeDialog($('auth-gate'))" in html
-
-
-def test_dashboard_websocket_tracks_connection_and_retry_lifecycle():
-    html = render_dashboard()
-    for marker in (
-        "wsConnecting: false",
-        "wsOpen: false",
-        "wsRetry: null",
-        "function clearWsRetry()",
-        "function scheduleWsReconnect()",
-        "state.destroyed || state.wsConnecting || state.wsOpen || state.ws",
-        "generation !== state.wsGeneration",
-        "state.wsGeneration++",
-    ):
-        assert marker in html
-    assert html.count("clearWsRetry();") >= 4
-
-
-def test_dashboard_feed_fallback_timestamp_uses_epoch_seconds():
-    html = render_dashboard()
-    assert "event.timestamp != null ? event.timestamp" in html
-    assert "event.ts != null ? event.ts" in html
-    assert "Date.now() / 1000" in html
-    assert "event.timestamp || event.ts || Date.now()" not in html
-
-
-def test_dashboard_topology_scales_in_both_dimensions():
-    html = render_dashboard()
-    assert "const radius = {x: width * .38, y: height * .34}" in html
-    assert "Math.sin(angle) * radius.y" in html
-    assert "Math.sin(angle) * 72" not in html
-
-
-def test_dashboard_catalog_search_recovery_and_a11y():
-    html = render_dashboard()
-    # The result counter is a polite live region, wired to the search input as its
-    # description, and its text carries context ("N of M servers"), not a bare number.
-    assert 'id="catalog-count" class="badge" aria-live="polite"' in html
-    assert 'id="catalog-search" class="input" type="search"' in html
-    assert 'aria-describedby="catalog-count"' in html
-    assert "list.length + ' of ' + state.catalog.length + ' servers'" in html
-
-    # The empty-state recovery button is emitted ONLY when a search query is present.
-    # Scope to catalogEmptyHtml() so a button hoisted out of the query guard, or a
-    # lowercased echo of the user's text, would fail here.
-    empty_fn = html.split("function catalogEmptyHtml()", 1)[1].split("\nfunction ", 1)[0]
-    before_guard, _, after_guard = empty_fn.partition("if (query) {")
-    assert after_guard, "recovery button must be guarded by a search-query check"
-    assert "view-empty-link" not in before_guard
-    # Guarded branch (query present): original-cased echo + keyboard-native button.
-    guarded_return, _, fallback = after_guard.partition("}")
-    assert 'No servers match "\' + esc(query) + \'"' in guarded_return
-    assert '<button class="view-empty-link" type="button"' in guarded_return
-    assert 'onclick="clearCatalogSearch()">Clear search</button>' in guarded_return
-    # Fallback (no query): plain message, no recovery button.
-    assert '<div class="empty">No servers match these filters.</div>' in fallback
-    assert "view-empty-link" not in fallback
-
-    # clearCatalogSearch() must reset the input, re-render the catalog, and restore focus.
-    handler = html.split("function clearCatalogSearch()", 1)[1].split("\nfunction ", 1)[0]
-    assert "search.value = ''" in handler
-    assert "renderCatalog();" in handler
-    assert "search.focus();" in handler

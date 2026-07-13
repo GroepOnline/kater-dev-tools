@@ -89,6 +89,7 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 # oauth.py: the field name `token_endpoint_auth_method` contains "token" which
 # trips S105/S107; it is an OAuth method selector, not a credential.
 "src/kater/oauth.py" = ["S105", "S107"]
+"src/kater/web/dashboard.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"

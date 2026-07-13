@@ -218,3 +218,35 @@ def test_dashboard_topology_scales_in_both_dimensions():
     assert "const radius = {x: width * .38, y: height * .34}" in html
     assert "Math.sin(angle) * radius.y" in html
     assert "Math.sin(angle) * 72" not in html
+
+
+def test_dashboard_catalog_search_recovery_and_a11y():
+    html = render_dashboard()
+    # The result counter is a polite live region, wired to the search input as its
+    # description, and its text carries context ("N of M servers"), not a bare number.
+    assert 'id="catalog-count" class="badge" aria-live="polite"' in html
+    assert 'id="catalog-search" class="input" type="search"' in html
+    assert 'aria-describedby="catalog-count"' in html
+    assert "list.length + ' of ' + state.catalog.length + ' servers'" in html
+
+    # The empty-state recovery button is emitted ONLY when a search query is present.
+    # Scope to catalogEmptyHtml() so a button hoisted out of the query guard, or a
+    # lowercased echo of the user's text, would fail here.
+    empty_fn = html.split("function catalogEmptyHtml()", 1)[1].split("\nfunction ", 1)[0]
+    before_guard, _, after_guard = empty_fn.partition("if (query) {")
+    assert after_guard, "recovery button must be guarded by a search-query check"
+    assert "view-empty-link" not in before_guard
+    # Guarded branch (query present): original-cased echo + keyboard-native button.
+    guarded_return, _, fallback = after_guard.partition("}")
+    assert 'No servers match "\' + esc(query) + \'"' in guarded_return
+    assert '<button class="view-empty-link" type="button"' in guarded_return
+    assert 'onclick="clearCatalogSearch()">Clear search</button>' in guarded_return
+    # Fallback (no query): plain message, no recovery button.
+    assert '<div class="empty">No servers match these filters.</div>' in fallback
+    assert "view-empty-link" not in fallback
+
+    # clearCatalogSearch() must reset the input, re-render the catalog, and restore focus.
+    handler = html.split("function clearCatalogSearch()", 1)[1].split("\nfunction ", 1)[0]
+    assert "search.value = ''" in handler
+    assert "renderCatalog();" in handler
+    assert "search.focus();" in handler

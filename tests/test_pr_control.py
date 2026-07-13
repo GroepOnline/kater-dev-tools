@@ -34,14 +34,14 @@ from kater.pr_control import (
     VERDICT_PASS as PASS,
 )
 from kater.pr_control import (
-    VERDICT_WARN as WARN,
-)
-from kater.pr_control import (
+    GatePolicy,
     GitHubPRClient,
     evaluate_gate,
     gate_for_pr,
+    load_gate_policy,
     pr_gate_tool,
     pr_list_tool,
+    pr_policy_tool,
     pr_status_tool,
 )
 
@@ -94,6 +94,14 @@ def test_gate_flags_each_reason() -> None:
         (dict(approving_reviews=0), NO_REVIEWS),
         (dict(base_protected=True), BASE_PROTECTED),
     ]
+    strict = GatePolicy(
+        require_approvals=1,
+        block_drafts=True,
+        block_base_protected=True,
+        allow_overlapping_prs=False,
+        allow_pending_checks=False,
+        allow_unresolved_threads=False,
+    )
     for overrides, reason in cases:
         kwargs = dict(
             pr_number=1,
@@ -106,16 +114,12 @@ def test_gate_flags_each_reason() -> None:
             approving_reviews=1,
             base_protected=False,
             overlapping_open=0,
+            policy=strict,
         )
         kwargs.update(overrides)
         res = evaluate_gate(**kwargs)
         assert reason in res.reasons
-        assert res.verdict == (BLOCK if reason in (
-            UNRESOLVED_THREAD,
-            MERGE_CONFLICT,
-            HEAD_STALE,
-            OVERLAPPING_PR,
-        ) else WARN)
+        assert res.verdict == BLOCK
 
 
 def test_gate_block_overrides_warn() -> None:
@@ -133,7 +137,10 @@ def test_gate_block_overrides_warn() -> None:
     )
     assert res.verdict == BLOCK
     assert MERGE_CONFLICT in res.reasons
-    assert PENDING_CHECKS in res.reasons
+    # Blocking reasons (conflict, missing approval, protected base) dominate
+    # the non-blocking pending-checks reason under the default policy.
+    assert NO_REVIEWS in res.reasons
+    assert BASE_PROTECTED in res.reasons
 
 
 def test_gate_details_recorded() -> None:
@@ -255,3 +262,74 @@ def test_tools_read_only_no_subprocess(monkeypatch) -> None:
     gate_mismatch = pr_gate_tool(42, expected_head_sha="wrong")
     assert gate_mismatch["details"]["head_sha_matches"] is False
     assert not calls  # no subprocess executed during the read path
+
+
+def test_policy_defaults_block_drafts_and_require_approval() -> None:
+    policy = GatePolicy()
+    assert policy.block_drafts is True
+    assert policy.require_approvals == 1
+    assert policy.block_base_protected is True
+    res = evaluate_gate(
+        pr_number=1,
+        head_sha="h",
+        base_sha="b",
+        mergeable="MERGEABLE",
+        draft=True,
+        open_threads=0,
+        pending_checks=0,
+        approving_reviews=0,
+        base_protected=False,
+        overlapping_open=0,
+        policy=policy,
+    )
+    assert DRAFT in res.reasons
+    assert NO_REVIEWS in res.reasons
+    assert res.verdict == BLOCK
+
+
+def test_policy_can_relax_draft_and_pending_checks() -> None:
+    policy = GatePolicy(block_drafts=False, allow_pending_checks=True)
+    res = evaluate_gate(
+        pr_number=1,
+        head_sha="h",
+        base_sha="b",
+        mergeable="MERGEABLE",
+        draft=True,
+        open_threads=0,
+        pending_checks=2,
+        approving_reviews=1,
+        base_protected=False,
+        overlapping_open=0,
+        policy=policy,
+    )
+    assert DRAFT not in res.reasons
+    assert PENDING_CHECKS not in res.reasons
+    assert res.verdict == PASS
+
+
+def test_policy_load_from_dict_ignores_unknown_keys() -> None:
+    policy = GatePolicy.from_dict(
+        {"require_approvals": 2, "unknown": "drop-me"}
+    )
+    assert policy.require_approvals == 2
+    assert policy.block_drafts is True
+
+
+def test_load_gate_policy_absent_returns_default(tmp_path) -> None:
+    policy = load_gate_policy(path=str(tmp_path / "missing.json"))
+    assert isinstance(policy, GatePolicy)
+    assert policy.require_approvals == 1
+
+
+def test_load_gate_policy_reads_file(tmp_path) -> None:
+    path = tmp_path / "gate-policy.json"
+    path.write_text('{"require_approvals": 3, "block_drafts": false}', encoding="utf-8")
+    policy = load_gate_policy(path=str(path))
+    assert policy.require_approvals == 3
+    assert policy.block_drafts is False
+
+
+def test_pr_policy_tool_returns_policy() -> None:
+    result = pr_policy_tool()
+    assert "policy" in result
+    assert result["policy"]["require_approvals"] == 1

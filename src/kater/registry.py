@@ -8,7 +8,12 @@ from pydantic import BaseModel
 from kater.adapters.external import render_profile_config, scan_adapters
 from kater.chains import list_chains
 from kater.doctor import parse_profiles, run_doctor
-from kater.pr_control import pr_gate_tool, pr_list_tool, pr_status_tool
+from kater.pr_control import (
+    pr_gate_tool,
+    pr_list_tool,
+    pr_policy_tool,
+    pr_status_tool,
+)
 from kater.profiles import list_profiles
 
 ToolHandler = Callable[..., dict[str, Any]]
@@ -124,6 +129,13 @@ def build_native_tools() -> list[NativeTool]:
             profile="core",
             risk="low",
             handler=pr_gate_tool,
+        ),
+        NativeTool(
+            name="kater_pr_policy",
+            description="Show the resolved merge-gate policy (thresholds, blocking rules).",
+            profile="core",
+            risk="low",
+            handler=pr_policy_tool,
         ),
     ]
     tools.extend(_extension_native_tools())

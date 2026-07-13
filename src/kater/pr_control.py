@@ -41,26 +41,72 @@ class GateResult:
 
 
 # Reasons that hard-block a merge unconditionally.
-_BLOCKING = {
-    REASON_HEAD_STALE,
-    REASON_MERGE_CONFLICT,
-    REASON_UNRESOLVED_THREAD,
-    REASON_OVERLAPPING_PR,
-}
+@dataclass
+class GatePolicy:
+    """Operator-tunable gate thresholds (§4 policy config).
 
-# Reasons that warn but do not block.
-_WARN = {
-    REASON_PENDING_CHECKS,
-    REASON_NO_REVIEWS,
-    REASON_DRAFT,
-    REASON_BASE_PROTECTED,
-}
+    Defaults encode a conservative-but-mergeable policy: require at least one
+    approving review, block drafts and base-protected changes outright, allow
+    a single overlapping PR or pending check to surface as a WARN.
+    """
+
+    require_approvals: int = 1
+    block_drafts: bool = True
+    block_base_protected: bool = True
+    allow_overlapping_prs: bool = False
+    allow_pending_checks: bool = True
+    allow_unresolved_threads: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GatePolicy:
+        known = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in data.items() if k in known}
+        return cls(**filtered)
 
 
-def _collapse(verdict: str, reasons: list[str]) -> str:
-    if any(r in _BLOCKING for r in reasons):
+def load_gate_policy(*, path: str | None = None) -> GatePolicy:
+    """Load gate policy from ``path`` (JSON), else repo default location.
+
+    Read-only: file IO is isolated so an absent/malformed policy yields the
+    safe default rather than raising.
+    """
+    candidates = [path] if path else [".kater/gate-policy.json", "gate-policy.json"]
+    for candidate in candidates:
+        try:
+            with open(candidate, encoding="utf-8") as fh:
+                raw = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(raw, dict):
+            return GatePolicy.from_dict(raw)
+    return GatePolicy()
+
+
+def _collapse(verdict: str, reasons: list[str], policy: GatePolicy) -> str:
+    # A reason blocks only when the policy treats it as blocking; otherwise it
+    # is a WARN. This keeps the verdict purely a function of (reasons, policy).
+    blocking_here = {
+        REASON_HEAD_STALE,
+        REASON_MERGE_CONFLICT,
+        REASON_UNRESOLVED_THREAD,
+        REASON_OVERLAPPING_PR,
+    }
+    if policy.block_drafts:
+        blocking_here.add(REASON_DRAFT)
+    if policy.block_base_protected:
+        blocking_here.add(REASON_BASE_PROTECTED)
+    if policy.require_approvals > 0:
+        blocking_here.add(REASON_NO_REVIEWS)
+    if not policy.allow_pending_checks:
+        blocking_here.add(REASON_PENDING_CHECKS)
+    if not policy.allow_overlapping_prs:
+        blocking_here.add(REASON_OVERLAPPING_PR)
+    if not policy.allow_unresolved_threads:
+        blocking_here.add(REASON_UNRESOLVED_THREAD)
+
+    if any(r in blocking_here for r in reasons):
         return VERDICT_BLOCK
-    if any(r in _WARN for r in reasons):
+    if reasons:
         return VERDICT_WARN
     return VERDICT_PASS
 
@@ -77,34 +123,39 @@ def evaluate_gate(
     approving_reviews: int,
     base_protected: bool,
     overlapping_open: int,
+    policy: GatePolicy | None = None,
 ) -> GateResult:
     """Deterministic PR merge-readiness gate.
 
     Pure function (no I/O) so it is fully unit-testable. The returned verdict
     is PASS only when no blocking or warning reason applies; WARN for soft
     issues; BLOCK for anything that must prevent a merge.
+
+    The optional ``policy`` tunes which signals block vs. warn. When omitted,
+    the safe-default :class:`GatePolicy` is used.
     """
+    policy = policy or GatePolicy()
     reasons: list[str] = []
 
-    if draft:
+    if draft and policy.block_drafts:
         reasons.append(REASON_DRAFT)
-    if open_threads > 0:
+    if open_threads > 0 and not policy.allow_unresolved_threads:
         reasons.append(REASON_UNRESOLVED_THREAD)
     if mergeable == "CONFLICTING":
         reasons.append(REASON_MERGE_CONFLICT)
     elif mergeable == "UNKNOWN":
         # Unknown mergeability is treated as stale/unverified rather than green.
         reasons.append(REASON_HEAD_STALE)
-    if overlapping_open > 0:
+    if overlapping_open > 0 and not policy.allow_overlapping_prs:
         reasons.append(REASON_OVERLAPPING_PR)
-    if pending_checks > 0:
+    if pending_checks > 0 and not policy.allow_pending_checks:
         reasons.append(REASON_PENDING_CHECKS)
-    if approving_reviews == 0:
+    if approving_reviews < policy.require_approvals:
         reasons.append(REASON_NO_REVIEWS)
-    if base_protected:
+    if base_protected and policy.block_base_protected:
         reasons.append(REASON_BASE_PROTECTED)
 
-    verdict = _collapse(VERDICT_PASS, reasons)
+    verdict = _collapse(VERDICT_PASS, reasons, policy)
     return GateResult(
         verdict=verdict,
         reasons=reasons,
@@ -301,3 +352,9 @@ def pr_gate_tool(number: int, expected_head_sha: str = "") -> dict[str, Any]:
             head == expected_head_sha if head else None
         )
     return result
+
+
+def pr_policy_tool(policy_path: str = "") -> dict[str, Any]:
+    """Show the resolved merge-gate policy (§4 config)."""
+    policy = load_gate_policy(path=policy_path or None)
+    return {"policy": policy.__dict__}

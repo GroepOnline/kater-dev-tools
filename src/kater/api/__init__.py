@@ -25,7 +25,7 @@ from kater.api.models import (
 # Routes import triggers @route registration into ROUTER as a side-effect.
 # The symbols themselves are private (prefixed with _); _visible_source is
 # re-exported because tests import it directly.
-from kater.api.routes import _visible_source
+from kater.api.routes import _backends, _events, _visible_source
 
 # Server — pipeline, rate limiter, HTTP handler, factory functions.
 from kater.api.server import (
@@ -47,7 +47,9 @@ __all__ = [
     "Response",
     "Route",
     "RouteTable",
+    "_backends",
     "_base_url",
+    "_events",
     "_get_rate_limiter",
     "_reset_rate_limiter",
     "_resolve_client_ip",

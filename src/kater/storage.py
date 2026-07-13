@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import heapq
 import json
 import logging
 import sqlite3
@@ -125,7 +126,11 @@ def _sqlite_query(
     event_type: str | None = None,
     name: str | None = None,
     since: float | None = None,
+    success: bool | None = None,
+    newest_first: bool = False,
 ) -> list[dict[str, Any]]:
+    """Query SQLite events with optional filters and bounded output ordering."""
+
     with _storage_lock:
         db = _get_db()
         conditions: list[str] = []
@@ -140,11 +145,18 @@ def _sqlite_query(
         if since:
             conditions.append("timestamp >= ?")
             params.append(since)
+        if success is not None:
+            conditions.append("success = ?")
+            params.append(1 if success else 0)
 
         where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
         query = f"SELECT * FROM events{where_clause}"  # noqa: S608
 
-        if limit > 0:
+        if newest_first:
+            query += " ORDER BY timestamp DESC, id DESC LIMIT ?"
+            params.append(limit if limit > 0 else MAX_EVENTS)
+            rows = db.execute(query, params).fetchall()
+        elif limit > 0:
             query += " ORDER BY timestamp ASC LIMIT ?"
             params.append(limit)
             rows = db.execute(query, params).fetchall()
@@ -220,7 +232,11 @@ def _jsonl_query(
     event_type: str | None = None,
     name: str | None = None,
     since: float | None = None,
+    success: bool | None = None,
+    newest_first: bool = False,
 ) -> list[dict[str, Any]]:
+    """Query JSONL events with optional filters and bounded in-memory ordering."""
+
     path = _jsonl_path()
     if not path.exists():
         return []
@@ -228,8 +244,9 @@ def _jsonl_query(
     # oldest), and never let one corrupt line take down the whole query.
     cap = limit if limit > 0 else MAX_EVENTS
     events: deque[dict[str, Any]] = deque(maxlen=cap)
+    newest_events: list[tuple[float, int, dict[str, Any]]] = []
     with _storage_lock, path.open(encoding="utf-8") as f:
-        for raw in f:
+        for sequence, raw in enumerate(f):
             line = raw.strip()
             if not line:
                 continue
@@ -243,7 +260,22 @@ def _jsonl_query(
                 continue
             if since and event.get("timestamp", 0) < since:
                 continue
-            events.append(event)
+            if success is not None and bool(event.get("success")) is not success:
+                continue
+            if newest_first:
+                try:
+                    timestamp = float(event.get("timestamp", 0))
+                except (TypeError, ValueError):
+                    timestamp = 0
+                item = (timestamp, sequence, event)
+                if len(newest_events) < cap:
+                    heapq.heappush(newest_events, item)
+                else:
+                    heapq.heappushpop(newest_events, item)
+            else:
+                events.append(event)
+    if newest_first:
+        return [item[2] for item in sorted(newest_events, reverse=True)]
     return list(events)
 
 
@@ -294,10 +326,28 @@ def query_events(
     event_type: str | None = None,
     name: str | None = None,
     since: float | None = None,
+    success: bool | None = None,
+    newest_first: bool = False,
 ) -> list[dict[str, Any]]:
+    """Query telemetry through the configured backend using common semantics."""
+
     if _get_backend() == "sqlite":
-        return _sqlite_query(limit=limit, event_type=event_type, name=name, since=since)
-    return _jsonl_query(limit=limit, event_type=event_type, name=name, since=since)
+        return _sqlite_query(
+            limit=limit,
+            event_type=event_type,
+            name=name,
+            since=since,
+            success=success,
+            newest_first=newest_first,
+        )
+    return _jsonl_query(
+        limit=limit,
+        event_type=event_type,
+        name=name,
+        since=since,
+        success=success,
+        newest_first=newest_first,
+    )
 
 
 def count_events(event_type: str | None = None) -> int:

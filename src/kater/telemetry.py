@@ -34,11 +34,6 @@ class TelemetryEvent:
 
 def record_event(event: TelemetryEvent) -> None:
     insert_event(event.to_dict())
-    # Push the event to any connected WebSocket clients so the dashboard's
-    # Live Stream reflects tool calls / chain runs in real time. Lazy import
-    # avoids an import cycle (websocket imports telemetry for status_overview);
-    # the import only resolves once both modules are loaded at call time, and
-    # broadcasting to an empty client set is a no-op when no WS server runs.
     try:
         from kater.websocket import broadcast_event
 
@@ -54,14 +49,16 @@ def record_tool_call(
     profile: str | None = None,
     **metadata: Any,
 ) -> None:
-    record_event(TelemetryEvent(
-        type="tool_call",
-        name=tool,
-        success=success,
-        duration_ms=duration_ms,
-        profile=profile,
-        metadata=metadata,
-    ))
+    record_event(
+        TelemetryEvent(
+            type="tool_call",
+            name=tool,
+            success=success,
+            duration_ms=duration_ms,
+            profile=profile,
+            metadata=metadata,
+        )
+    )
 
 
 def record_chain_run(
@@ -71,30 +68,36 @@ def record_chain_run(
     profile: str | None = None,
     **metadata: Any,
 ) -> None:
-    record_event(TelemetryEvent(
-        type="chain_run",
-        name=chain,
-        success=success,
-        profile=profile,
-        metadata={"steps": steps, **metadata},
-    ))
+    record_event(
+        TelemetryEvent(
+            type="chain_run",
+            name=chain,
+            success=success,
+            profile=profile,
+            metadata={"steps": steps, **metadata},
+        )
+    )
 
 
 def record_server_toggle(server: str, action: str, enabled: bool) -> None:
-    record_event(TelemetryEvent(
-        type="server_toggle",
-        name=server,
-        metadata={"action": action, "enabled": enabled},
-    ))
+    record_event(
+        TelemetryEvent(
+            type="server_toggle",
+            name=server,
+            metadata={"action": action, "enabled": enabled},
+        )
+    )
 
 
 def record_error(source: str, message: str, **metadata: Any) -> None:
-    record_event(TelemetryEvent(
-        type="error",
-        name=source,
-        success=False,
-        metadata={"message": message, **metadata},
-    ))
+    record_event(
+        TelemetryEvent(
+            type="error",
+            name=source,
+            success=False,
+            metadata={"message": message, **metadata},
+        )
+    )
 
 
 def load_events(limit: int = 0) -> list[dict[str, Any]]:
@@ -118,6 +121,7 @@ def eval_summary() -> dict[str, Any]:
             "chain_runs": {"total": 0, "unique_chains": 0, "per_chain": {}},
             "errors": {"total": 0, "recent": []},
             "server_toggles": 0,
+            "routing": {"total": 0, "success": 0, "fallback": 0, "failed": 0},
             "summary": {
                 "total_tool_calls": 0,
                 "total_chain_runs": 0,
@@ -130,6 +134,7 @@ def eval_summary() -> dict[str, Any]:
     chain_runs = [e for e in events if e["type"] == "chain_run"]
     errors = [e for e in events if e["type"] == "error"]
     toggles = [e for e in events if e["type"] == "server_toggle"]
+    route_events = [e for e in events if e["type"] == "route_decision"]
 
     tool_stats: dict[str, dict[str, Any]] = {}
     for tc in tool_calls:
@@ -157,9 +162,9 @@ def eval_summary() -> dict[str, Any]:
             "success": stats["success"],
             "failed": stats["failed"],
             "avg_duration_ms": avg_ms,
-            "success_rate": round(
-                stats["success"] / stats["total"] * 100, 1
-            ) if stats["total"] else 0.0,
+            "success_rate": round(stats["success"] / stats["total"] * 100, 1)
+            if stats["total"]
+            else 0.0,
         }
 
     chain_stats: dict[str, dict[str, Any]] = {}
@@ -173,7 +178,11 @@ def eval_summary() -> dict[str, Any]:
         else:
             chain_stats[name]["failed"] += 1
 
-    # events is non-empty here (empty case returned early above).
+    route_outcomes = {"success": 0, "fallback": 0, "failed": 0}
+    for event in route_events:
+        outcome = str((event.get("metadata") or {}).get("outcome") or "failed")
+        route_outcomes[outcome] = route_outcomes.get(outcome, 0) + 1
+
     time_span = round(events[-1]["timestamp"] - events[0]["timestamp"], 1)
 
     return {
@@ -194,13 +203,22 @@ def eval_summary() -> dict[str, Any]:
             "recent": errors[-10:],
         },
         "server_toggles": len(toggles),
+        "routing": {
+            "total": len(route_events),
+            "success": route_outcomes.get("success", 0),
+            "fallback": route_outcomes.get("fallback", 0),
+            "failed": route_outcomes.get("failed", 0),
+        },
         "summary": {
             "total_tool_calls": len(tool_calls),
             "total_chain_runs": len(chain_runs),
             "total_errors": len(errors),
             "overall_success_rate": round(
-                sum(1 for tc in tool_calls if tc["success"]) / len(tool_calls) * 100, 1
-            ) if tool_calls else 0.0,
+                sum(1 for tc in tool_calls if tc["success"]) / len(tool_calls) * 100,
+                1,
+            )
+            if tool_calls
+            else 0.0,
         },
     }
 
@@ -231,6 +249,18 @@ def status_overview() -> dict[str, Any]:
             missing_count += 1
 
     eval_data = eval_summary()
+    try:
+        from kater.control_plane.store import route_overview
+
+        routing_overview = route_overview()
+    except Exception as exc:
+        _log.debug("control-plane overview unavailable: %s", exc)
+        routing_overview = {
+            "capabilities": 0,
+            "candidates": 0,
+            "active_candidates": 0,
+            "decisions": 0,
+        }
 
     return {
         "version": __version__,
@@ -245,6 +275,10 @@ def status_overview() -> dict[str, Any]:
             "disabled": disabled_count,
             "configured": configured_count,
             "missing_env": missing_count,
+        },
+        "routing": {
+            **routing_overview,
+            "events": eval_data["routing"],
         },
         "telemetry": {
             "total_events": eval_data["total_events"],

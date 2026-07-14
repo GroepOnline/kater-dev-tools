@@ -295,6 +295,7 @@ def gate_for_pr(
     pr: dict[str, Any],
     *,
     overlapping_open: int = 0,
+    policy: GatePolicy | None = None,
 ) -> GateResult:
     summary = _summarize_pr(pr)
     base_protected = client.is_base_protected(summary["base_ref"] or "")
@@ -309,6 +310,7 @@ def gate_for_pr(
         approving_reviews=summary["approving_reviews"],
         base_protected=base_protected,
         overlapping_open=overlapping_open,
+        policy=policy,
     )
 
 
@@ -358,3 +360,108 @@ def pr_policy_tool(policy_path: str = "") -> dict[str, Any]:
     """Show the resolved merge-gate policy (§4 config)."""
     policy = load_gate_policy(path=policy_path or None)
     return {"policy": policy.__dict__}
+
+
+def pr_audit_tool(pr_number: int = 0, limit: int = 100) -> dict[str, Any]:
+    """Show the local gate audit trail (§7), optionally for one PR."""
+    from kater.storage import query_gate_audit
+
+    rows = query_gate_audit(pr_number=pr_number or None, limit=limit)
+    return {"count": len(rows), "entries": rows}
+
+
+def pr_merge_tool(number: int, expected_head_sha: str = "", actor: str = "") -> dict[str, Any]:
+    """Gate-then-merge a PR (§6 write-path). Requires a PASS gate and a pinned
+    expected head SHA; refuses the merge otherwise and records it in the audit
+    trail.
+    """
+    return merge_pr(number, expected_head_sha=expected_head_sha, actor=actor)
+
+
+class MergeRejected(RuntimeError):
+    """Raised when a merge is attempted against an ungateable PR."""
+
+
+def merge_pr(
+    number: int,
+    *,
+    expected_head_sha: str = "",
+    actor: str = "",
+    policy: GatePolicy | None = None,
+) -> dict[str, Any]:
+    """Gate-then-merge a PR through the GitHub provider.
+
+    Deterministic write-path (§6): the merge is refused unless the evaluated
+    gate is PASS, and the caller must pin the expected head SHA so a
+    concurrent push cannot be merged by surprise. Records the attempt in the
+    audit trail regardless of outcome.
+    """
+    from kater.storage import record_gate_audit
+
+    client = GitHubPRClient()
+    pr = client.pull_request(number)
+    gate = gate_for_pr(client, pr, policy=policy)
+    reasons = gate.reasons
+    verdict = gate.verdict
+    head = gate.details.get("head_sha", "")
+
+    if verdict != VERDICT_PASS:
+        record_gate_audit(
+            action="merge_rejected",
+            pr_number=number,
+            verdict=verdict,
+            reasons=reasons,
+            expected_head_sha=expected_head_sha or None,
+            applied_head_sha=None,
+            actor=actor or None,
+            detail="gate not PASS",
+        )
+        raise MergeRejected(
+            f"merge blocked: verdict={verdict} reasons={reasons}"
+        )
+
+    if expected_head_sha and head and head != expected_head_sha:
+        record_gate_audit(
+            action="merge_rejected",
+            pr_number=number,
+            verdict=verdict,
+            reasons=reasons,
+            expected_head_sha=expected_head_sha,
+            applied_head_sha=head,
+            actor=actor or None,
+            detail="expected head SHA mismatch",
+        )
+        raise MergeRejected(
+            f"expected head {expected_head_sha} != current head {head}"
+        )
+
+    args = ["pr", "merge", str(number), "--squash", "--delete-branch"]
+    if expected_head_sha:
+        args += ["--ref", head]
+    if client.repo:
+        args += ["--repo", client.repo]
+    result = client.runner(args)
+    if result.returncode != 0:
+        record_gate_audit(
+            action="merge_failed",
+            pr_number=number,
+            verdict=verdict,
+            reasons=reasons,
+            expected_head_sha=expected_head_sha or None,
+            applied_head_sha=head,
+            actor=actor or None,
+            detail=result.stderr.strip()[:500],
+        )
+        raise RuntimeError(f"gh pr merge failed: {result.stderr.strip()}")
+
+    record_gate_audit(
+        action="merge_applied",
+        pr_number=number,
+        verdict=verdict,
+        reasons=reasons,
+        expected_head_sha=expected_head_sha or None,
+        applied_head_sha=head,
+        actor=actor or None,
+        detail="squash merge",
+    )
+    return {"merged": True, "pr_number": number, "head_sha": head, "gate": gate.as_dict()}

@@ -37,6 +37,22 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
 CREATE INDEX IF NOT EXISTS idx_events_name ON events(name);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp);
+
+CREATE TABLE IF NOT EXISTS gate_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL NOT NULL,
+    action TEXT NOT NULL,
+    pr_number INTEGER NOT NULL,
+    verdict TEXT NOT NULL,
+    reasons TEXT NOT NULL,
+    expected_head_sha TEXT,
+    applied_head_sha TEXT,
+    actor TEXT,
+    detail TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_gate_audit_pr ON gate_audit(pr_number);
+CREATE INDEX IF NOT EXISTS idx_gate_audit_ts ON gate_audit(timestamp);
 """
 
 _storage_lock = threading.Lock()
@@ -377,3 +393,66 @@ def reset_db_cache() -> None:
             _db_cache.close()
         _db_cache = None
         _db_path_cache = None
+
+
+# ── Gate audit trail ──────────────────────────────────────────────
+# WORM-style record of every gate evaluation and merge attempt made through
+# the control-plane. GitHub stays source of truth; this is the local audit
+# cache the spec mandates (cache/locks/snapshots/audit only).
+
+
+def record_gate_audit(
+    *,
+    action: str,
+    pr_number: int,
+    verdict: str,
+    reasons: list[str],
+    expected_head_sha: str | None = None,
+    applied_head_sha: str | None = None,
+    actor: str | None = None,
+    detail: str = "",
+) -> int:
+    """Append one audit row; returns the new row id."""
+    import time
+
+    with _storage_lock:
+        db = _get_db()
+        cur = db.execute(
+            """INSERT INTO gate_audit
+               (timestamp, action, pr_number, verdict, reasons,
+                expected_head_sha, applied_head_sha, actor, detail)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                time.time(),
+                action,
+                pr_number,
+                verdict,
+                json.dumps(reasons, ensure_ascii=False),
+                expected_head_sha,
+                applied_head_sha,
+                actor,
+                detail,
+            ),
+        )
+        db.commit()
+        return int(cur.lastrowid) if cur.lastrowid is not None else 0
+
+
+def query_gate_audit(
+    *,
+    pr_number: int | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Return audit rows newest-first, optionally filtered by PR."""
+    with _storage_lock:
+        db = _get_db()
+        if pr_number is not None:
+            rows = db.execute(
+                "SELECT * FROM gate_audit WHERE pr_number = ? ORDER BY id DESC LIMIT ?",
+                (pr_number, limit),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT * FROM gate_audit ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+    return [dict(r) for r in rows]

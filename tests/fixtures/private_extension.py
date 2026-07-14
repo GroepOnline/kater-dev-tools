@@ -37,3 +37,29 @@ CHAINS: tuple[ChainDefinition, ...] = (
         steps=[ChainStep(tool="demo_private_status", reason="Check fixture tool.")],
     ),
 )
+
+# CHE-659: private deployments (e.g. utrecht-katermcp) export CAPABILITIES the same way.
+from kater.capabilities.models import (  # noqa: E402
+    CapabilityManifest,
+    CapabilityTransport,
+    RiskClass,
+)
+
+CAPABILITIES: tuple[CapabilityManifest, ...] = (
+    CapabilityManifest(
+        capability_id="demo.private.status",
+        package_id="demo_private",
+        publisher_id="onlinechefgroep",
+        version="1.0.0",
+        digest="sha256:demo-private-status",
+        transport=CapabilityTransport.NATIVE,
+        description="Fixture capability for extension CAPABILITIES loading.",
+        input_schema={"type": "object"},
+        output_schema={"type": "object"},
+        required_scopes=frozenset(),
+        risk_class=RiskClass.READ,
+        data_classification="internal",
+        profiles=frozenset({"demo_private"}),
+        tags=frozenset({"demo"}),
+    ),
+)

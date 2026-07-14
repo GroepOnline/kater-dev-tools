@@ -44,6 +44,15 @@ def init_project(
     _write_gitignore(kater_dir)
     result["created"].append(str(kater_dir / ".gitignore"))
 
+    from kater.envfile import ensure_cursor_mcp
+
+    cursor = ensure_cursor_mcp(project_dir)
+    result["cursor_mcp"] = cursor
+    if cursor.get("created"):
+        result["created"].append(cursor["path"])
+    elif cursor.get("updated"):
+        result["created"].append(f"{cursor['path']} (updated)")
+
     return result
 
 
@@ -70,9 +79,13 @@ def _render_kater_config(profile: str) -> dict[str, Any]:
 def _render_env_file(profile: str) -> str:
     lines: list[str] = [
         "# Kater environment — fill in your secrets.",
-        "# This file is git-ignored by default.",
+        "# This file is git-ignored by default and is loaded automatically by",
+        "# `kater serve` / `kater up` (process env still wins).",
         "",
         f"KATER_PROFILE={profile}",
+        "# Leave unset to auto-enable proxy when adapter secrets are present.",
+        "# Set to 0 to force native-only mode.",
+        "# KATER_PROXY=1",
         "",
     ]
     seen: set[str] = set()

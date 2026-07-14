@@ -33,12 +33,15 @@ Kater is a single Python package (`uv`-managed, Python 3.11–3.14; VM ships 3.1
 script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile`) and runs
 `uv sync --dev`, so deps are ready before each session. Use `uv run <cmd>` for everything.
 
-- **Run the app**: `uv run kater serve`. One process starts three listeners — REST API + dashboard on
-  `:9091`, MCP SSE on `:9090/sse`, WebSocket telemetry on `:9092`. Defaults to loopback with
-  `auth=none`; no external DB (SQLite auto-provisions under `.kater/`). Health check:
-  `curl -s http://127.0.0.1:9091/health`. Standard lint/test/build commands live in the README
-  "Development" section and `.github/workflows/ci.yml` (`uv run ruff check .`, `uv run mypy`,
-  `uv run pytest`, `./scripts/smoke.sh`).
+- **Run the app**: `uv run kater up` (or `uv run kater serve`). One process starts three
+  listeners — REST API + dashboard on `:9091`, MCP SSE on `:9090/sse`, WebSocket telemetry
+  on `:9092`. Defaults to loopback with `auth=none`; no external DB (SQLite auto-provisions
+  under `.kater/`). Secrets in `.kater/.env` are loaded automatically; proxy backends
+  auto-enable when adapter env for the active profile is present (`--proxy`/`--no-proxy`
+  or `KATER_PROXY=1|0` to force). Health check: `curl -s http://127.0.0.1:9091/health`.
+  Standard lint/test/build commands live in the README "Development" section and
+  `.github/workflows/ci.yml` (`uv run ruff check .`, `uv run mypy`, `uv run pytest`,
+  `./scripts/smoke.sh`).
 - **Test suite timing**: `uv run pytest` takes ~100s (426 passing, a few skipped for live/network
   integrations); don't assume it hung.
 - **End-to-end check**: with the server running, `./scripts/e2e-mcp.sh` validates REST + a real MCP
@@ -46,9 +49,9 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
 - **Core functionality without secrets**: exercisable without any adapter API keys via the CLI
   (`uv run kater status`, `kater mcp list`, `kater enable/disable <name>`) and the REST API
   (`POST /api/mcp/servers/<name>/{enable,disable,toggle}`); state persists to `.kater/kater.db` (SQLite).
-- **Proxy backends are optional**: live proxying of the 29+ backend MCP servers needs `KATER_PROXY=1`,
-  a profile, per-backend API keys, and Node/`npx` (present) for stdio backends. Core gateway works
-  without any of this — native tools (`kater_profiles`, etc.) are always exposed.
+- **Proxy backends**: live proxying of the 29+ backend MCP servers needs a profile, per-backend
+  API keys in `.kater/.env` (or the environment), and Node/`npx` for stdio backends. With secrets
+  present, proxy starts automatically; native tools (`kater_profiles`, etc.) always work.
 - **Architecture**: `kater serve` is a single Python process. The dashboard (`src/kater/web/dashboard.py`)
   is a self-contained inline HTML/CSS/JS document rendered server-side; REST routes live in
   `src/kater/api/`, the MCP SSE/stdio surface is in `src/kater/proxy/` and `src/kater/mcp/`, and state

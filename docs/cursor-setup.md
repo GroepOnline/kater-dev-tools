@@ -2,6 +2,13 @@
 
 Use one Kater server in Cursor instead of enabling every dev MCP directly.
 
+```bash
+uv sync
+kater up
+```
+
+That writes project `.cursor/mcp.json`:
+
 ```json
 {
   "mcpServers": {
@@ -13,5 +20,14 @@ Use one Kater server in Cursor instead of enabling every dev MCP directly.
 }
 ```
 
-Keep task-specific tools behind `KATER_PROFILE` and restart the container when
-switching profile.
+Put adapter secrets in `.kater/.env` (auto-loaded). Example for Linear on the
+`ops` profile:
+
+```bash
+# .kater/.env
+KATER_PROFILE=ops
+LINEAR_API_KEY=lin_api_...
+```
+
+Restart `kater up` / `kater serve` after changing secrets. Proxy backends enable
+automatically when the required env for the active profile is present.

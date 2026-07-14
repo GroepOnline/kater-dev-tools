@@ -34,21 +34,28 @@ one curated MCP surface and turning broad dev MCPs on only through profiles.
 
 ```bash
 uv sync
-kater serve
+kater up                 # init + Cursor MCP config + serve (profile: ops)
 ```
 
-Open `http://localhost:9091` for the dashboard (or `/dashboard` on your public domain).
+Open `http://localhost:9091` for the dashboard. Cursor is pointed at
+`http://127.0.0.1:9090/sse` via `.cursor/mcp.json`.
 
-### Proxy mode (one MCP, many backends)
-
-By default `kater serve` exposes Kater-native meta-tools. Enable live proxying with
-adapter API keys and `KATER_PROXY=1`:
+Put adapter secrets in `.kater/.env` (created by `kater up` / `kater init`).
+That file is loaded automatically — no manual `export` required:
 
 ```bash
-export LINEAR_API_KEY=lin_api_...   # ops profile
-export KATER_PROXY=1
-export KATER_PROFILE=ops
-kater serve
+# .kater/.env
+KATER_PROFILE=ops
+LINEAR_API_KEY=lin_api_...
+```
+
+Proxy backends turn on automatically when secrets for the active profile are
+present. Force with `kater serve --proxy` / `--no-proxy`, or set `KATER_PROXY=1|0`.
+
+Minimal native-only (no adapters):
+
+```bash
+kater serve --profile core --no-proxy
 ```
 
 Connect your agent to `http://127.0.0.1:9090/sse`. Proxied tools are prefixed
@@ -74,6 +81,7 @@ Client-side multi-server configs remain available via `kater config --profile op
 | Command | Description |
 |---------|-------------|
 | `kater serve` | Start API + MCP + WebSocket in one process |
+| `kater up` | Init + Cursor MCP config + start gateway |
 | `kater status` | Live instance overview |
 | `kater doctor` | Diagnostics + autofix |
 | `kater mcp list` | Browse all 29 MCP servers |

@@ -7,6 +7,15 @@ from typing import Any
 from kater.proxy.models import BackendStatus, ProxiedTool
 
 
+class BackendOperationalError(Exception):
+    """Transport/protocol failure before a valid MCP business response.
+
+    Raised by backends for timeouts, I/O, HTTP transport failures, and
+    malformed payloads. Distinct from a valid JSON-RPC ``{"error": ...}``
+    tool-level response, which remains a returned dict (business error).
+    """
+
+
 class BaseBackend:
     name: str = "base"
 

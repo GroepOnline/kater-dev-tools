@@ -287,3 +287,127 @@ def test_consuming_expired_quota_clears_stale_reset_boundary(tmp_path, monkeypat
     assert refreshed.used == 3
     assert refreshed.resets_at is None
     assert refreshed.remaining_at(datetime.now(UTC)) == 7
+
+
+def test_oversized_context_id_is_rejected(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
+        "web.search",
+        _candidate("primary-account", "primary", remaining=90),
+    )
+    manager = ProxyManager()
+    manager.register_backend(
+        "primary",
+        MockBackend(tools=[{"name": "search"}], responses={"search": {"ok": True}}),
+    )
+    result = manager.call_tool(
+        "web.search",
+        {
+            "_kater_route": {
+                "context_id": "x" * 200,
+                "required_scopes": ["web.read"],
+            }
+        },
+    )
+    assert "error" in result
+    assert "128" in result["error"]
+
+
+def test_business_error_clears_half_open_probe(tmp_path, monkeypatch) -> None:
+    """A tool-level error must release the half-open probe so later calls work."""
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
+        "web.search",
+        ProviderAccount(
+            account_id="solo",
+            provider="provider",
+            backend="solo",
+            tool_name="search",
+            max_concurrent=1,
+            scopes=frozenset({"web.read"}),
+            quota_windows=(QuotaWindow("monthly", 100, 0),),
+        ),
+    )
+    manager = ProxyManager()
+    # Force the breaker open, then into half-open with a short recovery.
+    manager._failure_threshold = 1
+    manager._recovery_timeout = 0.01
+    backend = TrackingBackend(
+        tools=[{"name": "search"}],
+        responses={"search": {"error": "validation failed"}},
+    )
+    manager.register_backend("solo", backend)
+    breaker = manager._breakers["solo"]
+    for _ in range(2):
+        breaker.record_failure()
+    assert breaker.state == "open"
+    import time
+
+    time.sleep(0.02)
+    # First call after recovery reserves half-open; business error must clear it.
+    assert "error" in manager.call_tool(
+        "web.search",
+        {"_kater_route": {"required_scopes": ["web.read"]}},
+    )
+    assert breaker.state == "closed"
+    assert breaker._probe_in_flight is False
+    # Second call still allowed (probe was released).
+    assert "error" in manager.call_tool(
+        "web.search",
+        {"_kater_route": {"required_scopes": ["web.read"]}},
+    )
+
+
+def test_operational_error_dict_path_still_fallbacks(tmp_path, monkeypatch) -> None:
+    """BackendOperationalError from transport must fallback like raised RuntimeError."""
+    from kater.proxy.base import BackendOperationalError
+
+    class OpsFailBackend(MockBackend):
+        def call_tool(self, tool_name, arguments):
+            raise BackendOperationalError("timeout waiting for response")
+
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
+        "web.search",
+        _candidate("primary-account", "primary", remaining=90, priority=1),
+    )
+    upsert_route_candidate(
+        "web.search",
+        _candidate("secondary-account", "secondary", remaining=80, priority=2),
+    )
+    manager = ProxyManager()
+    manager.register_backend(
+        "primary",
+        OpsFailBackend(
+            tools=[
+                {
+                    "name": "search",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                    },
+                }
+            ]
+        ),
+    )
+    secondary = TrackingBackend(
+        tools=[
+            {
+                "name": "search",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
+            }
+        ],
+        responses={"search": {"answer": "ok"}},
+    )
+    manager.register_backend("secondary", secondary)
+    assert manager.call_tool(
+        "web.search",
+        {"query": "x", "_kater_route": {"required_scopes": ["web.read"]}},
+    ) == {"answer": "ok"}
+    assert secondary.calls == [("search", {"query": "x"})]

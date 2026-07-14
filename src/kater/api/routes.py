@@ -675,6 +675,98 @@ def _spec(_: Request) -> Response:
     return Response.json(200, generate_spec())
 
 
+# ── PR control-plane API (§3/§4/§6/§7) ────────────────────────────
+
+
+@route("GET", "/api/pr/policy")
+def _pr_policy(_: Request) -> Response:
+    from kater.pr_control import pr_policy_tool
+
+    return Response.json(200, pr_policy_tool())
+
+
+@route("GET", "/api/pr/list")
+def _pr_list(req: Request) -> Response:
+    from kater.pr_control import pr_list_tool
+
+    state = (req.query1("state") or "open").strip()
+    try:
+        limit = int(req.query1("limit") or "30")
+    except (ValueError, TypeError):
+        limit = 30
+    try:
+        return Response.json(200, pr_list_tool(state=state, limit=limit))
+    except RuntimeError as exc:
+        return Response.json(502, {"error": str(exc)})
+
+
+@route("GET", "/api/pr/{number}/status")
+def _pr_status(req: Request) -> Response:
+    from kater.pr_control import pr_status_tool
+
+    try:
+        number = int(req.params.get("number") or "")
+    except (ValueError, TypeError):
+        return Response.json(400, {"error": "invalid pr number"})
+    try:
+        return Response.json(200, pr_status_tool(number))
+    except RuntimeError as exc:
+        return Response.json(502, {"error": str(exc)})
+
+
+@route("GET", "/api/pr/{number}/gate")
+def _pr_gate(req: Request) -> Response:
+    from kater.pr_control import pr_gate_tool
+
+    try:
+        number = int(req.params.get("number") or "")
+    except (ValueError, TypeError):
+        return Response.json(400, {"error": "invalid pr number"})
+    expected = (req.query1("expected_head_sha") or "").strip()
+    try:
+        return Response.json(200, pr_gate_tool(number, expected_head_sha=expected))
+    except RuntimeError as exc:
+        return Response.json(502, {"error": str(exc)})
+
+
+@route("GET", "/api/pr/audit")
+def _pr_audit(req: Request) -> Response:
+    from kater.pr_control import pr_audit_tool
+
+    try:
+        limit = int(req.query1("limit") or "100")
+    except (ValueError, TypeError):
+        limit = 100
+    raw_number = req.query1("pr_number")
+    number = int(raw_number) if raw_number else 0
+    return Response.json(200, pr_audit_tool(pr_number=number, limit=limit))
+
+
+@route("POST", "/api/pr/{number}/merge")
+def _pr_merge(req: Request) -> Response:
+    from kater.pr_control import MergeRejected, pr_merge_tool
+
+    try:
+        number = int(req.params.get("number") or "")
+    except (ValueError, TypeError):
+        return Response.json(400, {"error": "invalid pr number"})
+
+    body: dict[str, Any] = {}
+    try:
+        body = req.json
+    except (ValueError, TypeError):
+        body = {}
+
+    expected = str(body.get("expected_head_sha", "") or "")
+    actor = str(body.get("actor", "") or "")
+    try:
+        return Response.json(200, pr_merge_tool(number, expected_head_sha=expected, actor=actor))
+    except MergeRejected as exc:
+        return Response.json(409, {"error": str(exc), "rejected": True})
+    except RuntimeError as exc:
+        return Response.json(502, {"error": str(exc)})
+
+
 @route("GET", "/api/export")
 def _export(_: Request) -> Response:
     # Reuse the single sanitizer so this export can never drift back into

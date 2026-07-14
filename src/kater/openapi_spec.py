@@ -540,6 +540,112 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/pr/policy"] = {
+        "get": _response(
+            "Show the resolved merge-gate policy",
+            {"type": "object"},
+            "Resolved merge-gate policy.",
+        )
+    }
+
+    paths["/api/pr/list"] = {
+        "get": {
+            "summary": "List pull requests with merge-readiness gate",
+            "parameters": [
+                {
+                    "name": "state",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string", "default": "open"},
+                    "description": "PR state filter (open|closed|all).",
+                },
+                {
+                    "name": "limit",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "integer", "default": 30},
+                    "description": "Max PRs to return.",
+                },
+            ],
+            "responses": {"200": _ok(), "502": _error_ref()},
+        }
+    }
+
+    paths["/api/pr/audit"] = {
+        "get": {
+            "summary": "Read the local merge-gate audit trail",
+            "parameters": [
+                {
+                    "name": "pr_number",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "integer"},
+                    "description": "Filter by PR number.",
+                },
+                {
+                    "name": "limit",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "integer", "default": 100},
+                    "description": "Max audit rows.",
+                },
+            ],
+            "responses": {"200": _ok()},
+        }
+    }
+
+    paths["/api/pr/{number}/status"] = {
+        "get": {
+            "summary": "Show a pull request's merge-readiness summary",
+            "parameters": [_pr_number_param()],
+            "responses": {"200": _ok(), "400": _error_ref(), "502": _error_ref()},
+        }
+    }
+
+    paths["/api/pr/{number}/gate"] = {
+        "get": {
+            "summary": "Evaluate the deterministic merge gate for a PR",
+            "parameters": [
+                _pr_number_param(),
+                {
+                    "name": "expected_head_sha",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string"},
+                    "description": "Pin the expected head SHA.",
+                },
+            ],
+            "responses": {"200": _ok(), "400": _error_ref(), "502": _error_ref()},
+        }
+    }
+
+    paths["/api/pr/{number}/merge"] = {
+        "post": {
+            "summary": "Gate-then-merge a pull request (squash)",
+            "parameters": [_pr_number_param()],
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "expected_head_sha": {"type": "string"},
+                                "actor": {"type": "string"},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+                "409": _error_ref(),
+                "502": _error_ref(),
+            },
+        }
+    }
+
     return paths
 
 
@@ -603,6 +709,16 @@ def _provider_param() -> dict[str, Any]:
         "required": True,
         "schema": {"type": "string", "enum": ["cloudflare", "tailscale"]},
         "description": "Tunnel provider.",
+    }
+
+
+def _pr_number_param() -> dict[str, Any]:
+    return {
+        "name": "number",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "integer"},
+        "description": "Pull request number.",
     }
 
 

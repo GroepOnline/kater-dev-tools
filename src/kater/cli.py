@@ -950,3 +950,91 @@ def interactive_command(
     from kater.interactive import interactive_loop
 
     interactive_loop(profile=profile, refresh_interval=refresh)
+
+
+# ── pr control-plane (§3/§4/§6/§7) ───────────────────────────────
+
+
+pr_app = typer.Typer(help="PR merge-readiness gate and merge (gh-backed).")
+app.add_typer(pr_app, name="pr")
+
+
+@pr_app.command("policy")
+def pr_policy_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Show the resolved merge-gate policy."""
+    from kater.pr_control import pr_policy_tool
+
+    result = pr_policy_tool()
+    if json_output:
+        _print_json(result)
+        return
+    policy = result["policy"]
+    typer.echo("Merge-gate policy:")
+    for key, value in policy.items():
+        typer.echo(f"  {key}: {value}")
+
+
+@pr_app.command("list")
+def pr_list_command(
+    state: Annotated[str, typer.Option("--state", help="open|closed|all.")] = "open",
+    limit: Annotated[int, typer.Option("--limit", help="Max PRs.")] = 30,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List pull requests with merge-readiness summary."""
+    from kater.pr_control import pr_list_tool
+
+    result = pr_list_tool(state=state, limit=limit)
+    if json_output:
+        _print_json(result)
+        return
+    typer.echo(f"{result['count']} {state} PR(s):")
+    for pr in result["pulls"]:
+        verdict = (pr.get("gate") or {}).get("verdict", "?") if "gate" in pr else "?"
+        typer.echo(f"  #{pr['number']} [{verdict}] {pr['title']}")
+
+
+@pr_app.command("gate")
+def pr_gate_command(
+    number: Annotated[int, typer.Argument(help="PR number.")],
+    expected_head_sha: Annotated[
+        str, typer.Option("--expected-head", help="Pin the expected head SHA.")
+    ] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Evaluate the deterministic merge gate for a PR."""
+    from kater.pr_control import pr_gate_tool
+
+    result = pr_gate_tool(number, expected_head_sha=expected_head_sha)
+    if json_output:
+        _print_json(result)
+        return
+    typer.echo(f"PR #{number}: {result['verdict']}")
+    if result["reasons"]:
+        typer.echo("  reasons: " + ", ".join(result["reasons"]))
+    if expected_head_sha:
+        match = result["details"].get("head_sha_matches")
+        typer.echo(f"  expected head match: {match}")
+
+
+@pr_app.command("merge")
+def pr_merge_command(
+    number: Annotated[int, typer.Argument(help="PR number.")],
+    expected_head_sha: Annotated[
+        str, typer.Option("--expected-head", help="Pin the expected head SHA (required).")
+    ] = "",
+    actor: Annotated[str, typer.Option("--actor", help="Actor label for the audit trail.")] = "",
+) -> None:
+    """Gate-then-merge a PR (squash). Requires PASS and pinned expected head."""
+    from kater.pr_control import MergeRejected, pr_merge_tool
+
+    try:
+        result = pr_merge_tool(number, expected_head_sha=expected_head_sha, actor=actor)
+    except MergeRejected as exc:
+        typer.echo(f"Merge blocked: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    except RuntimeError as exc:
+        typer.echo(f"Merge failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Merged PR #{result['pr_number']} (head {result['head_sha']}).")

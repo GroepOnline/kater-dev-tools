@@ -216,8 +216,7 @@ class GitHubPRClient:
             "--json",
             (
                 "number,title,headRefName,baseRefName,state,"
-                "isDraft,mergeable,reviewDecision,statusCheckRollup,"
-                "reviewThreads,commits"
+                "isDraft,mergeable,reviewDecision,statusCheckRollup,commits"
             ),
         ]
         if self.repo:
@@ -320,10 +319,28 @@ def gate_for_pr(
 def pr_list_tool(state: str = "open", limit: int = 30) -> dict[str, Any]:
     client = GitHubPRClient()
     rows = client.list_pull_requests(state=state, limit=limit)
+    pulls = []
+    for r in rows:
+        summary = _summarize_pr(r)
+        # List view skips the per-PR base-protection lookup (one extra API call
+        # each) to stay cheap; the single-PR gate/status paths still check it.
+        summary["gate"] = evaluate_gate(
+            pr_number=summary["number"],
+            head_sha=summary["head_sha"],
+            base_sha=summary["base_sha"],
+            mergeable=summary["mergeable"],
+            draft=summary["draft"],
+            open_threads=summary["open_threads"],
+            pending_checks=summary["pending_checks"],
+            approving_reviews=summary["approving_reviews"],
+            base_protected=False,
+            overlapping_open=0,
+        ).as_dict()
+        pulls.append(summary)
     return {
         "state": state,
-        "count": len(rows),
-        "pulls": [_summarize_pr(r) for r in rows],
+        "count": len(pulls),
+        "pulls": pulls,
     }
 
 

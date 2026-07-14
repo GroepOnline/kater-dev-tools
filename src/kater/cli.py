@@ -61,6 +61,7 @@ def _prepare_public_bind_environment(host: str) -> None:
     if "*" in cors_origins:
         raise typer.BadParameter("public bind must not use wildcard KATER_CORS_ORIGINS")
 
+
 # ── doctor ─────────────────────────────────────────────────────────
 
 
@@ -203,6 +204,7 @@ def chain_run_command(
             break
     if chain is None:
         from kater.telemetry import record_chain_run
+
         record_chain_run(chain_name, steps=0, success=False, profile=profile)
         typer.echo(f"Error: chain '{chain_name}' not found for profile '{profile}'.", err=True)
         raise typer.Exit(code=1)
@@ -216,6 +218,7 @@ def chain_run_command(
         ],
     }
     from kater.telemetry import record_chain_run
+
     record_chain_run(chain.name, steps=len(chain.steps), profile=profile)
     if json_output:
         _print_json(result)
@@ -284,10 +287,7 @@ def adapters_command(
     if json_output:
         _print_json(payload)
         return
-    msg = (
-        f"Profile: {profile} — "
-        f"{payload['configured']}/{payload['total']} adapters configured"
-    )
+    msg = f"Profile: {profile} — {payload['configured']}/{payload['total']} adapters configured"
     typer.echo(msg)
     for a in payload["adapters"]:
         status = "+" if a["configured"] else "-"
@@ -330,7 +330,8 @@ def mcp_list_command(
         typer.Option("--profile", help="Filter by profile."),
     ] = None,
     configured_only: Annotated[
-        bool, typer.Option("--configured", help="Only show configured servers."),
+        bool,
+        typer.Option("--configured", help="Only show configured servers."),
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
@@ -423,10 +424,21 @@ def serve_command(
     host: Annotated[str, typer.Option("--host", help="Bind address.")] = "127.0.0.1",
     api_only: Annotated[bool, typer.Option("--api-only", help="Run only the API.")] = False,
     mcp_only: Annotated[bool, typer.Option("--mcp-only", help="Run only the MCP server.")] = False,
+    proxy: Annotated[
+        bool | None,
+        typer.Option(
+            "--proxy/--no-proxy",
+            help="Force proxy on/off. Default: auto when adapter secrets are set.",
+        ),
+    ] = None,
 ) -> None:
     """Start Kater: REST API + MCP server + WebSocket in one process."""
+    from kater.envfile import load_project_env, resolve_use_proxy
+
+    load_project_env()
     os.environ["KATER_PROFILE"] = profile
     _prepare_public_bind_environment(host)
+    use_proxy = resolve_use_proxy(profile=profile) if proxy is None else proxy
 
     if api_only:
         from kater.api import serve_api
@@ -437,13 +449,18 @@ def serve_command(
 
     if mcp_only:
         from kater.mcp_server import serve
+        from kater.settings import load_settings
 
-        typer.echo(f"Kater MCP on http://{host}:{mcp_port}/sse")
-        serve(profile=profile, host=host, port=mcp_port)
+        load_settings().apply_credentials_to_env()
+        typer.echo(
+            f"Kater MCP on http://{host}:{mcp_port}/sse (proxy={'on' if use_proxy else 'off'})"
+        )
+        serve(profile=profile, host=host, port=mcp_port, use_proxy=use_proxy)
         return
 
     typer.echo(
-        f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port}"
+        f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port} "
+        f"(proxy={'on' if use_proxy else 'off'})"
     )
     from kater.serve import serve_unified
     from kater.settings import resolve_listen_config
@@ -454,7 +471,66 @@ def serve_command(
         mcp_port=mcp_port,
         ws_port=ws_port,
     )
-    serve_unified(profile=profile, listen=listen)
+    serve_unified(profile=profile, listen=listen, use_proxy=use_proxy)
+
+
+@app.command("up")
+def up_command(
+    profile: Annotated[str, typer.Option("--profile", help="Profile to expose.")] = "ops",
+    api_port: Annotated[int, typer.Option("--api-port", help="REST API port.")] = 9091,
+    mcp_port: Annotated[int, typer.Option("--mcp-port", help="MCP SSE port.")] = 9090,
+    ws_port: Annotated[int, typer.Option("--ws-port", help="WebSocket port.")] = 9092,
+    host: Annotated[str, typer.Option("--host", help="Bind address.")] = "127.0.0.1",
+    force_init: Annotated[
+        bool, typer.Option("--force-init", help="Overwrite .kater/ if it already exists.")
+    ] = False,
+) -> None:
+    """Bootstrap local Kater and start the gateway (init + Cursor MCP + serve)."""
+    from kater.envfile import ensure_cursor_mcp, load_project_env, resolve_use_proxy
+    from kater.init import init_project
+
+    root = Path.cwd()
+    kater_dir = root / ".kater"
+    if force_init or not (kater_dir / "config.json").exists():
+        result = init_project(root, profile=profile, force=force_init)
+        for path in result.get("created", []):
+            typer.echo(f"  Created: {path}")
+        for item in result.get("skipped", []):
+            typer.echo(f"  Skipped: {item['path']} ({item['reason']})")
+    else:
+        cursor = ensure_cursor_mcp(root, mcp_url=f"http://{host}:{mcp_port}/sse")
+        if cursor.get("created"):
+            typer.echo(f"  Created: {cursor['path']}")
+        elif cursor.get("updated"):
+            typer.echo(f"  Updated: {cursor['path']}")
+
+    loaded = load_project_env(root)
+    for path in loaded:
+        typer.echo(f"  Loaded env: {path}")
+
+    use_proxy = resolve_use_proxy(profile=profile)
+    typer.echo(
+        f"Starting Kater ({profile}): dashboard http://{host}:{api_port} "
+        f"| MCP http://{host}:{mcp_port}/sse | proxy={'on' if use_proxy else 'off'}"
+    )
+    if not use_proxy:
+        typer.echo(
+            "  Tip: put adapter keys in .kater/.env (e.g. LINEAR_API_KEY=...) "
+            "to auto-enable proxy backends."
+        )
+
+    os.environ["KATER_PROFILE"] = profile
+    _prepare_public_bind_environment(host)
+    from kater.serve import serve_unified
+    from kater.settings import resolve_listen_config
+
+    listen = resolve_listen_config(
+        host=host,
+        api_port=api_port,
+        mcp_port=mcp_port,
+        ws_port=ws_port,
+    )
+    serve_unified(profile=profile, listen=listen, use_proxy=use_proxy)
 
 
 # ── mcp serve (legacy alias) ───────────────────────────────────────
@@ -465,9 +541,17 @@ def mcp_serve_command(
     profile: Annotated[str, typer.Option("--profile", help="Profile to expose.")] = DEFAULT_PROFILE,
 ) -> None:
     """Start the MCP SSE server (alias for `kater serve --mcp-only`)."""
+    from kater.envfile import load_project_env, resolve_use_proxy
     from kater.mcp_server import serve
+    from kater.settings import load_settings
 
-    serve(profile=profile)
+    load_project_env()
+    os.environ["KATER_PROFILE"] = profile
+    load_settings().apply_credentials_to_env()
+    serve(
+        profile=profile,
+        use_proxy=resolve_use_proxy(profile=profile),
+    )
 
 
 # ── version ────────────────────────────────────────────────────────
@@ -697,7 +781,7 @@ def status_command(
         ("Servers", f"{s['enabled']}/{s['total']} enabled ({s['configured']} configured)"),
         ("Events", f"{t['total_events']} total ({t['tool_calls']} calls, {t['errors']} errors)"),
         ("Success", f"{t['success_rate']}%"),
-        ("Rate limit", f"{data['rate_limit']}/min" if data['rate_limit'] else "unlimited"),
+        ("Rate limit", f"{data['rate_limit']}/min" if data["rate_limit"] else "unlimited"),
     ]
     typer.echo(kv_grid(items))
 
@@ -705,9 +789,7 @@ def status_command(
 @app.command("telemetry")
 def telemetry_command(
     limit: Annotated[int, typer.Option("--limit", help="Only show last N events.")] = 0,
-    event_type: Annotated[
-        str | None, typer.Option("--type", help="Filter by event type.")
-    ] = None,
+    event_type: Annotated[str | None, typer.Option("--type", help="Filter by event type.")] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """View raw telemetry events."""
@@ -846,12 +928,8 @@ def tunnel_start_command(
         str,
         typer.Option("--provider", "-p", help="cloudflare or tailscale"),
     ] = "cloudflare",
-    domain: Annotated[
-        str, typer.Option("--domain", help="Domain for Cloudflare tunnel.")
-    ] = "",
-    port: Annotated[
-        int, typer.Option("--port", help="Port for Tailscale Funnel.")
-    ] = 9090,
+    domain: Annotated[str, typer.Option("--domain", help="Domain for Cloudflare tunnel.")] = "",
+    port: Annotated[int, typer.Option("--port", help="Port for Tailscale Funnel.")] = 9090,
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Start a tunnel to expose Kater publicly."""
@@ -906,9 +984,7 @@ def tunnel_config_command(
         str,
         typer.Option("--provider", "-p", help="cloudflare or tailscale"),
     ] = "cloudflare",
-    domain: Annotated[
-        str, typer.Option("--domain", help="Domain for Cloudflare.")
-    ] = "",
+    domain: Annotated[str, typer.Option("--domain", help="Domain for Cloudflare.")] = "",
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Generate tunnel configuration."""
@@ -939,12 +1015,8 @@ def tunnel_config_command(
 
 @app.command("interactive")
 def interactive_command(
-    profile: Annotated[
-        str, typer.Option("--profile", help="Starting profile.")
-    ] = DEFAULT_PROFILE,
-    refresh: Annotated[
-        float, typer.Option("--refresh", help="Refresh interval in seconds.")
-    ] = 3.0,
+    profile: Annotated[str, typer.Option("--profile", help="Starting profile.")] = DEFAULT_PROFILE,
+    refresh: Annotated[float, typer.Option("--refresh", help="Refresh interval in seconds.")] = 3.0,
 ) -> None:
     """Live interactive dashboard in the terminal."""
     from kater.interactive import interactive_loop

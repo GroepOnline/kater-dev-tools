@@ -47,10 +47,11 @@ class KaterRuntime:
 
         os.environ["KATER_PROFILE"] = self._profile
 
-        # Persisted per-server credentials become live env so configured
-        # backends connect and env_configured reflects reality after a restart.
+        # Project secrets + dashboard-persisted credentials before proxy start.
+        from kater.envfile import load_project_env
         from kater.settings import load_settings
 
+        load_project_env()
         load_settings().apply_credentials_to_env()
 
         if self._use_proxy:

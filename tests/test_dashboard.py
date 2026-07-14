@@ -65,6 +65,25 @@ def test_catalog_has_status_facets():
     assert "context_cost" in html  # routing table uses catalog cost
 
 
+def test_zero_result_states_have_recovery_actions():
+    # Empty states must offer a one-click way out instead of a dead-end note
+    # (PR #103): the Catalog and Overview render semantic <button> recovery
+    # links that reset the search or the status/route filter.
+    html = render_dashboard()
+    # Handlers wired to the recovery buttons.
+    assert "function clearCatalogSearch" in html
+    assert "function resetCatalogFilter" in html
+    assert "function resetRouteFilter" in html
+    # Labels shown in the empty state, plus the shared styling hook.
+    assert "Clear search" in html
+    assert "Switch filter to all" in html
+    assert "view-empty-link" in html
+    # Buttons are defensively typed so they never submit a surrounding form.
+    assert "type = 'button'" in html
+    # A newer search/filter load invalidates stale in-flight catalog responses.
+    assert "catalogLoadSeq" in html
+
+
 def test_each_view_is_present_via_its_own_seam():
     # The per-view constants must each own exactly their view and compose
     # into the single _HTML body (deletion test: drop one -> a view vanishes).

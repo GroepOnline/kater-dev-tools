@@ -157,6 +157,8 @@ class RoutingRequest:
             raise ValueError("context_id exceeds 128 characters")
         if self.estimated_units < 1:
             raise ValueError("estimated_units must be at least one")
+        if self.estimated_units > 1_000_000:
+            raise ValueError("estimated_units cannot exceed 1,000,000")
 
 
 @dataclass(frozen=True, slots=True)

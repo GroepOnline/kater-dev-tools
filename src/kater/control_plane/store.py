@@ -18,6 +18,10 @@ from kater.control_plane.models import (
 )
 from kater.settings import load_settings
 
+AFFINITY_TTL_S = 7 * 24 * 3600
+MAX_AFFINITY_ROWS = 10_000
+MAX_DECISION_ROWS = 50_000
+
 _SCHEMA = """
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -111,6 +115,48 @@ def _ts(value: datetime | None) -> float | None:
 
 def _dt(value: float | None) -> datetime | None:
     return datetime.fromtimestamp(value, tz=UTC) if value is not None else None
+
+
+def _prune_expired_affinity(db: sqlite3.Connection, now: float) -> int:
+    cursor = db.execute(
+        "DELETE FROM control_route_affinity WHERE updated_at < ?",
+        (now - AFFINITY_TTL_S,),
+    )
+    return cursor.rowcount
+
+
+def _trim_affinity_rows(db: sqlite3.Connection) -> int:
+    row = db.execute("SELECT COUNT(*) AS c FROM control_route_affinity").fetchone()
+    excess = max(int(row["c"] if row else 0) - MAX_AFFINITY_ROWS, 0)
+    if not excess:
+        return 0
+    cursor = db.execute(
+        """DELETE FROM control_route_affinity
+           WHERE rowid IN (
+             SELECT rowid FROM control_route_affinity
+             ORDER BY updated_at ASC, rowid ASC
+             LIMIT ?
+           )""",
+        (excess,),
+    )
+    return cursor.rowcount
+
+
+def _trim_decision_rows(db: sqlite3.Connection) -> int:
+    row = db.execute("SELECT COUNT(*) AS c FROM control_routing_decisions").fetchone()
+    excess = max(int(row["c"] if row else 0) - MAX_DECISION_ROWS, 0)
+    if not excess:
+        return 0
+    cursor = db.execute(
+        """DELETE FROM control_routing_decisions
+           WHERE id IN (
+             SELECT id FROM control_routing_decisions
+             ORDER BY timestamp ASC, id ASC
+             LIMIT ?
+           )""",
+        (excess,),
+    )
+    return cursor.rowcount
 
 
 def upsert_route_candidate(capability: str, account: ProviderAccount) -> None:
@@ -261,6 +307,11 @@ def set_route_candidate_state(
 
 def get_route_affinity(capability: str, context_id: str) -> str | None:
     with _lock, _connect() as db:
+        db.execute(
+            """DELETE FROM control_route_affinity
+               WHERE capability = ? AND context_id = ? AND updated_at < ?""",
+            (capability, context_id, time.time() - AFFINITY_TTL_S),
+        )
         row = db.execute(
             """SELECT account_id FROM control_route_affinity
                WHERE capability = ? AND context_id = ?""",
@@ -270,6 +321,9 @@ def get_route_affinity(capability: str, context_id: str) -> str | None:
 
 
 def set_route_affinity(capability: str, context_id: str, account_id: str) -> None:
+    if len(context_id) > 128:
+        raise ValueError("context_id exceeds 128 characters")
+    now = time.time()
     with _lock, _connect() as db:
         db.execute(
             """INSERT INTO control_route_affinity
@@ -278,8 +332,10 @@ def set_route_affinity(capability: str, context_id: str, account_id: str) -> Non
                ON CONFLICT(capability, context_id) DO UPDATE SET
                  account_id = excluded.account_id,
                  updated_at = excluded.updated_at""",
-            (capability, context_id, account_id, time.time()),
+            (capability, context_id, account_id, now),
         )
+        _prune_expired_affinity(db, now)
+        _trim_affinity_rows(db)
 
 
 def clear_route_affinity(
@@ -350,7 +406,21 @@ def record_routing_decision(
                 error,
             ),
         )
-        return int(cursor.lastrowid or 0)
+        decision_id = int(cursor.lastrowid or 0)
+        _trim_decision_rows(db)
+        return decision_id
+
+
+def prune_control_plane_state() -> dict[str, int]:
+    """Expire stale affinity and enforce persisted control-plane row caps."""
+    with _lock, _connect() as db:
+        affinity_deleted = _prune_expired_affinity(db, time.time())
+        affinity_deleted += _trim_affinity_rows(db)
+        decisions_deleted = _trim_decision_rows(db)
+    return {
+        "affinity": affinity_deleted,
+        "decisions": decisions_deleted,
+    }
 
 
 def query_routing_decisions(

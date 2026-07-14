@@ -14,7 +14,7 @@ from kater.settings import ListenConfig
 _log = logging.getLogger("kater.runtime")
 
 # How often the background janitor sweeps expired OAuth tokens/codes and prunes
-# telemetry past the on-disk cap. Both are cheap, so 10 minutes is plenty.
+# persisted telemetry and control-plane state. These are cheap, so 10 minutes is plenty.
 _MAINTENANCE_INTERVAL = 600.0
 
 
@@ -106,7 +106,7 @@ class KaterRuntime:
         self._started = True
 
     def _maintenance_loop(self) -> None:
-        """Periodically purge expired OAuth state and trim telemetry to cap."""
+        """Periodically purge expired state and enforce persisted row caps."""
         while not self._shutdown_event.is_set():
             self._shutdown_event.wait(_MAINTENANCE_INTERVAL)
             if self._shutdown_event.is_set():
@@ -125,6 +125,12 @@ class KaterRuntime:
                 prune_all()
             except Exception as exc:
                 _log.warning("janitor: telemetry prune failed: %s", exc)
+            try:
+                from kater.control_plane import prune_control_plane_state
+
+                prune_control_plane_state()
+            except Exception as exc:
+                _log.warning("janitor: control-plane prune failed: %s", exc)
 
     def stop(self, timeout: float = 5.0) -> None:
         if not self._started:

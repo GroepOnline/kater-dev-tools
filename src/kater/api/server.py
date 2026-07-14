@@ -21,6 +21,7 @@ from kater.settings import (
     cors_allow_origin,
     load_settings,
     resolve_client_ip,
+    sanitize_header_value,
 )
 
 _log = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", response.content_type)
         self.send_header("Content-Length", str(len(body)))
         if allow:
-            self.send_header("Access-Control-Allow-Origin", allow)
+            self.send_header("Access-Control-Allow-Origin", sanitize_header_value(allow))
             # Vary: Origin ensures CDNs/proxies don't cache a response
             # with a permissive ACAO header and serve it to a different origin.
             if allow != "*":
@@ -233,7 +234,7 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
         if self.headers.get("X-Forwarded-Proto") == "https":
             self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         for key, value in response.headers.items():
-            self.send_header(key, value)
+            self.send_header(sanitize_header_value(key), sanitize_header_value(value))
         self.end_headers()
         if body:
             self.wfile.write(body)

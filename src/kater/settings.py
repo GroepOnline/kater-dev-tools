@@ -408,10 +408,29 @@ def check_auth(
     return False, "Unsupported auth mode."
 
 
+# Characters that enable HTTP response splitting if echoed in a header value.
+_HEADER_UNSAFE = frozenset("\r\n\x00")
+
+
+def sanitize_header_value(value: str) -> str:
+    """Strip characters that enable HTTP response splitting (CWE-113)."""
+    if any(ch in _HEADER_UNSAFE for ch in value):
+        return "".join(ch for ch in value if ch not in _HEADER_UNSAFE)
+    return value
+
+
+def is_safe_header_value(value: str) -> bool:
+    return not any(ch in _HEADER_UNSAFE for ch in value)
+
+
 def cors_allow_origin(
     settings: KaterSettings,
     request_origin: str | None,
 ) -> str | None:
+    if request_origin and not is_safe_header_value(request_origin):
+        request_origin = sanitize_header_value(request_origin)
+        if not request_origin or not is_safe_header_value(request_origin):
+            return None
     if not settings.cors_origins or "*" in settings.cors_origins:
         return request_origin or "*"
     if request_origin and request_origin in settings.cors_origins:

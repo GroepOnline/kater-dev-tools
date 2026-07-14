@@ -58,7 +58,7 @@ class SSEBackend(BaseBackend):
             error = "no endpoint discovered"
             self._status.error = error
             self._status.healthy = False
-            raise BackendOperationalError(error)
+            raise BackendOperationalError(error, fallback_safe=True)
         msg = {"jsonrpc": "2.0", "id": self._next_id, "method": method}
         if params:
             msg["params"] = params
@@ -86,4 +86,6 @@ class SSEBackend(BaseBackend):
             except Exception as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                raise BackendOperationalError(str(exc)) from exc
+                raise BackendOperationalError(
+                    str(exc), fallback_safe=False
+                ) from exc

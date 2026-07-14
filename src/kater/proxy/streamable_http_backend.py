@@ -89,8 +89,12 @@ class StreamableHTTPBackend(BaseBackend):
                 detail = exc.read().decode(errors="replace")
                 self._status.error = detail or str(exc)
                 self._status.healthy = False
-                raise BackendOperationalError(detail or str(exc)) from exc
+                raise BackendOperationalError(
+                    detail or str(exc), fallback_safe=False
+                ) from exc
             except Exception as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                raise BackendOperationalError(str(exc)) from exc
+                raise BackendOperationalError(
+                    str(exc), fallback_safe=False
+                ) from exc

@@ -100,7 +100,7 @@ class StdioBackend(BaseBackend):
             error = "backend not started"
             self._status.error = error
             self._status.healthy = False
-            raise BackendOperationalError(error)
+            raise BackendOperationalError(error, fallback_safe=True)
         stdin = proc.stdin
         stdout = proc.stdout
 
@@ -118,7 +118,9 @@ class StdioBackend(BaseBackend):
                 except OSError as exc:
                     self._status.error = str(exc)
                     self._status.healthy = False
-                    raise BackendOperationalError(str(exc)) from exc
+                    raise BackendOperationalError(
+                        str(exc), fallback_safe=False
+                    ) from exc
             return {"result": {}}
 
         msg = {
@@ -156,10 +158,12 @@ class StdioBackend(BaseBackend):
                 error = "timeout waiting for response"
                 self._status.error = error
                 self._status.healthy = False
-                raise BackendOperationalError(error)
+                raise BackendOperationalError(error, fallback_safe=False)
             except BackendOperationalError:
                 raise
             except (OSError, ValueError) as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                raise BackendOperationalError(str(exc)) from exc
+                raise BackendOperationalError(
+                    str(exc), fallback_safe=False
+                ) from exc

@@ -7,6 +7,20 @@ from typing import Any
 from kater.proxy.models import BackendStatus, ProxiedTool
 
 
+class BackendOperationalError(Exception):
+    """Transport/protocol failure distinct from a JSON-RPC business error.
+
+    ``fallback_safe`` is True only when the request was never dispatched to
+    the upstream (not started, circuit, pre-send connect failure). Timeouts,
+    partial writes, and read failures after send default to False so logical
+    routing will not retry on another account (avoids duplicate side effects).
+    """
+
+    def __init__(self, message: str, *, fallback_safe: bool = False) -> None:
+        super().__init__(message)
+        self.fallback_safe = fallback_safe
+
+
 class BaseBackend:
     name: str = "base"
 

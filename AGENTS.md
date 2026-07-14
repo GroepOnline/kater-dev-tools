@@ -29,17 +29,23 @@ for cross-agent conflicts, run the full test suite, then integrate.
 
 ## Cursor Cloud specific instructions
 
-Kater is a single Python package (`uv`-managed, Python 3.11+). The startup update script installs
-`uv` (to `~/.local/bin`, already on PATH via `.bashrc`) and runs `uv sync --dev`, so deps are ready
-before each session. Use `uv run <cmd>` for everything.
+Kater is a single Python package (`uv`-managed, Python 3.11–3.14; VM ships 3.12). The startup update
+script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile`) and runs
+`uv sync --dev`, so deps are ready before each session. Use `uv run <cmd>` for everything.
 
 - **Run the app**: `uv run kater serve`. One process starts three listeners — REST API + dashboard on
   `:9091`, MCP SSE on `:9090/sse`, WebSocket telemetry on `:9092`. Defaults to loopback with
-  `auth=none`; no external DB (SQLite auto-provisions under `.kater/`). Standard lint/test/build
-  commands live in the README "Development" section and `.github/workflows/ci.yml`
-  (`uv run ruff check .`, `uv run mypy`, `uv run pytest`, `./scripts/smoke.sh`).
+  `auth=none`; no external DB (SQLite auto-provisions under `.kater/`). Health check:
+  `curl -s http://127.0.0.1:9091/health`. Standard lint/test/build commands live in the README
+  "Development" section and `.github/workflows/ci.yml` (`uv run ruff check .`, `uv run mypy`,
+  `uv run pytest`, `./scripts/smoke.sh`).
+- **Test suite timing**: `uv run pytest` takes ~100s (426 passing, a few skipped for live/network
+  integrations); don't assume it hung.
 - **End-to-end check**: with the server running, `./scripts/e2e-mcp.sh` validates REST + a real MCP
   client (initialize/tools) + the WebSocket handshake. Best single proof the gateway works.
+- **Core functionality without secrets**: exercisable without any adapter API keys via the CLI
+  (`uv run kater status`, `kater mcp list`, `kater enable/disable <name>`) and the REST API
+  (`POST /api/mcp/servers/<name>/{enable,disable,toggle}`); state persists to `.kater/kater.db` (SQLite).
 - **Proxy backends are optional**: live proxying of the 29+ backend MCP servers needs `KATER_PROXY=1`,
   a profile, per-backend API keys, and Node/`npx` (present) for stdio backends. Core gateway works
   without any of this — native tools (`kater_profiles`, etc.) are always exposed.

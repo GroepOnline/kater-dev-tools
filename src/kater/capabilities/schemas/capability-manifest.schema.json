@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://kater.dev/schemas/capability-manifest.schema.json",
+  "title": "CapabilityManifest",
+  "description": "Kater capability package manifest (CHE-659).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "capability_id",
+    "package_id",
+    "publisher_id",
+    "version",
+    "digest",
+    "transport",
+    "description",
+    "input_schema",
+    "output_schema",
+    "required_scopes",
+    "risk_class",
+    "data_classification",
+    "profiles",
+    "lifecycle_state"
+  ],
+  "properties": {
+    "capability_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable logical capability ID; '__' is reserved for concrete backend__tool names.",
+      "pattern": "^(?!.*__)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "publisher_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Semver-like package version.",
+      "pattern": "^v?[0-9]+(\\.[0-9]+){0,3}(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "digest": {
+      "type": "string",
+      "description": "Empty or immutable content digest starting with sha256:.",
+      "pattern": "^(sha256:[0-9a-fA-F]+)?$"
+    },
+    "transport": {
+      "type": "string",
+      "enum": ["native", "stdio_mcp", "remote_mcp", "http", "sse"]
+    },
+    "description": {
+      "type": "string"
+    },
+    "input_schema": {
+      "type": "object"
+    },
+    "output_schema": {
+      "type": "object"
+    },
+    "required_scopes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "risk_class": {
+      "type": "string",
+      "enum": [
+        "read",
+        "local_write",
+        "external_write",
+        "deploy",
+        "destructive",
+        "secret_access",
+        "privileged_infra"
+      ]
+    },
+    "data_classification": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "healthcheck_capability_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "pattern": "^(?!.*__)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "lifecycle_state": {
+      "type": "string",
+      "enum": [
+        "candidate",
+        "verified",
+        "canary",
+        "active",
+        "deprecated",
+        "revoked"
+      ]
+    },
+    "rollback_version": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "network_targets": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "default": []
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "default": []
+    }
+  }
+}

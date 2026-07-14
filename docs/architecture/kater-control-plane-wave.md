@@ -46,10 +46,10 @@ ProxyManager.call_tool
        ├─ preserve context affinity when the pinned account remains eligible
        ├─ rank deterministically by quota headroom, priority, capacity, cost, latency
        ├─ invoke backend/tool with routing metadata stripped
-       ├─ fallback only for circuit/open/unavailable/unhealthy/transport failures
-       ├─ never repeat a tool-level/business error on another backend
-       ├─ consume quota on success
-       ├─ place failed infrastructure candidate into bounded cooldown
+       ├─ fallback only when failure is pre-dispatch / fallback_safe
+       ├─ never fallback on post-send transport, business errors, or unknown exceptions
+       ├─ consume quota on success (bookkeeping failures never replace success)
+       ├─ place fallback-safe failures into bounded cooldown and clear affinity
        └─ persist + broadcast route_decision evidence
 ```
 
@@ -147,26 +147,35 @@ or environment values.
 6. Ranking is deterministic; account ID is the final tie-breaker.
 7. Quota headroom intentionally outweighs small price and latency differences.
 8. A successful account is pinned per capability/context while still eligible.
-9. Infrastructure failure clears that affinity and applies cooldown.
+9. Fallback-safe infrastructure failure clears that affinity and applies cooldown.
 10. Tool/business errors do not trigger fallback or poison infrastructure health.
 11. Only candidates with an identical object-shaped MCP input schema may share an alias.
 12. Logical aliases cannot contain `__`, which remains reserved for concrete prefixed tools.
+13. `context_id`, routing scopes and `estimated_units` are strictly bounded; unknown `_kater_route` fields are rejected.
+14. Affinity and decision rows are TTL/cap pruned so control-plane state cannot grow without bound.
 
 ## Failure classification
 
 Fallback is allowed only when Kater itself can establish that the selected route
-was not safely executed:
+was **never dispatched** (`fallback_safe=True`):
 
 - circuit breaker open;
 - backend absent;
-- backend unhealthy;
-- transport/backend invocation exception.
+- backend not running / process down;
+- pre-send connect / not-started `BackendOperationalError(fallback_safe=True)`.
 
-A normal backend result containing `error` is returned to the caller and not
-replayed elsewhere. Repeated business or validation errors also do not open the
-infrastructure circuit breaker for a logical pool. This is essential for
-write-capabilities such as issue creation, deploys, merges and database mutations
-where an upstream may have committed the action before returning an error.
+The following are **not** fallback-safe and return immediately (no second account):
+
+- a normal backend result containing `error` (business / validation);
+- `BackendOperationalError(fallback_safe=False)` — timeouts, partial writes, post-send I/O;
+- any other unexpected exception (may already have executed upstream).
+
+Repeated business or validation errors also do not open the infrastructure circuit
+breaker for a logical pool. Half-open probes are released on any valid MCP response
+(including business errors), and a running backend with `healthy=False` may still be
+probed when the breaker authorizes it. This is essential for write-capabilities such
+as issue creation, deploys, merges and database mutations where an upstream may have
+committed the action before returning an error or timing out.
 
 ## Existing surfaces that become live immediately
 
@@ -202,14 +211,17 @@ The focused suite proves:
 - persistent route and quota round-trip;
 - logical alias publication through `tools/list`;
 - non-object and schema-incompatible candidates excluded from publication and fallback;
-- live fallback from a transport exception to a second backend;
+- live fallback only for pre-dispatch / `fallback_safe` operational errors;
+- no fallback for post-send operational errors or generic exceptions;
 - routing metadata removal before backend invocation;
+- strict `_kater_route` validation (unknown fields, scope/units bounds);
 - quota consumption only on success;
-- failed candidate cooldown;
+- failed candidate cooldown on fallback-safe paths;
 - context affinity and different-context rebalancing;
 - no fallback/replay or circuit poisoning for repeated tool-level errors;
 - reserved logical namespace and durable decision outcomes;
-- canonical lifecycle validation.
+- canonical lifecycle validation;
+- affinity/decision TTL and row-cap pruning.
 
 ## Explicitly deferred
 

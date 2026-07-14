@@ -1,13 +1,19 @@
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
+
 from kater.control_plane import (
     AccountState,
     ProviderAccount,
     QuotaWindow,
     clear_control_plane_state,
     list_route_candidates,
+    prune_control_plane_state,
     query_routing_decisions,
+    set_route_affinity,
     upsert_route_candidate,
 )
-from kater.proxy.base import MockBackend
+from kater.control_plane import store as control_store
+from kater.proxy.base import BackendOperationalError, MockBackend
 from kater.proxy.manager import ProxyManager
 
 
@@ -28,6 +34,20 @@ class TrackingBackend(MockBackend):
         }
 
 
+class PreSendFailBackend(MockBackend):
+    """Pre-dispatch failure — safe to try another account."""
+
+    def call_tool(self, tool_name, arguments):
+        raise BackendOperationalError("backend not started", fallback_safe=True)
+
+
+class PostSendFailBackend(MockBackend):
+    """Post-send / ambiguous failure — must NOT fallback."""
+
+    def call_tool(self, tool_name, arguments):
+        raise BackendOperationalError("timeout waiting for response", fallback_safe=False)
+
+
 class RaisingBackend(MockBackend):
     def call_tool(self, tool_name, arguments):
         raise RuntimeError("transport down")
@@ -39,6 +59,7 @@ def _candidate(
     *,
     remaining: int,
     priority: int = 100,
+    max_concurrent: int = 2,
 ) -> ProviderAccount:
     return ProviderAccount(
         account_id=account_id,
@@ -46,10 +67,17 @@ def _candidate(
         backend=backend,
         tool_name="search",
         priority=priority,
-        max_concurrent=2,
+        max_concurrent=max_concurrent,
         scopes=frozenset({"web.read"}),
         quota_windows=(QuotaWindow("monthly", 100, 100 - remaining),),
     )
+
+
+def _search_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+    }
 
 
 def test_persistent_pool_routes_live_mcp_alias_with_fallback(tmp_path, monkeypatch) -> None:
@@ -65,26 +93,13 @@ def test_persistent_pool_routes_live_mcp_alias_with_fallback(tmp_path, monkeypat
     )
 
     manager = ProxyManager()
-    primary = RaisingBackend(
-        tools=[
-            {
-                "name": "search",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {"query": {"type": "string"}},
-                },
-            }
-        ]
-    )
+    primary = PreSendFailBackend(tools=[{"name": "search", "inputSchema": _search_schema()}])
     secondary = TrackingBackend(
         tools=[
             {
                 "name": "search",
                 "description": "Search the web",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {"query": {"type": "string"}},
-                },
+                "inputSchema": _search_schema(),
             }
         ],
         responses={"search": {"answer": "ok"}},
@@ -94,7 +109,10 @@ def test_persistent_pool_routes_live_mcp_alias_with_fallback(tmp_path, monkeypat
 
     tools = {tool["name"]: tool for tool in manager.list_tools()}
     assert "web.search" in tools
-    assert "_kater_route" in tools["web.search"]["inputSchema"]["properties"]
+    route_meta = tools["web.search"]["inputSchema"]["properties"]["_kater_route"]
+    assert route_meta["additionalProperties"] is False
+    assert route_meta["properties"]["estimated_units"]["maximum"] == 1_000_000
+    assert route_meta["properties"]["required_scopes"]["maxItems"] == 32
 
     result = manager.call_tool(
         "web.search",
@@ -118,6 +136,96 @@ def test_persistent_pool_routes_live_mcp_alias_with_fallback(tmp_path, monkeypat
     }
     assert refreshed["primary-account"].state == AccountState.COOLDOWN
     assert refreshed["secondary-account"].quota_windows[0].used == 23
+
+
+def test_generic_exception_does_not_fallback(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
+        "web.search",
+        _candidate("primary-account", "primary", remaining=90, priority=1),
+    )
+    upsert_route_candidate(
+        "web.search",
+        _candidate("secondary-account", "secondary", remaining=80, priority=2),
+    )
+    manager = ProxyManager()
+    secondary = TrackingBackend(
+        tools=[{"name": "search", "inputSchema": _search_schema()}],
+        responses={"search": {"answer": "should-not-run"}},
+    )
+    manager.register_backend(
+        "primary",
+        RaisingBackend(tools=[{"name": "search", "inputSchema": _search_schema()}]),
+    )
+    manager.register_backend("secondary", secondary)
+
+    result = manager.call_tool(
+        "web.search",
+        {"query": "x", "_kater_route": {"required_scopes": ["web.read"]}},
+    )
+    assert result == {"error": "Backend error: RuntimeError"}
+    assert secondary.calls == []
+    decisions = query_routing_decisions(capability="web.search")
+    assert decisions[0]["outcome"] == "failed"
+
+
+def test_post_send_operational_error_does_not_fallback(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
+        "web.search",
+        _candidate("primary-account", "primary", remaining=90, priority=1),
+    )
+    upsert_route_candidate(
+        "web.search",
+        _candidate("secondary-account", "secondary", remaining=80, priority=2),
+    )
+    manager = ProxyManager()
+    secondary = TrackingBackend(
+        tools=[{"name": "search", "inputSchema": _search_schema()}],
+        responses={"search": {"answer": "should-not-run"}},
+    )
+    manager.register_backend(
+        "primary",
+        PostSendFailBackend(tools=[{"name": "search", "inputSchema": _search_schema()}]),
+    )
+    manager.register_backend("secondary", secondary)
+
+    result = manager.call_tool(
+        "web.search",
+        {"query": "x", "_kater_route": {"required_scopes": ["web.read"]}},
+    )
+    assert result == {"error": "Backend error: BackendOperationalError"}
+    assert secondary.calls == []
+
+
+def test_presend_operational_error_still_fallbacks(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
+        "web.search",
+        _candidate("primary-account", "primary", remaining=90, priority=1),
+    )
+    upsert_route_candidate(
+        "web.search",
+        _candidate("secondary-account", "secondary", remaining=80, priority=2),
+    )
+    manager = ProxyManager()
+    manager.register_backend(
+        "primary",
+        PreSendFailBackend(tools=[{"name": "search", "inputSchema": _search_schema()}]),
+    )
+    secondary = TrackingBackend(
+        tools=[{"name": "search", "inputSchema": _search_schema()}],
+        responses={"search": {"answer": "ok"}},
+    )
+    manager.register_backend("secondary", secondary)
+    assert manager.call_tool(
+        "web.search",
+        {"query": "x", "_kater_route": {"required_scopes": ["web.read"]}},
+    ) == {"answer": "ok"}
+    assert secondary.calls == [("search", {"query": "x"})]
 
 
 def test_context_affinity_wins_while_candidate_remains_eligible(tmp_path, monkeypatch) -> None:
@@ -151,9 +259,7 @@ def test_context_affinity_wins_while_candidate_remains_eligible(tmp_path, monkey
         _candidate("primary-account", "primary", remaining=1, priority=100),
     )
     assert manager.call_tool("web.search", route_meta) == {"selected": "primary"}
-    other_context = {
-        "_kater_route": {"context_id": "fresh", "required_scopes": ["web.read"]}
-    }
+    other_context = {"_kater_route": {"context_id": "fresh", "required_scopes": ["web.read"]}}
     assert manager.call_tool("web.search", other_context) == {"selected": "secondary"}
 
 
@@ -217,7 +323,7 @@ def test_schema_incompatible_candidate_is_not_used_for_fallback(
         _candidate("secondary-account", "secondary", remaining=80, priority=2),
     )
     manager = ProxyManager()
-    primary = RaisingBackend(
+    primary = PreSendFailBackend(
         tools=[
             {
                 "name": "search",
@@ -250,8 +356,6 @@ def test_schema_incompatible_candidate_is_not_used_for_fallback(
 
 
 def test_consuming_expired_quota_clears_stale_reset_boundary(tmp_path, monkeypatch) -> None:
-    from datetime import UTC, datetime, timedelta
-
     monkeypatch.chdir(tmp_path)
     clear_control_plane_state()
     upsert_route_candidate(
@@ -314,6 +418,38 @@ def test_oversized_context_id_is_rejected(tmp_path, monkeypatch) -> None:
     assert "128" in result["error"]
 
 
+def test_strict_route_meta_rejects_unknown_and_bool_units(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
+        "web.search",
+        _candidate("primary-account", "primary", remaining=90),
+    )
+    manager = ProxyManager()
+    backend = TrackingBackend(
+        tools=[{"name": "search"}],
+        responses={"search": {"ok": True}},
+    )
+    manager.register_backend("primary", backend)
+
+    unknown = manager.call_tool(
+        "web.search",
+        {"_kater_route": {"required_scopes": ["web.read"], "extra": True}},
+    )
+    assert "unknown fields" in unknown["error"]
+    assert backend.calls == []
+
+    bool_units = manager.call_tool(
+        "web.search",
+        {"_kater_route": {"required_scopes": ["web.read"], "estimated_units": True}},
+    )
+    assert "estimated_units" in bool_units["error"]
+    assert backend.calls == []
+
+    bad_meta = manager.call_tool("web.search", {"_kater_route": "nope"})
+    assert "_kater_route must be an object" in bad_meta["error"]
+
+
 def test_business_error_clears_half_open_probe(tmp_path, monkeypatch) -> None:
     """A tool-level error must release the half-open probe so later calls work."""
     monkeypatch.chdir(tmp_path)
@@ -331,7 +467,6 @@ def test_business_error_clears_half_open_probe(tmp_path, monkeypatch) -> None:
         ),
     )
     manager = ProxyManager()
-    # Force the breaker open, then into half-open with a short recovery.
     manager._failure_threshold = 1
     manager._recovery_timeout = 0.01
     backend = TrackingBackend(
@@ -346,68 +481,156 @@ def test_business_error_clears_half_open_probe(tmp_path, monkeypatch) -> None:
     import time
 
     time.sleep(0.02)
-    # First call after recovery reserves half-open; business error must clear it.
     assert "error" in manager.call_tool(
         "web.search",
         {"_kater_route": {"required_scopes": ["web.read"]}},
     )
     assert breaker.state == "closed"
     assert breaker._probe_in_flight is False
-    # Second call still allowed (probe was released).
     assert "error" in manager.call_tool(
         "web.search",
         {"_kater_route": {"required_scopes": ["web.read"]}},
     )
 
 
-def test_operational_error_dict_path_still_fallbacks(tmp_path, monkeypatch) -> None:
-    """BackendOperationalError from transport must fallback like raised RuntimeError."""
-    from kater.proxy.base import BackendOperationalError
+def test_half_open_recovers_when_healthy_latched_false(tmp_path, monkeypatch) -> None:
+    """Breaker-authorized probe must run even if a prior call set healthy=False."""
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
+        "web.search",
+        _candidate("solo", "solo", remaining=90, priority=1, max_concurrent=1),
+    )
+    manager = ProxyManager()
+    manager._failure_threshold = 1
+    manager._recovery_timeout = 0.01
+    backend = TrackingBackend(
+        tools=[{"name": "search"}],
+        responses={"search": {"ok": True}},
+    )
+    manager.register_backend("solo", backend)
+    backend._status.healthy = False
+    assert backend.is_healthy() is False
+    assert backend._running is True
 
-    class OpsFailBackend(MockBackend):
-        def call_tool(self, tool_name, arguments):
-            raise BackendOperationalError("timeout waiting for response")
+    breaker = manager._breakers["solo"]
+    for _ in range(2):
+        breaker.record_failure()
+    import time
+
+    time.sleep(0.02)
+    assert manager.call_tool(
+        "web.search",
+        {"_kater_route": {"required_scopes": ["web.read"]}},
+    ) == {"ok": True}
+    assert backend.is_healthy() is True
+    assert breaker.state == "closed"
+
+
+def test_max_concurrent_check_and_reserve_is_atomic(tmp_path, monkeypatch) -> None:
+    import threading
 
     monkeypatch.chdir(tmp_path)
     clear_control_plane_state()
     upsert_route_candidate(
         "web.search",
-        _candidate("primary-account", "primary", remaining=90, priority=1),
-    )
-    upsert_route_candidate(
-        "web.search",
-        _candidate("secondary-account", "secondary", remaining=80, priority=2),
+        _candidate("solo", "solo", remaining=90, max_concurrent=1),
     )
     manager = ProxyManager()
+    hold = threading.Event()
+    entered = threading.Event()
+    started = []
+
+    class BlockingBackend(MockBackend):
+        def call_tool(self, tool_name, arguments):
+            started.append(1)
+            entered.set()
+            assert hold.wait(timeout=2.0)
+            return {"ok": True}
+
     manager.register_backend(
-        "primary",
-        OpsFailBackend(
-            tools=[
-                {
-                    "name": "search",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {"query": {"type": "string"}},
-                    },
-                }
-            ]
-        ),
+        "solo",
+        BlockingBackend(tools=[{"name": "search"}]),
     )
-    secondary = TrackingBackend(
-        tools=[
-            {
-                "name": "search",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {"query": {"type": "string"}},
-                },
-            }
-        ],
-        responses={"search": {"answer": "ok"}},
-    )
-    manager.register_backend("secondary", secondary)
-    assert manager.call_tool(
+
+    def _call():
+        return manager.call_tool(
+            "web.search",
+            {"_kater_route": {"required_scopes": ["web.read"]}},
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_call) for _ in range(4)]
+        assert entered.wait(timeout=2.0)
+        # While one call holds the slot, the other three must be rejected.
+        # Release only after all futures settle would deadlock; poll briefly.
+        import time
+
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            done = sum(1 for f in futures if f.done())
+            if done >= 3:
+                break
+            time.sleep(0.01)
+        hold.set()
+        results = [f.result(timeout=2.0) for f in futures]
+
+    successes = [r for r in results if r.get("ok")]
+    rejected = [r for r in results if "max_concurrent" in str(r) or "No eligible route" in str(r)]
+    assert len(started) == 1
+    assert len(successes) == 1
+    assert len(rejected) == 3
+
+
+def test_prune_control_plane_state_expires_affinity_and_caps_rows(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    clear_control_plane_state()
+    upsert_route_candidate(
         "web.search",
-        {"query": "x", "_kater_route": {"required_scopes": ["web.read"]}},
-    ) == {"answer": "ok"}
-    assert secondary.calls == [("search", {"query": "x"})]
+        _candidate("primary-account", "primary", remaining=90),
+    )
+    set_route_affinity("web.search", "old-ctx", "primary-account")
+    with control_store._lock, control_store._connect() as db:
+        db.execute(
+            "UPDATE control_route_affinity SET updated_at = ?",
+            (0.0,),
+        )
+        for i in range(5):
+            db.execute(
+                """
+                INSERT INTO control_routing_decisions(
+                    timestamp, capability, context_id, account_id, provider, backend,
+                    tool_name, estimated_units, score, reasons, outcome, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    float(i),
+                    "web.search",
+                    f"ctx-{i}",
+                    "primary-account",
+                    "provider",
+                    "primary",
+                    "search",
+                    1,
+                    1.0,
+                    "[]",
+                    "success",
+                    None,
+                ),
+            )
+
+    monkeypatch.setattr(control_store, "MAX_DECISION_ROWS", 2)
+    monkeypatch.setattr(control_store, "MAX_AFFINITY_ROWS", 1)
+    deleted = prune_control_plane_state()
+    assert deleted["affinity"] >= 1
+    assert deleted["decisions"] >= 3
+    overview_affinity = 0
+    with control_store._lock, control_store._connect() as db:
+        overview_affinity = int(
+            db.execute("SELECT COUNT(*) AS c FROM control_route_affinity").fetchone()["c"]
+        )
+        decisions = int(
+            db.execute("SELECT COUNT(*) AS c FROM control_routing_decisions").fetchone()["c"]
+        )
+    assert overview_affinity <= 1
+    assert decisions <= 2

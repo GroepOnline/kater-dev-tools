@@ -9,8 +9,10 @@ from kater.adapters.external import render_profile_config, scan_adapters
 from kater.chains import list_chains
 from kater.doctor import parse_profiles, run_doctor
 from kater.pr_control import (
+    pr_audit_tool,
     pr_gate_tool,
     pr_list_tool,
+    pr_merge_tool,
     pr_policy_tool,
     pr_status_tool,
 )
@@ -136,6 +138,20 @@ def build_native_tools() -> list[NativeTool]:
             profile="core",
             risk="low",
             handler=pr_policy_tool,
+        ),
+        NativeTool(
+            name="kater_pr_audit",
+            description="Show the local merge-gate audit trail (optionally for one PR).",
+            profile="core",
+            risk="low",
+            handler=pr_audit_tool,
+        ),
+        NativeTool(
+            name="kater_pr_merge",
+            description="Gate-then-merge a PR (squash). Requires PASS and expected head SHA.",
+            profile="core",
+            risk="high",
+            handler=pr_merge_tool,
         ),
     ]
     tools.extend(_extension_native_tools())

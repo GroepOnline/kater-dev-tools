@@ -36,11 +36,15 @@ from kater.pr_control import (
 from kater.pr_control import (
     GatePolicy,
     GitHubPRClient,
+    MergeRejected,
     evaluate_gate,
     gate_for_pr,
     load_gate_policy,
+    merge_pr,
+    pr_audit_tool,
     pr_gate_tool,
     pr_list_tool,
+    pr_merge_tool,
     pr_policy_tool,
     pr_status_tool,
 )
@@ -333,3 +337,124 @@ def test_pr_policy_tool_returns_policy() -> None:
     result = pr_policy_tool()
     assert "policy" in result
     assert result["policy"]["require_approvals"] == 1
+
+
+# ── §6 merge write-path ───────────────────────────────────────────
+
+
+def _merge_runner_factory(records: list[list[str]], *, fail: bool = False) -> Any:
+    def fake_runner(args: list[str]) -> Any:
+        records.append(args)
+        if "pr" in args and "merge" in args and fail:
+            return SimpleNamespace(returncode=1, stdout="", stderr="merge conflict")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    return fake_runner
+
+
+def test_merge_pr_refuses_non_pass_gate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None
+    )
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.pull_request",
+        lambda self, number: _pr(reviewThreads=[{"isResolved": False}]),
+    )
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.is_base_protected", lambda self, base: False
+    )
+    audit: list[dict[str, Any]] = []
+
+    def fake_audit(**kw: Any) -> int:
+        audit.append(kw)
+        return 1
+
+    monkeypatch.setattr("kater.storage.record_gate_audit", fake_audit)
+    try:
+        merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+    except MergeRejected as exc:
+        assert "BLOCK" in str(exc)
+    else:
+        raise AssertionError("expected MergeRejected")
+    assert audit[0]["action"] == "merge_rejected"
+    assert audit[0]["verdict"] == BLOCK
+
+
+def test_merge_pr_refuses_head_sha_mismatch(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None
+    )
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.pull_request",
+        lambda self, number: _pr(),
+    )
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.is_base_protected", lambda self, base: False
+    )
+    audit: list[dict[str, Any]] = []
+    monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: 1 and audit.append(kw))
+    try:
+        merge_pr(42, expected_head_sha="stale-sha", actor="ci-bot")
+    except MergeRejected as exc:
+        assert "expected head" in str(exc)
+    else:
+        raise AssertionError("expected MergeRejected")
+    assert audit[0]["detail"] == "expected head SHA mismatch"
+
+
+def test_merge_pr_applies_on_pass(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None
+    )
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.pull_request",
+        lambda self, number: _pr(),
+    )
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.is_base_protected", lambda self, base: False
+    )
+    records: list[list[str]] = []
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.runner",
+        staticmethod(_merge_runner_factory(records)),
+    )
+    audit: list[dict[str, Any]] = []
+    monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: 1 and audit.append(kw))
+    result = merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+    assert result["merged"] is True
+    assert any("merge" in a and "--squash" in a for a in records)
+    assert audit[-1]["action"] == "merge_applied"
+
+
+def test_pr_merge_tool_returns_merge_result(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kater.pr_control.merge_pr",
+        lambda number, expected_head_sha="", actor="": {
+            "merged": True,
+            "pr_number": number,
+            "head_sha": expected_head_sha or "head000",
+        },
+    )
+    out = pr_merge_tool(42, expected_head_sha="head000")
+    assert out["merged"] is True
+
+
+# ── §7 audit trail ────────────────────────────────────────────────
+
+
+def test_pr_audit_tool_reads_store(monkeypatch) -> None:
+    rows = [
+        {"id": 2, "pr_number": 42, "verdict": "PASS", "action": "merge_applied"},
+        {"id": 1, "pr_number": 42, "verdict": "WARN", "action": "merge_rejected"},
+    ]
+
+    def fake_query(*, pr_number=None, limit=100):
+        return rows if pr_number in (None, 42) else []
+
+    monkeypatch.setattr("kater.storage.query_gate_audit", fake_query)
+    all_rows = pr_audit_tool(limit=10)
+    assert all_rows["count"] == 2
+    one = pr_audit_tool(pr_number=42)
+    assert one["count"] == 2
+    none = pr_audit_tool(pr_number=999)
+    assert none["count"] == 0

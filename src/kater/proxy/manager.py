@@ -269,6 +269,8 @@ class ProxyManager:
         return compatible
 
     def list_tools(self) -> list[dict[str, Any]]:
+        from kater.capabilities.discovery import CapabilityDenied, assert_invocable
+
         tools = self._aggregator.for_mcp()
         seen = {item["name"] for item in tools}
         grouped: dict[str, list[RouteBinding]] = {}
@@ -276,6 +278,11 @@ class ProxyManager:
             grouped.setdefault(binding.capability, []).append(binding)
         for capability, bindings in grouped.items():
             if capability in seen:
+                continue
+            try:
+                assert_invocable(capability)
+            except CapabilityDenied:
+                # Managed + non-invocable capabilities stay hidden from discovery.
                 continue
             compatible = self._compatible_route_bindings(bindings)
             if not compatible:
@@ -330,6 +337,18 @@ class ProxyManager:
         return tools
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        from kater.capabilities.discovery import CapabilityDenied, assert_invocable
+
+        # Re-check registry on every invoke: discovery is not authority (CHE-659).
+        try:
+            assert_invocable(name)
+        except CapabilityDenied as exc:
+            return {
+                "error": str(exc),
+                "code": "capability_denied",
+                "capability_id": exc.capability_id,
+                "reason": exc.reason,
+            }
         route = self._aggregator.resolve(name)
         if route is not None:
             result, _ = self._call_backend(route[0], route[1], arguments)

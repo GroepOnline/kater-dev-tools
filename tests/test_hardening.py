@@ -173,14 +173,14 @@ def test_settings_change_allowed_with_admin_key(api_server, monkeypatch):
     resp = urllib.request.urlopen(req)
     data = json.loads(resp.read())
     assert resp.status == 200
-    assert "https://ok.com" in data["cors_origins"]
+    assert data["cors_origins"] == ["https://ok.com"]
 
 
 def test_settings_change_works_without_admin_key_set(api_server, monkeypatch):
     """No admin key configured -> every authenticated caller is admin (local default)."""
     monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
     data = _post(9970, "/api/settings", {"cors_origins": ["https://local.com"]})
-    assert "https://local.com" in data["cors_origins"]
+    assert data["cors_origins"] == ["https://local.com"]
 
 
 def test_public_settings_change_requires_admin_key(monkeypatch, api_server):

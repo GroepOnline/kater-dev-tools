@@ -264,6 +264,39 @@ def test_cors_rejects_unallowed_origin(api_server):
     assert allow != "https://evil.example.com"
 
 
+def test_cors_strips_response_splitting_from_origin(api_server):
+    """Malicious Origin headers must not inject extra response headers (CWE-113)."""
+    from kater.settings import KaterSettings, cors_allow_origin, sanitize_header_value
+
+    injected = "https://example.com\r\nX-Injected: true"
+    assert sanitize_header_value(injected) == "https://example.comX-Injected: true"
+    assert cors_allow_origin(KaterSettings(cors_origins=["*"]), injected) == (
+        "https://example.comX-Injected: true"
+    )
+    assert cors_allow_origin(
+        KaterSettings(cors_origins=["https://example.com"]), injected
+    ) is None
+
+    _post(9930, "/api/settings", {"cors_origins": ["*"]})
+    import socket
+
+    sock = socket.create_connection(("127.0.0.1", 9930), timeout=5)
+    try:
+        sock.sendall(
+            b"GET /api/profiles HTTP/1.1\r\n"
+            b"Host: 127.0.0.1:9930\r\n"
+            b"Origin: https://example.com\r\nX-Injected: true\r\n"
+            b"\r\n"
+        )
+        raw = sock.recv(8192)
+    finally:
+        sock.close()
+
+    header_block = raw.split(b"\r\n\r\n", 1)[0].decode("latin-1")
+    assert "X-Injected: true" not in header_block
+    assert "Access-Control-Allow-Origin: https://example.com" in header_block
+
+
 # ── OAuth registration requires redirect_uris ─────────────────────
 
 

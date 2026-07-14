@@ -941,7 +941,11 @@ def _update_settings(req: Request) -> Response:
         current.update({k: v for k, v in auth_patch.items() if k in current})
         settings.auth = type(settings.auth).model_validate(current)
     if "cors_origins" in body:
-        settings.cors_origins = body["cors_origins"]
+        from kater.settings import sanitize_header_value
+
+        settings.cors_origins = [
+            sanitize_header_value(str(origin)) for origin in body["cors_origins"]
+        ]
     if "rate_limit_per_min" in body:
         try:
             settings.rate_limit_per_min = int(body["rate_limit_per_min"])

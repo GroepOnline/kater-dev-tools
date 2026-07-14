@@ -266,6 +266,9 @@ jobs:
       - name: Ruff security rules
         run: uv run ruff check --select S .
 
+      - name: Dependency vulnerability audit
+        run: uv run pip-audit
+
       - name: Diff-based secret scan
         run: |
           uv run python - <<'PY'

@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from kater.proxy.base import BaseBackend
+from kater.proxy.base import BackendOperationalError, BaseBackend
 
 _log = logging.getLogger("kater.proxy.streamable_http")
 
@@ -40,11 +40,8 @@ class StreamableHTTPBackend(BaseBackend):
             if line.startswith("data:"):
                 return json.loads(line[5:].strip())
         if not body.strip():
-            return {}
-        try:
-            return json.loads(body)
-        except json.JSONDecodeError:
-            return {"error": "unexpected streamable HTTP response"}
+            raise ValueError("unexpected empty streamable HTTP response")
+        return json.loads(body)
 
     def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
@@ -79,17 +76,25 @@ class StreamableHTTPBackend(BaseBackend):
                 if is_notification and not raw.strip():
                     return {}
                 parsed = self._parse_sse_body(raw)
-                if "error" in parsed:
-                    self._status.error = str(parsed["error"])
-                    self._status.healthy = False
-                    return {"error": parsed["error"]}
+                if (
+                    not isinstance(parsed, dict)
+                    or parsed.get("jsonrpc") != "2.0"
+                    or ("result" not in parsed and "error" not in parsed)
+                ):
+                    raise ValueError(
+                        "unexpected malformed streamable HTTP response"
+                    )
                 return parsed
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode(errors="replace")
                 self._status.error = detail or str(exc)
                 self._status.healthy = False
-                return {"error": detail or str(exc)}
+                raise BackendOperationalError(
+                    detail or str(exc), fallback_safe=False
+                ) from exc
             except Exception as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                return {"error": str(exc)}
+                raise BackendOperationalError(
+                    str(exc), fallback_safe=False
+                ) from exc

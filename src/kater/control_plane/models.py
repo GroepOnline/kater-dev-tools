@@ -153,8 +153,12 @@ class RoutingRequest:
             raise ValueError("capability is required")
         if not self.context_id:
             raise ValueError("context_id is required")
+        if len(self.context_id) > 128:
+            raise ValueError("context_id exceeds 128 characters")
         if self.estimated_units < 1:
             raise ValueError("estimated_units must be at least one")
+        if self.estimated_units > 1_000_000:
+            raise ValueError("estimated_units cannot exceed 1,000,000")
 
 
 @dataclass(frozen=True, slots=True)

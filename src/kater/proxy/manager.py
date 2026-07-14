@@ -28,7 +28,7 @@ from kater.control_plane import (
 from kater.doctor import parse_profiles
 from kater.profiles import RiskLevel, ToolSource, Transport, all_tool_sources
 from kater.proxy.aggregator import Aggregator
-from kater.proxy.base import BaseBackend
+from kater.proxy.base import BackendOperationalError, BaseBackend
 from kater.proxy.models import BackendStatus, ProxiedTool
 from kater.proxy.sse_backend import SSEBackend
 from kater.proxy.stdio_backend import StdioBackend
@@ -39,6 +39,10 @@ from kater.telemetry import TelemetryEvent, record_event
 logger = logging.getLogger("kater.proxy")
 
 _ROUTE_META_KEY = "_kater_route"
+MAX_CONTEXT_ID_LENGTH = 128
+MAX_REQUIRED_SCOPES = 32
+MAX_SCOPE_LENGTH = 64
+MAX_ESTIMATED_UNITS = 1_000_000
 _BEARER_SECRET = re.compile(r"(?i)\bBearer\s+[^\s,;]+")
 _NAMED_SECRET = re.compile(
     r"(?i)\b(authorization|api[-_ ]?key|token|secret|password)"
@@ -76,10 +80,7 @@ class CircuitBreaker:
             return self._state
 
     def _maybe_half_open(self) -> None:
-        if (
-            self._state == "open"
-            and time.monotonic() - self._opened_at >= self._recovery_timeout
-        ):
+        if self._state == "open" and time.monotonic() - self._opened_at >= self._recovery_timeout:
             self._state = "half_open"
             self._probe_in_flight = False
 
@@ -118,7 +119,7 @@ class ProxyManager:
         self._breakers: dict[str, CircuitBreaker] = {}
         self._lock = threading.Lock()
         self._route_lock = threading.Lock()
-        self._route_in_flight: dict[str, int] = {}
+        self._route_in_flight: dict[tuple[str, str], int] = {}
         self._aggregator = Aggregator()
         self._router = QuotaAwareRouter()
         self._started = False
@@ -290,6 +291,7 @@ class ProxyManager:
                 "properties": {
                     "context_id": {
                         "type": "string",
+                        "maxLength": MAX_CONTEXT_ID_LENGTH,
                         "description": "Affinity key only; not an authenticated principal.",
                     },
                     "required_scopes": {
@@ -297,9 +299,18 @@ class ProxyManager:
                         "description": (
                             "Routing compatibility constraint only; not authorization."
                         ),
-                        "items": {"type": "string"},
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": MAX_SCOPE_LENGTH,
+                        },
+                        "maxItems": MAX_REQUIRED_SCOPES,
                     },
-                    "estimated_units": {"type": "integer", "minimum": 1},
+                    "estimated_units": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_ESTIMATED_UNITS,
+                    },
                 },
                 "additionalProperties": False,
             }
@@ -333,6 +344,9 @@ class ProxyManager:
         *,
         record_tool_errors: bool = True,
     ) -> tuple[dict[str, Any], bool]:
+        # Second tuple element is fallback_safe: True only when the request
+        # was never dispatched (safe to try another account).
+        _ = record_tool_errors
         breaker = self._breakers.get(backend_name)
         if breaker is not None and not breaker.can_call():
             return {"error": f"Circuit open for {backend_name}"}, True
@@ -341,13 +355,30 @@ class ProxyManager:
             if breaker is not None:
                 breaker.record_failure()
             return {"error": f"Backend not available: {backend_name}"}, True
-        if not backend.is_healthy():
+        # Allow breaker-authorized half-open probes even when the previous
+        # call latched healthy=False. Block only when the process/session is down.
+        if not backend.is_healthy() and not getattr(backend, "_running", False):
             if breaker is not None:
                 breaker.record_failure()
             return {"error": f"Backend unhealthy: {backend_name}"}, True
         try:
             result = backend.call_tool(original_name, arguments)
+        except BackendOperationalError as exc:
+            if breaker is not None:
+                breaker.record_failure()
+            logger.warning(
+                "backend %s transport failed: %s (fallback_safe=%s)",
+                backend_name,
+                type(exc).__name__,
+                exc.fallback_safe,
+            )
+            return (
+                {"error": f"Backend error: {type(exc).__name__}"},
+                bool(exc.fallback_safe),
+            )
         except Exception as exc:
+            # Programming / unexpected errors: trip breaker, do NOT fallback
+            # (may have already executed upstream).
             if breaker is not None:
                 breaker.record_failure()
             logger.warning(
@@ -355,13 +386,64 @@ class ProxyManager:
                 backend_name,
                 type(exc).__name__,
             )
-            return {"error": f"Backend error: {type(exc).__name__}"}, True
+            return {"error": f"Backend error: {type(exc).__name__}"}, False
+        # Valid MCP response (success or business error): restore health +
+        # clear half-open; never fallback.
+        backend._status.healthy = True
+        backend._status.error = None
         if breaker is not None:
-            if "error" in result and record_tool_errors:
-                breaker.record_failure()
-            elif "error" not in result:
-                breaker.record_success()
+            breaker.record_success()
         return result, False
+
+    def _parse_route_meta(
+        self, arguments: dict[str, Any]
+    ) -> tuple[dict[str, Any], str, frozenset[str], int] | dict[str, Any]:
+        """Return (call_args, context_id, scopes, units) or an error dict."""
+        call_arguments = dict(arguments)
+        if _ROUTE_META_KEY not in call_arguments:
+            return call_arguments, "mcp-default", frozenset(), 1
+        raw_meta = call_arguments.pop(_ROUTE_META_KEY)
+        if not isinstance(raw_meta, dict):
+            return {"error": "_kater_route must be an object"}
+        unknown = set(raw_meta) - {"context_id", "required_scopes", "estimated_units"}
+        if unknown:
+            return {"error": ("_kater_route has unknown fields: " + ", ".join(sorted(unknown)))}
+        raw_context = raw_meta.get("context_id", "mcp-default")
+        if not isinstance(raw_context, str):
+            return {"error": "_kater_route.context_id must be a string"}
+        context_id = raw_context.strip() or "mcp-default"
+        if len(context_id) > MAX_CONTEXT_ID_LENGTH:
+            return {
+                "error": (f"_kater_route.context_id exceeds {MAX_CONTEXT_ID_LENGTH} characters")
+            }
+        raw_scopes = raw_meta.get("required_scopes", [])
+        if raw_scopes is None:
+            raw_scopes = []
+        if not isinstance(raw_scopes, list):
+            return {"error": "_kater_route.required_scopes must be an array of strings"}
+        if len(raw_scopes) > MAX_REQUIRED_SCOPES:
+            return {"error": (f"_kater_route.required_scopes exceeds {MAX_REQUIRED_SCOPES} items")}
+        scopes: list[str] = []
+        for item in raw_scopes:
+            if not isinstance(item, str) or not item:
+                return {"error": "_kater_route.required_scopes items must be non-empty strings"}
+            if len(item) > MAX_SCOPE_LENGTH:
+                return {
+                    "error": (
+                        f"_kater_route.required_scopes item exceeds {MAX_SCOPE_LENGTH} characters"
+                    )
+                }
+            scopes.append(item)
+        raw_units = raw_meta.get("estimated_units", 1)
+        if isinstance(raw_units, bool) or not isinstance(raw_units, int):
+            return {"error": "_kater_route.estimated_units must be an integer >= 1"}
+        if raw_units < 1 or raw_units > MAX_ESTIMATED_UNITS:
+            return {
+                "error": (
+                    f"_kater_route.estimated_units must be between 1 and {MAX_ESTIMATED_UNITS}"
+                )
+            }
+        return call_arguments, context_id, frozenset(scopes), raw_units
 
     def _call_logical_tool(
         self,
@@ -375,22 +457,13 @@ class ProxyManager:
         if not compatible:
             return {"error": f"No available schema-compatible route for {capability}"}
 
-        call_arguments = dict(arguments)
-        raw_meta = call_arguments.pop(_ROUTE_META_KEY, {})
-        meta = raw_meta if isinstance(raw_meta, dict) else {}
-        context_id = str(meta.get("context_id") or "mcp-default")
-        raw_scopes = meta.get("required_scopes") or []
-        required_scopes = frozenset(
-            str(item) for item in raw_scopes if isinstance(item, str) and item
-        )
-        try:
-            estimated_units = max(1, int(meta.get("estimated_units", 1)))
-        except (TypeError, ValueError):
-            return {"error": "_kater_route.estimated_units must be an integer >= 1"}
+        parsed = self._parse_route_meta(arguments)
+        if isinstance(parsed, dict):
+            return parsed
+        call_arguments, context_id, required_scopes, estimated_units = parsed
 
         accounts = [
-            self._runtime_account(binding.account, capability)
-            for binding, _source in compatible
+            self._runtime_account(binding.account, capability) for binding, _source in compatible
         ]
         request = RoutingRequest(
             capability=capability,
@@ -408,14 +481,30 @@ class ProxyManager:
                 "context_id": context_id,
             }
 
+        concurrent_limits = {account.account_id: account.max_concurrent for account in accounts}
         attempts: list[dict[str, Any]] = []
         last_error = "no route attempted"
         for decision in ranked:
-            key = f"{capability}:{decision.account_id}"
+            key = (capability, decision.account_id)
+            # Atomic check-and-reserve against max_concurrent so two callers
+            # cannot both take the last slot.
             with self._route_lock:
-                self._route_in_flight[key] = self._route_in_flight.get(key, 0) + 1
+                current = self._route_in_flight.get(key, 0)
+                limit = concurrent_limits.get(decision.account_id, 1)
+                if current >= limit:
+                    attempts.append(
+                        {
+                            "account_id": decision.account_id,
+                            "backend": decision.backend,
+                            "tool_name": decision.tool_name,
+                            "error": "max_concurrent reached",
+                            "retriable": True,
+                        }
+                    )
+                    continue
+                self._route_in_flight[key] = current + 1
             try:
-                result, retriable = self._call_backend(
+                result, fallback_safe = self._call_backend(
                     decision.backend,
                     decision.tool_name,
                     call_arguments,
@@ -431,19 +520,28 @@ class ProxyManager:
 
             error = str(result.get("error", "")) if "error" in result else None
             if error is None:
-                consume_quota(capability, decision.account_id, estimated_units)
-                set_route_candidate_state(
-                    capability,
-                    decision.account_id,
-                    AccountState.ACTIVE,
-                )
-                set_route_affinity(capability, context_id, decision.account_id)
-                self._record_route_event(request, decision, "success")
+                # Upstream succeeded — never replace the result with a
+                # bookkeeping failure (would encourage client-side replay).
+                try:
+                    consume_quota(capability, decision.account_id, estimated_units)
+                    set_route_candidate_state(
+                        capability,
+                        decision.account_id,
+                        AccountState.ACTIVE,
+                    )
+                    set_route_affinity(capability, context_id, decision.account_id)
+                    self._record_route_event(request, decision, "success")
+                except Exception as exc:
+                    logger.warning(
+                        "post-success route bookkeeping failed for %s: %s",
+                        capability,
+                        exc,
+                    )
                 return result
 
             last_error = error
-            outcome = "fallback" if retriable else "failed"
-            if retriable:
+            outcome = "fallback" if fallback_safe else "failed"
+            if fallback_safe:
                 clear_route_affinity(
                     capability,
                     context_id,
@@ -453,9 +551,7 @@ class ProxyManager:
                     capability,
                     decision.account_id,
                     AccountState.COOLDOWN,
-                    cooldown_until=(
-                        datetime.now(UTC) + timedelta(seconds=self._recovery_timeout)
-                    ),
+                    cooldown_until=(datetime.now(UTC) + timedelta(seconds=self._recovery_timeout)),
                 )
             self._record_route_event(request, decision, outcome, error=error)
             attempts.append(
@@ -464,10 +560,10 @@ class ProxyManager:
                     "backend": decision.backend,
                     "tool_name": decision.tool_name,
                     "error": _route_error_summary(error),
-                    "retriable": retriable,
+                    "retriable": fallback_safe,
                 }
             )
-            if not retriable:
+            if not fallback_safe:
                 return result
 
         return {
@@ -476,7 +572,7 @@ class ProxyManager:
         }
 
     def _runtime_account(self, account: ProviderAccount, capability: str) -> ProviderAccount:
-        key = f"{capability}:{account.account_id}"
+        key = (capability, account.account_id)
         with self._route_lock:
             in_flight = self._route_in_flight.get(key, 0)
         backend = self._backends.get(account.backend)

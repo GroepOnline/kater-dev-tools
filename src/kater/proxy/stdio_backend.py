@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Any
 
-from kater.proxy.base import BaseBackend
+from kater.proxy.base import BackendOperationalError, BaseBackend
 
 
 class StdioBackend(BaseBackend):
@@ -97,7 +97,10 @@ class StdioBackend(BaseBackend):
     def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         proc = self._proc
         if not proc or not proc.stdin or not proc.stdout:
-            return {"error": "backend not started"}
+            error = "backend not started"
+            self._status.error = error
+            self._status.healthy = False
+            raise BackendOperationalError(error, fallback_safe=True)
         stdin = proc.stdin
         stdout = proc.stdout
 
@@ -115,7 +118,9 @@ class StdioBackend(BaseBackend):
                 except OSError as exc:
                     self._status.error = str(exc)
                     self._status.healthy = False
-                    return {"error": str(exc)}
+                    raise BackendOperationalError(
+                        str(exc), fallback_safe=False
+                    ) from exc
             return {"result": {}}
 
         msg = {
@@ -141,10 +146,24 @@ class StdioBackend(BaseBackend):
                     if not line:
                         continue
                     data = json.loads(line.decode())
+                    if not isinstance(data, dict):
+                        raise ValueError("unexpected malformed stdio response")
                     if data.get("id") == msg["id"]:
+                        if (
+                            data.get("jsonrpc") != "2.0"
+                            or ("result" not in data and "error" not in data)
+                        ):
+                            raise ValueError("unexpected malformed stdio response")
                         return data
-                return {"error": "timeout waiting for response"}
-            except (OSError, json.JSONDecodeError) as exc:
+                error = "timeout waiting for response"
+                self._status.error = error
+                self._status.healthy = False
+                raise BackendOperationalError(error, fallback_safe=False)
+            except BackendOperationalError:
+                raise
+            except (OSError, ValueError) as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                return {"error": str(exc)}
+                raise BackendOperationalError(
+                    str(exc), fallback_safe=False
+                ) from exc

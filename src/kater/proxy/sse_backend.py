@@ -5,7 +5,7 @@ import logging
 import urllib.request
 from typing import Any
 
-from kater.proxy.base import BaseBackend
+from kater.proxy.base import BackendOperationalError, BaseBackend
 
 _log = logging.getLogger("kater.proxy.sse")
 
@@ -55,7 +55,10 @@ class SSEBackend(BaseBackend):
 
     def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self._endpoint:
-            return {"error": "no endpoint discovered"}
+            error = "no endpoint discovered"
+            self._status.error = error
+            self._status.healthy = False
+            raise BackendOperationalError(error, fallback_safe=True)
         msg = {"jsonrpc": "2.0", "id": self._next_id, "method": method}
         if params:
             msg["params"] = params
@@ -72,8 +75,17 @@ class SSEBackend(BaseBackend):
         with self._lock:
             try:
                 resp = urllib.request.urlopen(req, timeout=self._timeout)
-                return json.loads(resp.read())
+                parsed = json.loads(resp.read())
+                if (
+                    not isinstance(parsed, dict)
+                    or parsed.get("jsonrpc") != "2.0"
+                    or ("result" not in parsed and "error" not in parsed)
+                ):
+                    raise ValueError("unexpected malformed SSE response")
+                return parsed
             except Exception as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                return {"error": str(exc)}
+                raise BackendOperationalError(
+                    str(exc), fallback_safe=False
+                ) from exc

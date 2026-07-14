@@ -251,6 +251,25 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   font-family: var(--mono); font-size: 12px; color: var(--text-muted);
 }
 
+/* ── PR control (§3/§4/§6/§7) ──────────────────────────────── */
+#view-pr { padding: 14px 18px 0; gap: 14px; display: flex; flex-direction: column; }
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.pr-card {
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  background: var(--panel); display: flex; flex-direction: column; gap: 8px;
+}
+.pr-card .pr-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pr-card .pr-title { font-weight: 600; font-size: 13px; line-height: 1.3; }
+.pr-card .pr-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+.pr-card .pr-reasons { display: flex; flex-wrap: wrap; gap: 5px; }
+.pr-card pre { margin: 0; font-family: var(--mono); font-size: 10px; color: var(--text-muted); white-space: pre-wrap; }
+.pr-verdict { font-family: var(--mono); font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.pr-verdict.PASS { background: rgba(34,197,94,.15); color: #4ade80; }
+.pr-verdict.WARN { background: rgba(234,179,8,.15); color: #facc15; }
+.pr-verdict.BLOCK { background: rgba(239,68,68,.15); color: #f87171; }
+.pr-merge-btn { align-self: flex-start; margin-top: 2px; }
+.pr-head-note { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+
 /* ── Overview ───────────────────────────────────────────────── */
 #view-dashboard { padding: 14px 18px 0; gap: 14px; }
 
@@ -851,6 +870,10 @@ _HTML_SHELL_TOP = r"""
         <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><rect x="1.5" y="6.7" width="13" height="3" rx="1"/><rect x="1.5" y="10.9" width="13" height="3" rx="1"/></svg>
         <span class="tab-label">Servers</span> <span class="tab-kbd">2</span>
       </button>
+      <button class="tab interactive" data-view="pr" onclick="switchView('pr')">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
+        <span class="tab-label">PR control</span> <span class="tab-kbd">4</span>
+      </button>
       <button class="tab interactive" data-view="evals" onclick="switchView('evals')">
         <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 14.5h13"/><path d="M3.5 11v3"/><path d="M7 7v7"/><path d="M10.5 9v5"/><path d="M14 4v10"/></svg>
         <span class="tab-label">Performance</span> <span class="tab-kbd">3</span>
@@ -1099,6 +1122,16 @@ _VIEW_SETTINGS = r"""
   </div>
 """
 
+_VIEW_PR = r"""
+<div class="view" id="view-pr">
+    <div class="panel-meta tnum" id="pr-count">loading PRs…</div>
+    <div class="pr-grid" id="pr-grid">
+      <div class="view-empty">Loading pull requests…</div>
+    </div>
+  </div>
+"""
+
+
 
 
 _HTML_SHELL_BOTTOM = r"""
@@ -1204,6 +1237,7 @@ _HTML = (
     + _VIEW_EVALS
     + _VIEW_DEPLOY
     + _VIEW_SETTINGS
+    + _VIEW_PR
     + _HTML_SHELL_BOTTOM
 )
 
@@ -1617,7 +1651,7 @@ function applyModKeyHints() {
 function restoreUrlState() {
   const p = new URLSearchParams(location.search);
   const view = p.get('view');
-  if (view && ['dashboard','catalog','evals','deploy','settings'].indexOf(view) !== -1) {
+  if (view && ['dashboard','catalog','evals','deploy','settings','pr'].indexOf(view) !== -1) {
     currentView = view;
   }
   const profile = p.get('profile');
@@ -2804,6 +2838,7 @@ const viewTitles = {
   evals: 'Performance',
   deploy: 'Deploy',
   settings: 'Settings',
+  pr: 'PR control',
 };
 
 function switchView(name, quiet) {
@@ -2830,6 +2865,7 @@ async function loadViewData(name) {
     else if (name === 'evals') await loadEvalsView();
     else if (name === 'deploy') await loadDeployView();
     else if (name === 'settings') await loadSettingsView();
+    else if (name === 'pr') await loadPRView();
   } catch (e) {
     console.error('view load error:', e);
   }
@@ -3109,6 +3145,96 @@ async function loadSettingsView() {
   document.getElementById('set-profile').value = data.default_profile || 'core';
   document.getElementById('set-storage').value = data.storage_backend || 'sqlite';
 }
+
+async function loadPRView() {
+  const grid = document.getElementById('pr-grid');
+  const count = document.getElementById('pr-count');
+  let data;
+  try {
+    data = await api('/api/pr/list?state=open&limit=30');
+  } catch (e) {
+    count.textContent = 'PR list unavailable';
+    grid.innerHTML = '<div class="view-empty">PR control needs the gh CLI and a GitHub token. ' +
+      'Run `kater pr` tools or check the server environment.</div>';
+    return;
+  }
+  const pulls = data.pulls || [];
+  count.textContent = data.count + ' open PR' + (data.count === 1 ? '' : 's');
+  grid.innerHTML = '';
+  if (!pulls.length) {
+    grid.innerHTML = '<div class="view-empty">No open pull requests.</div>';
+    return;
+  }
+  for (const pr of pulls) {
+    const card = document.createElement('div');
+    card.className = 'pr-card';
+    const verdict = (pr.gate && pr.gate.verdict) || 'WARN';
+    const reasons = (pr.gate && pr.gate.reasons) || [];
+    const top = document.createElement('div');
+    top.className = 'pr-top';
+    const title = document.createElement('div');
+    title.className = 'pr-title';
+    title.textContent = '#' + pr.number + ' ' + (pr.title || '');
+    const badge = document.createElement('span');
+    badge.className = 'pr-verdict ' + verdict;
+    badge.textContent = verdict;
+    top.appendChild(title);
+    top.appendChild(badge);
+    card.appendChild(top);
+
+    const meta = document.createElement('div');
+    meta.className = 'pr-meta';
+    meta.textContent = (pr.head_ref || '') + ' → ' + (pr.base_ref || '') +
+      (pr.head_sha ? '  (' + pr.head_sha.slice(0, 7) + ')' : '');
+    card.appendChild(meta);
+
+    if (reasons.length) {
+      const rc = document.createElement('div');
+      rc.className = 'pr-reasons';
+      for (const r of reasons) {
+        const chip = document.createElement('span');
+        chip.className = 'badge warn';
+        chip.textContent = r;
+        rc.appendChild(chip);
+      }
+      card.appendChild(rc);
+    }
+
+    if (verdict === 'PASS') {
+      const btn = document.createElement('button');
+      btn.className = 'btn-save interactive pr-merge-btn';
+      btn.textContent = 'Merge (squash)';
+      btn.setAttribute('data-pr', String(pr.number));
+      btn.setAttribute('data-head', pr.head_sha || '');
+      btn.addEventListener('click', onMergeClick);
+      card.appendChild(btn);
+      if (pr.head_sha) {
+        const note = document.createElement('div');
+        note.className = 'pr-head-note';
+        note.textContent = 'will merge head ' + pr.head_sha.slice(0, 7);
+        card.appendChild(note);
+      }
+    }
+    grid.appendChild(card);
+  }
+}
+
+async function onMergeClick(e) {
+  const btn = e.currentTarget;
+  const number = parseInt(btn.dataset.pr);
+  const head = btn.dataset.head || '';
+  btn.disabled = true;
+  try {
+    await apiPost('/api/pr/' + number + '/merge', { expected_head_sha: head, actor: 'dashboard' });
+    toast('merged #' + number, 'success');
+    await loadPRView();
+  } catch (err) {
+    const detail = (err.data && err.data.error) ? err.data.error : (err.message || 'failed');
+    toast('merge blocked: ' + detail, 'error');
+    btn.disabled = false;
+  }
+}
+
 
 async function saveSettings() {
   const body = {

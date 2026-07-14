@@ -113,6 +113,7 @@ DASHBOARD_ENDPOINTS = [
     ("POST", "/api/mcp/servers/github/enable"),
     ("POST", "/api/mcp/servers/github/disable"),
     ("POST", "/api/mcp/servers/github/toggle"),
+    ("GET", "/api/tunnel"),
     ("POST", "/api/tunnel/cloudflare/start"),
     ("POST", "/api/tunnel/tailscale/start"),
     ("POST", "/api/settings"),
@@ -122,3 +123,77 @@ DASHBOARD_ENDPOINTS = [
 @pytest.mark.parametrize("method,path", DASHBOARD_ENDPOINTS)
 def test_dashboard_endpoint_exists_in_router(method, path):
     assert ROUTER.match(method, path) is not None, f"{method} {path} has no route"
+
+
+def test_decorative_marks_are_aria_hidden():
+    # Icon-only brand marks / tab SVGs must not be announced as unlabeled images.
+    html = render_dashboard()
+    assert 'class="brand-mark" aria-hidden="true"' in html
+    assert html.count('class="tab-icon" aria-hidden="true"') >= 5
+
+
+def test_catalog_count_is_status_region_not_describedby():
+    # Result counts are a status readout (role=status). Pairing them with
+    # aria-describedby on the search box caused mid-keystroke chatter.
+    html = render_dashboard()
+    assert 'id="catalog-count" role="status"' in html
+    assert "aria-describedby=\"catalog-count\"" not in html
+    assert "aria-describedby='catalog-count'" not in html
+    # Pluralization contract used by the status region.
+    assert "serverCount === 1 ? '1 server'" in html
+    assert "serverCount + ' servers'" in html
+
+
+def test_tunnel_controls_have_state_aware_aria_contract():
+    # Notion eval for dashboard a11y: visible/action labels stay consistent and
+    # transition states are announced (Start → Starting → Stop).
+    html = render_dashboard()
+    assert 'id="btn-cf"' in html
+    assert 'aria-label="Start cloudflare tunnel"' in html
+    assert 'aria-label="Start tailscale tunnel"' in html
+    assert "btn.textContent = running ? 'Stop' : 'Start'" in html
+    assert "aria-label', (running ? 'Stop ' : 'Start ') + provider + ' tunnel')" in html
+    assert "Starting ' : 'Stopping '" in html
+    # No stale "ON" label that disagrees with the Stop aria-label.
+    assert "running ? 'ON'" not in html
+
+
+def test_catalog_toggle_aria_label_matches_enable_disable_verb():
+    # Switch labels use Enable/Disable (same verb as the command palette), and
+    # toggleServerCard refreshes the label after the POST succeeds.
+    html = render_dashboard()
+    assert "(s.enabled ? 'Disable ' : 'Enable ') + s.name + ' server'" in html
+    assert "(data.enabled ? 'Disable ' : 'Enable ') + name + ' server'" in html
+    assert "'Toggle '" not in html
+    assert '"Toggle "' not in html
+
+
+def test_profile_pills_expose_pressed_state():
+    html = render_dashboard()
+    assert "pill.setAttribute('aria-pressed', String(on))" in html
+    assert "el.setAttribute('aria-pressed', String(on))" in html
+
+
+def test_copy_deploy_code_guards_reentrancy_and_gives_feedback():
+    html = render_dashboard()
+    assert "function copyDeployCode(btn)" in html
+    assert "if (btn.dataset.copying) return;" in html
+    assert "btn.textContent = 'Copied!';" in html
+    assert "onclick=\"copyDeployCode(this)\"" in html
+
+
+def test_mobile_hides_tab_shortcut_hints():
+    # Shortcut keycaps are desktop-only; hide them under the mobile breakpoint.
+    html = render_dashboard()
+    assert ".tab-kbd { display: none; }" in html
+
+
+def test_pr_tab_does_not_claim_digit_shortcut():
+    # Digits 1-5 map to dashboard/catalog/evals/deploy/settings. PR control is
+    # palette-only, so it must not show a misleading "4" keycap.
+    html = render_dashboard()
+    assert "PR control" in html
+    # No tab-kbd immediately after the PR label.
+    assert 'tab-label">PR control</span> <span class="tab-kbd">' not in html
+    # Digit map still excludes PR.
+    assert "['dashboard', 'catalog', 'evals', 'deploy', 'settings']" in html

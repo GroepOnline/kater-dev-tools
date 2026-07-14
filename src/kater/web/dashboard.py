@@ -815,6 +815,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
   .sidebar-nav { flex-direction: row; overflow-x: auto; }
   .nav-section { display: none; }
+  .tab-kbd { display: none; }
   .profile-pills, .palette-trigger { display: none; }
   .detail-panel { width: 100%; }
   .kpi-grid { grid-template-columns: 1fr; }
@@ -860,7 +861,7 @@ _HTML_SHELL_TOP = r"""
   <aside class="sidebar">
     <div class="sidebar-brand">
       <div class="brand-row">
-        <div class="brand-mark"></div>
+        <div class="brand-mark" aria-hidden="true"></div>
         <div class="brand-name">Kater</div>
       </div>
       <div class="brand-meta">MCP gateway · <span id="version-tag">v0.0.0</span></div>
@@ -868,28 +869,28 @@ _HTML_SHELL_TOP = r"""
     <nav class="sidebar-nav" aria-label="Views">
       <div class="nav-section">Operate</div>
       <button class="tab active interactive" data-view="dashboard" onclick="switchView('dashboard')">
-        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>
         <span class="tab-label">Overview</span> <span class="tab-kbd">1</span>
       </button>
       <button class="tab interactive" data-view="catalog" onclick="switchView('catalog')">
-        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><rect x="1.5" y="6.7" width="13" height="3" rx="1"/><rect x="1.5" y="10.9" width="13" height="3" rx="1"/></svg>
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><rect x="1.5" y="6.7" width="13" height="3" rx="1"/><rect x="1.5" y="10.9" width="13" height="3" rx="1"/></svg>
         <span class="tab-label">Servers</span> <span class="tab-kbd">2</span>
       </button>
       <button class="tab interactive" data-view="pr" onclick="switchView('pr')">
-        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
-        <span class="tab-label">PR control</span> <span class="tab-kbd">4</span>
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
+        <span class="tab-label">PR control</span>
       </button>
       <button class="tab interactive" data-view="evals" onclick="switchView('evals')">
-        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 14.5h13"/><path d="M3.5 11v3"/><path d="M7 7v7"/><path d="M10.5 9v5"/><path d="M14 4v10"/></svg>
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 14.5h13"/><path d="M3.5 11v3"/><path d="M7 7v7"/><path d="M10.5 9v5"/><path d="M14 4v10"/></svg>
         <span class="tab-label">Performance</span> <span class="tab-kbd">3</span>
       </button>
       <div class="nav-section">Configure</div>
       <button class="tab interactive" data-view="deploy" onclick="switchView('deploy')">
-        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.5l6 3v7l-6 3-6-3v-7z"/><path d="M2 4.5l6 3 6-3"/><path d="M8 7.5v7"/></svg>
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.5l6 3v7l-6 3-6-3v-7z"/><path d="M2 4.5l6 3 6-3"/><path d="M8 7.5v7"/></svg>
         <span class="tab-label">Deploy</span> <span class="tab-kbd">4</span>
       </button>
       <button class="tab interactive" data-view="settings" onclick="switchView('settings')">
-        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg>
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg>
         <span class="tab-label">Settings</span> <span class="tab-kbd">5</span>
       </button>
     </nav>
@@ -1012,11 +1013,13 @@ _VIEW_DASHBOARD = r"""
       <span class="panel-title">Tunnels</span>
       <div class="tunnel-item">
         <span class="tunnel-name">cloudflare</span>
-        <button class="btn-tunnel interactive" id="btn-cf" onclick="toggleTunnel('cloudflare')">Start</button>
+        <button class="btn-tunnel interactive" id="btn-cf" onclick="toggleTunnel('cloudflare')"
+          aria-label="Start cloudflare tunnel">Start</button>
       </div>
       <div class="tunnel-item">
         <span class="tunnel-name">tailscale</span>
-        <button class="btn-tunnel interactive" id="btn-ts" onclick="toggleTunnel('tailscale')">Start</button>
+        <button class="btn-tunnel interactive" id="btn-ts" onclick="toggleTunnel('tailscale')"
+          aria-label="Start tailscale tunnel">Start</button>
       </div>
     </div>
   </div>
@@ -1026,7 +1029,7 @@ _VIEW_CATALOG = r"""
 <div class="view" id="view-catalog">
     <div class="view-header">
       <span class="view-title">Server catalog</span>
-      <span class="panel-meta tnum" id="catalog-count">0 servers</span>
+      <span class="panel-meta tnum" id="catalog-count" role="status">0 servers</span>
     </div>
     <div class="view-scroll">
       <div class="catalog-toolbar">
@@ -1065,7 +1068,6 @@ _VIEW_EVALS = r"""
 """
 
 
-
 _VIEW_DEPLOY = r"""
   <div class="view" id="view-deploy">
     <div class="view-header">
@@ -1076,7 +1078,7 @@ _VIEW_DEPLOY = r"""
       <div class="code-preview">
         <div class="code-desc" id="deploy-desc"></div>
         <div class="code-wrap">
-          <button class="code-copy interactive" onclick="copyDeployCode()"
+          <button class="code-copy interactive" onclick="copyDeployCode(this)"
             aria-label="Copy deployment code">Copy</button>
           <pre class="code-block" id="deploy-code">Select a format above.</pre>
         </div>
@@ -1084,7 +1086,6 @@ _VIEW_DEPLOY = r"""
     </div>
   </div>
 """
-
 
 
 _VIEW_SETTINGS = r"""
@@ -1135,8 +1136,6 @@ _VIEW_PR = r"""
     </div>
   </div>
 """
-
-
 
 
 _HTML_SHELL_BOTTOM = r"""
@@ -1245,8 +1244,6 @@ _HTML = (
     + _VIEW_PR
     + _HTML_SHELL_BOTTOM
 )
-
-
 
 
 _JS = r"""
@@ -1722,11 +1719,13 @@ async function loadProfiles() {
   el.innerHTML = '';
   for (const p of profiles) {
     const pill = document.createElement('div');
-    pill.className = 'pill interactive' + (p === activeProfile ? ' active' : '');
+    const on = p === activeProfile;
+    pill.className = 'pill interactive' + (on ? ' active' : '');
     pill.textContent = p;
     pill.dataset.profile = p;
     pill.setAttribute('tabindex', '0');
     pill.setAttribute('role', 'button');
+    pill.setAttribute('aria-pressed', String(on));
     el.appendChild(pill);
   }
 }
@@ -1735,7 +1734,9 @@ function switchProfile(p) {
   if (profiles.indexOf(p) === -1) { toast('unknown profile: ' + p, 'error'); return; }
   activeProfile = p;
   document.querySelectorAll('.pill').forEach(el => {
-    el.classList.toggle('active', el.dataset.profile === p);
+    const on = el.dataset.profile === p;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
   });
   writeUrlState();
   loadCatalog();
@@ -2807,7 +2808,9 @@ function setTunnelButton(provider, running) {
   const btn = tunnelBtn(provider);
   if (!btn) return;
   btn.classList.toggle('active', !!running);
-  btn.textContent = running ? 'ON' : 'Start';
+  // Visible label matches the action announced to assistive tech.
+  btn.textContent = running ? 'Stop' : 'Start';
+  btn.setAttribute('aria-label', (running ? 'Stop ' : 'Start ') + provider + ' tunnel');
   btn.disabled = false;
 }
 
@@ -2831,7 +2834,9 @@ async function toggleTunnel(provider) {
       return;
     }
   }
-  btn.textContent = '...';
+  const pendingLabel = (action === 'start' ? 'Starting' : 'Stopping') + '…';
+  btn.textContent = pendingLabel;
+  btn.setAttribute('aria-label', (action === 'start' ? 'Starting ' : 'Stopping ') + provider + ' tunnel');
   btn.disabled = true;
   toast('tunnel ' + provider + ': ' + action + 'ing...');
   try {
@@ -2911,7 +2916,9 @@ async function loadCatalogView() {
   const items = catalogFilter === 'all'
     ? catalogItems
     : catalogItems.filter(s => serverState(s) === catalogFilter);
-  document.getElementById('catalog-count').textContent = items.length + ' servers';
+  const serverCount = items.length;
+  document.getElementById('catalog-count').textContent =
+    serverCount === 1 ? '1 server' : serverCount + ' servers';
   grid.innerHTML = '';
   if (!items.length) {
     const empty = document.createElement('div');
@@ -2964,7 +2971,11 @@ async function loadCatalogView() {
       + (s.enabled ? (pending ? ' pending' : ' on') : '');
     toggle.setAttribute('role', 'switch');
     toggle.setAttribute('aria-checked', String(!!s.enabled));
-    toggle.setAttribute('aria-label', 'Enable ' + s.name);
+    // Action verb matches visible palette language (Enable/Disable), not a
+    // generic "Toggle", so screen readers and sighted UI stay consistent.
+    toggle.setAttribute(
+      'aria-label', (s.enabled ? 'Disable ' : 'Enable ') + s.name + ' server'
+    );
     toggle.setAttribute('tabindex', '0');
     toggle.title = pending ? 'On, but needs credentials to connect' : '';
     toggle.dataset.name = s.name;
@@ -3040,6 +3051,9 @@ async function toggleServerCard(name, el) {
     el.classList.remove('on', 'pending');
     if (data.enabled) el.classList.add(pending ? 'pending' : 'on');
     el.setAttribute('aria-checked', String(!!data.enabled));
+    el.setAttribute(
+      'aria-label', (data.enabled ? 'Disable ' : 'Enable ') + name + ' server'
+    );
     el.title = pending ? 'On, but needs credentials to connect' : '';
     toast(enableHint(name, !!data.enabled), data.enabled ? 'success' : '');
     buildNodes();
@@ -3170,12 +3184,25 @@ async function selectDeployFormat(fmt) {
   }
 }
 
-function copyDeployCode() {
+function copyDeployCode(btn) {
+  if (btn.dataset.copying) return;
   const text = document.getElementById('deploy-code').textContent || '';
   if (navigator.clipboard && navigator.clipboard.writeText) {
+    btn.dataset.copying = '1';
+    const originalText = btn.textContent;
     navigator.clipboard.writeText(text).then(
-      () => toast('copied to clipboard', 'success'),
-      () => toast('clipboard access denied', 'error')
+      () => {
+        toast('copied to clipboard', 'success');
+        btn.textContent = 'Copied!';
+        setTimeout(() => {
+          btn.textContent = originalText;
+          delete btn.dataset.copying;
+        }, 2000);
+      },
+      () => {
+        toast('clipboard access denied', 'error');
+        delete btn.dataset.copying;
+      }
     );
   } else {
     toast('clipboard unavailable', 'error');

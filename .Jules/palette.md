@@ -5,3 +5,7 @@
 ## 2025-07-12 - [UX Recovery Pattern for Search]
 **Learning:** Providing a "Clear search" recovery path in zero-result states (using the `.view-empty-link` pattern) reduces user frustration by offering an immediate way back to a valid state without requiring manual text deletion.
 **Action:** Implement functional recovery links in all empty/zero-result states within dashboard views.
+
+## 2026-07-14 - [Dynamic ARIA for Status Transitions]
+**Learning:** For background processes like tunnels or long-running actions, updating ARIA labels to reflect transitionary states (e.g., "Starting...") provides critical feedback to screen reader users that the application is processing their request. Visible button text must stay in lockstep with the announced action (Start/Stop, not ON vs Stop).
+**Action:** Always implement state-aware ARIA labels for buttons that trigger asynchronous state changes, and keep visible labels action-consistent.

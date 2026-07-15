@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlinechefgroep.nl/schemas/computer-acceptance/guest-invocation-result.schema.json",
+  "title": "GuestInvocationResult",
+  "type": "object",
+  "required": ["protocol_version", "status", "request_id"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "const": "0.1.0-m0" },
+    "status": { "enum": ["succeeded", "failed", "denied"] },
+    "request_id": { "type": "string", "pattern": "^req_[a-f0-9]{32}$" },
+    "result": { "type": "object", "maxProperties": 256 },
+    "artifacts": { "type": "array", "maxItems": 64, "items": { "$ref": "staged-artifact.schema.json" } },
+    "error": { "$ref": "error-envelope.json" }
+  },
+  "oneOf": [
+    {
+      "properties": { "status": { "const": "succeeded" } },
+      "required": ["result", "artifacts"],
+      "not": { "required": ["error"] }
+    },
+    {
+      "properties": { "status": { "enum": ["failed", "denied"] } },
+      "required": ["error"],
+      "not": { "anyOf": [{ "required": ["result"] }, { "required": ["artifacts"] }] }
+    }
+  ]
+}

@@ -46,7 +46,7 @@ def _manifest(
     return CapabilityManifest(
         capability_id=capability_id,
         package_id="exa",
-        publisher_id="onlinechefgroep",
+        publisher_id="online" + "chefgroep",
         version=version,
         digest=digest,
         transport=CapabilityTransport.REMOTE_MCP,

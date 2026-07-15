@@ -1,0 +1,448 @@
+{
+  "capabilities": [
+    {
+      "capability_id": "filesystem.read",
+      "idempotency_required": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 262144,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "method": "POST",
+      "mutation": false,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 1048576,
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "workspace_generation": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "content",
+          "size",
+          "truncated",
+          "workspace_generation"
+        ],
+        "type": "object"
+      },
+      "path": "/filesystem/read",
+      "required_scopes": [
+        "filesystem.read"
+      ],
+      "risk_class": "read",
+      "timeout_seconds": 15
+    },
+    {
+      "capability_id": "filesystem.write",
+      "idempotency_required": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 1048576,
+            "type": "string"
+          },
+          "create_parents": {
+            "type": "boolean"
+          },
+          "path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "type": "object"
+      },
+      "method": "POST",
+      "mutation": true,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes_written": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "workspace_generation": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bytes_written",
+          "workspace_generation"
+        ],
+        "type": "object"
+      },
+      "path": "/filesystem/write",
+      "required_scopes": [
+        "filesystem.write"
+      ],
+      "risk_class": "local_write",
+      "timeout_seconds": 15
+    },
+    {
+      "capability_id": "git.status",
+      "idempotency_required": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "method": "GET",
+      "mutation": false,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "porcelain": {
+            "maxLength": 1048576,
+            "type": "string"
+          },
+          "staged": {
+            "items": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "type": "array"
+          },
+          "unstaged": {
+            "items": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "type": "array"
+          },
+          "untracked": {
+            "items": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "type": "array"
+          },
+          "workspace_generation": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "branch",
+          "staged",
+          "unstaged",
+          "untracked",
+          "porcelain",
+          "workspace_generation"
+        ],
+        "type": "object"
+      },
+      "path": "/git/status",
+      "required_scopes": [
+        "git.read"
+      ],
+      "risk_class": "read",
+      "timeout_seconds": 30
+    },
+    {
+      "capability_id": "terminal.open",
+      "idempotency_required": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "cols": {
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "cwd": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "rows": {
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "shell": {
+            "maxLength": 4096,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "method": "POST",
+      "mutation": true,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "terminal_id": {
+            "pattern": "^term_[a-f0-9]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "terminal_id"
+        ],
+        "type": "object"
+      },
+      "path": "/terminal/open",
+      "required_scopes": [
+        "terminal.write"
+      ],
+      "risk_class": "local_write",
+      "timeout_seconds": 15
+    },
+    {
+      "capability_id": "terminal.input",
+      "idempotency_required": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "maxLength": 1048576,
+            "type": "string"
+          },
+          "terminal_id": {
+            "pattern": "^term_[a-f0-9]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "terminal_id",
+          "data"
+        ],
+        "type": "object"
+      },
+      "method": "POST",
+      "mutation": true,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes_written": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bytes_written"
+        ],
+        "type": "object"
+      },
+      "path": "/terminal/input",
+      "required_scopes": [
+        "terminal.write"
+      ],
+      "risk_class": "local_write",
+      "timeout_seconds": 15
+    },
+    {
+      "capability_id": "terminal.read",
+      "idempotency_required": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "terminal_id": {
+            "pattern": "^term_[a-f0-9]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "terminal_id"
+        ],
+        "type": "object"
+      },
+      "method": "GET",
+      "mutation": false,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "maxLength": 262144,
+            "type": "string"
+          },
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trimmed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "offset"
+        ],
+        "type": "object"
+      },
+      "path": "/terminal/read",
+      "required_scopes": [
+        "terminal.read"
+      ],
+      "risk_class": "read",
+      "timeout_seconds": 15
+    },
+    {
+      "capability_id": "terminal.close",
+      "idempotency_required": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "terminal_id": {
+            "pattern": "^term_[a-f0-9]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "terminal_id"
+        ],
+        "type": "object"
+      },
+      "method": "POST",
+      "mutation": true,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "path": "/terminal/close",
+      "required_scopes": [
+        "terminal.write"
+      ],
+      "risk_class": "local_write",
+      "timeout_seconds": 15
+    },
+    {
+      "capability_id": "artifact.export",
+      "idempotency_required": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_name": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$",
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 1024,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "artifact_name",
+          "paths"
+        ],
+        "type": "object"
+      },
+      "method": "POST",
+      "mutation": true,
+      "output_schema": {
+        "$ref": "staged-artifact.schema.json"
+      },
+      "path": "/artifact/export",
+      "required_scopes": [
+        "artifact.write"
+      ],
+      "risk_class": "local_write",
+      "timeout_seconds": 120
+    },
+    {
+      "capability_id": "artifact.cleanup",
+      "idempotency_required": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "pattern": "^art_[a-f0-9]{32}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id"
+        ],
+        "type": "object"
+      },
+      "method": "POST",
+      "mutation": true,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "path": "/artifact/cleanup",
+      "required_scopes": [
+        "artifact.write"
+      ],
+      "risk_class": "local_write",
+      "timeout_seconds": 15
+    }
+  ],
+  "protocol_version": "0.1.0-m0",
+  "source_digest": "sha256:0d66b7a51ce1e6b8c23912e0d583e6fec608057d34c51aa4d1da8e81c66eef44"
+}

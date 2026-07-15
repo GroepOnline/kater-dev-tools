@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS control_capabilities (
     rollback_version TEXT,
     network_targets TEXT NOT NULL,
     tags TEXT NOT NULL,
+    method TEXT,
+    path TEXT,
+    timeout_seconds REAL,
+    mutation INTEGER NOT NULL DEFAULT 0,
+    idempotency_required INTEGER NOT NULL DEFAULT 0,
     updated_at REAL NOT NULL,
     PRIMARY KEY (capability_id, version)
 );
@@ -64,6 +69,18 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=10.0)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    for column, definition in (
+        ("method", "TEXT"),
+        ("path", "TEXT"),
+        ("timeout_seconds", "REAL"),
+        ("mutation", "INTEGER NOT NULL DEFAULT 0"),
+        ("idempotency_required", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        try:
+            conn.execute(f"ALTER TABLE control_capabilities ADD COLUMN {column} {definition}")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc):
+                raise
     return conn
 
 
@@ -135,9 +152,7 @@ def _row_to_manifest(row: sqlite3.Row) -> CapabilityManifest:
     try:
         lifecycle_state = LifecycleState(row["lifecycle_state"])
     except ValueError as exc:
-        raise ValueError(
-            f"invalid lifecycle_state in store: {row['lifecycle_state']!r}"
-        ) from exc
+        raise ValueError(f"invalid lifecycle_state in store: {row['lifecycle_state']!r}") from exc
     return CapabilityManifest(
         capability_id=row["capability_id"],
         package_id=row["package_id"],
@@ -157,6 +172,11 @@ def _row_to_manifest(row: sqlite3.Row) -> CapabilityManifest:
         rollback_version=row["rollback_version"],
         network_targets=_parse_str_tuple(row["network_targets"]),
         tags=_parse_str_set(row["tags"]),
+        method=row["method"],
+        path=row["path"],
+        timeout_seconds=row["timeout_seconds"],
+        mutation=bool(row["mutation"]),
+        idempotency_required=bool(row["idempotency_required"]),
     )
 
 
@@ -169,8 +189,9 @@ def upsert_capability(manifest: CapabilityManifest) -> None:
                (capability_id, version, package_id, publisher_id, digest, transport,
                 description, input_schema, output_schema, required_scopes, risk_class,
                 data_classification, profiles, healthcheck_capability_id,
-                lifecycle_state, rollback_version, network_targets, tags, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                lifecycle_state, rollback_version, network_targets, tags,
+                method, path, timeout_seconds, mutation, idempotency_required, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(capability_id, version) DO UPDATE SET
                  package_id = excluded.package_id,
                  publisher_id = excluded.publisher_id,
@@ -184,10 +205,12 @@ def upsert_capability(manifest: CapabilityManifest) -> None:
                  data_classification = excluded.data_classification,
                  profiles = excluded.profiles,
                  healthcheck_capability_id = excluded.healthcheck_capability_id,
-                 lifecycle_state = excluded.lifecycle_state,
+                 lifecycle_state = control_capabilities.lifecycle_state,
                  rollback_version = excluded.rollback_version,
                  network_targets = excluded.network_targets,
-                 tags = excluded.tags,
+                 tags = excluded.tags, method = excluded.method, path = excluded.path,
+                 timeout_seconds = excluded.timeout_seconds, mutation = excluded.mutation,
+                 idempotency_required = excluded.idempotency_required,
                  updated_at = excluded.updated_at""",
             (
                 manifest.capability_id,
@@ -208,6 +231,11 @@ def upsert_capability(manifest: CapabilityManifest) -> None:
                 manifest.rollback_version,
                 _json_list(manifest.network_targets),
                 _json_list(manifest.tags),
+                manifest.method,
+                manifest.path,
+                manifest.timeout_seconds,
+                int(manifest.mutation),
+                int(manifest.idempotency_required),
                 now,
             ),
         )
@@ -227,9 +255,7 @@ def list_capabilities(*, include_non_active: bool = False) -> list[CapabilityMan
     return manifests
 
 
-def get_capability(
-    capability_id: str, version: str | None = None
-) -> CapabilityManifest | None:
+def get_capability(capability_id: str, version: str | None = None) -> CapabilityManifest | None:
     """Fetch one capability; without version, prefer active then highest semver."""
     with _lock, _connect() as db:
         if version is not None:
@@ -247,9 +273,7 @@ def get_capability(
         return None
     candidates = [_row_to_manifest(row) for row in rows]
     best_pref = min(_lifecycle_preference(m.lifecycle_state) for m in candidates)
-    band = [
-        m for m in candidates if _lifecycle_preference(m.lifecycle_state) == best_pref
-    ]
+    band = [m for m in candidates if _lifecycle_preference(m.lifecycle_state) == best_pref]
     band.sort(key=lambda m: _version_key(m.version), reverse=True)
     return band[0]
 
@@ -261,6 +285,7 @@ def set_capability_lifecycle(
     if not isinstance(state, LifecycleState):
         raise ValueError("state must be a LifecycleState")
     with _lock, _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
         cursor = db.execute(
             """UPDATE control_capabilities
                SET lifecycle_state = ?, updated_at = ?
@@ -305,9 +330,7 @@ def capability_overview() -> dict[str, Any]:
                GROUP BY lifecycle_state
                ORDER BY lifecycle_state"""
         ).fetchall()
-        total_row = db.execute(
-            "SELECT COUNT(*) AS c FROM control_capabilities"
-        ).fetchone()
+        total_row = db.execute("SELECT COUNT(*) AS c FROM control_capabilities").fetchone()
     by_lifecycle = {row["lifecycle_state"]: int(row["c"]) for row in rows}
     return {
         "total": int(total_row["c"] if total_row else 0),

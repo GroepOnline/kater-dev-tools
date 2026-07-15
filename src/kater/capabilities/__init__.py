@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from kater.capabilities.builtins import BUILTIN_CAPABILITIES, iter_builtins
+from kater.capabilities.computer import (
+    computer_tool_source,
+    load_computer_manifests,
+    load_computer_manifests_from_udo,
+)
 from kater.capabilities.discovery import CapabilityDenied, assert_invocable, discover
 from kater.capabilities.models import (
     CapabilityManifest,
@@ -30,9 +35,12 @@ __all__ = [
     "RiskClass",
     "approval_expected_for",
     "assert_invocable",
+    "computer_tool_source",
     "discover",
     "get_default_registry",
     "iter_builtins",
+    "load_computer_manifests",
+    "load_computer_manifests_from_udo",
     "reset_default_registry",
     "risk_rank",
 ]

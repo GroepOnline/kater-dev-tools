@@ -4,7 +4,7 @@ Status: operational (Spoor A)
 Plan: [Notion](https://app.notion.com/p/39decd7f1c1a8182aaa1d29b36446c1d) · Linear CHE-649 / CHE-659 / CHE-664
 
 This OSS repo is the **gateway**. Utrecht-specific profiles, native tools and
-MCP backends live in the private overlay `OnlineChefGroep/utrecht-katermcp`
+MCP backends live in a private operator overlay
 and load through `KATER_EXTENSIONS_MODULE`. Do not put UDO business logic here.
 
 ## Goal
@@ -116,7 +116,7 @@ register stable IDs such as `udo.search.hybrid` via extension `CAPABILITIES`
 
 ## Safety boundaries
 
-- Public edge (`data.chefgroep.nl`) stays REST-first snapshot-only — never full DuckDB/embeddings/raw
+- Public edge stays REST-first snapshot-only — never full DuckDB/embeddings/raw
 - Plane A (product index) ≠ Plane C (ops jobs/locks/cancel)
 - No long-lived secrets in harness logs or Computer env
 - `KATER_PUBLIC=1` requires auth, admin key, CORS and rate limits (`kater doctor`)

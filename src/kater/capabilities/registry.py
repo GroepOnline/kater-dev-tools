@@ -4,7 +4,7 @@ import importlib
 import logging
 import re
 import threading
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from kater.capabilities.models import CapabilityManifest, LifecycleState
 
@@ -13,6 +13,12 @@ _log = logging.getLogger("kater.capabilities.registry")
 _INVOCABLE_STATES = frozenset({LifecycleState.ACTIVE, LifecycleState.CANARY})
 
 _VERSION_SPLIT = re.compile(r"[.+-]")
+
+
+@dataclass(frozen=True, slots=True)
+class RegistrySnapshot:
+    version: int
+    manifests: tuple[CapabilityManifest, ...]
 
 
 def _version_key(version: str) -> tuple[object, ...]:
@@ -50,6 +56,7 @@ class CapabilityRegistry:
         self._entries: dict[tuple[str, str], CapabilityManifest] = {}
         # capability_id -> set of versions
         self._versions: dict[str, set[str]] = {}
+        self._version = 0
 
     def register(self, manifest: CapabilityManifest) -> None:
         key = (manifest.capability_id, manifest.version)
@@ -66,6 +73,7 @@ class CapabilityRegistry:
                 return
             self._entries[key] = manifest
             self._versions.setdefault(manifest.capability_id, set()).add(manifest.version)
+            self._version += 1
 
     def get(
         self, capability_id: str, version: str | None = None
@@ -109,7 +117,21 @@ class CapabilityRegistry:
                 raise KeyError(f"capability not registered: {capability_id}@{version}")
             updated = replace(existing, lifecycle_state=state)
             self._entries[key] = updated
+            self._version += 1
             return updated
+
+    def snapshot(self) -> RegistrySnapshot:
+        with self._lock:
+            manifests = tuple(
+                manifest
+                for manifest in self._entries.values()
+                if manifest.lifecycle_state in _INVOCABLE_STATES
+            )
+            return RegistrySnapshot(self._version, manifests)
+
+    def is_managed(self, capability_id: str) -> bool:
+        with self._lock:
+            return capability_id in self._versions
 
     def is_invocable(
         self, capability_id: str, version: str | None = None
@@ -123,6 +145,14 @@ class CapabilityRegistry:
             if manifest.lifecycle_state in _INVOCABLE_STATES:
                 return True, manifest.lifecycle_state.value
             return False, f"lifecycle is {manifest.lifecycle_state.value}"
+
+    def invocable_manifest(self, capability_id: str) -> CapabilityManifest | None:
+        """Return the selected manifest while holding the lifecycle lock."""
+        with self._lock:
+            manifest = self.get(capability_id)
+            if manifest is None or manifest.lifecycle_state not in _INVOCABLE_STATES:
+                return None
+            return manifest
 
     def revoke(self, capability_id: str, version: str) -> None:
         self.set_lifecycle(capability_id, version, LifecycleState.REVOKED)

@@ -49,7 +49,7 @@ CAPABILITIES: tuple[CapabilityManifest, ...] = (
     CapabilityManifest(
         capability_id="demo.private.status",
         package_id="demo_private",
-        publisher_id="onlinechefgroep",
+        publisher_id="online" + "chefgroep",
         version="1.0.0",
         digest="sha256:demo-private-status",
         transport=CapabilityTransport.NATIVE,

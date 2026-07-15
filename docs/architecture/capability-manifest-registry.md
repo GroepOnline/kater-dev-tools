@@ -1,7 +1,7 @@
 # Capability manifest registry (CHE-659)
 
 Status: foundation slice  
-Linear: [CHE-659](https://linear.app/onlinechefgroep/issue/CHE-659/m2-capability-manifest-registry-and-task-scoped-discovery)  
+Linear: CHE-659 (see the project tracker)
 Boundary: Kater capability fabric; not credential/policy authority and not connector runtime
 
 ## What it is

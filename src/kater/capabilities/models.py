@@ -94,6 +94,11 @@ class CapabilityManifest:
     rollback_version: str | None = None
     network_targets: tuple[str, ...] = ()
     tags: frozenset[str] = field(default_factory=frozenset)
+    method: str | None = None
+    path: str | None = None
+    timeout_seconds: float | None = None
+    mutation: bool = False
+    idempotency_required: bool = False
 
     def __post_init__(self) -> None:
         _require_nonempty("capability_id", self.capability_id)
@@ -130,6 +135,14 @@ class CapabilityManifest:
                 raise ValueError("healthcheck_capability_id cannot contain '__'")
         if self.rollback_version is not None and not self.rollback_version.strip():
             raise ValueError("rollback_version must be non-empty when set")
+        if self.method is not None and not self.method.strip():
+            raise ValueError("method must be non-empty when set")
+        if self.path is not None and not self.path.startswith("/"):
+            raise ValueError("path must start with '/'")
+        if self.timeout_seconds is not None and self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        if not isinstance(self.mutation, bool) or not isinstance(self.idempotency_required, bool):
+            raise ValueError("mutation and idempotency_required must be bools")
 
 
 @dataclass(frozen=True, slots=True)

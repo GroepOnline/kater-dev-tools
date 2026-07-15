@@ -28,6 +28,10 @@ ALLOWED_ORG_HANDLE = frozenset(
         "SPLIT_DECISION.md",
         "AUDIT.md",
         "no-org-leak.yml",
+        "src/kater/capabilities/generated/error-envelope.json",
+        "src/kater/capabilities/generated/guest-invocation-result.schema.json",
+        "src/kater/capabilities/generated/guest-invocation.schema.json",
+        "src/kater/capabilities/generated/staged-artifact.schema.json",
     }
 )
 ALLOWED_PROD_DOMAIN = frozenset(
@@ -36,6 +40,10 @@ ALLOWED_PROD_DOMAIN = frozenset(
         "AUDIT.md",
         "no-org-leak.yml",
         "docs/deploy-server.md",
+        "src/kater/capabilities/generated/error-envelope.json",
+        "src/kater/capabilities/generated/guest-invocation-result.schema.json",
+        "src/kater/capabilities/generated/guest-invocation.schema.json",
+        "src/kater/capabilities/generated/staged-artifact.schema.json",
     }
 )
 

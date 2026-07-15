@@ -3155,7 +3155,7 @@ async function loadDeployView() {
   const data = await api('/api/deploy');
   deployFormats = data.formats || [];
   const tabs = document.getElementById('deploy-tabs');
-  tabs.innerHTML = '';
+  tabs.textContent = '';
   for (const f of deployFormats) {
     const btn = document.createElement('button');
     btn.className = 'code-tab interactive';

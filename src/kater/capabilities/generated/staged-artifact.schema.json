@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlinechefgroep.nl/schemas/computer-acceptance/staged-artifact.schema.json",
+  "title": "StagedArtifact",
+  "type": "object",
+  "required": ["artifact_id", "computer_session_id", "workspace_id", "workspace_generation", "kind", "state", "relative_path", "content_sha256", "size_bytes", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": { "type": "string", "pattern": "^art_[a-f0-9]{32}$" },
+    "computer_session_id": { "type": "string", "pattern": "^csess_[a-f0-9]{32}$" },
+    "workspace_id": { "type": "string", "pattern": "^ws_[a-f0-9]{32}$" },
+    "workspace_generation": { "type": "integer", "minimum": 1 },
+    "kind": { "const": "archive" },
+    "state": { "const": "staged" },
+    "relative_path": { "type": "string", "pattern": "^\\.guest-agent/artifacts/[A-Za-z0-9._-]+\\.zip$", "maxLength": 4096 },
+    "content_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "size_bytes": { "type": "integer", "minimum": 1, "maximum": 1073741824 },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

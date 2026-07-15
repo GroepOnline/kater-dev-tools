@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlinechefgroep.nl/schemas/computer-acceptance/guest-invocation.schema.json",
+  "title": "GuestInvocationRequest",
+  "type": "object",
+  "required": ["protocol_version", "request_id", "computer_session_id", "machine_id", "workspace_id", "workspace_generation", "capability_id", "attempt", "deadline_at", "arguments"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "const": "0.1.0-m0" },
+    "request_id": { "type": "string", "pattern": "^req_[a-f0-9]{32}$" },
+    "computer_session_id": { "type": "string", "pattern": "^csess_[a-f0-9]{32}$" },
+    "machine_id": { "type": "string", "pattern": "^mach_[a-f0-9]{32}$" },
+    "workspace_id": { "type": "string", "pattern": "^ws_[a-f0-9]{32}$" },
+    "workspace_generation": { "type": "integer", "minimum": 1 },
+    "capability_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+$" },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 2 },
+    "deadline_at": { "type": "string", "format": "date-time" },
+    "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "arguments": { "type": "object", "maxProperties": 256 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "capability_id": { "enum": ["filesystem.write", "terminal.open", "terminal.input", "terminal.close", "artifact.export", "artifact.cleanup"] } }, "required": ["capability_id"] },
+      "then": { "required": ["idempotency_key"] }
+    }
+  ]
+}

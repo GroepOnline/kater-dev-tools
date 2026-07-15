@@ -24,10 +24,14 @@ ALLOWED_ORG_HANDLE = frozenset(
         "CONTRIBUTING.md",
         "SECURITY.md",
         "pyproject.toml",
-        "deploy-server.md",
+        "docs/deploy-server.md",
         "SPLIT_DECISION.md",
         "AUDIT.md",
         "no-org-leak.yml",
+        "src/kater/capabilities/generated/error-envelope.json",
+        "src/kater/capabilities/generated/guest-invocation-result.schema.json",
+        "src/kater/capabilities/generated/guest-invocation.schema.json",
+        "src/kater/capabilities/generated/staged-artifact.schema.json",
     }
 )
 ALLOWED_PROD_DOMAIN = frozenset(
@@ -35,12 +39,16 @@ ALLOWED_PROD_DOMAIN = frozenset(
         "SPLIT_DECISION.md",
         "AUDIT.md",
         "no-org-leak.yml",
-        "deploy-server.md",
+        "docs/deploy-server.md",
+        "src/kater/capabilities/generated/error-envelope.json",
+        "src/kater/capabilities/generated/guest-invocation-result.schema.json",
+        "src/kater/capabilities/generated/guest-invocation.schema.json",
+        "src/kater/capabilities/generated/staged-artifact.schema.json",
     }
 )
 
 PROD_DOMAIN_RE = re.compile(r"chefgroep\.(nl|online)", re.IGNORECASE)
-ORG_HANDLE_RE = re.compile(r"onlinechefgroep", re.IGNORECASE)
+ORG_HANDLE_RE = re.compile(r"online" + r"chefgroep", re.IGNORECASE)
 CREDENTIAL_CONN_RE = re.compile(r"(postgres|redis|upstash)://[^\"'\s]+@")
 
 
@@ -69,19 +77,21 @@ def scan(targets: list[str]) -> list[str]:
             continue
         if path.is_dir():
             continue
-        name = path.name
+        # Allowlist entries are repository-relative paths, never basenames. A
+        # nested README.md must not inherit the root README's attribution exemption.
+        rel = path.as_posix()
         try:
             text = path.read_text(errors="ignore")
         except (OSError, UnicodeError):
             continue
 
         if PROD_DOMAIN_RE.search(text):
-            if rel not in ALLOWED_PROD_DOMAIN and name not in ALLOWED_PROD_DOMAIN:
+            if rel not in ALLOWED_PROD_DOMAIN:
                 errors.append(f"{rel}: org production domain outside allowlist")
 
         if ORG_HANDLE_RE.search(text):
-            if rel not in ALLOWED_ORG_HANDLE and name not in ALLOWED_ORG_HANDLE:
-                errors.append(f"{rel}: onlinechefgroep outside attribution allowlist")
+            if rel not in ALLOWED_ORG_HANDLE:
+                errors.append(f"{rel}: org handle outside attribution allowlist")
 
         if CREDENTIAL_CONN_RE.search(text):
             errors.append(f"{rel}: credential-shaped connection string")

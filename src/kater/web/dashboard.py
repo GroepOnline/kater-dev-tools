@@ -3157,12 +3157,20 @@ async function loadDeployView() {
   const tabs = document.getElementById('deploy-tabs');
   tabs.textContent = '';
   document.getElementById('deploy-panel').removeAttribute('aria-labelledby');
+  const usedTabIds = new Set();
   for (const f of deployFormats) {
     const btn = document.createElement('button');
     btn.className = 'code-tab interactive';
     btn.dataset.fmt = f.name;
     btn.textContent = f.name;
-    btn.id = 'tab-deploy-' + f.name.replace(/[^a-z0-9]/gi, '-');
+    let tabId = 'tab-deploy-' + f.name.replace(/[^a-z0-9]/gi, '-');
+    if (usedTabIds.has(tabId)) {
+      let suffix = 2;
+      while (usedTabIds.has(tabId + '-' + suffix)) suffix++;
+      tabId += '-' + suffix;
+    }
+    usedTabIds.add(tabId);
+    btn.id = tabId;
     btn.setAttribute('role', 'tab');
     btn.setAttribute('aria-selected', 'false');
     btn.setAttribute('aria-controls', 'deploy-panel');

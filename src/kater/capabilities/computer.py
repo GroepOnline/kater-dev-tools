@@ -46,6 +46,7 @@ _SCHEMA_FILENAMES = (
 
 def _load_schema_registry() -> Registry:
     registry = Registry()
+    schemas: list[tuple[str, dict[str, Any], Resource[Any]]] = []
     for filename in _SCHEMA_FILENAMES:
         try:
             schema = json.loads((_SCHEMA_DIR / filename).read_text(encoding="utf-8"))
@@ -54,12 +55,13 @@ def _load_schema_registry() -> Registry:
         if not isinstance(schema, dict) or not isinstance(schema.get("$id"), str):
             raise ContractDigestError(f"vendored schema {filename} must contain a string $id")
         resource = Resource.from_contents(schema)
+        schemas.append((filename, schema, resource))
+    bases = {schema["$id"].rsplit("/", 1)[0] + "/" for _, schema, _ in schemas}
+    for filename, schema, resource in schemas:
         registry = registry.with_resource(schema["$id"], resource)
         registry = registry.with_resource(filename, resource)
-        registry = registry.with_resource(
-            "https://onlinechefgroep.nl/schemas/computer-acceptance/" + filename,
-            resource,
-        )
+        for base in bases:
+            registry = registry.with_resource(base + filename, resource)
     return registry
 
 

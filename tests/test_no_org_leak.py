@@ -51,3 +51,16 @@ def test_scan_ignores_directories(tmp_path):
     d.mkdir(parents=True)
     (d / "x.py").write_text("chefgroep" + ".nl")
     assert nol.scan([str(d)]) == []
+
+
+def test_scan_allows_only_exact_generated_contract_paths(tmp_path, monkeypatch):
+    allowed = tmp_path / "src/kater/capabilities/generated/error-envelope.json"
+    allowed.parent.mkdir(parents=True)
+    allowed.write_text('{"$id":"https://online' + 'chefgroep' + '.nl/schema"}')
+    lookalike = tmp_path / "vendor/error-envelope.json"
+    lookalike.parent.mkdir(parents=True)
+    lookalike.write_text(allowed.read_text())
+    monkeypatch.chdir(tmp_path)
+
+    assert nol.scan([str(allowed.relative_to(tmp_path))]) == []
+    assert nol.scan([str(lookalike.relative_to(tmp_path))])

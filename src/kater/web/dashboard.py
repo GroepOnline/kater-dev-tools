@@ -1075,7 +1075,7 @@ _VIEW_DEPLOY = r"""
     </div>
     <div class="view-scroll">
       <div class="code-tabs" id="deploy-tabs" role="tablist" aria-label="Deployment formats"></div>
-      <div class="code-preview" role="tabpanel" id="deploy-panel" aria-labelledby="">
+      <div class="code-preview" role="tabpanel" id="deploy-panel">
         <div class="code-desc" id="deploy-desc"></div>
         <div class="code-wrap">
           <button class="code-copy interactive" onclick="copyDeployCode(this)"
@@ -3156,6 +3156,7 @@ async function loadDeployView() {
   deployFormats = data.formats || [];
   const tabs = document.getElementById('deploy-tabs');
   tabs.textContent = '';
+  document.getElementById('deploy-panel').removeAttribute('aria-labelledby');
   for (const f of deployFormats) {
     const btn = document.createElement('button');
     btn.className = 'code-tab interactive';

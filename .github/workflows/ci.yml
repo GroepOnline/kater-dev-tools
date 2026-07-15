@@ -132,7 +132,9 @@ jobs:
         run: uv sync --frozen --dev
 
       - name: Test
-        run: timeout 180s uv run pytest -vv --tb=short -ra
+        run: >-
+          timeout 180s uv run pytest -vv --tb=short -ra
+          --ignore=tests/test_computer_acceptance_e2e.py
 
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──
   integration:
@@ -157,9 +159,57 @@ jobs:
       - name: Integration tests
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_api.py tests/test_oauth.py tests/test_authgate.py tests/test_storage.py tests/test_proxy.py
 
+  # The Computer lane is a cross-repository contract gate. Keep it out of the
+  # Python-version matrix and run it once against the exact UDO contract/runtime
+  # commit that Kater's generated package was synchronized from.
+  computer-acceptance:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Kater
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout pinned UDO runtime
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: ${{ github.repository_owner }}/utrecht-data-os
+          ref: 4fc8217eb90d1a6024030620e35f84369bb5c805
+          path: utrecht-data-os
+          ssh-key: ${{ secrets.UDO_READ_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync Kater dependencies (frozen)
+        run: uv sync --frozen --dev
+
+      - name: Install pinned controller dependencies
+        working-directory: utrecht-data-os/platform/agent-control-plane/apps/session-controller
+        run: npm ci --ignore-scripts
+
+      - name: Run Computer acceptance lane
+        env:
+          COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
+          KATER_UDO_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
+        run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
+
+      - name: Publish schema-validated acceptance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: computer-acceptance-evidence
+          path: ${{ runner.temp }}/computer-acceptance-evidence.json
+          if-no-files-found: error
+
   # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
   e2e:
-    needs: [unit, integration]
+    needs: [unit, integration, computer-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

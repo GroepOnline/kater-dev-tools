@@ -123,6 +123,7 @@ class ProxyManager:
         self._aggregator = Aggregator()
         self._router = QuotaAwareRouter()
         self._started = False
+        self._computer_connector: Any | None = None
         settings = load_settings()
         self._failure_threshold = settings.proxy_failure_threshold
         self._recovery_timeout = settings.proxy_recovery_timeout
@@ -158,6 +159,10 @@ class ProxyManager:
                 failure_threshold=self._failure_threshold,
                 recovery_timeout=self._recovery_timeout,
             )
+
+    def register_computer_connector(self, connector: Any) -> None:
+        """Attach the schema-driven Computer connector to this proxy instance."""
+        self._computer_connector = connector
 
     def _start_backends(self, profile: str) -> None:
         profile_names = parse_profiles(profile)
@@ -269,13 +274,25 @@ class ProxyManager:
         return compatible
 
     def list_tools(self) -> list[dict[str, Any]]:
+        from kater.capabilities.discovery import CapabilityDenied, assert_invocable
+
         tools = self._aggregator.for_mcp()
+        if self._computer_connector is not None:
+            tools = self._computer_connector.list_tools() + tools
         seen = {item["name"] for item in tools}
         grouped: dict[str, list[RouteBinding]] = {}
         for binding in list_route_candidates():
             grouped.setdefault(binding.capability, []).append(binding)
         for capability, bindings in grouped.items():
-            if capability in seen:
+            if capability in seen or (
+                self._computer_connector is not None
+                and self._computer_connector.is_reserved(capability)
+            ):
+                continue
+            try:
+                assert_invocable(capability)
+            except CapabilityDenied:
+                # Managed + non-invocable capabilities stay hidden from discovery.
                 continue
             compatible = self._compatible_route_bindings(bindings)
             if not compatible:
@@ -330,6 +347,20 @@ class ProxyManager:
         return tools
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        from kater.capabilities.discovery import CapabilityDenied, assert_invocable
+
+        if self._computer_connector is not None and self._computer_connector.is_reserved(name):
+            return self._computer_connector.call(name, arguments)
+        # Re-check registry on every invoke: discovery is not authority (CHE-659).
+        try:
+            assert_invocable(name)
+        except CapabilityDenied as exc:
+            return {
+                "error": str(exc),
+                "code": "capability_denied",
+                "capability_id": exc.capability_id,
+                "reason": exc.reason,
+            }
         route = self._aggregator.resolve(name)
         if route is not None:
             result, _ = self._call_backend(route[0], route[1], arguments)

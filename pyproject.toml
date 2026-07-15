@@ -18,6 +18,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
+    "jsonschema>=4.26",
     "mcp>=1.28.1",
     "pydantic>=2.7",
     "typer>=0.26.8",
@@ -32,6 +33,7 @@ Security = "https://github.com/OnlineChefGroep/kater-dev-tools/security/policy"
 [project.scripts]
 kater = "kater.cli:app"
 kater-routes = "kater.control_plane.cli:app"
+kater-capabilities = "kater.capabilities.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12"]

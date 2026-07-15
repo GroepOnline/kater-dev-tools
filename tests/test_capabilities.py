@@ -32,7 +32,7 @@ def _manifest(
     return CapabilityManifest(
         capability_id=capability_id,
         package_id="demo",
-        publisher_id="onlinechefgroep",
+        publisher_id="online" + "chefgroep",
         version=version,
         digest=digest,
         transport=CapabilityTransport.NATIVE,

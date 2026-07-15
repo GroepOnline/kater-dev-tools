@@ -195,8 +195,16 @@ jobs:
 
       - name: Run Computer acceptance lane
         env:
+          COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
           KATER_UDO_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
+
+      - name: Publish schema-validated acceptance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: computer-acceptance-evidence
+          path: ${{ runner.temp }}/computer-acceptance-evidence.json
+          if-no-files-found: error
 
   # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
   e2e:

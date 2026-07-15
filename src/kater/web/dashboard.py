@@ -1074,8 +1074,8 @@ _VIEW_DEPLOY = r"""
       <span class="view-title">Deployment configs</span>
     </div>
     <div class="view-scroll">
-      <div class="code-tabs" id="deploy-tabs"></div>
-      <div class="code-preview">
+      <div class="code-tabs" id="deploy-tabs" role="tablist" aria-label="Deployment formats"></div>
+      <div class="code-preview" role="tabpanel" id="deploy-panel" aria-labelledby="">
         <div class="code-desc" id="deploy-desc"></div>
         <div class="code-wrap">
           <button class="code-copy interactive" onclick="copyDeployCode(this)"
@@ -3161,6 +3161,10 @@ async function loadDeployView() {
     btn.className = 'code-tab interactive';
     btn.dataset.fmt = f.name;
     btn.textContent = f.name;
+    btn.id = 'tab-deploy-' + f.name.replace(/[^a-z0-9]/gi, '-');
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', 'false');
+    btn.setAttribute('aria-controls', 'deploy-panel');
     tabs.appendChild(btn);
   }
   if (deployFormats[0]) await selectDeployFormat(deployFormats[0].name);
@@ -3168,7 +3172,12 @@ async function loadDeployView() {
 
 async function selectDeployFormat(fmt) {
   document.querySelectorAll('.code-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.fmt === fmt);
+    const active = t.dataset.fmt === fmt;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', active ? 'true' : 'false');
+    if (active) {
+      document.getElementById('deploy-panel').setAttribute('aria-labelledby', t.id);
+    }
   });
   const code = document.getElementById('deploy-code');
   const desc = document.getElementById('deploy-desc');

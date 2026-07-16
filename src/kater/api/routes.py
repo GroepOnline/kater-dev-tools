@@ -290,7 +290,7 @@ def _authorize(req: Request) -> Response:
         ),
     )
     response.headers["Set-Cookie"] = (
-        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; HttpOnly; SameSite=Lax; Max-Age=600"
+        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; HttpOnly; SameSite=Lax; Max-Age={_CONSENT_TTL_SECONDS}"
     )
     return response
 
@@ -467,7 +467,7 @@ def _deploy_render(req: Request) -> Response:
     if fmt not in known:
         return Response.json(
             404,
-            {"error": (f"Unknown format '{fmt}'. Available: {', '.join(sorted(known))}")},
+            {"error": f"Unknown format '{fmt}'. Available: {', '.join(sorted(known))}"},
         )
     return Response.json(200, render_deploy(fmt, profile=profile))
 

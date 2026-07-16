@@ -290,7 +290,8 @@ def _authorize(req: Request) -> Response:
         ),
     )
     response.headers["Set-Cookie"] = (
-        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; HttpOnly; SameSite=Lax; Max-Age={_CONSENT_TTL_SECONDS}"
+        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; HttpOnly; SameSite=Lax; "
+        f"Max-Age={_CONSENT_TTL_SECONDS}"
     )
     return response
 

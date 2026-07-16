@@ -2150,7 +2150,7 @@ function openCredentialsModal(server) {
         ? 'set — leave blank to keep current'
         : 'paste value';
       input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') saveCredentials(document.getElementById('cred-save'));
+        if (e.key === 'Enter') saveCredentials();
       });
       wrap.appendChild(label);
       wrap.appendChild(input);
@@ -2222,17 +2222,12 @@ async function detailToggle(enable, btn) {
     toast(enableHint(name, enable), enable ? 'success' : '');
   } catch (e) {
     toast(name + ': ' + (e.message || 'failed'), 'error');
-    // Re-enable on failure so the operator can retry; openDetail won't run.
-    if (btn) btn.disabled = false;
-    return;
-  } finally {
-    // Always clear the busy text/attribute. On success the button stays
-    // disabled through the reload below; openDetail() then sets the final
-    // enabled/disabled state, so we don't reopen a double-submit window.
     if (btn) {
+      btn.disabled = false;
       btn.textContent = originalText;
       btn.removeAttribute('aria-busy');
     }
+    return;
   }
   // Reload, then re-resolve selectedNode from the FRESH server list so we
   // don't keep rendering a stale, optimistically-mutated object.

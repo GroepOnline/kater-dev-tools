@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -41,7 +41,9 @@ def _invoke(
         "arguments": {
             **ids,
             "arguments": arguments,
-            "deadline_at": "2026-07-15T23:59:00Z",
+            "deadline_at": (datetime.now(UTC) + timedelta(minutes=15))
+            .isoformat()
+            .replace("+00:00", "Z"),
             "idempotency_key": "idem_"
             + hashlib.sha256(
                 json.dumps([capability_id, arguments], sort_keys=True).encode()

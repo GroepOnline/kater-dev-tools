@@ -107,7 +107,7 @@ def test_canonical_invocation_request_and_denial_envelope() -> None:
         workspace_generation=1,
         arguments={"path": "README.md"},
         request_id="req_" + "d" * 32,
-        deadline_at="2026-07-15T03:00:00Z",
+        deadline_at="2027-07-15T03:00:00Z",
         idempotency_key="idem_" + "e" * 32,
     )
     result = make_invocation_result(request, status="denied", error_code="capability_denied")

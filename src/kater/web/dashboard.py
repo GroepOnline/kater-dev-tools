@@ -1122,7 +1122,7 @@ _VIEW_SETTINGS = r"""
             <option value="jsonl">jsonl</option>
           </select>
         </div>
-        <button class="btn-save interactive" onclick="saveSettings()">Save settings</button>
+        <button class="btn-save interactive" onclick="saveSettings(this)">Save settings</button>
       </div>
     </div>
   </div>
@@ -1205,9 +1205,9 @@ _HTML_SHELL_BOTTOM = r"""
       onclick="connectSelected()" style="width:100%">Connect&hellip;</button>
   </div>
   <div class="detail-actions">
-    <button class="btn-action primary interactive" id="btn-enable" onclick="detailToggle(true)">Enable</button>
+    <button class="btn-action primary interactive" id="btn-enable" onclick="detailToggle(true, this)">Enable</button>
     <button class="btn-action danger interactive" id="btn-disable"
-      onclick="detailToggle(false)">Disable</button>
+      onclick="detailToggle(false, this)">Disable</button>
   </div>
 </div>
 
@@ -1226,7 +1226,7 @@ _HTML_SHELL_BOTTOM = r"""
       <a class="btn-action" id="cred-provider" href="#" target="_blank"
         rel="noopener" style="display:none">Get a token &#8599;</a>
       <button class="btn-action primary interactive" id="cred-save" type="button"
-        onclick="saveCredentials()">Save &amp; connect</button>
+        onclick="saveCredentials(this)">Save &amp; connect</button>
     </div>
   </div>
 </div>
@@ -2170,8 +2170,9 @@ function closeCredentialsModal() {
   credServer = null;
 }
 
-async function saveCredentials() {
+async function saveCredentials(btn) {
   if (!credServer) return;
+  const originalText = btn ? btn.textContent : 'Save & connect';
   const inputs = document.querySelectorAll('#cred-fields input[data-env]');
   const env = {};
   let any = false;
@@ -2180,6 +2181,11 @@ async function saveCredentials() {
     if (val) { env[i.dataset.env] = val; any = true; }
   });
   if (!any) { toast('Enter at least one value to save.', 'error'); return; }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    btn.setAttribute('aria-busy', 'true');
+  }
   const name = credServer.name;
   try {
     const data = await apiPost(
@@ -2192,18 +2198,35 @@ async function saveCredentials() {
     if (selectedNode && selectedNode.name === name) openServerDetail(name);
   } catch (e) {
     toast('Could not save credentials: ' + (e.message || 'failed'), 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      btn.removeAttribute('aria-busy');
+    }
   }
 }
 
-async function detailToggle(enable) {
+async function detailToggle(enable, btn) {
   if (!selectedNode) return;
   const name = selectedNode.name;
   const action = enable ? 'enable' : 'disable';
+  const originalText = btn ? btn.textContent : (enable ? 'Enable' : 'Disable');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = (enable ? 'Enabling...' : 'Disabling...');
+    btn.setAttribute('aria-busy', 'true');
+  }
   try {
     await apiPost('/api/mcp/servers/' + encodeURIComponent(name) + '/' + action, {});
     toast(enableHint(name, enable), enable ? 'success' : '');
   } catch (e) {
     toast(name + ': ' + (e.message || 'failed'), 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      btn.removeAttribute('aria-busy');
+    }
     return;
   }
   // Reload, then re-resolve selectedNode from the FRESH server list so we
@@ -3315,7 +3338,10 @@ async function onMergeClick(e) {
   const btn = e.currentTarget;
   const number = parseInt(btn.dataset.pr);
   const head = btn.dataset.head || '';
+  const originalText = btn.textContent;
   btn.disabled = true;
+  btn.textContent = 'Merging...';
+  btn.setAttribute('aria-busy', 'true');
   try {
     await apiPost('/api/pr/' + number + '/merge', { expected_head_sha: head, actor: 'dashboard' });
     toast('merged #' + number, 'success');
@@ -3324,11 +3350,19 @@ async function onMergeClick(e) {
     const detail = (err.data && err.data.error) ? err.data.error : (err.message || 'failed');
     toast('merge blocked: ' + detail, 'error');
     btn.disabled = false;
+    btn.textContent = originalText;
+    btn.removeAttribute('aria-busy');
   }
 }
 
 
-async function saveSettings() {
+async function saveSettings(btn) {
+  const originalText = btn ? btn.textContent : 'Save settings';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    btn.setAttribute('aria-busy', 'true');
+  }
   const body = {
     auth: { mode: document.getElementById('set-auth-mode').value },
     cors_origins: document.getElementById('set-cors').value
@@ -3342,6 +3376,12 @@ async function saveSettings() {
     toast('settings saved', 'success');
   } catch (e) {
     toast('failed to save settings: ' + (e.message || ''), 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      btn.removeAttribute('aria-busy');
+    }
   }
 }
 

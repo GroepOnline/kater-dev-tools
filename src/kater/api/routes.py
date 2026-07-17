@@ -53,6 +53,7 @@ _CONSENT_TTL_SECONDS = 600
 _consent_nonces: dict[str, float] = {}
 _consent_lock = threading.Lock()
 
+
 def _env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -72,7 +73,7 @@ def _cookie_value(req: Request, name: str) -> str:
     for part in cookie.split(";"):
         part = part.strip()
         if part.startswith(prefix):
-            return part[len(prefix):]
+            return part[len(prefix) :]
     return ""
 
 
@@ -166,6 +167,7 @@ def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
         broadcast_event({"type": event_type, **data, "ts": time.time()})
     except ImportError:
         pass
+
 
 # ── Public endpoints (no auth) ─────────────────────────────────────
 
@@ -288,8 +290,8 @@ def _authorize(req: Request) -> Response:
         ),
     )
     response.headers["Set-Cookie"] = (
-        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; "
-        "HttpOnly; SameSite=Lax; Max-Age=600"
+        f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; HttpOnly; SameSite=Lax; "
+        f"Max-Age={_CONSENT_TTL_SECONDS}"
     )
     return response
 
@@ -466,12 +468,7 @@ def _deploy_render(req: Request) -> Response:
     if fmt not in known:
         return Response.json(
             404,
-            {
-                "error": (
-                    f"Unknown format '{fmt}'. "
-                    f"Available: {', '.join(sorted(known))}"
-                )
-            },
+            {"error": f"Unknown format '{fmt}'. Available: {', '.join(sorted(known))}"},
         )
     return Response.json(200, render_deploy(fmt, profile=profile))
 
@@ -933,10 +930,6 @@ def _update_settings(req: Request) -> Response:
         auth_patch = body["auth"]
         if not isinstance(auth_patch, dict):
             return Response.json(400, {"error": "auth must be an object"})
-        # Merge instead of rebuild: only fields the client actually sent are
-        # overwritten. A partial patch (e.g. just {"mode"}) can no longer wipe
-        # api_keys / OAuth config — fixing a silent data-loss bug where every
-        # Save from the dashboard reset the whole AuthConfig.
         current = settings.auth.model_dump()
         current.update({k: v for k, v in auth_patch.items() if k in current})
         settings.auth = type(settings.auth).model_validate(current)
@@ -978,5 +971,3 @@ def _update_settings(req: Request) -> Response:
             )
     save_settings(settings)
     return Response.json(200, settings.to_safe_dict())
-
-

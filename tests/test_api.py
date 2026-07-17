@@ -126,11 +126,45 @@ def test_get_settings(api_server) -> None:
     assert data["auth"]["mode"] == "none"
 
 
+def test_update_settings_auth_partial_patch(api_server) -> None:
+    # First set full auth config
+    _post(
+        9912,
+        "/api/settings",
+        {"auth": {"mode": "apikey", "api_keys": ["secret1"], "oauth_issuer": "https://issuer.com"}},
+    )
+
+    # Then apply partial patch (e.g., just changing mode).
+    # Since we set mode=apikey, we need to authenticate with the key!
+    data = _post(
+        9912,
+        "/api/settings",
+        {"auth": {"mode": "oauth"}},
+        headers={"Authorization": "Bearer secret1"},
+    )
+
+    # Verify that unspecified fields are not wiped
+    assert data["auth"]["mode"] == "oauth"
+
+    # Because api_keys is redacted from the API response (replaced with length),
+    # we load raw settings to verify it exactly
+    from kater.settings import load_settings
+
+    settings = load_settings()
+    assert settings.auth.mode == "oauth"
+    assert settings.auth.api_keys == ["secret1"]
+    assert settings.auth.oauth_issuer == "https://issuer.com"
+
+
 def test_update_settings(api_server) -> None:
-    data = _post(9912, "/api/settings", {
-        "cors_origins": ["https://example.com"],
-        "rate_limit_per_min": 100,
-    })
+    data = _post(
+        9912,
+        "/api/settings",
+        {
+            "cors_origins": ["https://example.com"],
+            "rate_limit_per_min": 100,
+        },
+    )
     assert data["cors_origins"] == ["https://example.com"]
     assert data["rate_limit_per_min"] == 100
 
@@ -313,15 +347,9 @@ def test_openapi_spec_has_no_api_drift() -> None:
     from kater.openapi_spec import generate_spec
 
     router_api = {
-        _normalize_path(r.pattern)
-        for r in ROUTER._routes
-        if r.pattern.startswith("/api/")
+        _normalize_path(r.pattern) for r in ROUTER._routes if r.pattern.startswith("/api/")
     }
-    spec_api = {
-        _normalize_path(p)
-        for p in generate_spec()["paths"]
-        if p.startswith("/api/")
-    }
+    spec_api = {_normalize_path(p) for p in generate_spec()["paths"] if p.startswith("/api/")}
     assert router_api == spec_api, {
         "documented_but_missing": spec_api - router_api,
         "undocumented_routes": router_api - spec_api,

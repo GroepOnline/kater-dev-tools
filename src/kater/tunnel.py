@@ -43,7 +43,16 @@ def _tunnel_unit() -> str | None:
     return os.environ.get("KATER_TUNNEL_UNIT", DEFAULT_TUNNEL_UNIT) or None
 
 
+ALLOWED_SYSTEMCTL_CMDS = {"cat", "is-active", "start", "stop"}
+
+
 def _systemctl(*args: str) -> subprocess.CompletedProcess[str] | None:
+    if not args or args[0] not in ALLOWED_SYSTEMCTL_CMDS:
+        raise ValueError(f"systemctl command '{args[0] if args else ''}' not allowed")
+    for arg in args[1:]:
+        if arg.startswith("-"):
+            raise ValueError(f"systemctl option injection detected: {arg}")
+
     if not shutil.which("systemctl"):
         return None
     try:
@@ -94,6 +103,7 @@ def tailscale_status() -> dict[str, Any]:
         )
         if result.returncode == 0:
             import json
+
             data = json.loads(result.stdout)
             return {
                 "installed": True,
@@ -127,9 +137,7 @@ def cloudflared_status(tunnel_name: str = "kater") -> dict[str, Any]:
     unit = _managed_unit()
     # A managed unit is the source of truth: report its state, not a stray pid.
     running = _unit_active(unit) if unit else _is_cloudflared_running()
-    config_path = os.path.expanduser(
-        f"~/.cloudflared/{tunnel_name}.yml"
-    )
+    config_path = os.path.expanduser(f"~/.cloudflared/{tunnel_name}.yml")
     has_config = os.path.exists(config_path)
     return {
         "installed": True,
@@ -218,9 +226,7 @@ def start_cloudflared(
         config_path = os.path.expanduser(f"~/.cloudflared/{tunnel_name}.yml")
 
     if not os.path.exists(config_path):
-        config_content = generate_cloudflare_config(
-            tunnel_name=tunnel_name, domain=resolved_domain
-        )
+        config_content = generate_cloudflare_config(tunnel_name=tunnel_name, domain=resolved_domain)
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         with open(config_path, "w") as f:
             f.write(config_content)
@@ -228,8 +234,12 @@ def start_cloudflared(
     try:
         proc = subprocess.Popen(
             [
-                "cloudflared", "tunnel", "--config",
-                config_path, "run", tunnel_name,
+                "cloudflared",
+                "tunnel",
+                "--config",
+                config_path,
+                "run",
+                tunnel_name,
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

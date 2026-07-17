@@ -1,12 +1,29 @@
 from __future__ import annotations
 
+import pytest
+
 from kater.tunnel import (
+    _systemctl,
     detect_cloudflared,
     detect_tailscale,
     generate_cloudflare_config,
     generate_tailscale_funnel_cmd,
     tunnel_overview,
 )
+
+
+def test_systemctl_validation():
+    with pytest.raises(ValueError, match="systemctl command '' not allowed"):
+        _systemctl()
+
+    with pytest.raises(ValueError, match="systemctl command 'status' not allowed"):
+        _systemctl("status", "my-unit.service")
+
+    with pytest.raises(ValueError, match="systemctl option injection detected: --help"):
+        _systemctl("start", "--help")
+
+    with pytest.raises(ValueError, match="systemctl option injection detected: -f"):
+        _systemctl("stop", "my-unit.service", "-f")
 
 
 def test_detect_cloudflared():

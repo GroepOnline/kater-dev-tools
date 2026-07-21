@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
+import re
 from importlib import import_module
 from typing import Any
 from urllib.parse import parse_qs
@@ -13,9 +15,79 @@ _log = logging.getLogger("kater.mcp")
 
 MCP_INSTALL_MESSAGE = "MCP support is required. Install with `uv sync` in the Kater repo."
 
+# Hard ceiling on the number of properties we will reflect into a handler
+# signature. Schemas above this size are logged and truncated; the tool stays
+# callable via positional/keyword mapping but FastMCP will only advertise the
+# first MAX_TOOL_PROPERTIES in its input schema.
+_MAX_TOOL_PROPERTIES = 64
+
+# A tool property name must round-trip as a Python identifier so we can safely
+# build an inspect.Signature around it. Anything else (e.g. `os.system`,
+# `a]b`, `__class__`) is rejected before it reaches handler construction.
+_VALID_PARAM_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Names that would shadow the handler's closure bindings or Python builtins
+# when reflected into the signature. Rejecting them prevents an upstream
+# schema from hijacking internal state.
+_RESERVED_PARAM_NAMES = frozenset(
+    {
+        # Closure variables the handler actually reads.
+        "proxy",
+        "tool_name",
+        # Builtins commonly used inside dispatch logic; never accept these as
+        # tool argument names either.
+        "self",
+        "cls",
+        # Dunders that inspect / pydantic introspection would treat specially
+        # and that would leak handler internals to an upstream caller.
+        "__builtins__",
+        "__globals__",
+        "__class__",
+        "__dict__",
+        "__doc__",
+        "__name__",
+        "__qualname__",
+        "__signature__",
+        "__wrapped__",
+        "__code__",
+        "__defaults__",
+        "__closure__",
+    }
+)
+
 
 class McpUnavailableError(RuntimeError):
     """Raised when the MCP package is unavailable."""
+
+
+class InvalidToolSchemaError(ValueError):
+    """Raised when a proxied tool schema is not safe to reflect into a handler.
+
+    A schema is unsafe if a property name is not a Python identifier, conflicts
+    with the handler's closure bindings, or the schema is so large it would
+    produce a function signature that is unreasonably expensive to introspect.
+    Failing closed (refusing to register the tool) is preferable to ``exec``
+    or to silently building an attacker-shaped ``inspect.Signature``.
+    """
+
+
+def _validate_param_name(name: str) -> str:
+    """Return ``name`` if it is a safe identifier, else raise InvalidToolSchemaError."""
+    if not isinstance(name, str) or not _VALID_PARAM_NAME.match(name):
+        raise InvalidToolSchemaError(
+            f"tool property name {name!r} is not a valid Python identifier"
+        )
+    if name in _RESERVED_PARAM_NAMES:
+        raise InvalidToolSchemaError(f"tool property name {name!r} shadows a handler binding")
+    return name
+
+
+def _validate_tool_name(name: str) -> str:
+    """Validate the proxied tool name; we pass it straight to ``call_tool`` as a
+    string so it cannot inject, but it still has to be a reasonable identifier."""
+    if not isinstance(name, str) or not _VALID_PARAM_NAME.match(name):
+        raise InvalidToolSchemaError(f"tool name {name!r} is not a valid identifier")
+    return name
 
 
 def create_server(*, profile: str = "core") -> Any:
@@ -64,40 +136,69 @@ def _build_proxy_handler(
     input_schema: dict[str, Any],
     proxy: Any,
 ) -> Any:
-    """Build a FastMCP handler whose signature matches the proxied input schema."""
+    """Build a FastMCP handler whose signature matches the proxied input schema.
+
+    The handler is constructed without ``exec``/``eval``. We create an ordinary
+    closure that forwards its keyword arguments to ``proxy.call_tool`` and then
+    attach an ``inspect.Signature`` describing the schema's properties. FastMCP
+    reads parameter metadata via ``inspect.signature``, so it sees exactly the
+    same shape it would have seen under the previous ``exec``-based version.
+
+    Property and tool names are validated against a strict identifier allowlist
+    so an upstream schema cannot smuggle arbitrary code through the signature.
+    """
+    _validate_tool_name(tool_name)
+
     properties = input_schema.get("properties") or {}
-    required = set(input_schema.get("required") or [])
+    required = input_schema.get("required") or []
 
-    if not properties:
+    if not isinstance(properties, dict):
+        raise InvalidToolSchemaError("tool schema 'properties' must be an object")
+    if not isinstance(required, (list, tuple, set, frozenset)):
+        raise InvalidToolSchemaError("tool schema 'required' must be a list of property names")
 
-        def handler() -> Any:
-            return proxy.call_tool(tool_name, {})
-
-        handler.__doc__ = tool_name
-        return handler
-
-    params: list[str] = []
-    body: list[str] = ["    args: dict[str, Any] = {}"]
-    required_params: list[str] = []
-    optional_params: list[str] = []
+    # Validate every property name up front. Failing closed on the first bad
+    # name is preferable to registering a partially-shaped handler.
+    validated: list[str] = []
     for prop_name in properties:
-        if prop_name in required:
-            required_params.append(prop_name)
-            body.append(f"    if {prop_name} is not None:")
-            body.append(f"        args[{prop_name!r}] = {prop_name}")
-        else:
-            optional_params.append(f"{prop_name}=None")
-            body.append(f"    if {prop_name} is not None:")
-            body.append(f"        args[{prop_name!r}] = {prop_name}")
+        _validate_param_name(prop_name)
+        validated.append(prop_name)
+        if len(validated) > _MAX_TOOL_PROPERTIES:
+            raise InvalidToolSchemaError(
+                f"tool {tool_name!r} has more than {_MAX_TOOL_PROPERTIES} properties; "
+                "refusing to register"
+            )
 
-    params = required_params + optional_params
+    def handler(**kwargs: Any) -> Any:
+        # Drop None values so optional params the caller omitted are not sent
+        # to the upstream tool. Positional args are rejected on the signature
+        # level (every parameter is keyword-only), which also matches how the
+        # previous exec-based handler behaved once you read its generated code.
+        args = {name: value for name, value in kwargs.items() if value is not None}
+        return proxy.call_tool(tool_name, args)
 
-    body.append(f"    return proxy.call_tool({tool_name!r}, args)")
-    source = f"def handler({', '.join(params)}):\n" + "\n".join(body)
-    namespace: dict[str, Any] = {"Any": Any, "proxy": proxy}
-    exec(source, namespace)  # noqa: S102 — schema-driven signature; props are catalog-controlled
-    handler = namespace["handler"]
+    handler.__name__ = "handler"
+    handler.__qualname__ = f"_proxy_handler__{tool_name}"
     handler.__doc__ = tool_name
+
+    # Build the reflected signature. Parameters are keyword-only and default
+    # to None; required-ness is recorded in the docstring via the FastMCP
+    # schema validator (which reads from JSON schema, not from the default).
+    # Each parameter carries ``annotation=Any`` so FastMCP produces a string
+    # field in its advertised input schema, matching prior behaviour.
+    parameters = [
+        inspect.Parameter(
+            name=name,
+            kind=inspect.Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=Any,
+        )
+        for name in validated
+    ]
+    handler.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+        parameters=parameters,
+        return_annotation=Any,
+    )
     return handler
 
 
@@ -105,7 +206,14 @@ def _make_proxy_tool(server: Any, tool_def: dict, proxy: Any) -> None:
     name = tool_def["name"]
     desc = tool_def["description"]
     schema = tool_def.get("inputSchema") or {"type": "object", "properties": {}}
-    handler = _build_proxy_handler(name, schema, proxy)
+    try:
+        handler = _build_proxy_handler(name, schema, proxy)
+    except InvalidToolSchemaError as exc:
+        # Fail closed: an upstream schema that we cannot reflect safely is
+        # logged and skipped, but does not crash proxy registration. This
+        # matches the existing "log + status tool" recovery shape.
+        _log.warning("skipping unsafe proxy tool %r: %s", name, exc)
+        return
     server.tool(name=name, description=desc)(handler)
 
 

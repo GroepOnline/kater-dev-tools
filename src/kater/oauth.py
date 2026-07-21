@@ -140,8 +140,7 @@ def register_client(
     bad = [u for u in uris if not _is_safe_redirect_uri(u)]
     if bad:
         raise ValueError(
-            "redirect_uris must use https (or http for loopback); rejected: "
-            + ", ".join(bad)
+            "redirect_uris must use https (or http for loopback); rejected: " + ", ".join(bad)
         )
     if token_endpoint_auth_method not in ("none", "client_secret_post"):
         token_endpoint_auth_method = "none"
@@ -300,18 +299,18 @@ def exchange_code(
         client = data["clients"].get(client_id)
         if client and client.get("token_endpoint_auth_method") == "client_secret_post":
             secret = client.get("client_secret")
-            if not secret or not client_secret or not secrets.compare_digest(
-                client_secret, secret
-            ):
+            if not secret or not client_secret or not secrets.compare_digest(client_secret, secret):
                 _log.warning("token exchange rejected: bad client_secret for %s", client_id)
                 return None
 
         # Only S256 is issued (see create_auth_code); reject anything else.
         if raw["code_challenge_method"] != "S256":
             return None
-        expected = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode()).digest()
-        ).decode().rstrip("=")
+        expected = (
+            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest())
+            .decode()
+            .rstrip("=")
+        )
         if not secrets.compare_digest(expected, raw["code_challenge"]):
             return None
 
@@ -388,15 +387,13 @@ def cleanup_expired() -> int:
         data = _load()
         now = time.time()
         expired = [
-            t for t, v in data["tokens"].items()
+            t
+            for t, v in data["tokens"].items()
             if v.get("expires_at", 0) > 0 and now >= v["expires_at"]
         ]
         for t in expired:
             del data["tokens"][t]
-        old_codes = [
-            c for c, v in data["codes"].items()
-            if now - v.get("created_at", now) > 600
-        ]
+        old_codes = [c for c, v in data["codes"].items() if now - v.get("created_at", now) > 600]
         for c in old_codes:
             del data["codes"][c]
         if expired or old_codes:
@@ -429,9 +426,7 @@ def render_consent_page(
     if consent_nonce:
         from urllib.parse import quote_plus
 
-        nonce_param = (
-            f"&consent_nonce={html.escape(quote_plus(consent_nonce), quote=True)}"
-        )
+        nonce_param = f"&consent_nonce={html.escape(quote_plus(consent_nonce), quote=True)}"
     else:
         nonce_param = ""
     return f"""<!DOCTYPE html>

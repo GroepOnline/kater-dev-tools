@@ -10,7 +10,6 @@ _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._-]+$")
 _SAFE_PATH = re.compile(r"^[A-Za-z0-9._/\\:-]+$")
 
 
-
 class DeployTarget(BaseModel):
     name: str
     description: str
@@ -26,8 +25,7 @@ def render_stdio_config(
     return {
         "format": "claude-desktop",
         "description": (
-            "Add this to "
-            "~/Library/Application Support/Claude/claude_desktop_config.json"
+            "Add this to ~/Library/Application Support/Claude/claude_desktop_config.json"
         ),
         "mcpServers": {
             "kater": {
@@ -257,10 +255,7 @@ DEPLOY_FORMATS: dict[str, tuple[str, Callable[..., dict[str, Any]]]] = {
 
 
 def list_deploy_formats() -> list[dict[str, str]]:
-    return [
-        {"name": name, "description": desc}
-        for name, (desc, _) in DEPLOY_FORMATS.items()
-    ]
+    return [{"name": name, "description": desc} for name, (desc, _) in DEPLOY_FORMATS.items()]
 
 
 def render_deploy(

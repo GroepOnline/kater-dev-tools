@@ -75,9 +75,7 @@ class CapabilityRegistry:
             self._versions.setdefault(manifest.capability_id, set()).add(manifest.version)
             self._version += 1
 
-    def get(
-        self, capability_id: str, version: str | None = None
-    ) -> CapabilityManifest | None:
+    def get(self, capability_id: str, version: str | None = None) -> CapabilityManifest | None:
         with self._lock:
             if version is not None:
                 return self._entries.get((capability_id, version))
@@ -87,9 +85,7 @@ class CapabilityRegistry:
             candidates = [self._entries[(capability_id, ver)] for ver in versions]
             # Active-preferring: best lifecycle first, then highest version in that band.
             best_pref = min(_lifecycle_preference(m.lifecycle_state) for m in candidates)
-            band = [
-                m for m in candidates if _lifecycle_preference(m.lifecycle_state) == best_pref
-            ]
+            band = [m for m in candidates if _lifecycle_preference(m.lifecycle_state) == best_pref]
             band.sort(key=lambda m: _version_key(m.version), reverse=True)
             return band[0]
 
@@ -133,9 +129,7 @@ class CapabilityRegistry:
         with self._lock:
             return capability_id in self._versions
 
-    def is_invocable(
-        self, capability_id: str, version: str | None = None
-    ) -> tuple[bool, str]:
+    def is_invocable(self, capability_id: str, version: str | None = None) -> tuple[bool, str]:
         with self._lock:
             if capability_id not in self._versions:
                 return True, "unmanaged"

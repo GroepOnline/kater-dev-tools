@@ -328,9 +328,7 @@ class WSHandler(BaseHTTPRequestHandler):
                     allow_query_token=not is_public_settings(settings),
                 ),
                 query_api_key=(
-                    query.get("api_key", [None])[0]
-                    if allow_query_api_key(settings)
-                    else None
+                    query.get("api_key", [None])[0] if allow_query_api_key(settings) else None
                 ),
             )
         )

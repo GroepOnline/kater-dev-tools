@@ -19,15 +19,17 @@ from kater.telemetry import (
 
 
 def test_insert_and_query():
-    insert_event({
-        "type": "tool_call",
-        "name": "test_tool",
-        "timestamp": 1000.0,
-        "duration_ms": 50.0,
-        "success": True,
-        "profile": "core",
-        "metadata": {"key": "val"},
-    })
+    insert_event(
+        {
+            "type": "tool_call",
+            "name": "test_tool",
+            "timestamp": 1000.0,
+            "duration_ms": 50.0,
+            "success": True,
+            "profile": "core",
+            "metadata": {"key": "val"},
+        }
+    )
     events = query_events()
     assert len(events) == 1
     assert events[0]["name"] == "test_tool"

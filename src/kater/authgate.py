@@ -18,9 +18,7 @@ from kater.settings import KaterSettings, check_auth
 
 # Endpoints that bootstrap auth itself (OAuth) or report liveness must stay
 # reachable without credentials. Only meaningful for the REST API transport.
-PUBLIC_API_PATHS = frozenset(
-    {"/health", "/authorize", "/token", "/register", "/revoke"}
-)
+PUBLIC_API_PATHS = frozenset({"/health", "/authorize", "/token", "/register", "/revoke"})
 PUBLIC_API_PREFIXES = ("/.well-known",)
 DASHBOARD_PUBLIC_PATHS = frozenset({"/", "/dashboard"})
 
@@ -73,7 +71,5 @@ def authenticate(ctx: AuthContext) -> AuthDecision:
     if ctx.path is not None and _is_public_path(ctx.path):
         return AuthDecision(True)
 
-    ok, error = check_auth(
-        ctx.settings, ctx.authorization_header, ctx.query_api_key
-    )
+    ok, error = check_auth(ctx.settings, ctx.authorization_header, ctx.query_api_key)
     return AuthDecision(ok, error)

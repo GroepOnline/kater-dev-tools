@@ -15,9 +15,7 @@ from kater.control_plane.store import (
     upsert_route_candidate,
 )
 
-app = typer.Typer(
-    help="Manage persistent logical capability routes and account fallback pools."
-)
+app = typer.Typer(help="Manage persistent logical capability routes and account fallback pools.")
 
 
 def _print(payload: object) -> None:
@@ -32,9 +30,7 @@ def _parse_quota(spec: str) -> QuotaWindow:
         limit = int(parts[1])
         used = int(parts[2]) if len(parts) >= 3 and parts[2] else 0
         resets_at = (
-            datetime.fromisoformat(parts[3].replace("Z", "+00:00"))
-            if len(parts) == 4
-            else None
+            datetime.fromisoformat(parts[3].replace("Z", "+00:00")) if len(parts) == 4 else None
         )
     except ValueError as exc:
         raise typer.BadParameter(f"invalid quota {spec!r}: {exc}") from exc
@@ -109,9 +105,7 @@ def list_routes(
     _print(
         {
             "total": len(bindings),
-            "routes": [
-                _binding_payload(item.capability, item.account) for item in bindings
-            ],
+            "routes": [_binding_payload(item.capability, item.account) for item in bindings],
         }
     )
 
@@ -137,9 +131,7 @@ def dry_run(
     request = RoutingRequest(
         capability=capability,
         context_id=context_id,
-        required_scopes=frozenset(
-            item.strip() for item in scopes.split(",") if item.strip()
-        ),
+        required_scopes=frozenset(item.strip() for item in scopes.split(",") if item.strip()),
         estimated_units=estimated_units,
     )
     decisions = QuotaAwareRouter().rank([item.account for item in bindings], request)

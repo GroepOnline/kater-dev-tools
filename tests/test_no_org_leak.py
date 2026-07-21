@@ -56,7 +56,7 @@ def test_scan_ignores_directories(tmp_path):
 def test_scan_allows_only_exact_generated_contract_paths(tmp_path, monkeypatch):
     allowed = tmp_path / "src/kater/capabilities/generated/error-envelope.json"
     allowed.parent.mkdir(parents=True)
-    allowed.write_text('{"$id":"https://online' + 'chefgroep' + '.nl/schema"}')
+    allowed.write_text('{"$id":"https://online' + "chefgroep" + '.nl/schema"}')
     lookalike = tmp_path / "vendor/error-envelope.json"
     lookalike.parent.mkdir(parents=True)
     lookalike.write_text(allowed.read_text())

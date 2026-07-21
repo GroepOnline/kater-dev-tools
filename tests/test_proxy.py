@@ -92,9 +92,7 @@ def test_recording_backend_call_tool_unwraps_result():
 
 
 def test_recording_backend_call_tool_passes_through_error():
-    backend = RecordingBackend(
-        rpc_responses={"tools/call": {"error": "tool failed"}}
-    )
+    backend = RecordingBackend(rpc_responses={"tools/call": {"error": "tool failed"}})
     backend.start()
 
     result = backend.call_tool("search", {})
@@ -212,13 +210,18 @@ def test_aggregator_remove_backend():
 
 def test_aggregator_for_mcp():
     agg = Aggregator()
-    agg.add_backend_tools("github", [
-        ProxiedTool(
-            name="search", description="Search code",
-            backend="github", original_name="search",
-            input_schema={"type": "object", "properties": {}},
-        ),
-    ])
+    agg.add_backend_tools(
+        "github",
+        [
+            ProxiedTool(
+                name="search",
+                description="Search code",
+                backend="github",
+                original_name="search",
+                input_schema={"type": "object", "properties": {}},
+            ),
+        ],
+    )
     mcp_tools = agg.for_mcp()
     assert len(mcp_tools) == 1
     assert mcp_tools[0]["name"] == "github__search"

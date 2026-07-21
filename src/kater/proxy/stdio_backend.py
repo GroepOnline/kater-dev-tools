@@ -11,18 +11,20 @@ from kater.proxy.base import BackendOperationalError, BaseBackend
 
 
 class StdioBackend(BaseBackend):
-    _SAFE_ENV_PASSTHROUGH = frozenset({
-        "PATH",
-        "HOME",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "TMPDIR",
-        "TERM",
-        "SystemRoot",
-        "PATHEXT",
-        "USERPROFILE",
-    })
+    _SAFE_ENV_PASSTHROUGH = frozenset(
+        {
+            "PATH",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "LC_CTYPE",
+            "TMPDIR",
+            "TERM",
+            "SystemRoot",
+            "PATHEXT",
+            "USERPROFILE",
+        }
+    )
 
     def __init__(
         self,
@@ -44,11 +46,7 @@ class StdioBackend(BaseBackend):
 
     @classmethod
     def _build_safe_env(cls, env: dict[str, str] | None) -> dict[str, str]:
-        safe = {
-            key: os.environ[key]
-            for key in cls._SAFE_ENV_PASSTHROUGH
-            if key in os.environ
-        }
+        safe = {key: os.environ[key] for key in cls._SAFE_ENV_PASSTHROUGH if key in os.environ}
         safe.update(env or {})
         return safe
 
@@ -89,9 +87,7 @@ class StdioBackend(BaseBackend):
             except (OSError, ValueError):
                 pass
 
-        self._stderr_thread = threading.Thread(
-            target=_drain, daemon=True
-        )
+        self._stderr_thread = threading.Thread(target=_drain, daemon=True)
         self._stderr_thread.start()
 
     def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -118,9 +114,7 @@ class StdioBackend(BaseBackend):
                 except OSError as exc:
                     self._status.error = str(exc)
                     self._status.healthy = False
-                    raise BackendOperationalError(
-                        str(exc), fallback_safe=False
-                    ) from exc
+                    raise BackendOperationalError(str(exc), fallback_safe=False) from exc
             return {"result": {}}
 
         msg = {
@@ -149,9 +143,8 @@ class StdioBackend(BaseBackend):
                     if not isinstance(data, dict):
                         raise ValueError("unexpected malformed stdio response")
                     if data.get("id") == msg["id"]:
-                        if (
-                            data.get("jsonrpc") != "2.0"
-                            or ("result" not in data and "error" not in data)
+                        if data.get("jsonrpc") != "2.0" or (
+                            "result" not in data and "error" not in data
                         ):
                             raise ValueError("unexpected malformed stdio response")
                         return data
@@ -164,6 +157,4 @@ class StdioBackend(BaseBackend):
             except (OSError, ValueError) as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                raise BackendOperationalError(
-                    str(exc), fallback_safe=False
-                ) from exc
+                raise BackendOperationalError(str(exc), fallback_safe=False) from exc

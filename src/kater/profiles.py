@@ -434,9 +434,7 @@ _BUILTIN_TOOL_SOURCES: tuple[ToolSource, ...] = (
         mcp=McpServerConfig(
             command="npx",
             args=["-y", f"@notionhq/notion-mcp-server@{NOTION_MCP_VERSION}"],
-            env_template={
-                "OPENAPI_MCP_HEADERS": '{"Authorization":"Bearer ${NOTION_API_KEY}"}'
-            },
+            env_template={"OPENAPI_MCP_HEADERS": '{"Authorization":"Bearer ${NOTION_API_KEY}"}'},
         ),
     ),
     ToolSource(

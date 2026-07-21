@@ -111,6 +111,7 @@ class _Proxy:
 
 def test_backends_accepts_injected_proxy_and_returns_compatible_shape(monkeypatch):
     import kater.telemetry as telemetry
+
     monkeypatch.setattr(profiles, "all_tool_sources", lambda: [])
     monkeypatch.setattr(telemetry, "status_overview", lambda: {"servers": {"enabled": 1}})
     response = api._backends(_request(), proxy_factory=lambda: _Proxy())

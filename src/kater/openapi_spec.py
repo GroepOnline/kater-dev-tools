@@ -398,11 +398,7 @@ def _build_paths() -> dict[str, Any]:
             "responses": {
                 "200": {
                     "description": "List of events.",
-                    "content": {
-                        "application/json": {
-                            "schema": _ref("EventList")
-                        }
-                    },
+                    "content": {"application/json": {"schema": _ref("EventList")}},
                 }
             },
         }
@@ -414,16 +410,11 @@ def _build_paths() -> dict[str, Any]:
             "responses": {
                 "200": {
                     "description": "Backend status list.",
-                    "content": {
-                        "application/json": {
-                            "schema": _ref("BackendList")
-                        }
-                    },
+                    "content": {"application/json": {"schema": _ref("BackendList")}},
                 }
             },
         }
     }
-
 
     paths["/api/evals"] = {
         "get": _response(
@@ -514,9 +505,7 @@ def _build_paths() -> dict[str, Any]:
         )
     }
 
-    paths["/api/tunnel"] = {
-        "get": _response("Tunnel status overview", {"type": "object"})
-    }
+    paths["/api/tunnel"] = {"get": _response("Tunnel status overview", {"type": "object"})}
 
     paths["/api/tunnel/{provider}/start"] = {
         "post": {
@@ -919,7 +908,6 @@ def _build_schemas() -> dict[str, Any]:
                 },
             },
         },
-
         "Evals": {
             "type": "object",
             "additionalProperties": True,

@@ -69,6 +69,7 @@ def _build_proxy_handler(
     required = set(input_schema.get("required") or [])
 
     if not properties:
+
         def handler() -> Any:
             return proxy.call_tool(tool_name, {})
 
@@ -128,8 +129,7 @@ class AuthASGIMiddleware:
         from kater.authgate import AuthContext, authenticate
 
         headers = {
-            k.decode("latin-1").lower(): v.decode("latin-1")
-            for k, v in scope.get("headers", [])
+            k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
         }
         # Throttle the tool surface (/sse + MCP POST) the same way REST is.
         client = scope.get("client")

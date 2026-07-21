@@ -229,17 +229,14 @@ def _security_check() -> list[Finding]:
                 code="public_cors_wildcard",
                 severity="warning",
                 message="CORS allows any origin on a public deployment.",
-                suggested_action=(
-                    "Set KATER_CORS_ORIGINS to your dashboard origin only."
-                ),
+                suggested_action=("Set KATER_CORS_ORIGINS to your dashboard origin only."),
             )
         )
 
     if is_public and settings.auth.mode == "oauth":
-        allow_dynamic_registration = (
-            os.environ.get("KATER_ALLOW_DYNAMIC_REGISTRATION", "").strip().lower()
-            in {"1", "true", "yes", "on"}
-        )
+        allow_dynamic_registration = os.environ.get(
+            "KATER_ALLOW_DYNAMIC_REGISTRATION", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
         registration_token_set = bool(os.environ.get("KATER_REGISTRATION_TOKEN"))
         if allow_dynamic_registration and not registration_token_set:
             findings.append(
@@ -277,10 +274,7 @@ def _security_check() -> list[Finding]:
                 Finding(
                     code="public_no_admin_key",
                     severity="info",
-                    message=(
-                        "KATER_ADMIN_KEY is not set; public settings mutations are "
-                        "disabled."
-                    ),
+                    message=("KATER_ADMIN_KEY is not set; public settings mutations are disabled."),
                     suggested_action=(
                         "Set KATER_ADMIN_KEY when the dashboard or API must change "
                         "settings in public mode."

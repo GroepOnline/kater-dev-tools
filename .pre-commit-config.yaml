@@ -1,0 +1,45 @@
+default_stages: [pre-commit]
+
+repos:
+  # Hygiene hooks (whitespace, line endings, file types, large files).
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Ruff: lint + format. Reuses pyproject.toml so hooks match CI exactly.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.22
+    hooks:
+      - id: ruff
+        args: [--config=pyproject.toml]
+      - id: ruff-format
+        args: [--config=pyproject.toml]
+
+  # Mypy: type checks. additional_dependencies mirror runtime deps so stubs
+  # resolve; config lives in pyproject.toml.
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.3.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.7
+          - jsonschema>=4.26
+          - mcp>=1.28.1
+          - typer>=0.27.0
+        args: [--config-file=pyproject.toml]
+
+  # Gitleaks: secret scan. Mirrors the CI guard in no-org-leak.yml so a
+  # leaked key is caught locally before push, not only in CI.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+        args: [--redact]

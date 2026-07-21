@@ -27,6 +27,28 @@ uv run ruff check .
 - Match existing module patterns (deep modules, minimal surface area)
 - No secrets in code, tests, or committed config
 
+## Pre-commit hooks
+
+Optioneel maar sterk aanbevolen: installeer de pre-commit hooks lokaal zodat
+lint/type/format/secrets checks al draaien vóór je een commit maakt. De hooks
+gebruiken exact dezelfde `ruff`, `mypy` en `gitleaks` configuratie als CI
+(`.github/workflows/ci.yml` en `no-org-leak.yml`), dus wat lokaal groen is, is
+ook groen in CI — geen verrassingen na de push.
+
+```bash
+# Installeer de git hook (eenmalig per clone):
+uvx pre-commit install
+
+# Run handmatig over alle bestanden:
+uvx pre-commit run --all-files
+```
+
+`pre-commit` draait via `uvx` en hoeft dus niet als dev-dependency aan
+`pyproject.toml` te worden toegevoegd. De configuratie staat in
+`.pre-commit-config.yaml`. Na een `git commit` draaien de hooks automatisch
+over de gewijzigde bestanden; bij een faalende hook wordt de commit geblokkeerd
+tot je de problemen oplost.
+
 ## Security
 
 See [SECURITY.md](SECURITY.md). Do not include real API keys in PRs or issue comments.

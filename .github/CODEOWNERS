@@ -1,0 +1,41 @@
+# CODEOWNERS for OnlineChefGroep/kater-dev-tools
+#
+# Each line routes review requests for matching paths to the listed owners.
+# Patterns use .gitignore-style globs and are matched against the full repo
+# path. The LAST matching pattern wins, so order is significant: the default
+# catch-all is listed first, more specific rules follow.
+#
+# Owners are GitHub usernames (or @org/team). This repo is currently a
+# solo-maintained project, so every area routes to @OnlineChef. If a team is
+# introduced later, replace the username with @OnlineChefGroep/<team>.
+
+# ── Default: everything routes to the solo maintainer ──────────────────────
+* @OnlineChef
+
+# ── Per-area routing ───────────────────────────────────────────────────────
+# Frontend dashboard
+src/kater/web/ @OnlineChef
+
+# Public HTTP API package
+src/kater/api/ @OnlineChef
+
+# Capability registry, discovery, and manifest schemas
+src/kater/capabilities/ @OnlineChef
+
+# Control plane: routing, state, stores
+src/kater/control_plane/ @OnlineChef
+
+# Proxy: aggregator, base, manager, models
+src/kater/proxy/ @OnlineChef
+
+# CI, workflows, and repo automation
+.github/ @OnlineChef
+
+# Documentation
+docs/ @OnlineChef
+
+# Operational scripts (deploy, e2e, smoke, tunneling)
+scripts/ @OnlineChef
+
+# Security policy
+SECURITY.md @OnlineChef

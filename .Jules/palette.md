@@ -13,3 +13,9 @@
 ## 2025-07-20 - [Keyboard-Safe ARIA Tabs]
 **Learning:** Implementing 'roving tabindex' (tabindex="-1" for inactive tabs) without custom arrow-key event listeners breaks keyboard navigation. For simple tabbed interfaces, maintaining `tabindex="0"` on all tabs preserves default sequential navigation while still benefiting from ARIA semantic roles.
 **Action:** Only use roving tabindex when fully implementing the keyboard interaction model (arrows, Home, End); otherwise, stick to standard sequential tabbing.
+
+## 2026-07-21 - [Async View Layout, Race-Safe Reload, and DOM-Safe Rendering]
+
+**Learning:** Asynchronous dashboard views (e.g., PR control) must follow the standard `.view-header` / `.view-scroll` layout to stay visually consistent with other tabs. When the user can trigger reloads while a previous request is in flight, an incrementing sequence counter (`prLoadSeq`) is the simplest way to discard stale responses and stale errors so the view never shows outdated data. Finally, building cards with `document.createElement` + `textContent` instead of `innerHTML` removes the DOM XSS surface entirely — server data never flows through the HTML parser.
+
+**Action:** For every async-loading view: (1) use `.view-header` + `.view-scroll`, (2) add a manual reload button that toggles `disabled` + `aria-busy` and restores itself in a `finally` block, (3) guard the async body with a sequence counter so superseded responses are ignored, and (4) render untrusted server data via the DOM API (`textContent`, `setAttribute`) rather than `innerHTML`.

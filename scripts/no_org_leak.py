@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 # Files where the org handle / domain are legitimately expected (attribution,
-# split audit, license). Anything outside these is a leak.
+# split audit, license, code-owner routing, changelog). Anything outside these is a leak.
 ALLOWED_ORG_HANDLE = frozenset(
     {
         "README.md",
@@ -28,6 +28,12 @@ ALLOWED_ORG_HANDLE = frozenset(
         "SPLIT_DECISION.md",
         "AUDIT.md",
         "no-org-leak.yml",
+        # CODEOWNERS exists specifically to map paths to GitHub owners, so the
+        # org handle is the file's whole purpose — not a leak.
+        ".github/CODEOWNERS",
+        # CHANGELOG.md links to compare/release views under the org's GitHub
+        # domain; the org handle appears in every URL by design.
+        "CHANGELOG.md",
         "src/kater/capabilities/generated/error-envelope.json",
         "src/kater/capabilities/generated/guest-invocation-result.schema.json",
         "src/kater/capabilities/generated/guest-invocation.schema.json",

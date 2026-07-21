@@ -13,6 +13,13 @@ CLEAN_SAMPLES = {
     "README.md": "Online" + "ChefGroep maintains Kater.",
     "docs/deploy-server.md": "Point DNS at chefgroep" + ".online",
     "src/kater/ok.py": "print('hello kater')",
+    # CODEOWNERS routes review requests to GitHub owners by definition.
+    ".github/CODEOWNERS": "* @Online" + "ChefGroep\n",
+    # CHANGELOG.md compares against releases under the org's GitHub domain.
+    "CHANGELOG.md": (
+        "[Unreleased]: https://github.com/Online"
+        + "ChefGroep/kater-dev-tools/compare/v1.0.0...HEAD"
+    ),
 }
 
 

@@ -257,8 +257,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 .view-empty-link:hover { color: var(--text); }
 
 /* ── PR control (§3/§4/§6/§7) ──────────────────────────────── */
-#view-pr { padding: 14px 18px 0; gap: 14px; display: flex; flex-direction: column; }
-.pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; padding: 14px 18px; }
 .pr-card {
   border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
   background: var(--panel); display: flex; flex-direction: column; gap: 8px;
@@ -388,6 +387,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 }
 .mini-btn:hover { border-color: var(--border-strong); color: var(--text); }
 .mini-btn.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-dim); }
+.pr-header-actions { display: flex; align-items: center; gap: 12px; }
 
 .server-map { flex: 1; overflow: auto; min-height: 0; }
 .route-table { width: 100%; border-collapse: collapse; }
@@ -1130,9 +1130,18 @@ _VIEW_SETTINGS = r"""
 
 _VIEW_PR = r"""
 <div class="view" id="view-pr">
-    <div class="panel-meta tnum" id="pr-count">loading PRs…</div>
-    <div class="pr-grid" id="pr-grid">
-      <div class="view-empty">Loading pull requests…</div>
+    <div class="view-header">
+      <span class="view-title">PR control</span>
+      <div class="pr-header-actions">
+        <span class="panel-meta tnum" id="pr-count" role="status">loading PRs…</span>
+        <button class="mini-btn interactive" id="btn-pr-refresh" type="button"
+          onclick="loadPRView(this)" aria-label="Refresh pull requests">Refresh</button>
+      </div>
+    </div>
+    <div class="view-scroll">
+      <div class="pr-grid" id="pr-grid">
+        <div class="view-empty">Loading pull requests…</div>
+      </div>
     </div>
   </div>
 """
@@ -1279,6 +1288,7 @@ let streamErrorsOnly = false;
 let catalogFilter = 'all';
 let catalogItems = [];
 let catalogLoadSeq = 0;
+let prLoadSeq = 0;
 let lastEventTotal = null;
 let lastLiveMs = 0;
 const HIST = 40;
@@ -3261,76 +3271,100 @@ async function loadSettingsView() {
   document.getElementById('set-storage').value = data.storage_backend || 'sqlite';
 }
 
-async function loadPRView() {
+async function loadPRView(btn) {
+  const originalText = btn ? btn.textContent : null;
+  const originalAria = btn ? btn.getAttribute('aria-label') : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    btn.setAttribute('aria-label', 'Refreshing pull requests…');
+    btn.setAttribute('aria-busy', 'true');
+  }
   const grid = document.getElementById('pr-grid');
   const count = document.getElementById('pr-count');
-  let data;
+  const seq = ++prLoadSeq;
   try {
-    data = await api('/api/pr/list?state=open&limit=30');
+    const data = await api('/api/pr/list?state=open&limit=30');
+    if (seq !== prLoadSeq) return;  // superseded by a newer refresh; ignore stale response
+    const pulls = data.pulls || [];
+    const total = data.count ?? pulls.length;
+    count.textContent = total + ' open PR' + (total === 1 ? '' : 's');
+    grid.replaceChildren();
+    if (!pulls.length) {
+      const empty = document.createElement('div');
+      empty.className = 'view-empty';
+      empty.textContent = 'No open pull requests.';
+      grid.appendChild(empty);
+      return;
+    }
+    for (const pr of pulls) {
+      const card = document.createElement('div');
+      card.className = 'pr-card';
+      const verdict = (pr.gate && pr.gate.verdict) || 'WARN';
+      const reasons = (pr.gate && pr.gate.reasons) || [];
+      const top = document.createElement('div');
+      top.className = 'pr-top';
+      const title = document.createElement('div');
+      title.className = 'pr-title';
+      title.textContent = '#' + pr.number + ' ' + (pr.title || '');
+      const badge = document.createElement('span');
+      badge.className = 'pr-verdict ' + verdict;
+      badge.textContent = verdict;
+      top.appendChild(title);
+      top.appendChild(badge);
+      card.appendChild(top);
+
+      const meta = document.createElement('div');
+      meta.className = 'pr-meta';
+      meta.textContent = (pr.head_ref || '') + ' → ' + (pr.base_ref || '') +
+        (pr.head_sha ? '  (' + pr.head_sha.slice(0, 7) + ')' : '');
+      card.appendChild(meta);
+
+      if (reasons.length) {
+        const rc = document.createElement('div');
+        rc.className = 'pr-reasons';
+        for (const r of reasons) {
+          const chip = document.createElement('span');
+          chip.className = 'badge warn';
+          chip.textContent = r;
+          rc.appendChild(chip);
+        }
+        card.appendChild(rc);
+      }
+
+      if (verdict === 'PASS') {
+        const mergeBtn = document.createElement('button');
+        mergeBtn.className = 'btn-save interactive pr-merge-btn';
+        mergeBtn.textContent = 'Merge (squash)';
+        mergeBtn.setAttribute('data-pr', String(pr.number));
+        mergeBtn.setAttribute('data-head', pr.head_sha || '');
+        mergeBtn.addEventListener('click', onMergeClick);
+        card.appendChild(mergeBtn);
+        if (pr.head_sha) {
+          const note = document.createElement('div');
+          note.className = 'pr-head-note';
+          note.textContent = 'will merge head ' + pr.head_sha.slice(0, 7);
+          card.appendChild(note);
+        }
+      }
+      grid.appendChild(card);
+    }
   } catch (e) {
+    if (seq !== prLoadSeq) return;  // superseded by a newer refresh; ignore stale error
     count.textContent = 'PR list unavailable';
-    grid.innerHTML = '<div class="view-empty">PR control needs the gh CLI and a GitHub token. ' +
-      'Run `kater pr` tools or check the server environment.</div>';
-    return;
-  }
-  const pulls = data.pulls || [];
-  count.textContent = data.count + ' open PR' + (data.count === 1 ? '' : 's');
-  grid.innerHTML = '';
-  if (!pulls.length) {
-    grid.innerHTML = '<div class="view-empty">No open pull requests.</div>';
-    return;
-  }
-  for (const pr of pulls) {
-    const card = document.createElement('div');
-    card.className = 'pr-card';
-    const verdict = (pr.gate && pr.gate.verdict) || 'WARN';
-    const reasons = (pr.gate && pr.gate.reasons) || [];
-    const top = document.createElement('div');
-    top.className = 'pr-top';
-    const title = document.createElement('div');
-    title.className = 'pr-title';
-    title.textContent = '#' + pr.number + ' ' + (pr.title || '');
-    const badge = document.createElement('span');
-    badge.className = 'pr-verdict ' + verdict;
-    badge.textContent = verdict;
-    top.appendChild(title);
-    top.appendChild(badge);
-    card.appendChild(top);
-
-    const meta = document.createElement('div');
-    meta.className = 'pr-meta';
-    meta.textContent = (pr.head_ref || '') + ' → ' + (pr.base_ref || '') +
-      (pr.head_sha ? '  (' + pr.head_sha.slice(0, 7) + ')' : '');
-    card.appendChild(meta);
-
-    if (reasons.length) {
-      const rc = document.createElement('div');
-      rc.className = 'pr-reasons';
-      for (const r of reasons) {
-        const chip = document.createElement('span');
-        chip.className = 'badge warn';
-        chip.textContent = r;
-        rc.appendChild(chip);
-      }
-      card.appendChild(rc);
+    grid.replaceChildren();
+    const empty = document.createElement('div');
+    empty.className = 'view-empty';
+    empty.textContent = 'PR control needs the gh CLI and a GitHub token. ' +
+      'Run `kater pr` tools or check the server environment.';
+    grid.appendChild(empty);
+  } finally {
+    if (btn && originalText !== null) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      if (originalAria) btn.setAttribute('aria-label', originalAria);
+      btn.removeAttribute('aria-busy');
     }
-
-    if (verdict === 'PASS') {
-      const btn = document.createElement('button');
-      btn.className = 'btn-save interactive pr-merge-btn';
-      btn.textContent = 'Merge (squash)';
-      btn.setAttribute('data-pr', String(pr.number));
-      btn.setAttribute('data-head', pr.head_sha || '');
-      btn.addEventListener('click', onMergeClick);
-      card.appendChild(btn);
-      if (pr.head_sha) {
-        const note = document.createElement('div');
-        note.className = 'pr-head-note';
-        note.textContent = 'will merge head ' + pr.head_sha.slice(0, 7);
-        card.appendChild(note);
-      }
-    }
-    grid.appendChild(card);
   }
 }
 

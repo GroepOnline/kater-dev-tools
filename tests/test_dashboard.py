@@ -19,6 +19,7 @@ from kater.web.dashboard import (
     _VIEW_DASHBOARD,
     _VIEW_DEPLOY,
     _VIEW_EVALS,
+    _VIEW_PR,
     _VIEW_SETTINGS,
 )
 
@@ -137,7 +138,7 @@ def test_catalog_count_is_status_region_not_describedby():
     # aria-describedby on the search box caused mid-keystroke chatter.
     html = render_dashboard()
     assert 'id="catalog-count" role="status"' in html
-    assert "aria-describedby=\"catalog-count\"" not in html
+    assert 'aria-describedby="catalog-count"' not in html
     assert "aria-describedby='catalog-count'" not in html
     # Pluralization contract used by the status region.
     assert "serverCount === 1 ? '1 server'" in html
@@ -179,7 +180,7 @@ def test_copy_deploy_code_guards_reentrancy_and_gives_feedback():
     assert "function copyDeployCode(btn)" in html
     assert "if (btn.dataset.copying) return;" in html
     assert "btn.textContent = 'Copied!';" in html
-    assert "onclick=\"copyDeployCode(this)\"" in html
+    assert 'onclick="copyDeployCode(this)"' in html
 
 
 def test_mobile_hides_tab_shortcut_hints():
@@ -197,3 +198,45 @@ def test_pr_tab_does_not_claim_digit_shortcut():
     assert 'tab-label">PR control</span> <span class="tab-kbd">' not in html
     # Digit map still excludes PR.
     assert "['dashboard', 'catalog', 'evals', 'deploy', 'settings']" in html
+
+
+def test_pr_view_uses_standard_header_and_scroll_layout():
+    # The PR control view must follow the same .view-header / .view-scroll
+    # contract as the other views so vertical alignment stays consistent.
+    assert 'class="view-header"' in _VIEW_PR
+    assert 'class="view-scroll"' in _VIEW_PR
+    assert _VIEW_PR in _HTML
+    assert 'class="view-header"' in render_dashboard()
+
+
+def test_pr_view_has_accessible_refresh_button_and_status_region():
+    # Manual reload is keyboard-accessible with an explicit ARIA label, and the
+    # PR count is a live status region so screen readers announce updates.
+    html = render_dashboard()
+    assert 'id="btn-pr-refresh"' in _VIEW_PR
+    assert 'aria-label="Refresh pull requests"' in _VIEW_PR
+    assert 'onclick="loadPRView(this)"' in _VIEW_PR
+    assert 'id="pr-count" role="status"' in _VIEW_PR
+    assert 'id="btn-pr-refresh"' in html
+
+
+def test_pr_view_reload_is_race_safe_and_dom_safe():
+    # An incrementing sequence counter discards stale responses when multiple
+    # reloads overlap, and untrusted PR data is rendered via the DOM API
+    # (textContent / setAttribute) rather than innerHTML, removing XSS surface.
+    html = render_dashboard()
+    assert "let prLoadSeq" in html
+    assert "const seq = ++prLoadSeq" in html
+    assert "if (seq !== prLoadSeq) return" in html
+    # loadPRView takes the button so it can manage its own busy state.
+    assert "async function loadPRView(btn)" in html
+    # Inside loadPRView, the grid is cleared and populated via the DOM API.
+    # Slice the function body out so the assertion only covers PR rendering
+    # (the catalog grid elsewhere still uses innerHTML = '' and that's fine).
+    fn_start = html.index("async function loadPRView(btn)")
+    fn_body = html[fn_start : html.index("async function onMergeClick", fn_start)]
+    assert "grid.replaceChildren()" in fn_body
+    assert "grid.innerHTML" not in fn_body  # DOM API only; no XSS surface
+    # Card fields are assigned via textContent, not string interpolation.
+    assert "title.textContent = '#' + pr.number" in fn_body
+    assert "badge.textContent = verdict" in fn_body

@@ -53,9 +53,7 @@ def _ws_recv_all(sock: socket.socket, timeout: float = 1.0) -> list[str]:
     return messages
 
 
-def _ws_send_and_recv(
-    sock: socket.socket, command: str, skip_welcome: bool = True
-) -> str:
+def _ws_send_and_recv(sock: socket.socket, command: str, skip_welcome: bool = True) -> str:
     if skip_welcome:
         _ws_recv_all(sock, timeout=0.3)
     _ws_send_text(sock, command)

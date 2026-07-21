@@ -81,9 +81,9 @@ def test_full_auth_code_flow():
     client = register_client("chatgpt", ["https://chat.openai.com/cb"])
 
     verifier = "test-verifier-1234567890"
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode()).digest()
-    ).decode().rstrip("=")
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    )
 
     code = create_auth_code(
         client_id=client.client_id,
@@ -105,9 +105,7 @@ def test_full_auth_code_flow():
 
 def test_exchange_code_used():
     client = register_client("app", ["http://localhost/cb"])
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(b"verifier").digest()
-    ).decode().rstrip("=")
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(b"verifier").digest()).decode().rstrip("=")
     code = create_auth_code(
         client_id=client.client_id,
         redirect_uri="http://localhost/cb",
@@ -122,9 +120,7 @@ def test_exchange_code_used():
 
 def test_exchange_code_wrong_verifier():
     client = register_client("app", ["http://localhost/cb"])
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(b"correct").digest()
-    ).decode().rstrip("=")
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(b"correct").digest()).decode().rstrip("=")
     code = create_auth_code(
         client_id=client.client_id,
         redirect_uri="http://localhost/cb",
@@ -209,7 +205,9 @@ def api_server():
 
 
 def _post_raw(
-    port: int, path: str, body: str,
+    port: int,
+    path: str,
+    body: str,
     content_type: str = "application/x-www-form-urlencoded",
 ) -> dict:
     req = urllib.request.Request(
@@ -222,18 +220,14 @@ def _post_raw(
 
 
 def test_api_discovery(api_server):
-    resp = urllib.request.urlopen(
-        "http://127.0.0.1:9920/.well-known/oauth-authorization-server"
-    )
+    resp = urllib.request.urlopen("http://127.0.0.1:9920/.well-known/oauth-authorization-server")
     data = json.loads(resp.read())
     assert "authorization_endpoint" in data
     assert "token_endpoint" in data
 
 
 def test_api_resource_metadata(api_server):
-    resp = urllib.request.urlopen(
-        "http://127.0.0.1:9920/.well-known/oauth-protected-resource"
-    )
+    resp = urllib.request.urlopen("http://127.0.0.1:9920/.well-known/oauth-protected-resource")
     data = json.loads(resp.read())
     assert "resource" in data
 
@@ -261,9 +255,7 @@ def test_api_full_oauth_flow(api_server):
     import hashlib as hl
 
     verifier = "verifier12345678901234567890"
-    challenge = b64.urlsafe_b64encode(
-        hl.sha256(verifier.encode()).digest()
-    ).decode().rstrip("=")
+    challenge = b64.urlsafe_b64encode(hl.sha256(verifier.encode()).digest()).decode().rstrip("=")
 
     code = create_auth_code(
         client_id=reg["client_id"],

@@ -54,12 +54,8 @@ AGENT_STATE_MACHINE = StateMachine(
                 AgentState.COMPLETED,
             }
         ),
-        AgentState.WAITING: frozenset(
-            {AgentState.WORKING, AgentState.BLOCKED, AgentState.FAILED}
-        ),
-        AgentState.BLOCKED: frozenset(
-            {AgentState.WORKING, AgentState.FAILED, AgentState.REVIEW}
-        ),
+        AgentState.WAITING: frozenset({AgentState.WORKING, AgentState.BLOCKED, AgentState.FAILED}),
+        AgentState.BLOCKED: frozenset({AgentState.WORKING, AgentState.FAILED, AgentState.REVIEW}),
         AgentState.FAILED: frozenset({AgentState.WORKING, AgentState.REVIEW}),
         AgentState.REVIEW: frozenset(
             {AgentState.WORKING, AgentState.BLOCKED, AgentState.COMPLETED}

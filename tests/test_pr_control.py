@@ -312,9 +312,7 @@ def test_policy_can_relax_draft_and_pending_checks() -> None:
 
 
 def test_policy_load_from_dict_ignores_unknown_keys() -> None:
-    policy = GatePolicy.from_dict(
-        {"require_approvals": 2, "unknown": "drop-me"}
-    )
+    policy = GatePolicy.from_dict({"require_approvals": 2, "unknown": "drop-me"})
     assert policy.require_approvals == 2
     assert policy.block_drafts is True
 
@@ -353,9 +351,7 @@ def _merge_runner_factory(records: list[list[str]], *, fail: bool = False) -> An
 
 
 def test_merge_pr_refuses_non_pass_gate(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None
-    )
+    monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
     monkeypatch.setattr(
         "kater.pr_control.GitHubPRClient.pull_request",
         lambda self, number: _pr(reviewThreads=[{"isResolved": False}]),
@@ -381,9 +377,7 @@ def test_merge_pr_refuses_non_pass_gate(monkeypatch) -> None:
 
 
 def test_merge_pr_refuses_head_sha_mismatch(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None
-    )
+    monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
     monkeypatch.setattr(
         "kater.pr_control.GitHubPRClient.pull_request",
         lambda self, number: _pr(),
@@ -403,9 +397,7 @@ def test_merge_pr_refuses_head_sha_mismatch(monkeypatch) -> None:
 
 
 def test_merge_pr_applies_on_pass(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None
-    )
+    monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
     monkeypatch.setattr(
         "kater.pr_control.GitHubPRClient.pull_request",
         lambda self, number: _pr(),

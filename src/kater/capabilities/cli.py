@@ -23,9 +23,7 @@ from kater.capabilities.store import (
     upsert_capability,
 )
 
-app = typer.Typer(
-    help="Manage capability manifests, lifecycle state and task-scoped discovery."
-)
+app = typer.Typer(help="Manage capability manifests, lifecycle state and task-scoped discovery.")
 
 
 def _print(payload: object) -> None:
@@ -103,9 +101,7 @@ def _manifest_from_mapping(data: dict[str, Any]) -> CapabilityManifest:
             else None
         ),
         lifecycle_state=LifecycleState(lifecycle),
-        rollback_version=(
-            str(data["rollback_version"]) if data.get("rollback_version") else None
-        ),
+        rollback_version=(str(data["rollback_version"]) if data.get("rollback_version") else None),
         network_targets=_as_tuple("network_targets"),
         tags=_as_set("tags"),
     )
@@ -147,17 +143,11 @@ def register_capability(
     description: Annotated[str, typer.Option("--description")] = "",
     scopes: Annotated[str, typer.Option("--scopes")] = "",
     risk_class: Annotated[RiskClass, typer.Option("--risk-class")] = RiskClass.READ,
-    data_classification: Annotated[
-        str, typer.Option("--data-classification")
-    ] = "internal",
+    data_classification: Annotated[str, typer.Option("--data-classification")] = "internal",
     profiles: Annotated[str, typer.Option("--profiles")] = "core",
     tags: Annotated[str, typer.Option("--tags")] = "",
-    lifecycle_state: Annotated[
-        LifecycleState, typer.Option("--lifecycle")
-    ] = LifecycleState.ACTIVE,
-    healthcheck_capability_id: Annotated[
-        str | None, typer.Option("--healthcheck")
-    ] = None,
+    lifecycle_state: Annotated[LifecycleState, typer.Option("--lifecycle")] = LifecycleState.ACTIVE,
+    healthcheck_capability_id: Annotated[str | None, typer.Option("--healthcheck")] = None,
     rollback_version: Annotated[str | None, typer.Option("--rollback-version")] = None,
     network_targets: Annotated[str, typer.Option("--network-targets")] = "",
 ) -> None:
@@ -185,9 +175,7 @@ def register_capability(
             if not value
         ]
         if missing:
-            raise typer.BadParameter(
-                "provide --file or required flags: " + ", ".join(missing)
-            )
+            raise typer.BadParameter("provide --file or required flags: " + ", ".join(missing))
         try:
             manifest = CapabilityManifest(
                 capability_id=capability_id or "",
@@ -274,9 +262,7 @@ def set_lifecycle_cmd(
 def discover_cmd(
     profile: Annotated[str, typer.Option("--profile")] = "core",
     intent: Annotated[str, typer.Option("--intent")] = "",
-    max_risk: Annotated[
-        RiskClass, typer.Option("--max-risk")
-    ] = RiskClass.EXTERNAL_WRITE,
+    max_risk: Annotated[RiskClass, typer.Option("--max-risk")] = RiskClass.EXTERNAL_WRITE,
     tags: Annotated[str, typer.Option("--tags")] = "",
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:

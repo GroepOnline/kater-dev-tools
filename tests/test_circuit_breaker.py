@@ -80,9 +80,7 @@ def test_proxy_manager_breaker_trips_on_failures():
         tools=[{"name": "crash"}],
     )
     backend.start()
-    backend.call_tool = lambda name, args: (_ for _ in ()).throw(
-        RuntimeError("boom")
-    )
+    backend.call_tool = lambda name, args: (_ for _ in ()).throw(RuntimeError("boom"))
 
     manager = ProxyManager()
     manager.register_backend("mock", backend)

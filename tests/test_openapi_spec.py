@@ -99,6 +99,4 @@ class TestDriftGuard:
             pattern = route.pattern
             # Normalize: strip trailing slash for comparison.
             normalized = pattern.rstrip("/") or "/"
-            assert normalized in paths, (
-                f"Route {route.method} {pattern} not in OpenAPI spec"
-            )
+            assert normalized in paths, f"Route {route.method} {pattern} not in OpenAPI spec"

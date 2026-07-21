@@ -341,6 +341,7 @@ def resolve_listen_config(
 
 def _generate_default_key() -> str:
     import secrets as _secrets
+
     return f"kat_{_secrets.token_hex(16)}"
 
 
@@ -383,9 +384,7 @@ def check_auth(
         if not token and allow_query_api_key(settings):
             token = query_api_key
         if not token:
-            return False, (
-                "Missing API key. Use Authorization: Bearer <key>."
-            )
+            return False, ("Missing API key. Use Authorization: Bearer <key>.")
         for key in settings.auth.api_keys:
             if secrets.compare_digest(token, key):
                 return True, None

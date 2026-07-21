@@ -86,6 +86,4 @@ class SSEBackend(BaseBackend):
             except Exception as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                raise BackendOperationalError(
-                    str(exc), fallback_safe=False
-                ) from exc
+                raise BackendOperationalError(str(exc), fallback_safe=False) from exc

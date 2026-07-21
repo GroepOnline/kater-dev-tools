@@ -57,11 +57,7 @@ def scan_adapters(
             continue
         missing = [var for var in source.env if not os.environ.get(var)]
         configured = len(missing) == 0
-        launch = (
-            _build_launch_hint(source, include_secrets=include_secrets)
-            if source.mcp
-            else None
-        )
+        launch = _build_launch_hint(source, include_secrets=include_secrets) if source.mcp else None
         inventory.sources.append(
             McpAdapter(
                 source=source,
@@ -101,9 +97,7 @@ def _build_launch_hint(
     return None
 
 
-def resolve_remote_headers(
-    source: ToolSource, *, include_secrets: bool = True
-) -> dict[str, str]:
+def resolve_remote_headers(source: ToolSource, *, include_secrets: bool = True) -> dict[str, str]:
     if not source.mcp:
         return {}
     return _resolve_env(source.mcp.headers_template, include_secrets=include_secrets)
@@ -115,9 +109,7 @@ def _remote_launch_type(url: str) -> str:
     return "sse"
 
 
-def _resolve_env(
-    template: dict[str, str], *, include_secrets: bool = True
-) -> dict[str, str]:
+def _resolve_env(template: dict[str, str], *, include_secrets: bool = True) -> dict[str, str]:
     resolved: dict[str, str] = {}
     for key, val in template.items():
         match = _ENV_VAR_RE.fullmatch(val)
@@ -135,9 +127,7 @@ def _resolve_env(
     return resolved
 
 
-def render_profile_config(
-    profile: str, *, include_secrets: bool = True
-) -> dict[str, Any]:
+def render_profile_config(profile: str, *, include_secrets: bool = True) -> dict[str, Any]:
     inventory = scan_adapters({profile} | {"core"}, include_secrets=include_secrets)
     mcp_servers: dict[str, Any] = {}
     for adapter in inventory.sources:

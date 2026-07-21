@@ -81,20 +81,14 @@ class StreamableHTTPBackend(BaseBackend):
                     or parsed.get("jsonrpc") != "2.0"
                     or ("result" not in parsed and "error" not in parsed)
                 ):
-                    raise ValueError(
-                        "unexpected malformed streamable HTTP response"
-                    )
+                    raise ValueError("unexpected malformed streamable HTTP response")
                 return parsed
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode(errors="replace")
                 self._status.error = detail or str(exc)
                 self._status.healthy = False
-                raise BackendOperationalError(
-                    detail or str(exc), fallback_safe=False
-                ) from exc
+                raise BackendOperationalError(detail or str(exc), fallback_safe=False) from exc
             except Exception as exc:
                 self._status.error = str(exc)
                 self._status.healthy = False
-                raise BackendOperationalError(
-                    str(exc), fallback_safe=False
-                ) from exc
+                raise BackendOperationalError(str(exc), fallback_safe=False) from exc

@@ -95,7 +95,7 @@ def test_consent_page_escapes_state_attribute_injection():
         profile="core",
     )
     # The raw injection payload must not appear unescaped.
-    assert 'onfocus=alert' not in html
+    assert "onfocus=alert" not in html
     assert 'x" onfocus' not in html
     # The Allow link must still carry an escaped state parameter.
     assert "state=" in html
@@ -250,9 +250,9 @@ def test_confidential_client_requires_secret_for_token():
         token_endpoint_auth_method="client_secret_post",
     )
     verifier = "v" * 40
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode()).digest()
-    ).decode().rstrip("=")
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    )
     code = create_auth_code(
         client_id=client.client_id,
         redirect_uri="https://app.example.com/cb",
@@ -293,9 +293,9 @@ def test_public_client_works_without_secret():
     client = register_client("public-app", ["https://app.example.com/cb"])
     assert client.token_endpoint_auth_method == "none"
     verifier = "v" * 40
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode()).digest()
-    ).decode().rstrip("=")
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    )
     code = create_auth_code(
         client_id=client.client_id,
         redirect_uri="https://app.example.com/cb",
@@ -551,9 +551,7 @@ def test_sse_backend_discovers_endpoint_and_calls_tool():
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             # First GET: announce the messages endpoint.
-            self.wfile.write(
-                b'data: {"type": "endpoint", "uri": "/messages"}\n\n'
-            )
+            self.wfile.write(b'data: {"type": "endpoint", "uri": "/messages"}\n\n')
 
         def do_POST(self):
             length = int(self.headers.get("Content-Length", 0))
@@ -613,9 +611,9 @@ def test_full_authorize_browser_flow(api_server):
     client_id = reg["client_id"]
 
     verifier = "verifier-" + "0" * 40
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode()).digest()
-    ).decode().rstrip("=")
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    )
 
     # Hit /authorize without approve → consent page HTML.
     consent_resp = urllib.request.urlopen(
@@ -665,8 +663,7 @@ def test_full_authorize_browser_flow(api_server):
     token = _post_raw_form(
         9970,
         "/token",
-        f"grant_type=authorization_code&code={code}"
-        f"&client_id={client_id}&code_verifier={verifier}",
+        f"grant_type=authorization_code&code={code}&client_id={client_id}&code_verifier={verifier}",
     )
     assert token["access_token"].startswith("tok_")
 
@@ -710,6 +707,7 @@ def test_websocket_origin_validation():
             def __init__(self):
                 self.headers = {"Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="}
                 import io
+
                 self.wfile = io.BytesIO()
 
             def send_response(self, code, *a):
@@ -760,6 +758,7 @@ def test_oauth_file_permissions():
     """oauth.json is created with owner-only permissions (0o600)."""
     import os
     import stat
+
     if os.name == "nt":
         pytest.skip("Windows does not support POSIX permission modes")
 
@@ -769,7 +768,6 @@ def test_oauth_file_permissions():
     mode = stat.S_IMODE(_db_path().stat().st_mode)
     # Owner can read/write; group and others must have no access.
     assert mode & 0o077 == 0
-
 
 
 def test_cors_vary_origin_header():
@@ -793,6 +791,4 @@ def test_security_headers_include_csp_referrer_and_https_hsts(api_server):
     csp = resp.headers.get("Content-Security-Policy")
     assert csp is not None
     assert "object-src 'none'" in csp
-    assert resp.headers.get("Strict-Transport-Security") == (
-        "max-age=31536000; includeSubDomains"
-    )
+    assert resp.headers.get("Strict-Transport-Security") == ("max-age=31536000; includeSubDomains")

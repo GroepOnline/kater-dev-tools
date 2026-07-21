@@ -86,9 +86,7 @@ def test_notion_launch_hint_uses_bearer_only(monkeypatch) -> None:
     config = render_profile_config("content")
     notion = config["mcpServers"]["notion"]
 
-    assert notion["env"]["OPENAPI_MCP_HEADERS"] == (
-        '{"Authorization":"Bearer ntn_secret"}'
-    )
+    assert notion["env"]["OPENAPI_MCP_HEADERS"] == ('{"Authorization":"Bearer ntn_secret"}')
     assert "Notion-Version" not in notion["env"]["OPENAPI_MCP_HEADERS"]
 
 

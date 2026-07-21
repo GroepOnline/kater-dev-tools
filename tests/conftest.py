@@ -28,6 +28,7 @@ KATER_DIR = Path.cwd() / ".kater"
 def _rmtree_robust(path: Path) -> None:
     import gc
     import time
+
     gc.collect()
     for _ in range(15):
         try:
@@ -60,4 +61,3 @@ def clean_kater_state():
     invalidate_settings_cache()
     api_mod._reset_rate_limiter()
     _rmtree_robust(KATER_DIR)
-

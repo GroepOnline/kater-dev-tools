@@ -51,9 +51,7 @@ async def _request(
     await mw(scope, receive, send)
     status = sent[0]["status"]
     headers = sent[0].get("headers", [])
-    body = b"".join(
-        m.get("body", b"") for m in sent if m.get("type") == "http.response.body"
-    )
+    body = b"".join(m.get("body", b"") for m in sent if m.get("type") == "http.response.body")
     return status, body, headers
 
 
@@ -62,9 +60,7 @@ def test_api_proxy_forwards_oauth_discovery(api_server) -> None:
         raise AssertionError("should not reach MCP app")
 
     mw = ApiProxyMiddleware(downstream, api_port=9925)
-    status, body, _ = asyncio.run(
-        _request(mw, "/.well-known/oauth-authorization-server")
-    )
+    status, body, _ = asyncio.run(_request(mw, "/.well-known/oauth-authorization-server"))
     assert status == 200
     data = json.loads(body)
     assert "authorization_endpoint" in data
@@ -110,9 +106,7 @@ def test_api_proxy_passes_through_oauth_redirect(api_server) -> None:
         raise AssertionError("should not reach MCP app")
 
     mw = ApiProxyMiddleware(downstream, api_port=9925)
-    status, body, headers = asyncio.run(
-        _request(mw, "/authorize", query_string=consent_query)
-    )
+    status, body, headers = asyncio.run(_request(mw, "/authorize", query_string=consent_query))
     assert status == 200
     cookie = next(
         (v.decode().split(";", 1)[0] for k, v in headers if k.lower() == b"set-cookie"),

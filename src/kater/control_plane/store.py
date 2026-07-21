@@ -465,19 +465,12 @@ def route_overview() -> dict[str, Any]:
         1
         for binding in bindings
         if binding.account.effective_state(current) == AccountState.ACTIVE
-        and all(
-            window.remaining_at(current) > 0
-            for window in binding.account.quota_windows
-        )
+        and all(window.remaining_at(current) > 0 for window in binding.account.quota_windows)
     )
     with _lock, _connect() as db:
-        row = db.execute(
-            "SELECT COUNT(*) AS c FROM control_routing_decisions"
-        ).fetchone()
+        row = db.execute("SELECT COUNT(*) AS c FROM control_routing_decisions").fetchone()
         decision_count = int(row["c"] if row else 0)
-        affinity_row = db.execute(
-            "SELECT COUNT(*) AS c FROM control_route_affinity"
-        ).fetchone()
+        affinity_row = db.execute("SELECT COUNT(*) AS c FROM control_route_affinity").fetchone()
         affinity_count = int(affinity_row["c"] if affinity_row else 0)
     return {
         "capabilities": len(capabilities),

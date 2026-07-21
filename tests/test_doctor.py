@@ -92,7 +92,6 @@ def test_doctor_flags_dynamic_registration_without_token(monkeypatch, tmp_path) 
     report = run_doctor(profiles={"core"})
 
     assert any(
-        f.code == "public_oauth_registration_token_missing"
-        and f.severity == "error"
+        f.code == "public_oauth_registration_token_missing" and f.severity == "error"
         for f in report.findings
     )

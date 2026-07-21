@@ -17,10 +17,7 @@ class Aggregator:
             self._tools[key] = tool
 
     def remove_backend(self, backend_name: str) -> None:
-        to_remove = [
-            key for key, tool in self._tools.items()
-            if tool.backend == backend_name
-        ]
+        to_remove = [key for key, tool in self._tools.items() if tool.backend == backend_name]
         for key in to_remove:
             del self._tools[key]
 

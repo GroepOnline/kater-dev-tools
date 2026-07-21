@@ -66,8 +66,7 @@ def test_jsonl_query_default_remains_chronological(tmp_path, monkeypatch) -> Non
     path = tmp_path / "telemetry.jsonl"
     path.write_text(
         "".join(
-            f'{{"name":"event-{timestamp}","timestamp":{timestamp}}}\n'
-            for timestamp in range(3)
+            f'{{"name":"event-{timestamp}","timestamp":{timestamp}}}\n' for timestamp in range(3)
         ),
         encoding="utf-8",
     )

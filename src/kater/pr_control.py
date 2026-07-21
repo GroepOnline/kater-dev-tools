@@ -249,9 +249,7 @@ class GitHubPRClient:
         if not self.repo:
             return False
         try:
-            data = self._api(
-                f"repos/{self.repo}/branches/{base_ref}/protection"
-            )
+            data = self._api(f"repos/{self.repo}/branches/{base_ref}/protection")
         except RuntimeError:
             return False
         return bool(data)
@@ -367,9 +365,7 @@ def pr_gate_tool(number: int, expected_head_sha: str = "") -> dict[str, Any]:
     result = gate.as_dict()
     if expected_head_sha:
         head = result["details"].get("head_sha", "")
-        result["details"]["head_sha_matches"] = (
-            head == expected_head_sha if head else None
-        )
+        result["details"]["head_sha_matches"] = head == expected_head_sha if head else None
     return result
 
 
@@ -433,9 +429,7 @@ def merge_pr(
             actor=actor or None,
             detail="gate not PASS",
         )
-        raise MergeRejected(
-            f"merge blocked: verdict={verdict} reasons={reasons}"
-        )
+        raise MergeRejected(f"merge blocked: verdict={verdict} reasons={reasons}")
 
     if expected_head_sha and head and head != expected_head_sha:
         record_gate_audit(
@@ -448,9 +442,7 @@ def merge_pr(
             actor=actor or None,
             detail="expected head SHA mismatch",
         )
-        raise MergeRejected(
-            f"expected head {expected_head_sha} != current head {head}"
-        )
+        raise MergeRejected(f"expected head {expected_head_sha} != current head {head}")
 
     args = ["pr", "merge", str(number), "--squash", "--delete-branch"]
     if expected_head_sha:

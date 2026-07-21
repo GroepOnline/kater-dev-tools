@@ -73,8 +73,7 @@ class QuotaAwareRouter:
         if not request.required_scopes.issubset(account.scopes):
             return None
         if any(
-            window.remaining_at(now) < request.estimated_units
-            for window in account.quota_windows
+            window.remaining_at(now) < request.estimated_units for window in account.quota_windows
         ):
             return None
 

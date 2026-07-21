@@ -59,9 +59,7 @@ def _reset_rate_limiter() -> None:
 # ── Client IP resolution ───────────────────────────────────────────
 
 
-def _resolve_client_ip(
-    forwarded_for: str | None, client_address_ip: str
-) -> str:
+def _resolve_client_ip(forwarded_for: str | None, client_address_ip: str) -> str:
     return resolve_client_ip(forwarded_for, client_address_ip)
 
 
@@ -198,10 +196,12 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         # Apply rate limiting to OPTIONS (CORS preflight) to prevent DoS.
-        if _get_rate_limiter().check(_resolve_client_ip(
-            self.headers.get("X-Forwarded-For", ""),
-            self.client_address[0] if self.client_address else "",
-        )):
+        if _get_rate_limiter().check(
+            _resolve_client_ip(
+                self.headers.get("X-Forwarded-For", ""),
+                self.client_address[0] if self.client_address else "",
+            )
+        ):
             self._write(Response.json(200, {"ok": True}))
         else:
             self._write(Response.json(429, {"error": "rate limit exceeded"}))

@@ -283,8 +283,7 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
                     / "platform/agent-control-plane/apps/session-controller/node_modules/.bin/tsx"
                 ),
                 str(
-                    checkout
-                    / "platform/agent-control-plane/apps/session-controller/test/fixtures/"
+                    checkout / "platform/agent-control-plane/apps/session-controller/test/fixtures/"
                     "promote-artifact.ts"
                 ),
                 str(promotion_input),
@@ -417,15 +416,14 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
         }
         evidence_schema = json.loads(
             (
-                checkout
-                / "platform/agent-control-plane/packages/protocol/generated/contracts/"
+                checkout / "platform/agent-control-plane/packages/protocol/generated/contracts/"
                 "computer-acceptance-evidence.schema.json"
             ).read_text(encoding="utf-8")
         )
         errors = list(
-            Draft202012Validator(
-                evidence_schema, format_checker=FormatChecker()
-            ).iter_errors(evidence)
+            Draft202012Validator(evidence_schema, format_checker=FormatChecker()).iter_errors(
+                evidence
+            )
         )
         assert not errors, errors
         if evidence_path := os.environ.get("COMPUTER_ACCEPTANCE_EVIDENCE"):

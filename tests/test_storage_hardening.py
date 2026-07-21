@@ -21,9 +21,7 @@ def test_jsonl_query_skips_corrupt_lines(tmp_path, monkeypatch) -> None:
 
 
 def test_jsonl_query_respects_limit(tmp_path, monkeypatch) -> None:
-    lines = "".join(
-        f'{{"type":"tool_call","name":"n{i}","timestamp":{i}}}\n' for i in range(10)
-    )
+    lines = "".join(f'{{"type":"tool_call","name":"n{i}","timestamp":{i}}}\n' for i in range(10))
     path = tmp_path / "telemetry.jsonl"
     path.write_text(lines, encoding="utf-8")
     monkeypatch.setattr("kater.storage._jsonl_path", lambda: path)

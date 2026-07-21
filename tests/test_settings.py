@@ -44,6 +44,7 @@ def test_save_settings_uses_owner_only_permissions(tmp_path: Path):
     import os
 
     import pytest
+
     if os.name == "nt":
         pytest.skip("Windows does not support POSIX permission modes")
 
@@ -54,7 +55,6 @@ def test_save_settings_uses_owner_only_permissions(tmp_path: Path):
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
-
 def test_check_auth_none_mode():
     settings = KaterSettings()
     ok, err = check_auth(settings, None, None)
@@ -63,44 +63,34 @@ def test_check_auth_none_mode():
 
 
 def test_check_auth_apikey_valid():
-    settings = KaterSettings(
-        auth=AuthConfig(mode="apikey", api_keys=["secret-key"])
-    )
+    settings = KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["secret-key"]))
     ok, err = check_auth(settings, "Bearer secret-key", None)
     assert ok is True
 
 
 def test_check_auth_apikey_invalid():
-    settings = KaterSettings(
-        auth=AuthConfig(mode="apikey", api_keys=["secret-key"])
-    )
+    settings = KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["secret-key"]))
     ok, err = check_auth(settings, "Bearer wrong", None)
     assert ok is False
     assert "Invalid" in err
 
 
 def test_check_auth_apikey_missing():
-    settings = KaterSettings(
-        auth=AuthConfig(mode="apikey", api_keys=["secret-key"])
-    )
+    settings = KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["secret-key"]))
     ok, err = check_auth(settings, None, None)
     assert ok is False
     assert "Missing" in err
 
 
 def test_check_auth_apikey_via_query():
-    settings = KaterSettings(
-        auth=AuthConfig(mode="apikey", api_keys=["q-key"])
-    )
+    settings = KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["q-key"]))
     ok, err = check_auth(settings, None, "q-key")
     assert ok is True
 
 
 def test_check_auth_apikey_query_disabled_in_public(monkeypatch):
     monkeypatch.setenv("KATER_PUBLIC", "1")
-    settings = KaterSettings(
-        auth=AuthConfig(mode="apikey", api_keys=["q-key"])
-    )
+    settings = KaterSettings(auth=AuthConfig(mode="apikey", api_keys=["q-key"]))
     ok, err = check_auth(settings, None, "q-key")
     assert ok is False
     assert "Missing API key" in err
@@ -121,9 +111,7 @@ def test_check_auth_oauth_valid_token():
 
     reset_state()
     token = create_token("client_test", "tools", "core")
-    settings = KaterSettings(
-        auth=AuthConfig(mode="oauth", oauth_issuer="https://auth.example.com")
-    )
+    settings = KaterSettings(auth=AuthConfig(mode="oauth", oauth_issuer="https://auth.example.com"))
     ok, err = check_auth(settings, f"Bearer {token['access_token']}", None)
     assert ok is True
     reset_state()
@@ -133,9 +121,7 @@ def test_check_auth_oauth_invalid_token():
     from kater.oauth import reset_state
 
     reset_state()
-    settings = KaterSettings(
-        auth=AuthConfig(mode="oauth", oauth_issuer="https://auth.example.com")
-    )
+    settings = KaterSettings(auth=AuthConfig(mode="oauth", oauth_issuer="https://auth.example.com"))
     ok, err = check_auth(settings, "Bearer tok_nonexistent", None)
     assert ok is False
     reset_state()

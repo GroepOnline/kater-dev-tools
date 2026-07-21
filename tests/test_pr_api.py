@@ -26,17 +26,13 @@ def api_server():
 
 
 def _get(port: int, path: str, headers: dict | None = None) -> dict:
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}", headers=headers or {}
-    )
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers=headers or {})
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())
 
 
 def _get_err(port: int, path: str, headers: dict | None = None) -> urllib.error.HTTPError:
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}", headers=headers or {}
-    )
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers=headers or {})
     try:
         urllib.request.urlopen(req)
     except urllib.error.HTTPError as e:

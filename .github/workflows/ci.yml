@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Nightly 04:17 UTC — runs the full suite on main to catch dependency
+    # drift and flakiness without waiting for a PR. Sits just before the
+    # no-org-leak cron at 04:27.
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
 # Cancel superseded runs for the same ref; keep main runs to preserve signals.
@@ -373,3 +378,48 @@ jobs:
             fi
           done
           echo "gate: PASS"
+
+  # ── summary: always-on job with a per-job conclusions table + triage links ──
+  # Runs even when gate fails, so the PR/failure notification surfaces a single
+  # at-a-glance view instead of forcing reviewers to click through every job.
+  summary:
+    needs:
+      - validate
+      - lint-type
+      - unit
+      - integration
+      - computer-acceptance
+      - e2e
+      - package
+      - security-pr
+      - gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Publish CI summary
+        run: |
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ## CI summary
+
+          | job | conclusion |
+          | --- | --- |
+          | validate | ${{ needs.validate.result }} |
+          | lint-type | ${{ needs.lint-type.result }} |
+          | unit | ${{ needs.unit.result }} |
+          | integration | ${{ needs.integration.result }} |
+          | computer-acceptance | ${{ needs.computer-acceptance.result }} |
+          | e2e | ${{ needs.e2e.result }} |
+          | package | ${{ needs.package.result }} |
+          | security-pr | ${{ needs.security-pr.result }} |
+          | gate | ${{ needs.gate.result }} |
+
+          ### Run context
+
+          - **commit:** ${{ github.sha }}
+          - **branch:** ${{ github.ref_name }}
+          - **event:** ${{ github.event_name }}
+          - **workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF

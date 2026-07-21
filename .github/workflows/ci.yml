@@ -346,6 +346,36 @@ jobs:
           print("diff secret scan ok")
           PY
 
+  # ── coverage: project-wide coverage gate (runs the full test suite) ──
+  coverage:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+      - name: Sync project
+        run: uv sync --extra dev || uv sync
+      - name: Run full test suite with coverage gate
+        run: |
+          uv run pytest \
+            --ignore=tests/test_computer_acceptance_e2e.py \
+            --cov-fail-under=25 \
+            --cov-report=xml::coverage.xml \
+            --cov-report=term-missing:skip-covered
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: warn
+
   # ── gate: single stable required check aggregating the mandatory jobs ──
   gate:
     needs:
@@ -356,6 +386,7 @@ jobs:
       - e2e
       - package
       - security-pr
+      - coverage
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
@@ -369,10 +400,11 @@ jobs:
           echo "e2e=${{ needs.e2e.result }}"
           echo "package=${{ needs.package.result }}"
           echo "security-pr=${{ needs.security-pr.result }}"
+          echo "coverage=${{ needs.coverage.result }}"
           for r in "${{ needs.validate.result }}" "${{ needs.lint-type.result }}" \
                    "${{ needs.unit.result }}" "${{ needs.integration.result }}" \
                    "${{ needs.e2e.result }}" "${{ needs.package.result }}" \
-                   "${{ needs.security-pr.result }}"; do
+                   "${{ needs.security-pr.result }}" "${{ needs.coverage.result }}"; do
             if [ "$r" != "success" ]; then
               echo "required job failed: $r"; exit 1
             fi

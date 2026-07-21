@@ -2,6 +2,11 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+# Coverage artifacts (produced by pytest-cov on every run).
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .env
 .env.local
 .env.kater.example

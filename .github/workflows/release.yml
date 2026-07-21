@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (without leading 'v')"
+        required: true
+        type: string
+
+# Avoid clobbering a release in flight for the same tag/ref.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  # Required to create the GitHub Release and upload assets.
+  contents: write
+  # Required for PyPI trusted publishing (staged; publish step is disabled).
+  id-token: write
+
+jobs:
+  release:
+    name: Build and publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "::error::No version resolved (neither tag nor workflow_dispatch input)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION (tag: v$VERSION)"
+
+      - name: Verify version matches pyproject.toml
+        run: |
+          DECLARED=$(uv run python -c "import tomllib; print(tomllib.loads(open('pyproject.toml','rb').read().decode())['project']['version'])")
+          RESOLVED="${{ steps.version.outputs.version }}"
+          echo "pyproject.toml version: $DECLARED"
+          echo "resolved release version: $RESOLVED"
+          if [ "$DECLARED" != "$RESOLVED" ]; then
+            echo "::warning::pyproject.toml ($DECLARED) does not match release version ($RESOLVED). Update pyproject.toml in a bump PR before tagging."
+          fi
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Validate built artifact version
+        run: |
+          # uv_build names the wheel/sdist with the project version, so verify
+          # the filename pattern carries the resolved version.
+          VERSION="${{ steps.version.outputs.version }}"
+          shopt -s nullglob
+          artifacts=( dist/*.whl dist/*.tar.gz )
+          if [ ${#artifacts[@]} -eq 0 ]; then
+            echo "::error::uv build produced no artifacts"
+            exit 1
+          fi
+          for a in "${artifacts[@]}"; do
+            echo "built: $a"
+            case "$a" in
+              *"$VERSION"*) ;;
+              *) echo "::error::Artifact $a does not contain version $VERSION"; exit 1 ;;
+            esac
+          done
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading assets only."
+          else
+            gh release create "$TAG" \
+              --generate-notes \
+              --notes-file CHANGELOG.md \
+              --title "$TAG"
+          fi
+
+      - name: Upload build artifacts to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
+
+      # TODO(pyPI): Trusted publishing is staged but disabled. To activate:
+      #   1. Configure the PyPI publisher for this repo at
+      #      https://pypi.org/manage/account/publishing/ (OIDC, ref pattern v*).
+      #   2. Remove the comment markers below.
+      # - name: Publish to PyPI (trusted publishing)
+      #   uses: pypa/gh-action-pypi-publish@release/v1

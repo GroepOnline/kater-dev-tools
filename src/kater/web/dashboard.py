@@ -866,13 +866,14 @@ _HTML_SHELL_TOP = r"""
       </div>
       <div class="brand-meta">MCP gateway · <span id="version-tag">v0.0.0</span></div>
     </div>
-    <nav class="sidebar-nav" role="tablist" aria-label="Views">
+    <nav class="sidebar-nav" role="tablist" aria-label="Views" aria-orientation="vertical">
       <div class="nav-section">Operate</div>
       <button class="tab active interactive"
         id="tab-nav-dashboard"
         role="tab"
         aria-selected="true"
         aria-controls="view-dashboard"
+        tabindex="0"
         data-view="dashboard"
         onclick="switchView('dashboard')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>
@@ -883,6 +884,7 @@ _HTML_SHELL_TOP = r"""
         role="tab"
         aria-selected="false"
         aria-controls="view-catalog"
+        tabindex="-1"
         data-view="catalog"
         onclick="switchView('catalog')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><rect x="1.5" y="6.7" width="13" height="3" rx="1"/><rect x="1.5" y="10.9" width="13" height="3" rx="1"/></svg>
@@ -893,6 +895,7 @@ _HTML_SHELL_TOP = r"""
         role="tab"
         aria-selected="false"
         aria-controls="view-pr"
+        tabindex="-1"
         data-view="pr"
         onclick="switchView('pr')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
@@ -903,6 +906,7 @@ _HTML_SHELL_TOP = r"""
         role="tab"
         aria-selected="false"
         aria-controls="view-evals"
+        tabindex="-1"
         data-view="evals"
         onclick="switchView('evals')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 14.5h13"/><path d="M3.5 11v3"/><path d="M7 7v7"/><path d="M10.5 9v5"/><path d="M14 4v10"/></svg>
@@ -914,6 +918,7 @@ _HTML_SHELL_TOP = r"""
         role="tab"
         aria-selected="false"
         aria-controls="view-deploy"
+        tabindex="-1"
         data-view="deploy"
         onclick="switchView('deploy')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.5l6 3v7l-6 3-6-3v-7z"/><path d="M2 4.5l6 3 6-3"/><path d="M8 7.5v7"/></svg>
@@ -924,6 +929,7 @@ _HTML_SHELL_TOP = r"""
         role="tab"
         aria-selected="false"
         aria-controls="view-settings"
+        tabindex="-1"
         data-view="settings"
         onclick="switchView('settings')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg>
@@ -2365,6 +2371,31 @@ function initDelegation() {
     if (t && t.dataset.fmt) selectDeployFormat(t.dataset.fmt);
   });
 
+  // WAI-ARIA tablist keyboard navigation for the sidebar (roving tabindex).
+  const sidebarNav = document.querySelector('.sidebar-nav');
+  if (sidebarNav) {
+    sidebarNav.addEventListener('keydown', (e) => {
+      const navKeys = ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End'];
+      if (!navKeys.includes(e.key)) return;
+      const tabs = Array.from(sidebarNav.querySelectorAll('.tab'));
+      if (!tabs.length) return;
+      const current = e.target.closest('.tab');
+      let idx = current ? tabs.indexOf(current) : tabs.findIndex(t => t.classList.contains('active'));
+      if (idx < 0) idx = 0;
+      e.preventDefault();
+      let next = idx;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+      else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = tabs.length - 1;
+      const target = tabs[next];
+      if (target && target.dataset.view) {
+        switchView(target.dataset.view);
+        target.focus();
+      }
+    });
+  }
+
   const pills = document.getElementById('profile-pills');
   pills.addEventListener('click', (e) => {
     const p = e.target.closest('.pill');
@@ -2953,6 +2984,8 @@ function switchView(name, quiet) {
     const on = t.dataset.view === name;
     t.classList.toggle('active', on);
     t.setAttribute('aria-selected', on ? 'true' : 'false');
+    // Roving tabindex: only the selected tab is in the Tab sequence.
+    t.setAttribute('tabindex', on ? '0' : '-1');
     if (on) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });

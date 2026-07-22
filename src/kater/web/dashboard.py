@@ -866,30 +866,72 @@ _HTML_SHELL_TOP = r"""
       </div>
       <div class="brand-meta">MCP gateway · <span id="version-tag">v0.0.0</span></div>
     </div>
-    <nav class="sidebar-nav" aria-label="Views">
-      <div class="nav-section">Operate</div>
-      <button class="tab active interactive" data-view="dashboard" onclick="switchView('dashboard')">
+    <nav class="sidebar-nav" role="tablist" aria-label="Views" aria-orientation="vertical">
+      <div class="nav-section" role="presentation">Operate</div>
+      <button class="tab active interactive"
+        id="tab-nav-dashboard"
+        role="tab"
+        aria-selected="true"
+        aria-controls="view-dashboard"
+        tabindex="0"
+        data-view="dashboard"
+        onclick="switchView('dashboard')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>
         <span class="tab-label">Overview</span> <span class="tab-kbd">1</span>
       </button>
-      <button class="tab interactive" data-view="catalog" onclick="switchView('catalog')">
+      <button class="tab interactive"
+        id="tab-nav-catalog"
+        role="tab"
+        aria-selected="false"
+        aria-controls="view-catalog"
+        tabindex="-1"
+        data-view="catalog"
+        onclick="switchView('catalog')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><rect x="1.5" y="6.7" width="13" height="3" rx="1"/><rect x="1.5" y="10.9" width="13" height="3" rx="1"/></svg>
         <span class="tab-label">Servers</span> <span class="tab-kbd">2</span>
       </button>
-      <button class="tab interactive" data-view="pr" onclick="switchView('pr')">
+      <button class="tab interactive"
+        id="tab-nav-pr"
+        role="tab"
+        aria-selected="false"
+        aria-controls="view-pr"
+        tabindex="-1"
+        data-view="pr"
+        onclick="switchView('pr')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
         <span class="tab-label">PR control</span>
       </button>
-      <button class="tab interactive" data-view="evals" onclick="switchView('evals')">
+      <button class="tab interactive"
+        id="tab-nav-evals"
+        role="tab"
+        aria-selected="false"
+        aria-controls="view-evals"
+        tabindex="-1"
+        data-view="evals"
+        onclick="switchView('evals')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 14.5h13"/><path d="M3.5 11v3"/><path d="M7 7v7"/><path d="M10.5 9v5"/><path d="M14 4v10"/></svg>
         <span class="tab-label">Performance</span> <span class="tab-kbd">3</span>
       </button>
-      <div class="nav-section">Configure</div>
-      <button class="tab interactive" data-view="deploy" onclick="switchView('deploy')">
+      <div class="nav-section" role="presentation">Configure</div>
+      <button class="tab interactive"
+        id="tab-nav-deploy"
+        role="tab"
+        aria-selected="false"
+        aria-controls="view-deploy"
+        tabindex="-1"
+        data-view="deploy"
+        onclick="switchView('deploy')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.5l6 3v7l-6 3-6-3v-7z"/><path d="M2 4.5l6 3 6-3"/><path d="M8 7.5v7"/></svg>
         <span class="tab-label">Deploy</span> <span class="tab-kbd">4</span>
       </button>
-      <button class="tab interactive" data-view="settings" onclick="switchView('settings')">
+      <button class="tab interactive"
+        id="tab-nav-settings"
+        role="tab"
+        aria-selected="false"
+        aria-controls="view-settings"
+        tabindex="-1"
+        data-view="settings"
+        onclick="switchView('settings')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg>
         <span class="tab-label">Settings</span> <span class="tab-kbd">5</span>
       </button>
@@ -917,7 +959,7 @@ _HTML_SHELL_TOP = r"""
 """
 
 _VIEW_DASHBOARD = r"""
-<div class="view active" id="view-dashboard">
+<div class="view active" id="view-dashboard" role="tabpanel" aria-labelledby="tab-nav-dashboard">
     <div class="exc-strip" id="exc-strip" role="group" aria-label="Server health summary">
       <button class="exc-item active interactive" data-filter="all" type="button" aria-pressed="true">
         <span class="dot"></span> all <span class="n" id="exc-all">0</span>
@@ -1026,7 +1068,7 @@ _VIEW_DASHBOARD = r"""
 """
 
 _VIEW_CATALOG = r"""
-<div class="view" id="view-catalog">
+<div class="view" id="view-catalog" role="tabpanel" aria-labelledby="tab-nav-catalog">
     <div class="view-header">
       <span class="view-title">Server catalog</span>
       <span class="panel-meta tnum" id="catalog-count" role="status">0 servers</span>
@@ -1051,7 +1093,7 @@ _VIEW_CATALOG = r"""
 """
 
 _VIEW_EVALS = r"""
-  <div class="view" id="view-evals">
+  <div class="view" id="view-evals" role="tabpanel" aria-labelledby="tab-nav-evals">
     <div class="view-header">
       <span class="view-title">Tool performance</span>
     </div>
@@ -1069,7 +1111,7 @@ _VIEW_EVALS = r"""
 
 
 _VIEW_DEPLOY = r"""
-  <div class="view" id="view-deploy">
+  <div class="view" id="view-deploy" role="tabpanel" aria-labelledby="tab-nav-deploy">
     <div class="view-header">
       <span class="view-title">Deployment configs</span>
     </div>
@@ -1089,7 +1131,7 @@ _VIEW_DEPLOY = r"""
 
 
 _VIEW_SETTINGS = r"""
-  <div class="view" id="view-settings">
+  <div class="view" id="view-settings" role="tabpanel" aria-labelledby="tab-nav-settings">
     <div class="view-header">
       <span class="view-title">Settings</span>
     </div>
@@ -1129,7 +1171,7 @@ _VIEW_SETTINGS = r"""
 """
 
 _VIEW_PR = r"""
-<div class="view" id="view-pr">
+<div class="view" id="view-pr" role="tabpanel" aria-labelledby="tab-nav-pr">
     <div class="view-header">
       <span class="view-title">PR control</span>
       <div class="pr-header-actions">
@@ -2329,6 +2371,31 @@ function initDelegation() {
     if (t && t.dataset.fmt) selectDeployFormat(t.dataset.fmt);
   });
 
+  // WAI-ARIA tablist keyboard navigation for the sidebar (roving tabindex).
+  const sidebarNav = document.querySelector('.sidebar-nav');
+  if (sidebarNav) {
+    sidebarNav.addEventListener('keydown', (e) => {
+      const navKeys = ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End'];
+      if (!navKeys.includes(e.key)) return;
+      const tabs = Array.from(sidebarNav.querySelectorAll('.tab'));
+      if (!tabs.length) return;
+      const current = e.target.closest('.tab');
+      let idx = current ? tabs.indexOf(current) : tabs.findIndex(t => t.classList.contains('active'));
+      if (idx < 0) idx = 0;
+      e.preventDefault();
+      let next = idx;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+      else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = tabs.length - 1;
+      const target = tabs[next];
+      if (target && target.dataset.view) {
+        switchView(target.dataset.view);
+        target.focus();
+      }
+    });
+  }
+
   const pills = document.getElementById('profile-pills');
   pills.addEventListener('click', (e) => {
     const p = e.target.closest('.pill');
@@ -2916,8 +2983,9 @@ function switchView(name, quiet) {
   document.querySelectorAll('.sidebar-nav .tab').forEach(t => {
     const on = t.dataset.view === name;
     t.classList.toggle('active', on);
-    if (on) t.setAttribute('aria-current', 'page');
-    else t.removeAttribute('aria-current');
+    t.setAttribute('aria-selected', on ? 'true' : 'false');
+    // Roving tabindex: only the selected tab is in the Tab sequence.
+    t.setAttribute('tabindex', on ? '0' : '-1');
   });
   if (name === 'dashboard') setTimeout(drawLatencyStrip, 0);
   loadViewData(name);

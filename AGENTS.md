@@ -42,8 +42,12 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
   Standard lint/test/build commands live in the README "Development" section and
   `.github/workflows/ci.yml` (`uv run ruff check .`, `uv run mypy`, `uv run pytest`,
   `./scripts/smoke.sh`).
-- **Test suite timing**: `uv run pytest` takes ~100s (426 passing, a few skipped for live/network
-  integrations); don't assume it hung.
+- **Test suite timing**: `uv run pytest` takes ~100-120s (551 passing, a few skipped for live/network
+ integrations); don't assume it hung.
+- **`./scripts/smoke.sh` must run with the server stopped**: it drives the `kater` CLI against the
+ same `.kater/kater.db` SQLite file the live server holds, and running it while `kater serve` is up
+ causes a concurrent-writer `disk I/O error`. CI stops the server before smoke; do the same locally.
+ `./scripts/e2e-mcp.sh`, by contrast, requires the server running.
 - **End-to-end check**: with the server running, `./scripts/e2e-mcp.sh` validates REST + a real MCP
   client (initialize/tools) + the WebSocket handshake. Best single proof the gateway works.
 - **Core functionality without secrets**: exercisable without any adapter API keys via the CLI

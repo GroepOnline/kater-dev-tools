@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 ENV UV_LINK_MODE=copy
 ENV PYTHONUNBUFFERED=1
@@ -15,7 +15,7 @@ COPY src ./src
 RUN uv sync --no-dev --production
 
 # ── runtime ───────────────────────────────────────────────────────
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1

@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+import os
 import re
 from importlib import import_module
 from typing import Any
@@ -90,13 +91,74 @@ def _validate_tool_name(name: str) -> str:
     return name
 
 
+def _public_tunnel_hosts() -> list[str]:
+    """Hostnames that Cloudflare/Tailscale may send in the Host header.
+
+    FastMCP auto-enables DNS-rebinding protection when bound to loopback and
+    only allows localhost by default. Tunnel traffic arrives with the public
+    hostname (e.g. ``kater.example.com``), which then 421s and shows up as a
+    Cloudflare 502 on ``/sse``.
+    """
+    hosts: list[str] = []
+    domain = (os.environ.get("KATER_DOMAIN") or "").strip()
+    if domain:
+        hosts.append(domain)
+    for raw in (os.environ.get("KATER_HTTPS_HOSTS") or "").split(","):
+        host = raw.strip()
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def _transport_security_settings(fastmcp_module: Any) -> Any | None:
+    """Build TransportSecuritySettings that keep loopback defaults plus tunnel hosts."""
+    TransportSecuritySettings = getattr(
+        fastmcp_module, "TransportSecuritySettings", None
+    )
+    if TransportSecuritySettings is None:
+        try:
+            from mcp.server.transport_security import (  # type: ignore[import-not-found]
+                TransportSecuritySettings as _Settings,
+            )
+        except Exception:
+            return None
+        TransportSecuritySettings = _Settings
+
+    allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    allowed_origins = [
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+    ]
+    for host in _public_tunnel_hosts():
+        # Exact (no port) + wildcard-port form — public HTTPS usually omits :443.
+        allowed_hosts.append(host)
+        allowed_hosts.append(f"{host}:*")
+        allowed_origins.append(f"https://{host}")
+        allowed_origins.append(f"https://{host}:*")
+        allowed_origins.append(f"http://{host}")
+        allowed_origins.append(f"http://{host}:*")
+
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
+
+
 def create_server(*, profile: str = "core") -> Any:
     try:
         fastmcp_module = import_module("mcp.server.fastmcp")
     except ModuleNotFoundError as exc:
         raise McpUnavailableError(MCP_INSTALL_MESSAGE) from exc
 
-    server = fastmcp_module.FastMCP("kater-dev-tools")
+    security = _transport_security_settings(fastmcp_module)
+    if security is not None:
+        server = fastmcp_module.FastMCP(
+            "kater-dev-tools", transport_security=security
+        )
+    else:
+        server = fastmcp_module.FastMCP("kater-dev-tools")
 
     for tool in tools_for_profile(profile):
         server.tool(name=tool.name)(tool.handler)

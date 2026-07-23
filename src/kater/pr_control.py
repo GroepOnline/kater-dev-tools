@@ -243,6 +243,9 @@ class GitHubPRClient:
         return json.loads(proc.stdout)
 
     def pull_request(self, number: int) -> dict[str, Any]:
+        # NOTE: `reviewThreads` and `baseRefOid` are intentionally absent from
+        # the --json field list: `gh pr view` does not expose them (fails with
+        # "Unknown JSON field"). Both are fetched via GraphQL below.
         args = [
             "pr",
             "view",
@@ -251,7 +254,7 @@ class GitHubPRClient:
             (
                 "number,title,headRefName,baseRefName,state,url,"
                 "isDraft,mergeable,reviewDecision,statusCheckRollup,"
-                "reviewThreads,commits,baseRefOid,headRefOid"
+                "commits,headRefOid"
             ),
         ]
         if self.repo:
@@ -259,7 +262,66 @@ class GitHubPRClient:
         proc = self.runner(args)
         if proc.returncode != 0:
             raise RuntimeError(f"gh pr view {number} failed: {proc.stderr.strip()}")
-        return json.loads(proc.stdout)
+        pr: dict[str, Any] = json.loads(proc.stdout)
+        extras = self._graphql_extras(number, url=pr.get("url") or "")
+        pr["reviewThreads"] = extras["reviewThreads"]
+        pr["baseRefOid"] = extras["baseRefOid"]
+        return pr
+
+    def review_threads(self, number: int, *, url: str = "") -> list[dict[str, Any]]:
+        """Fetch review-thread resolution state via the GraphQL API."""
+        return self._graphql_extras(number, url=url)["reviewThreads"]
+
+    def _graphql_extras(self, number: int, *, url: str = "") -> dict[str, Any]:
+        """Fetch fields `gh pr view --json` cannot provide, via GraphQL.
+
+        Covers reviewThreads (unresolved-thread gating) and baseRefOid (pinned
+        base SHA). Fail-closed: any error raises rather than returning an
+        optimistic empty result.
+        """
+        repo = self.repo
+        if not repo and "github.com/" in url:
+            parts = url.split("github.com/", 1)[1].split("/")
+            if len(parts) >= 2:
+                repo = f"{parts[0]}/{parts[1]}"
+        if not repo:
+            raise RuntimeError(
+                f"cannot resolve owner/repo for PR {number} review threads "
+                "(set KATER_PR_REPO)"
+            )
+        owner, name = repo.split("/", 1)
+        query = (
+            "query($owner:String!,$name:String!,$number:Int!){"
+            "repository(owner:$owner,name:$name){pullRequest(number:$number){"
+            "baseRefOid reviewThreads(first:100){nodes{isResolved isOutdated}}}}}"
+        )
+        args = [
+            "api",
+            "graphql",
+            "-f",
+            f"query={query}",
+            "-f",
+            f"owner={owner}",
+            "-f",
+            f"name={name}",
+            "-F",
+            f"number={number}",
+        ]
+        proc = self.runner(args)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"gh api graphql reviewThreads for PR {number} failed: "
+                f"{proc.stderr.strip()}"
+            )
+        data = json.loads(proc.stdout)
+        pull = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
+        if pull is None:
+            raise RuntimeError(f"PR {number} not found in {repo} via GraphQL")
+        nodes = ((pull.get("reviewThreads") or {}).get("nodes")) or []
+        return {
+            "baseRefOid": pull.get("baseRefOid") or "",
+            "reviewThreads": [n for n in nodes if isinstance(n, dict)],
+        }
 
     def is_base_protected(self, base_ref: str) -> bool:
         if not self.repo:

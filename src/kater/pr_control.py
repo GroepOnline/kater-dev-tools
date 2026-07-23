@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -180,6 +181,17 @@ def _run_gh(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _default_repo() -> str | None:
+    """Resolve the target repo for PR tools.
+
+    ``KATER_PR_REPO`` (owner/name) pins the repo explicitly; without it the
+    `gh` CLI falls back to the server process cwd, which for a daemonized
+    kater is the kater-dev-tools checkout rather than the repo being gated
+    (CHE-793).
+    """
+    return os.environ.get("KATER_PR_REPO", "").strip() or None
+
+
 @dataclass
 class GitHubPRClient:
     """Read-only GitHub provider backed by the `gh` CLI.
@@ -191,6 +203,10 @@ class GitHubPRClient:
 
     repo: str | None = None
     runner: Callable[[list[str]], subprocess.CompletedProcess[str]] = _run_gh
+
+    def __post_init__(self) -> None:
+        if self.repo is None:
+            self.repo = _default_repo()
 
     def _target(self, ref: str) -> str:
         return f"{self.repo}#{ref}" if self.repo else ref

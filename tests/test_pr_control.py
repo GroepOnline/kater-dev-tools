@@ -180,19 +180,30 @@ def test_client_pr_list_parses_gh_output() -> None:
     assert "10" in captured["args"]
 
 
-def _graphql_threads_payload(nodes: list[dict[str, Any]], base_oid: str = "base000") -> str:
-    return __import__("json").dumps(
-        {
-            "data": {
-                "repository": {
-                    "pullRequest": {
-                        "baseRefOid": base_oid,
-                        "reviewThreads": {"nodes": nodes},
-                    }
+def _graphql_threads_payload(
+    nodes: list[dict[str, Any]],
+    base_oid: str = "base000",
+    *,
+    has_next: bool = False,
+    end_cursor: str | None = None,
+    errors: list[dict[str, Any]] | None = None,
+) -> str:
+    payload: dict[str, Any] = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "baseRefOid": base_oid,
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": has_next, "endCursor": end_cursor},
+                        "nodes": nodes,
+                    },
                 }
             }
         }
-    )
+    }
+    if errors is not None:
+        payload["errors"] = errors
+    return __import__("json").dumps(payload)
 
 
 def test_client_pr_view_passes_number() -> None:
@@ -261,6 +272,68 @@ def test_review_threads_fails_closed_on_gh_error() -> None:
         assert "graphql down" in str(exc)
     else:
         raise AssertionError("expected RuntimeError")
+
+
+def test_review_threads_rejects_lookalike_url() -> None:
+    # github.com as a path segment on a foreign host must not resolve a repo.
+    client = GitHubPRClient(repo=None, runner=lambda args: None)
+    client.repo = None
+    try:
+        client.review_threads(42, url="https://evil.example/github.com/o/r/pull/42")
+    except RuntimeError as exc:
+        assert "KATER_PR_REPO" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_review_threads_rejects_graphql_errors_payload() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(
+            returncode=0,
+            stdout=_graphql_threads_payload([], errors=[{"message": "partial data"}]),
+            stderr="",
+        )
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    try:
+        client.review_threads(42)
+    except RuntimeError as exc:
+        assert "partial data" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_review_threads_paginates_past_first_page() -> None:
+    calls: list[list[str]] = []
+
+    def fake_runner(args: list[str]) -> Any:
+        calls.append(args)
+        if len(calls) == 1:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=_graphql_threads_payload(
+                    [{"isResolved": True, "isOutdated": False}],
+                    has_next=True,
+                    end_cursor="CURSOR1",
+                ),
+                stderr="",
+            )
+        return SimpleNamespace(
+            returncode=0,
+            stdout=_graphql_threads_payload([{"isResolved": False, "isOutdated": False}]),
+            stderr="",
+        )
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    threads = client.review_threads(42)
+    assert len(threads) == 2
+    assert len(calls) == 2
+    assert "after=CURSOR1" in calls[1]
+    # An unresolved thread on the second page must block the gate.
+    from kater.pr_control import _summarize_pr
+
+    summ = _summarize_pr(_pr(reviewThreads=threads))
+    assert summ["open_threads"] == 1
 
 
 def test_client_api_error_raises() -> None:

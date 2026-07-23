@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 _log = logging.getLogger("kater.pr_control")
 
@@ -275,15 +276,18 @@ class GitHubPRClient:
     def _graphql_extras(self, number: int, *, url: str = "") -> dict[str, Any]:
         """Fetch fields `gh pr view --json` cannot provide, via GraphQL.
 
-        Covers reviewThreads (unresolved-thread gating) and baseRefOid (pinned
-        base SHA). Fail-closed: any error raises rather than returning an
-        optimistic empty result.
+        Covers reviewThreads (unresolved-thread gating, paginated so threads
+        beyond the first page still block) and baseRefOid (pinned base SHA).
+        Fail-closed: any transport or GraphQL error raises rather than
+        returning an optimistic empty result.
         """
         repo = self.repo
-        if not repo and "github.com/" in url:
-            parts = url.split("github.com/", 1)[1].split("/")
-            if len(parts) >= 2:
-                repo = f"{parts[0]}/{parts[1]}"
+        if not repo and url:
+            parsed = urlsplit(url)
+            if parsed.hostname == "github.com":
+                parts = [p for p in parsed.path.split("/") if p]
+                if len(parts) >= 2:
+                    repo = f"{parts[0]}/{parts[1]}"
         if not repo:
             raise RuntimeError(
                 f"cannot resolve owner/repo for PR {number} review threads "
@@ -291,11 +295,12 @@ class GitHubPRClient:
             )
         owner, name = repo.split("/", 1)
         query = (
-            "query($owner:String!,$name:String!,$number:Int!){"
+            "query($owner:String!,$name:String!,$number:Int!,$after:String){"
             "repository(owner:$owner,name:$name){pullRequest(number:$number){"
-            "baseRefOid reviewThreads(first:100){nodes{isResolved isOutdated}}}}}"
+            "baseRefOid reviewThreads(first:100,after:$after){"
+            "pageInfo{hasNextPage endCursor}nodes{isResolved isOutdated}}}}}"
         )
-        args = [
+        base_args = [
             "api",
             "graphql",
             "-f",
@@ -307,21 +312,36 @@ class GitHubPRClient:
             "-F",
             f"number={number}",
         ]
-        proc = self.runner(args)
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"gh api graphql reviewThreads for PR {number} failed: "
-                f"{proc.stderr.strip()}"
-            )
-        data = json.loads(proc.stdout)
-        pull = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
-        if pull is None:
-            raise RuntimeError(f"PR {number} not found in {repo} via GraphQL")
-        nodes = ((pull.get("reviewThreads") or {}).get("nodes")) or []
-        return {
-            "baseRefOid": pull.get("baseRefOid") or "",
-            "reviewThreads": [n for n in nodes if isinstance(n, dict)],
-        }
+        threads: list[dict[str, Any]] = []
+        base_oid = ""
+        after: str | None = None
+        while True:
+            args = list(base_args)
+            if after:
+                args += ["-f", f"after={after}"]
+            proc = self.runner(args)
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"gh api graphql reviewThreads for PR {number} failed: "
+                    f"{proc.stderr.strip()}"
+                )
+            data = json.loads(proc.stdout)
+            if data.get("errors"):
+                raise RuntimeError(
+                    f"GraphQL errors for PR {number}: "
+                    f"{json.dumps(data['errors'])[:500]}"
+                )
+            pull = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
+            if pull is None:
+                raise RuntimeError(f"PR {number} not found in {repo} via GraphQL")
+            base_oid = pull.get("baseRefOid") or ""
+            conn = pull.get("reviewThreads") or {}
+            threads.extend(n for n in (conn.get("nodes") or []) if isinstance(n, dict))
+            page = conn.get("pageInfo") or {}
+            after = page.get("endCursor")
+            if not page.get("hasNextPage") or not after:
+                break
+        return {"baseRefOid": base_oid, "reviewThreads": threads}
 
     def is_base_protected(self, base_ref: str) -> bool:
         if not self.repo:

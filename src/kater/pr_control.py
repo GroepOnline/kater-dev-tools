@@ -335,7 +335,13 @@ class GitHubPRClient:
             if pull is None:
                 raise RuntimeError(f"PR {number} not found in {repo} via GraphQL")
             base_oid = pull.get("baseRefOid") or ""
-            conn = pull.get("reviewThreads") or {}
+            conn = pull.get("reviewThreads")
+            if not isinstance(conn, dict):
+                # Partial data without an errors array: never fail open on
+                # missing thread state.
+                raise RuntimeError(
+                    f"reviewThreads missing in GraphQL response for PR {number}"
+                )
             threads.extend(n for n in (conn.get("nodes") or []) if isinstance(n, dict))
             page = conn.get("pageInfo") or {}
             after = page.get("endCursor")

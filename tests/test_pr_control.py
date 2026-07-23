@@ -303,6 +303,28 @@ def test_review_threads_rejects_graphql_errors_payload() -> None:
         raise AssertionError("expected RuntimeError")
 
 
+def test_review_threads_rejects_null_connection_without_errors() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        payload = {
+            "data": {
+                "repository": {
+                    "pullRequest": {"baseRefOid": "base000", "reviewThreads": None}
+                }
+            }
+        }
+        return SimpleNamespace(
+            returncode=0, stdout=__import__("json").dumps(payload), stderr=""
+        )
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    try:
+        client.review_threads(42)
+    except RuntimeError as exc:
+        assert "reviewThreads missing" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
 def test_review_threads_paginates_past_first_page() -> None:
     calls: list[list[str]] = []
 

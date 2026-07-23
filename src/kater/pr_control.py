@@ -243,6 +243,9 @@ class GitHubPRClient:
         return json.loads(proc.stdout)
 
     def pull_request(self, number: int) -> dict[str, Any]:
+        # `reviewThreads` and `baseRefOid` are not valid `gh pr view --json`
+        # fields (gh rejects unknown fields), so review-thread state is
+        # fetched separately via GraphQL in ``_review_threads`` (CHE-793).
         args = [
             "pr",
             "view",
@@ -251,7 +254,7 @@ class GitHubPRClient:
             (
                 "number,title,headRefName,baseRefName,state,url,"
                 "isDraft,mergeable,reviewDecision,statusCheckRollup,"
-                "reviewThreads,commits,baseRefOid,headRefOid"
+                "commits,headRefOid"
             ),
         ]
         if self.repo:
@@ -259,7 +262,80 @@ class GitHubPRClient:
         proc = self.runner(args)
         if proc.returncode != 0:
             raise RuntimeError(f"gh pr view {number} failed: {proc.stderr.strip()}")
-        return json.loads(proc.stdout)
+        pr = json.loads(proc.stdout)
+        pr["reviewThreads"] = self._review_threads(number, pr.get("url") or "")
+        return pr
+
+    def _resolve_owner_repo(self, number: int, url: str) -> tuple[str, str]:
+        """Resolve ``(owner, name)`` for a PR review-thread GraphQL query.
+
+        Priority: an explicit ``self.repo`` (``owner/name``), then the
+        ``owner/name`` parsed from the PR ``url``. Raises ``RuntimeError``
+        when neither yields a usable pair, so callers fail closed instead of
+        silently treating an unresolved repo as "zero open threads".
+        """
+        owner = name = ""
+        if self.repo and "/" in self.repo:
+            head, tail = self.repo.split("/", 1)
+            owner, name = head.strip(), tail.strip()
+        if not (owner and name) and url:
+            # url shape: https://github.com/<owner>/<name>/pull/<number>
+            remainder = url.split("github.com/", 1)[-1]
+            segments = [s for s in remainder.split("/") if s]
+            if len(segments) >= 2:
+                owner, name = segments[0], segments[1]
+        if not (owner and name):
+            raise RuntimeError(
+                f"cannot resolve owner/repo for PR {number} review threads "
+                f"(set KATER_PR_REPO=owner/name or pass the PR url)"
+            )
+        return owner, name
+
+    def _review_threads(self, number: int, url: str) -> list[dict[str, Any]]:
+        """Fetch review-thread resolved state for a PR via GraphQL.
+
+        ``gh pr view --json`` does not expose review threads, so this issues a
+        ``reviewThreads(first:100){nodes{isResolved}}`` query. Fail-closed: a
+        non-zero ``gh`` exit propagates as ``RuntimeError``. Each node is
+        normalised to ``{"isResolved": bool}`` (missing/None -> False).
+        """
+        owner, name = self._resolve_owner_repo(number, url)
+        query = (
+            "query($owner:String!,$name:String!,$number:Int!){"
+            "repository(owner:$owner,name:$name){"
+            "pullRequest(number:$number){"
+            "reviewThreads(first:100){nodes{isResolved}}}}}"
+        )
+        args = [
+            "api",
+            "graphql",
+            "-f",
+            f"query={query}",
+            "-F",
+            f"number={number}",
+            "-f",
+            f"owner={owner}",
+            "-f",
+            f"name={name}",
+        ]
+        proc = self.runner(args)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"failed to fetch reviewThreads for PR {number}: "
+                f"{proc.stderr.strip()}"
+            )
+        try:
+            data = json.loads(proc.stdout) if proc.stdout.strip() else {}
+        except ValueError:
+            data = {}
+        pull_request_node = (
+            (((data or {}).get("data") or {}).get("repository") or {}).get(
+                "pullRequest"
+            )
+            or {}
+        )
+        nodes = (pull_request_node.get("reviewThreads") or {}).get("nodes") or []
+        return [{"isResolved": bool(node.get("isResolved"))} for node in nodes]
 
     def is_base_protected(self, base_ref: str) -> bool:
         if not self.repo:

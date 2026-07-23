@@ -181,16 +181,227 @@ def test_client_pr_list_parses_gh_output() -> None:
 
 
 def test_client_pr_view_passes_number() -> None:
-    captured: dict[str, Any] = {}
+    calls: list[list[str]] = []
 
     def fake_runner(args: list[str]) -> Any:
-        captured["args"] = args
+        calls.append(args)
+        if args[:2] == ["api", "graphql"]:
+            payload = {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {"nodes": [{"isResolved": True}]}
+                        }
+                    }
+                }
+            }
+            return SimpleNamespace(
+                returncode=0, stdout=__import__("json").dumps(payload), stderr=""
+            )
         return SimpleNamespace(returncode=0, stdout=__import__("json").dumps(_pr()), stderr="")
 
     client = GitHubPRClient(runner=fake_runner)
     pr = client.pull_request(42)
     assert pr["number"] == 42
-    assert str(42) in captured["args"]
+    view_args = calls[0]
+    assert str(42) in view_args
+    # reviewThreads/baseRefOid are not valid `gh pr view --json` fields.
+    assert "reviewThreads" not in " ".join(view_args)
+    graphql_args = calls[1]
+    assert "number=42" in " ".join(graphql_args)
+    assert pr["reviewThreads"] == [{"isResolved": True}]
+
+
+def _graphql_response(nodes: list[dict[str, Any]]) -> Any:
+    payload = {
+        "data": {
+            "repository": {"pullRequest": {"reviewThreads": {"nodes": nodes}}}
+        }
+    }
+    return SimpleNamespace(returncode=0, stdout=__import__("json").dumps(payload), stderr="")
+
+
+def test_review_threads_uses_explicit_repo_over_pr_url() -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_runner(args: list[str]) -> Any:
+        captured["args"] = args
+        return _graphql_response([])
+
+    client = GitHubPRClient(repo="explicit/repo", runner=fake_runner)
+    client._review_threads(42, "https://github.com/other-owner/other-repo/pull/42")
+    args_str = " ".join(captured["args"])
+    assert "owner=explicit" in args_str
+    assert "name=repo" in args_str
+
+
+def test_review_threads_parses_owner_repo_from_pr_url(monkeypatch) -> None:
+    monkeypatch.delenv("KATER_PR_REPO", raising=False)
+    captured: dict[str, Any] = {}
+
+    def fake_runner(args: list[str]) -> Any:
+        captured["args"] = args
+        return _graphql_response([])
+
+    client = GitHubPRClient(runner=fake_runner)
+    client._review_threads(7, "https://github.com/acme/widgets/pull/7")
+    args_str = " ".join(captured["args"])
+    assert "owner=acme" in args_str
+    assert "name=widgets" in args_str
+    assert "number=7" in args_str
+
+
+def test_review_threads_raises_when_repo_unresolvable(monkeypatch) -> None:
+    monkeypatch.delenv("KATER_PR_REPO", raising=False)
+
+    def fake_runner(args: list[str]) -> Any:
+        raise AssertionError("runner should not be called when repo cannot be resolved")
+
+    client = GitHubPRClient(runner=fake_runner)
+    try:
+        client._review_threads(42, "")
+    except RuntimeError as exc:
+        assert "cannot resolve owner/repo" in str(exc)
+        assert "42" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_review_threads_raises_when_url_missing_repo_segment(monkeypatch) -> None:
+    monkeypatch.delenv("KATER_PR_REPO", raising=False)
+
+    def fake_runner(args: list[str]) -> Any:
+        raise AssertionError("runner should not be called when repo cannot be resolved")
+
+    client = GitHubPRClient(runner=fake_runner)
+    try:
+        client._review_threads(42, "https://github.com/onlyowner")
+    except RuntimeError as exc:
+        assert "cannot resolve owner/repo" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_review_threads_raises_on_graphql_failure() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(returncode=1, stdout="", stderr="rate limited")
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    try:
+        client._review_threads(42, "")
+    except RuntimeError as exc:
+        assert "reviewThreads for PR 42" in str(exc)
+        assert "rate limited" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_review_threads_returns_empty_list_when_no_nodes() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return _graphql_response([])
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    assert client._review_threads(42, "") == []
+
+
+def test_review_threads_handles_missing_data_gracefully() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    assert client._review_threads(42, "") == []
+
+
+def test_review_threads_coerces_isresolved_to_bool() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return _graphql_response(
+            [
+                {"isResolved": True},
+                {"isResolved": False},
+                {"isResolved": None},
+                {},
+            ]
+        )
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    result = client._review_threads(42, "")
+    assert result == [
+        {"isResolved": True},
+        {"isResolved": False},
+        {"isResolved": False},
+        {"isResolved": False},
+    ]
+
+
+def test_pull_request_json_fields_omit_reviewthreads_and_baserefoid() -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_runner(args: list[str]) -> Any:
+        if args[:2] == ["api", "graphql"]:
+            return _graphql_response([])
+        captured["args"] = args
+        return SimpleNamespace(returncode=0, stdout=__import__("json").dumps(_pr()), stderr="")
+
+    client = GitHubPRClient(runner=fake_runner)
+    client.pull_request(42)
+    fields = captured["args"][captured["args"].index("--json") + 1].split(",")
+    assert "reviewThreads" not in fields
+    assert "baseRefOid" not in fields
+    assert "headRefOid" in fields
+
+
+def test_pull_request_propagates_review_threads_failure() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        if args[:2] == ["api", "graphql"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="graphql down")
+        return SimpleNamespace(returncode=0, stdout=__import__("json").dumps(_pr()), stderr="")
+
+    client = GitHubPRClient(runner=fake_runner)
+    try:
+        client.pull_request(42)
+    except RuntimeError as exc:
+        assert "graphql down" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError to propagate (fail-closed)")
+
+
+def test_pull_request_delegates_to_review_threads(monkeypatch) -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(returncode=0, stdout=__import__("json").dumps(_pr()), stderr="")
+
+    captured: dict[str, Any] = {}
+
+    def fake_review_threads(self: GitHubPRClient, number: int, url: str) -> list[dict[str, Any]]:
+        captured["number"] = number
+        captured["url"] = url
+        return [{"isResolved": True}, {"isResolved": False}]
+
+    monkeypatch.setattr(GitHubPRClient, "_review_threads", fake_review_threads)
+    client = GitHubPRClient(runner=fake_runner)
+    pr = client.pull_request(42)
+    assert captured["number"] == 42
+    assert captured["url"] == _pr()["url"]
+    assert pr["reviewThreads"] == [{"isResolved": True}, {"isResolved": False}]
+
+
+def test_pull_request_passes_empty_string_when_url_missing(monkeypatch) -> None:
+    def fake_runner(args: list[str]) -> Any:
+        pr_without_url = _pr()
+        del pr_without_url["url"]
+        return SimpleNamespace(
+            returncode=0, stdout=__import__("json").dumps(pr_without_url), stderr=""
+        )
+
+    captured: dict[str, Any] = {}
+
+    def fake_review_threads(self: GitHubPRClient, number: int, url: str) -> list[dict[str, Any]]:
+        captured["url"] = url
+        return []
+
+    monkeypatch.setattr(GitHubPRClient, "_review_threads", fake_review_threads)
+    client = GitHubPRClient(runner=fake_runner)
+    client.pull_request(42)
+    assert captured["url"] == ""
 
 
 def test_client_api_error_raises() -> None:

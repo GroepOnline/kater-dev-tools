@@ -21,5 +21,6 @@
 **Action:** For every async-loading view: (1) use `.view-header` + `.view-scroll`, (2) add a manual reload button that toggles `disabled` + `aria-busy` and restores itself in a `finally` block, (3) guard the async body with a sequence counter so superseded responses are ignored, and (4) render untrusted server data via the DOM API (`textContent`, `setAttribute`) rather than `innerHTML`.
 
 ## 2026-07-22 - [WAI-ARIA Combobox for Command Palette]
+
 **Learning:** Implementing the complete WAI-ARIA Combobox pattern (role="combobox", aria-autocomplete="list", aria-controls, aria-expanded, aria-activedescendant, and role="option") for a command palette ensures screen readers can correctly announce the search box, the live item count, and focus changes when navigating options via Arrow keys without losing typing focus.
 **Action:** Always fully bind role="combobox" inputs with their respective role="listbox" container using dynamic aria-activedescendant to ensure standard-compliant command palette accessibility.

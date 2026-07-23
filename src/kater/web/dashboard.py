@@ -1210,6 +1210,7 @@ _HTML_SHELL_BOTTOM = r"""
       placeholder="Search commands, servers, views..." autocomplete="off"
       aria-label="Command palette search" />
     <div class="palette-results" id="palette-results" role="listbox"></div>
+    <div class="palette-empty" id="palette-empty" role="status" hidden></div>
     <div class="palette-foot">
       <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span>
       <span><kbd>&#8629;</kbd> run</span>
@@ -2486,6 +2487,7 @@ async function runCommand(input) {
 let paletteItems = [];
 let paletteFiltered = [];
 let paletteSel = 0;
+let paletteInvoker = null;
 
 function initPalette() {
   const input = document.getElementById('palette-input');
@@ -2536,6 +2538,8 @@ function buildPaletteItems() {
 }
 
 function openPalette() {
+  // Remember what had focus so we can restore it when the palette closes.
+  paletteInvoker = document.activeElement;
   paletteItems = buildPaletteItems();
   paletteSel = 0;
   document.getElementById('cmd-palette').classList.add('show');
@@ -2555,6 +2559,14 @@ function closePalette() {
     input.setAttribute('aria-expanded', 'false');
     input.removeAttribute('aria-activedescendant');
   }
+  // Return focus to the element that opened the palette (e.g. the trigger),
+  // so keyboard users are not dropped back to the top of the document.
+  const invoker = paletteInvoker;
+  paletteInvoker = null;
+  if (invoker && invoker !== input && typeof invoker.focus === 'function'
+      && document.contains(invoker)) {
+    invoker.focus();
+  }
 }
 
 function paletteIsOpen() {
@@ -2572,24 +2584,40 @@ function renderPalette(q) {
 
 function paintPalette() {
   const box = document.getElementById('palette-results');
+  const emptyEl = document.getElementById('palette-empty');
   box.innerHTML = '';
   if (!paletteFiltered.length) {
-    const e = document.createElement('div');
-    e.className = 'palette-empty';
-    e.textContent = 'No matches.';
-    box.appendChild(e);
+    box.hidden = true;
+    if (emptyEl) {
+      emptyEl.textContent = 'No matches.';
+      emptyEl.hidden = false;
+    }
     const input = document.getElementById('palette-input');
     if (input) input.removeAttribute('aria-activedescendant');
     return;
   }
+  box.hidden = false;
+  if (emptyEl) {
+    emptyEl.textContent = '';
+    emptyEl.hidden = true;
+  }
   let lastGroup = null;
+  let groupEl = box;
   paletteFiltered.forEach((it, i) => {
     if (it.group !== lastGroup) {
       lastGroup = it.group;
+      // Wrap each group's options in a role="group" so the listbox only
+      // ever contains options or groups (no bare heading nodes).
+      groupEl = document.createElement('div');
+      groupEl.className = 'palette-group-wrap';
+      groupEl.setAttribute('role', 'group');
+      groupEl.setAttribute('aria-label', it.group);
       const g = document.createElement('div');
       g.className = 'palette-group';
+      g.setAttribute('aria-hidden', 'true');
       g.textContent = it.group;
-      box.appendChild(g);
+      groupEl.appendChild(g);
+      box.appendChild(groupEl);
     }
     const row = document.createElement('div');
     row.className = 'palette-item' + (i === paletteSel ? ' sel' : '');
@@ -2605,7 +2633,7 @@ function paintPalette() {
     hint.textContent = it.hint || '';
     row.appendChild(lbl);
     row.appendChild(hint);
-    box.appendChild(row);
+    groupEl.appendChild(row);
   });
   const sel = box.querySelector('.palette-item.sel');
   if (sel) {

@@ -2,7 +2,28 @@ from __future__ import annotations
 
 import json
 
-from kater.doctor import run_doctor
+from kater.doctor import is_gateway_server, run_doctor
+
+
+def test_is_gateway_server_matches_hostname_not_path() -> None:
+    assert is_gateway_server(
+        "kater-sse",
+        {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
+    )
+    assert is_gateway_server(
+        "kater-localhost",
+        {"type": "sse", "url": "http://localhost:9090/sse"},
+    )
+    # Loopback satellite on a different port is not the gateway.
+    assert not is_gateway_server(
+        "direct-satellite",
+        {"type": "sse", "url": "http://127.0.0.1:8080/sse"},
+    )
+    # Hostname-only match: "localhost" in the path must not count.
+    assert not is_gateway_server(
+        "remote-with-localhost-path",
+        {"type": "sse", "url": "https://example.com/path/localhost/sse"},
+    )
 
 
 def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:

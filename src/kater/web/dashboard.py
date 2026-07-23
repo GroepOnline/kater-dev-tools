@@ -1205,9 +1205,11 @@ _HTML_SHELL_BOTTOM = r"""
 <div class="palette-overlay" id="cmd-palette" role="dialog" aria-modal="true" aria-label="Command palette">
   <div class="palette">
     <input id="palette-input" class="palette-input" type="text"
+      role="combobox" aria-expanded="false" aria-autocomplete="list"
+      aria-controls="palette-results"
       placeholder="Search commands, servers, views..." autocomplete="off"
       aria-label="Command palette search" />
-    <div class="palette-results" id="palette-results"></div>
+    <div class="palette-results" id="palette-results" role="listbox"></div>
     <div class="palette-foot">
       <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span>
       <span><kbd>&#8629;</kbd> run</span>
@@ -2538,13 +2540,21 @@ function openPalette() {
   paletteSel = 0;
   document.getElementById('cmd-palette').classList.add('show');
   const input = document.getElementById('palette-input');
-  input.value = '';
+  if (input) {
+    input.value = '';
+    input.setAttribute('aria-expanded', 'true');
+  }
   renderPalette('');
-  setTimeout(() => input.focus(), 0);
+  setTimeout(() => input && input.focus(), 0);
 }
 
 function closePalette() {
   document.getElementById('cmd-palette').classList.remove('show');
+  const input = document.getElementById('palette-input');
+  if (input) {
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  }
 }
 
 function paletteIsOpen() {
@@ -2568,6 +2578,8 @@ function paintPalette() {
     e.className = 'palette-empty';
     e.textContent = 'No matches.';
     box.appendChild(e);
+    const input = document.getElementById('palette-input');
+    if (input) input.removeAttribute('aria-activedescendant');
     return;
   }
   let lastGroup = null;
@@ -2582,6 +2594,9 @@ function paintPalette() {
     const row = document.createElement('div');
     row.className = 'palette-item' + (i === paletteSel ? ' sel' : '');
     row.dataset.idx = i;
+    row.id = 'palette-opt-' + i;
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', i === paletteSel ? 'true' : 'false');
     const lbl = document.createElement('span');
     lbl.className = 'pi-label';
     lbl.textContent = it.label;
@@ -2593,7 +2608,13 @@ function paintPalette() {
     box.appendChild(row);
   });
   const sel = box.querySelector('.palette-item.sel');
-  if (sel) sel.scrollIntoView({ block: 'nearest' });
+  if (sel) {
+    sel.scrollIntoView({ block: 'nearest' });
+    const input = document.getElementById('palette-input');
+    if (input) {
+      input.setAttribute('aria-activedescendant', 'palette-opt-' + paletteSel);
+    }
+  }
 }
 
 function runPaletteSel() {

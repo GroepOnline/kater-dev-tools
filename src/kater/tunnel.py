@@ -176,6 +176,11 @@ credentials-file: ~/.cloudflared/{tunnel_name}.json
 ingress:
   - hostname: {domain}
     service: http://localhost:{mcp_port}
+    originRequest:
+      # FastMCP DNS-rebinding protection only allows localhost Host when
+      # bound to 127.0.0.1. Prefer also setting KATER_DOMAIN so /sse accepts
+      # the public Host; this rewrite is a belt-and-braces fallback.
+      httpHostHeader: 127.0.0.1:{mcp_port}
   - service: http_status:404
 """
 

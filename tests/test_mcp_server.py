@@ -53,11 +53,28 @@ def test_create_server_allowlists_tunnel_hosts(monkeypatch: pytest.MonkeyPatch) 
     assert fake_module.FastMCP.call_args.kwargs["transport_security"][0] == "security"
     settings = fake_module.FastMCP.call_args.kwargs["transport_security"][1]
     assert settings["enable_dns_rebinding_protection"] is True
-    assert "127.0.0.1:*" in settings["allowed_hosts"]
-    assert "kater.example.com" in settings["allowed_hosts"]
-    assert "kater.example.com:*" in settings["allowed_hosts"]
-    assert "alt.example.com" in settings["allowed_hosts"]
-    assert "https://kater.example.com" in settings["allowed_origins"]
+    assert settings["allowed_hosts"] == [
+        "127.0.0.1:*",
+        "localhost:*",
+        "[::1]:*",
+        "kater.example.com",
+        "kater.example.com:*",
+        "alt.example.com",
+        "alt.example.com:*",
+    ]
+    assert settings["allowed_origins"] == [
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+        "https://kater.example.com",
+        "https://kater.example.com:*",
+        "http://kater.example.com",
+        "http://kater.example.com:*",
+        "https://alt.example.com",
+        "https://alt.example.com:*",
+        "http://alt.example.com",
+        "http://alt.example.com:*",
+    ]
 
 
 def test_create_server_does_not_start_proxy(monkeypatch: pytest.MonkeyPatch) -> None:

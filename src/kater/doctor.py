@@ -66,6 +66,10 @@ def _mcp_server_entries(config: dict[str, Any]) -> dict[str, Any]:
     return servers if isinstance(servers, dict) else {}
 
 
+def _default_port(scheme: str) -> int:
+    return 443 if scheme == "https" else 80
+
+
 def is_gateway_server(name: str, entry: Any) -> bool:
     """Return True when a Cursor MCP entry points at the Kater gateway."""
     if name in _GATEWAY_SERVER_NAMES:
@@ -80,11 +84,17 @@ def is_gateway_server(name: str, entry: Any) -> bool:
     kater_url = os.environ.get("KATER_URL", "http://127.0.0.1:9090/sse").strip()
     if url == kater_url:
         return True
-    return url.endswith("/sse") and urlparse(url).hostname in (
-        "127.0.0.1",
-        "localhost",
-        "::1",
-    )
+    if not url.endswith("/sse"):
+        return False
+    parsed = urlparse(url)
+    if parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+        return False
+    # Same loopback host alone is not enough: a direct satellite on another
+    # port (e.g. http://127.0.0.1:8080/sse) must stay non-gateway.
+    kater_parsed = urlparse(kater_url)
+    entry_port = parsed.port or _default_port(parsed.scheme)
+    kater_port = kater_parsed.port or _default_port(kater_parsed.scheme)
+    return entry_port == kater_port
 
 
 def resolve_cursor_mcp(path: Path | None) -> Path | None:

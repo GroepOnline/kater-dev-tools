@@ -450,3 +450,13 @@ def test_pr_audit_tool_reads_store(monkeypatch) -> None:
     assert one["count"] == 2
     none = pr_audit_tool(pr_number=999)
     assert none["count"] == 0
+
+
+def test_default_repo_from_env(monkeypatch) -> None:
+    monkeypatch.delenv("KATER_PR_REPO", raising=False)
+    assert GitHubPRClient().repo is None
+    monkeypatch.setenv("KATER_PR_REPO", "  ")
+    assert GitHubPRClient().repo is None
+    monkeypatch.setenv("KATER_PR_REPO", "SoonSoonTm/utrecht-data-os")
+    assert GitHubPRClient().repo == "SoonSoonTm/utrecht-data-os"
+    assert GitHubPRClient(repo="o/r").repo == "o/r"

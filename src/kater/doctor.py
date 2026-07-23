@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
@@ -79,8 +80,10 @@ def is_gateway_server(name: str, entry: Any) -> bool:
     kater_url = os.environ.get("KATER_URL", "http://127.0.0.1:9090/sse").strip()
     if url == kater_url:
         return True
-    return url.endswith("/sse") and any(
-        host in url for host in ("127.0.0.1", "localhost", "::1")
+    return url.endswith("/sse") and urlparse(url).hostname in (
+        "127.0.0.1",
+        "localhost",
+        "::1",
     )
 
 
@@ -175,15 +178,12 @@ def _find_context_bloat(
     config = load_cursor_mcp(cursor_mcp_path)
     entries = _mcp_server_entries(config)
     configured = set(entries.keys())
-    selected_names = {source.name for source in selected}
     catalog_names = _catalog_source_names()
     gateway_names = {
         name for name, entry in entries.items() if is_gateway_server(name, entry)
     }
     non_gateway = configured - gateway_names
-    proxyable_outside = sorted(
-        name for name in non_gateway if name in catalog_names and name not in selected_names
-    )
+    proxyable_outside = sorted(name for name in non_gateway if name in catalog_names)
     satellite_names = sorted(name for name in non_gateway if name not in catalog_names)
     findings: list[Finding] = []
 

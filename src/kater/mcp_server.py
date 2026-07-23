@@ -117,7 +117,7 @@ def _transport_security_settings(fastmcp_module: Any) -> Any | None:
     )
     if TransportSecuritySettings is None:
         try:
-            from mcp.server.transport_security import (  # type: ignore[import-not-found]
+            from mcp.server.transport_security import (
                 TransportSecuritySettings as _Settings,
             )
         except Exception:

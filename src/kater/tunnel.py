@@ -174,13 +174,17 @@ def generate_cloudflare_config(
 credentials-file: ~/.cloudflared/{tunnel_name}.json
 
 ingress:
+  # /sse needs a localhost Host so FastMCP's DNS-rebinding guard accepts
+  # it when the MCP server binds 127.0.0.1. Scope the rewrite to /sse only
+  # so /api/*, the dashboard and OAuth keep the real public Host and proxy
+  # metadata stays intact (KATER_DOMAIN is still the recommended path).
   - hostname: {domain}
+    path: /sse*
     service: http://localhost:{mcp_port}
     originRequest:
-      # FastMCP DNS-rebinding protection only allows localhost Host when
-      # bound to 127.0.0.1. Prefer also setting KATER_DOMAIN so /sse accepts
-      # the public Host; this rewrite is a belt-and-braces fallback.
       httpHostHeader: 127.0.0.1:{mcp_port}
+  - hostname: {domain}
+    service: http://localhost:{mcp_port}
   - service: http_status:404
 """
 

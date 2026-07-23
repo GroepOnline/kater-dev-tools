@@ -47,6 +47,61 @@ def test_doctor_reports_context_bloat(tmp_path) -> None:
     assert any(finding.code == "server_outside_profile" for finding in report.findings)
 
 
+def test_doctor_allows_gateway_with_satellite_servers(tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "kater": {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
+                    "chefgroep-vault": {"command": "node"},
+                    "joep-brain": {"command": "ssh"},
+                    "zoho-mail": {"command": "npx"},
+                    "upcloud": {"command": "ssh"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_doctor(
+        profiles={"utrecht", "ops", "code"},
+        cursor_mcp_path=mcp_path,
+    )
+
+    assert not any(finding.code == "too_many_default_servers" for finding in report.findings)
+    assert not any(finding.code == "server_outside_profile" for finding in report.findings)
+    assert {f.source for f in report.findings if f.code == "satellite_server"} == {
+        "chefgroep-vault",
+        "joep-brain",
+        "upcloud",
+        "zoho-mail",
+    }
+
+
+def test_doctor_recognizes_kater_utrecht_alias_as_gateway(tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "kater-utrecht": {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
+                    "custom-local": {"command": "node"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_doctor(profiles={"utrecht"}, cursor_mcp_path=mcp_path)
+
+    assert not any(finding.code == "server_outside_profile" for finding in report.findings)
+    assert any(
+        finding.code == "satellite_server" and finding.source == "custom-local"
+        for finding in report.findings
+    )
+
+
 def test_fix_plan_includes_safe_actions(tmp_path) -> None:
     mcp_path = tmp_path / "mcp.json"
     mcp_path.write_text(

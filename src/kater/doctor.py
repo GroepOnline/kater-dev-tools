@@ -4,10 +4,19 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
-from kater.profiles import DEFAULT_PROFILE, RiskLevel, ToolSource, sources_for_profiles
+from kater.profiles import (
+    DEFAULT_PROFILE,
+    RiskLevel,
+    ToolSource,
+    all_tool_sources,
+    sources_for_profiles,
+)
+
+_GATEWAY_SERVER_NAMES = frozenset({"kater", "kater-utrecht"})
 
 
 class Finding(BaseModel):
@@ -46,6 +55,46 @@ def load_cursor_mcp(path: Path | None) -> dict[str, Any]:
     except (json.JSONDecodeError, ValueError, OSError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _catalog_source_names() -> set[str]:
+    return {source.name for source in all_tool_sources()}
+
+
+def _mcp_server_entries(config: dict[str, Any]) -> dict[str, Any]:
+    servers = config.get("mcpServers", {})
+    return servers if isinstance(servers, dict) else {}
+
+
+def _default_port(scheme: str) -> int:
+    return 443 if scheme == "https" else 80
+
+
+def is_gateway_server(name: str, entry: Any) -> bool:
+    """Return True when a Cursor MCP entry points at the Kater gateway."""
+    if name in _GATEWAY_SERVER_NAMES:
+        return True
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("type") != "sse":
+        return False
+    url = str(entry.get("url", "")).strip()
+    if not url:
+        return False
+    kater_url = os.environ.get("KATER_URL", "http://127.0.0.1:9090/sse").strip()
+    if url == kater_url:
+        return True
+    if not url.endswith("/sse"):
+        return False
+    parsed = urlparse(url)
+    if parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+        return False
+    # Same loopback host alone is not enough: a direct satellite on another
+    # port (e.g. http://127.0.0.1:8080/sse) must stay non-gateway.
+    kater_parsed = urlparse(kater_url)
+    entry_port = parsed.port or _default_port(parsed.scheme)
+    kater_port = kater_parsed.port or _default_port(kater_parsed.scheme)
+    return entry_port == kater_port
 
 
 def resolve_cursor_mcp(path: Path | None) -> Path | None:
@@ -137,11 +186,34 @@ def _find_context_bloat(
     *, cursor_mcp_path: Path | None, selected: list[ToolSource]
 ) -> list[Finding]:
     config = load_cursor_mcp(cursor_mcp_path)
-    configured = set(config.get("mcpServers", {}).keys())
-    selected_names = {source.name for source in selected}
-    extra = sorted(configured - selected_names)
+    entries = _mcp_server_entries(config)
+    configured = set(entries.keys())
+    catalog_names = _catalog_source_names()
+    gateway_names = {
+        name for name, entry in entries.items() if is_gateway_server(name, entry)
+    }
+    non_gateway = configured - gateway_names
+    proxyable_outside = sorted(name for name in non_gateway if name in catalog_names)
+    satellite_names = sorted(name for name in non_gateway if name not in catalog_names)
     findings: list[Finding] = []
-    if len(configured) >= 4:
+
+    if gateway_names:
+        if len(proxyable_outside) >= 3:
+            findings.append(
+                Finding(
+                    code="too_many_default_servers",
+                    severity="warning",
+                    message=(
+                        f"Cursor config exposes {len(proxyable_outside)} profile-gated MCP "
+                        f"servers directly alongside the Kater gateway."
+                    ),
+                    suggested_action=(
+                        "Route catalog MCPs through Kater profiles instead of registering "
+                        "them directly in Cursor."
+                    ),
+                )
+            )
+    elif len(configured) >= 4:
         findings.append(
             Finding(
                 code="too_many_default_servers",
@@ -150,7 +222,8 @@ def _find_context_bloat(
                 suggested_action="Use a Kater profile and expose one gateway server to agents.",
             )
         )
-    for name in extra:
+
+    for name in proxyable_outside:
         findings.append(
             Finding(
                 code="server_outside_profile",
@@ -162,6 +235,24 @@ def _find_context_bloat(
                 ),
             )
         )
+
+    for name in satellite_names:
+        findings.append(
+            Finding(
+                code="satellite_server",
+                severity="info",
+                source=name,
+                message=(
+                    f"{name} is a direct MCP server outside the Kater catalog "
+                    "(no profile adapter yet)."
+                ),
+                suggested_action=(
+                    "Keep it direct until a Kater adapter exists, or register it via "
+                    "KATER_EXTENSIONS_MODULE."
+                ),
+            )
+        )
+
     for source in selected:
         if source.risk == RiskLevel.HIGH and source.name in configured:
             findings.append(

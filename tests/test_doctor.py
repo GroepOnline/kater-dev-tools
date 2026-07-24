@@ -2,7 +2,28 @@ from __future__ import annotations
 
 import json
 
-from kater.doctor import run_doctor
+from kater.doctor import is_gateway_server, run_doctor
+
+
+def test_is_gateway_server_matches_hostname_not_path() -> None:
+    assert is_gateway_server(
+        "kater-sse",
+        {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
+    )
+    assert is_gateway_server(
+        "kater-localhost",
+        {"type": "sse", "url": "http://localhost:9090/sse"},
+    )
+    # Loopback satellite on a different port is not the gateway.
+    assert not is_gateway_server(
+        "direct-satellite",
+        {"type": "sse", "url": "http://127.0.0.1:8080/sse"},
+    )
+    # Hostname-only match: "localhost" in the path must not count.
+    assert not is_gateway_server(
+        "remote-with-localhost-path",
+        {"type": "sse", "url": "https://example.com/path/localhost/sse"},
+    )
 
 
 def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
@@ -45,6 +66,61 @@ def test_doctor_reports_context_bloat(tmp_path) -> None:
 
     assert any(finding.code == "too_many_default_servers" for finding in report.findings)
     assert any(finding.code == "server_outside_profile" for finding in report.findings)
+
+
+def test_doctor_allows_gateway_with_satellite_servers(tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "kater": {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
+                    "chefgroep-vault": {"command": "node"},
+                    "joep-brain": {"command": "ssh"},
+                    "zoho-mail": {"command": "npx"},
+                    "upcloud": {"command": "ssh"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_doctor(
+        profiles={"utrecht", "ops", "code"},
+        cursor_mcp_path=mcp_path,
+    )
+
+    assert not any(finding.code == "too_many_default_servers" for finding in report.findings)
+    assert not any(finding.code == "server_outside_profile" for finding in report.findings)
+    assert {f.source for f in report.findings if f.code == "satellite_server"} == {
+        "chefgroep-vault",
+        "joep-brain",
+        "upcloud",
+        "zoho-mail",
+    }
+
+
+def test_doctor_recognizes_kater_utrecht_alias_as_gateway(tmp_path) -> None:
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "kater-utrecht": {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
+                    "custom-local": {"command": "node"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_doctor(profiles={"utrecht"}, cursor_mcp_path=mcp_path)
+
+    assert not any(finding.code == "server_outside_profile" for finding in report.findings)
+    assert any(
+        finding.code == "satellite_server" and finding.source == "custom-local"
+        for finding in report.findings
+    )
 
 
 def test_fix_plan_includes_safe_actions(tmp_path) -> None:

@@ -5,8 +5,9 @@ Run Kater on a machine you control. **Always enable auth before public exposure.
 ## Quick start (Tailscale / private network)
 
 ```bash
-git clone https://github.com/OnlineChefGroep/kater-dev-tools.git
-cd kater-dev-tools
+mkdir -p ~/OrgChefgroep
+git clone https://github.com/OnlineChefGroep/kater-dev-tools.git ~/OrgChefgroep/kater-dev-tools
+cd ~/OrgChefgroep/kater-dev-tools
 cp .env.example .env
 docker compose up -d --build
 ```

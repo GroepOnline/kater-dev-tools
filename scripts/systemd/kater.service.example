@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/kater-dev-tools
+WorkingDirectory=%h/OrgChefgroep/kater-dev-tools
 EnvironmentFile=-%h/.config/kater/kater.env
 Environment=KATER_PUBLIC=1
 Environment=KATER_AUTH_MODE=oauth
@@ -16,10 +16,12 @@ Environment=KATER_DOMAIN=kater.example.com
 Environment=KATER_CORS_ORIGINS=https://kater.example.com
 # Validate config + connectivity before serving (systemd already guarantees a
 # single instance, so no pkill is needed).
-ExecStartPre=%h/kater-dev-tools/.venv/bin/kater doctor
-ExecStart=%h/kater-dev-tools/.venv/bin/kater serve --profile core --host 127.0.0.1
+ExecStartPre=%h/OrgChefgroep/kater-dev-tools/.venv/bin/kater doctor
+ExecStart=%h/OrgChefgroep/kater-dev-tools/.venv/bin/kater serve --profile core --host 127.0.0.1
 Restart=always
 RestartSec=5
+MemoryMax=1G
+MemoryHigh=896M
 TimeoutStartSec=30
 TimeoutStopSec=15
 KillMode=mixed
@@ -39,7 +41,7 @@ UMask=0077
 CapabilityBoundingSet=
 AmbientCapabilities=
 # Kater keeps SQLite state under .kater/ and a runtime dir.
-ReadWritePaths=%h/kater-dev-tools/.kater
+ReadWritePaths=%h/OrgChefgroep/kater-dev-tools/.kater
 RuntimeDirectory=kater
 StateDirectory=kater
 

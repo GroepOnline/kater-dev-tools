@@ -44,6 +44,7 @@ def test_generate_cloudflare_config():
     assert "tunnel: my-tunnel" in config
     assert "hostname: kater.example.com" in config
     assert "localhost:9090" in config
+    assert "httpHostHeader: 127.0.0.1:9090" in config
     assert "ingress:" in config
     assert "api.kater" not in config
 

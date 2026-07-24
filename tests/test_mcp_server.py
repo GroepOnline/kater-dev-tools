@@ -22,7 +22,10 @@ def test_mcp_missing_package_message() -> None:
 def test_mcp_registers_core_tools() -> None:
     fake_server = Mock()
     fake_server.tool.return_value = lambda handler: handler
-    fake_module = Mock(FastMCP=Mock(return_value=fake_server))
+    fake_module = Mock(
+        FastMCP=Mock(return_value=fake_server),
+        TransportSecuritySettings=Mock(side_effect=lambda **kw: kw),
+    )
 
     with patch("kater.mcp_server.import_module", return_value=fake_module):
         server = mcp_server.create_server(profile="core")
@@ -33,10 +36,54 @@ def test_mcp_registers_core_tools() -> None:
     assert "kater_doctor" in registered
 
 
+def test_create_server_allowlists_tunnel_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_server = Mock()
+    fake_server.tool.return_value = lambda handler: handler
+    security_ctor = Mock(side_effect=lambda **kw: ("security", kw))
+    fake_module = Mock(
+        FastMCP=Mock(return_value=fake_server),
+        TransportSecuritySettings=security_ctor,
+    )
+    monkeypatch.setenv("KATER_DOMAIN", "kater.example.com")
+    monkeypatch.setenv("KATER_HTTPS_HOSTS", "kater.example.com,alt.example.com")
+
+    with patch("kater.mcp_server.import_module", return_value=fake_module):
+        mcp_server.create_server(profile="core")
+
+    assert fake_module.FastMCP.call_args.kwargs["transport_security"][0] == "security"
+    settings = fake_module.FastMCP.call_args.kwargs["transport_security"][1]
+    assert settings["enable_dns_rebinding_protection"] is True
+    assert settings["allowed_hosts"] == [
+        "127.0.0.1:*",
+        "localhost:*",
+        "[::1]:*",
+        "kater.example.com",
+        "kater.example.com:*",
+        "alt.example.com",
+        "alt.example.com:*",
+    ]
+    assert settings["allowed_origins"] == [
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+        "https://kater.example.com",
+        "https://kater.example.com:*",
+        "http://kater.example.com",
+        "http://kater.example.com:*",
+        "https://alt.example.com",
+        "https://alt.example.com:*",
+        "http://alt.example.com",
+        "http://alt.example.com:*",
+    ]
+
+
 def test_create_server_does_not_start_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_server = Mock()
     fake_server.tool.return_value = lambda handler: handler
-    fake_module = Mock(FastMCP=Mock(return_value=fake_server))
+    fake_module = Mock(
+        FastMCP=Mock(return_value=fake_server),
+        TransportSecuritySettings=Mock(side_effect=lambda **kw: kw),
+    )
     proxy_start = Mock()
     monkeypatch.setattr(
         "kater.proxy.get_proxy",

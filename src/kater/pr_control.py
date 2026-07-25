@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 _log = logging.getLogger("kater.pr_control")
 
@@ -243,9 +244,9 @@ class GitHubPRClient:
         return json.loads(proc.stdout)
 
     def pull_request(self, number: int) -> dict[str, Any]:
-        # `reviewThreads` and `baseRefOid` are not valid `gh pr view --json`
-        # fields (gh rejects unknown fields), so review-thread state is
-        # fetched separately via GraphQL in ``_review_threads`` (CHE-793).
+        # NOTE: `reviewThreads` and `baseRefOid` are intentionally absent from
+        # the --json field list: `gh pr view` does not expose them (fails with
+        # "Unknown JSON field"). Both are fetched via GraphQL below.
         args = [
             "pr",
             "view",
@@ -262,80 +263,91 @@ class GitHubPRClient:
         proc = self.runner(args)
         if proc.returncode != 0:
             raise RuntimeError(f"gh pr view {number} failed: {proc.stderr.strip()}")
-        pr = json.loads(proc.stdout)
-        pr["reviewThreads"] = self._review_threads(number, pr.get("url") or "")
+        pr: dict[str, Any] = json.loads(proc.stdout)
+        extras = self._graphql_extras(number, url=pr.get("url") or "")
+        pr["reviewThreads"] = extras["reviewThreads"]
+        pr["baseRefOid"] = extras["baseRefOid"]
         return pr
 
-    def _resolve_owner_repo(self, number: int, url: str) -> tuple[str, str]:
-        """Resolve ``(owner, name)`` for a PR review-thread GraphQL query.
+    def review_threads(self, number: int, *, url: str = "") -> list[dict[str, Any]]:
+        """Fetch review-thread resolution state via the GraphQL API."""
+        return self._graphql_extras(number, url=url)["reviewThreads"]
 
-        Priority: an explicit ``self.repo`` (``owner/name``), then the
-        ``owner/name`` parsed from the PR ``url``. Raises ``RuntimeError``
-        when neither yields a usable pair, so callers fail closed instead of
-        silently treating an unresolved repo as "zero open threads".
+    def _graphql_extras(self, number: int, *, url: str = "") -> dict[str, Any]:
+        """Fetch fields `gh pr view --json` cannot provide, via GraphQL.
+
+        Covers reviewThreads (unresolved-thread gating, paginated so threads
+        beyond the first page still block) and baseRefOid (pinned base SHA).
+        Fail-closed: any transport or GraphQL error raises rather than
+        returning an optimistic empty result.
         """
-        owner = name = ""
-        if self.repo and "/" in self.repo:
-            head, tail = self.repo.split("/", 1)
-            owner, name = head.strip(), tail.strip()
-        if not (owner and name) and url:
-            # url shape: https://github.com/<owner>/<name>/pull/<number>
-            remainder = url.split("github.com/", 1)[-1]
-            segments = [s for s in remainder.split("/") if s]
-            if len(segments) >= 2:
-                owner, name = segments[0], segments[1]
-        if not (owner and name):
+        repo = self.repo
+        if not repo and url:
+            parsed = urlsplit(url)
+            if parsed.hostname == "github.com":
+                parts = [p for p in parsed.path.split("/") if p]
+                if len(parts) >= 2:
+                    repo = f"{parts[0]}/{parts[1]}"
+        if not repo:
             raise RuntimeError(
                 f"cannot resolve owner/repo for PR {number} review threads "
-                f"(set KATER_PR_REPO=owner/name or pass the PR url)"
+                "(set KATER_PR_REPO)"
             )
-        return owner, name
-
-    def _review_threads(self, number: int, url: str) -> list[dict[str, Any]]:
-        """Fetch review-thread resolved state for a PR via GraphQL.
-
-        ``gh pr view --json`` does not expose review threads, so this issues a
-        ``reviewThreads(first:100){nodes{isResolved}}`` query. Fail-closed: a
-        non-zero ``gh`` exit propagates as ``RuntimeError``. Each node is
-        normalised to ``{"isResolved": bool}`` (missing/None -> False).
-        """
-        owner, name = self._resolve_owner_repo(number, url)
+        owner, name = repo.split("/", 1)
         query = (
-            "query($owner:String!,$name:String!,$number:Int!){"
-            "repository(owner:$owner,name:$name){"
-            "pullRequest(number:$number){"
-            "reviewThreads(first:100){nodes{isResolved}}}}}"
+            "query($owner:String!,$name:String!,$number:Int!,$after:String){"
+            "repository(owner:$owner,name:$name){pullRequest(number:$number){"
+            "baseRefOid reviewThreads(first:100,after:$after){"
+            "pageInfo{hasNextPage endCursor}nodes{isResolved isOutdated}}}}}"
         )
-        args = [
+        base_args = [
             "api",
             "graphql",
             "-f",
             f"query={query}",
-            "-F",
-            f"number={number}",
             "-f",
             f"owner={owner}",
             "-f",
             f"name={name}",
+            "-F",
+            f"number={number}",
         ]
-        proc = self.runner(args)
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"failed to fetch reviewThreads for PR {number}: "
-                f"{proc.stderr.strip()}"
-            )
-        try:
-            data = json.loads(proc.stdout) if proc.stdout.strip() else {}
-        except ValueError:
-            data = {}
-        pull_request_node = (
-            (((data or {}).get("data") or {}).get("repository") or {}).get(
-                "pullRequest"
-            )
-            or {}
-        )
-        nodes = (pull_request_node.get("reviewThreads") or {}).get("nodes") or []
-        return [{"isResolved": bool(node.get("isResolved"))} for node in nodes]
+        threads: list[dict[str, Any]] = []
+        base_oid = ""
+        after: str | None = None
+        while True:
+            args = list(base_args)
+            if after:
+                args += ["-f", f"after={after}"]
+            proc = self.runner(args)
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"gh api graphql reviewThreads for PR {number} failed: "
+                    f"{proc.stderr.strip()}"
+                )
+            data = json.loads(proc.stdout)
+            if data.get("errors"):
+                raise RuntimeError(
+                    f"GraphQL errors for PR {number}: "
+                    f"{json.dumps(data['errors'])[:500]}"
+                )
+            pull = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
+            if pull is None:
+                raise RuntimeError(f"PR {number} not found in {repo} via GraphQL")
+            base_oid = pull.get("baseRefOid") or ""
+            conn = pull.get("reviewThreads")
+            if not isinstance(conn, dict):
+                # Partial data without an errors array: never fail open on
+                # missing thread state.
+                raise RuntimeError(
+                    f"reviewThreads missing in GraphQL response for PR {number}"
+                )
+            threads.extend(n for n in (conn.get("nodes") or []) if isinstance(n, dict))
+            page = conn.get("pageInfo") or {}
+            after = page.get("endCursor")
+            if not page.get("hasNextPage") or not after:
+                break
+        return {"baseRefOid": base_oid, "reviewThreads": threads}
 
     def is_base_protected(self, base_ref: str) -> bool:
         if not self.repo:

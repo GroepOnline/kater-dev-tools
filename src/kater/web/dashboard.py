@@ -2189,12 +2189,17 @@ function openCredentialsModal(server) {
   } else {
     sub.textContent = 'Paste ' + (reqs.length > 1 ? 'these tokens' : 'a token')
       + ' to connect ' + server.name + ', or open the provider to create one.';
+    const usedIds = new Set();
     for (const v of reqs) {
       const wrap = document.createElement('div');
       wrap.className = 'form-field';
-      const safeId = 'cred-input-' + v
+      const baseId = 'cred-input-' + v
         .replace(/[^a-z0-9]/gi, '-')
         .toLowerCase();
+      let safeId = baseId;
+      let suffix = 2;
+      while (usedIds.has(safeId)) safeId = baseId + '-' + suffix++;
+      usedIds.add(safeId);
       const label = document.createElement('label');
       label.className = 'form-label';
       label.setAttribute('for', safeId);

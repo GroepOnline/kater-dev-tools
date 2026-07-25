@@ -243,8 +243,47 @@ def test_pr_view_reload_is_race_safe_and_dom_safe():
 
 
 def test_credentials_modal_label_association_for_accessibility():
-    # Credentials modal input fields must be associated with their labels for accessibility.
+    # Credentials modal input fields must be associated with their labels for
+    # accessibility: each label's `for` must match its paired input's `id`.
     html = render_dashboard()
-    assert "const safeId = 'cred-input-' + v" in html
+    # Field IDs derive from a sanitized credential name.
+    assert "const baseId = 'cred-input-' + v" in html
     assert "label.setAttribute('for', safeId)" in html
     assert "input.id = safeId" in html
+    # The sanitizer is not injective (e.g. FOO_BAR and foo-bar both reduce to
+    # cred-input-foo-bar), so collisions must resolve to unique IDs via a
+    # deterministic suffix; otherwise a label would target the wrong input.
+    assert "const usedIds = new Set()" in html
+    assert "while (usedIds.has(safeId)) safeId = baseId + '-' + suffix++" in html
+    assert "usedIds.add(safeId)" in html
+
+
+def test_credentials_modal_id_generation_is_collision_safe():
+    # Mirror the modal's client-side ID logic and prove it produces unique,
+    # correctly paired IDs for credential names that sanitize to the same value.
+    import re
+
+    def generate_ids(reqs):
+        used = set()
+        pairs = []
+        for v in reqs:
+            base_id = "cred-input-" + re.sub(r"[^a-z0-9]", "-", v, flags=re.I).lower()
+            safe_id = base_id
+            suffix = 2
+            while safe_id in used:
+                safe_id = f"{base_id}-{suffix}"
+                suffix += 1
+            used.add(safe_id)
+            pairs.append((v, safe_id))
+        return pairs
+
+    pairs = generate_ids(["FOO_BAR", "foo-bar", "foo.bar", "BAZ"])
+    ids = [safe_id for _, safe_id in pairs]
+    # Every generated id is unique despite the colliding sanitized bases.
+    assert len(ids) == len(set(ids))
+    # The first occurrence keeps the plain sanitized id; later collisions get
+    # a deterministic numeric suffix.
+    assert ids[0] == "cred-input-foo-bar"
+    assert ids[1] == "cred-input-foo-bar-2"
+    assert ids[2] == "cred-input-foo-bar-3"
+    assert ids[3] == "cred-input-baz"

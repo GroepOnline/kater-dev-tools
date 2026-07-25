@@ -2192,10 +2192,15 @@ function openCredentialsModal(server) {
     for (const v of reqs) {
       const wrap = document.createElement('div');
       wrap.className = 'form-field';
+      const safeId = 'cred-input-' + v
+        .replace(/[^a-z0-9]/gi, '-')
+        .toLowerCase();
       const label = document.createElement('label');
       label.className = 'form-label';
+      label.setAttribute('for', safeId);
       label.textContent = v;
       const input = document.createElement('input');
+      input.id = safeId;
       input.className = 'form-input';
       input.type = 'password';
       input.autocomplete = 'off';

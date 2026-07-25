@@ -240,3 +240,11 @@ def test_pr_view_reload_is_race_safe_and_dom_safe():
     # Card fields are assigned via textContent, not string interpolation.
     assert "title.textContent = '#' + pr.number" in fn_body
     assert "badge.textContent = verdict" in fn_body
+
+
+def test_credentials_modal_label_association_for_accessibility():
+    # Credentials modal input fields must be associated with their labels for accessibility.
+    html = render_dashboard()
+    assert "const safeId = 'cred-input-' + v" in html
+    assert "label.setAttribute('for', safeId)" in html
+    assert "input.id = safeId" in html

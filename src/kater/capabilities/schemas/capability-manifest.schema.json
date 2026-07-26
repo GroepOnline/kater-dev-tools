@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://kater.dev/schemas/capability-manifest.schema.json",
   "title": "CapabilityManifest",
-  "description": "Kater capability package manifest (CHE-659).",
+  "description": "Kater capability package manifest.",
   "type": "object",
   "additionalProperties": false,
   "required": [

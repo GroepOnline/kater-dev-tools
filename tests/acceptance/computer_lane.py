@@ -34,7 +34,7 @@ class ProcessSpec:
 class ComputerAcceptanceHarness:
     """Own three real OS process groups and preserve diagnostics on failure."""
 
-    udo_checkout: Path
+    contract_checkout: Path
     processes: tuple[ProcessSpec, ...]
     _children: list[tuple[ProcessSpec, subprocess.Popen[str]]] = field(
         default_factory=list, init=False
@@ -47,7 +47,7 @@ class ComputerAcceptanceHarness:
             raise RuntimeError("KATER_UDO_CHECKOUT is required for the real acceptance lane")
         checkout = Path(raw).resolve()
         if not checkout.is_dir() or not (checkout / ".git").exists():
-            raise RuntimeError(f"invalid UDO checkout: {checkout}")
+            raise RuntimeError(f"invalid contract checkout: {checkout}")
         return cls(checkout, ())
 
     def start(self, names: tuple[str, ...] | None = None) -> None:
@@ -71,7 +71,7 @@ class ComputerAcceptanceHarness:
             ):
                 child = subprocess.Popen(
                     spec.command,
-                    cwd=spec.cwd or self.udo_checkout,
+                    cwd=spec.cwd or self.contract_checkout,
                     env=env,
                     stdout=stdout,
                     stderr=stderr,

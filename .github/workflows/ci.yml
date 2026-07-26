@@ -169,18 +169,27 @@ jobs:
 
   # The Computer lane is a cross-repository contract gate. Keep it out of the
   # Python-version matrix and run it once against the exact UDO contract/runtime
-  # commit that Kater's generated package was synchronized from.
+  # commit that Kater's generated package was synchronized from. Dependabot
+  # cannot receive the private deploy key, so only that actor gets an explicit,
+  # auditable skip while the public unit/integration/e2e gates remain required.
   computer-acceptance:
     needs: [validate]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Explain skipped private acceptance
+        if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+        run: |
+          echo "Private UDO acceptance skipped for Dependabot because GitHub withholds repository secrets from Dependabot-triggered workflows." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout Kater
+        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
 
       - name: Checkout pinned UDO runtime
+        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: ${{ github.repository_owner }}/utrecht-data-os
@@ -190,25 +199,30 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
+        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: "3.12"
           enable-cache: true
 
       - name: Sync Kater dependencies (frozen)
+        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         run: uv sync --frozen --dev
 
       - name: Install pinned controller dependencies
+        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         working-directory: utrecht-data-os/platform/agent-control-plane/apps/session-controller
         run: npm ci --ignore-scripts
 
       - name: Run Computer acceptance lane
+        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         env:
           COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
           KATER_UDO_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
 
       - name: Publish schema-validated acceptance evidence
+        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: computer-acceptance-evidence

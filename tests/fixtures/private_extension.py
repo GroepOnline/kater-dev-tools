@@ -38,7 +38,7 @@ CHAINS: tuple[ChainDefinition, ...] = (
     ),
 )
 
-# CHE-659: private deployments (e.g. utrecht-katermcp) export CAPABILITIES the same way.
+# Capability manifests: private deployments export CAPABILITIES the same way.
 from kater.capabilities.models import (  # noqa: E402
     CapabilityManifest,
     CapabilityTransport,

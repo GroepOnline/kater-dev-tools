@@ -15,7 +15,7 @@ def load_extensions_module() -> Any | None:
     - ``PRIVATE_PROFILES``: profile names hidden when ``KATER_PUBLIC=1``
     - ``NATIVE_TOOLS``: extra ``NativeTool`` entries for ``build_native_tools``
     - ``CHAINS``: extra ``ChainDefinition`` entries
-    - ``CAPABILITIES``: extra ``CapabilityManifest`` entries (CHE-659 registry)
+    - ``CAPABILITIES``: extra ``CapabilityManifest`` entries (capability manifest registry)
     """
     name = os.environ.get("KATER_EXTENSIONS_MODULE", "").strip()
     if not name:

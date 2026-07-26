@@ -1,4 +1,4 @@
-"""SQLite + ProxyManager integration tests for CHE-659 capabilities."""
+"""SQLite + ProxyManager integration tests for capabilities."""
 
 from __future__ import annotations
 

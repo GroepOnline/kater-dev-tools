@@ -16,7 +16,7 @@ from kater.capabilities.computer import (
     build_invocation_request,
     computer_tool_source,
     load_computer_manifests,
-    load_computer_manifests_from_udo,
+    load_computer_manifests_from_checkout,
     make_invocation_result,
     revoke_computer_capability,
     validate_invocation_envelope,
@@ -49,7 +49,7 @@ def test_loader_rejects_contract_digest_drift(tmp_path: Path) -> None:
 def test_udo_loader_requires_generated_contract(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     with pytest.raises(ContractDigestError, match="generated Computer contract missing"):
-        load_computer_manifests_from_udo(tmp_path)
+        load_computer_manifests_from_checkout(tmp_path)
 
 
 def test_computer_ids_are_managed_and_unknown_ids_are_denied() -> None:

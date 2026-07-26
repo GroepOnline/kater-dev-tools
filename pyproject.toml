@@ -39,14 +39,14 @@ kater-capabilities = "kater.capabilities.cli:app"
 browser = ["playwright>=1.49"]
 
 [build-system]
-requires = ["uv_build>=0.11.30,<0.12"]
+requires = ["uv_build>=0.11.32,<0.12"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.22",
+    "ruff>=0.16.0",
     "mypy>=2.3.0",
     "pyyaml>=6.0",
     "pip-audit>=2.9.0",

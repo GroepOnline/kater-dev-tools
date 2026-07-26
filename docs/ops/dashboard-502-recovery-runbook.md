@@ -7,9 +7,8 @@ Cloudflare Tunnel (`cloudflared`) to the local Kater server.
 
 A 502 means the Cloudflare edge is healthy but the origin returned no valid
 response: either the Kater server (`kater serve`), the `cloudflared` tunnel
-process, or the tunnel token is down/expired. It does **not** indicate a code
-or dashboard-redesign problem (neither CHE-457 nor CHE-322 is involved) — the
-server is simply unreachable.
+process, or the tunnel token is down/expired. It is a deployment/recovery issue,
+**not** a code or dashboard-redesign problem — the server is simply unreachable.
 
 Do not paste real connection strings, tunnel tokens, Redis credentials, API keys,
 private IPs, or provider config into Git, GitHub, or Linear. Keep secrets in the

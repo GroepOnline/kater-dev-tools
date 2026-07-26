@@ -1,7 +1,6 @@
 # Kater routed capability pools — vertical slice
 
 Status: implemented in PR #108  
-Linear: CHE-693  
 Boundary: Kater capability fabric; not a model gateway and not Computer/Fleet
 
 ## What this actually ships
@@ -88,7 +87,7 @@ kater-routes add web.search \
 ```bash
 kater-routes list --capability web.search
 kater-routes dry-run web.search \
-  --context CHE-693 \
+  --context mcp-default \
   --scopes web.read \
   --estimated-units 1
 kater-routes decisions --capability web.search --limit 50
@@ -101,9 +100,9 @@ tool is called:
 
 ```json
 {
-  "query": "Utrecht open data",
+  "query": "example search query",
   "_kater_route": {
-    "context_id": "CHE-693",
+    "context_id": "mcp-default",
     "required_scopes": ["web.read"],
     "estimated_units": 1
   }
@@ -116,8 +115,9 @@ constraints, and one estimated unit.
 `context_id` is currently an affinity/correlation key, not an authenticated
 principal. `required_scopes` is a caller-supplied route-compatibility constraint,
 not an authorization grant or policy decision. Authentication remains enforced by
-Kater's existing auth gate. Policy-derived contexts and signed scoped tokens belong
-to CHE-660/CHE-695; this slice does not claim to implement them.
+Kater's existing auth gate. Policy-derived contexts and signed scoped tokens are
+explicitly out of scope for this slice; authentication and policy enforcement
+live in the auth gate.
 
 ## Persistence model
 
@@ -190,8 +190,8 @@ slice feeds existing Kater surfaces:
 - WebSocket telemetry: broadcasts each routing attempt outcome.
 
 The durable detail ledger remains queryable through `kater-routes decisions`.
-A dedicated policy-scoped REST surface belongs in CHE-695, together with remote
-contexts and signed scoped tokens, rather than being added prematurely here.
+A dedicated policy-scoped REST surface with remote contexts and signed scoped
+tokens is intentionally deferred and not added here.
 
 ## Compatibility
 
@@ -223,13 +223,14 @@ The focused suite proves:
 - canonical lifecycle validation;
 - affinity/decision TTL and row-cap pruning.
 
-## Explicitly deferred
+## Future work in this slice
 
-- credential brokerage, policy grants and signed contexts: CHE-660/CHE-695;
-- provider usage reconciliation and invoice-grade cost accounting: CHE-694;
-- isolated connector process/container supervisor: CHE-661/CHE-696;
-- A2A task protocol: CHE-697;
-- repository/worktree/PR job resumability and intervention queue: CHE-698.
+- credential brokerage, policy grants, and signed scoped-context tokens;
+- provider usage reconciliation and invoice-grade cost accounting;
+- isolated connector process/container supervisor with canary and rollback;
+- an agent-to-agent task protocol;
+- repository, worktree, and PR job resumability with an operator intervention
+  queue.
 
-Those items now build on a real routing execution path instead of another set of
-standalone domain objects.
+Those items are designed to build on the real routing execution path introduced
+here, instead of bolting on more standalone domain objects.

@@ -77,10 +77,10 @@ def test_doctor_allows_gateway_with_satellite_servers(tmp_path) -> None:
             {
                 "mcpServers": {
                     "kater": {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
-                    "chefgroep-vault": {"command": "node"},
-                    "joep-brain": {"command": "ssh"},
-                    "zoho-mail": {"command": "npx"},
-                    "upcloud": {"command": "ssh"},
+                    "team-vault": {"command": "node"},
+                    "team-brain": {"command": "ssh"},
+                    "team-mail": {"command": "npx"},
+                    "team-storage": {"command": "ssh"},
                 }
             }
         ),
@@ -88,27 +88,27 @@ def test_doctor_allows_gateway_with_satellite_servers(tmp_path) -> None:
     )
 
     report = run_doctor(
-        profiles={"utrecht", "ops", "code"},
+        profiles={"code", "ops"},
         cursor_mcp_path=mcp_path,
     )
 
     assert not any(finding.code == "too_many_default_servers" for finding in report.findings)
     assert not any(finding.code == "server_outside_profile" for finding in report.findings)
     assert {f.source for f in report.findings if f.code == "satellite_server"} == {
-        "chefgroep-vault",
-        "joep-brain",
-        "upcloud",
-        "zoho-mail",
+        "team-brain",
+        "team-mail",
+        "team-storage",
+        "team-vault",
     }
 
 
-def test_doctor_recognizes_kater_utrecht_alias_as_gateway(tmp_path) -> None:
+def test_doctor_recognizes_gateway_by_url_match(tmp_path) -> None:
     mcp_path = tmp_path / "mcp.json"
     mcp_path.write_text(
         json.dumps(
             {
                 "mcpServers": {
-                    "kater-utrecht": {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
+                    "kater-clone": {"type": "sse", "url": "http://127.0.0.1:9090/sse"},
                     "custom-local": {"command": "node"},
                 }
             }
@@ -116,7 +116,7 @@ def test_doctor_recognizes_kater_utrecht_alias_as_gateway(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    report = run_doctor(profiles={"utrecht"}, cursor_mcp_path=mcp_path)
+    report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
 
     assert not any(finding.code == "server_outside_profile" for finding in report.findings)
     assert any(

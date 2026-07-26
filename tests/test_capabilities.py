@@ -1,4 +1,4 @@
-"""Unit tests for CHE-659 capability manifest registry and discovery."""
+"""Unit tests for the capability manifest registry and discovery."""
 
 from __future__ import annotations
 

@@ -1,7 +1,6 @@
-# Capability manifest registry (CHE-659)
+# Capability manifest registry
 
 Status: foundation slice  
-Linear: CHE-659 (see the project tracker)
 Boundary: Kater capability fabric; not credential/policy authority and not connector runtime
 
 ## What it is
@@ -21,8 +20,8 @@ for a task/profile/risk/tag context; that set is a convenience, not a grant.
 | Surface | Role |
 |---|---|
 | `backend__tool` | Concrete prefixed MCP tool names; `__` reserved |
-| `kater-routes` (CHE-693) | Logical alias → account/backend/tool **pools**, quota, affinity, fallback |
-| Capability manifests (CHE-659) | Package identity, risk/lifecycle, schemas, discovery filters |
+| `kater-routes` | Logical alias → account/backend/tool **pools**, quota, affinity, fallback |
+| Capability manifests | Package identity, risk/lifecycle, schemas, discovery filters |
 
 Logical capability IDs **must not** contain `__`. Route pools and manifests share
 the same logical ID space (e.g. `web.search`) but different tables and concerns:
@@ -47,7 +46,7 @@ compatibility with today’s concrete tools until they are enrolled.
 Optional deployment extensions (`KATER_EXTENSIONS_MODULE`) may export
 `CAPABILITIES`: a sequence of `CapabilityManifest` values merged into the
 default registry at bootstrap (alongside builtins). Invalid entries are skipped
-with a warning. This is the out-of-band path for domain packages (e.g. UDO)
+with a warning. This is the out-of-band path for private domain packages
 without mutating the live gateway from an agent session.
 
 ## Unmanaged vs managed capabilities
@@ -64,10 +63,10 @@ a later bootstrap path.
 
 ## Follow-ons
 
-- **CHE-660** — credential broker, policy engine, approvals and audit (discovery
-  hints become enforceable grants; invocation pipeline stages).
-- **CHE-664** — package Utrecht Data OS as a Kater domain extension (manifests +
-  `CAPABILITIES` / package install path).
+- **Credential broker** — policy engine, approvals, and audit (discovery hints
+  become enforceable grants; invocation pipeline stages).
+- **Domain extension packaging** — ship an external data plane as a Kater
+  domain extension (manifests + `CAPABILITIES` / package install path).
 
-Related: CHE-661 connector canary/rollback runtime; CHE-695 context-scoped
-tokens; CHE-693 route pools for multi-account fallback behind a logical ID.
+Related: connector canary/rollback runtime; context-scoped routing context;
+logical route pools for multi-account fallback behind a logical ID.

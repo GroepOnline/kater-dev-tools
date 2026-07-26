@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 from kater.capabilities.computer import (
@@ -55,8 +56,9 @@ def _invoke(
 
 def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
     """Exercise canonical controller, real guest, and production Kater routing together."""
-    checkout = Path(os.environ.get("KATER_UDO_CHECKOUT", "")).resolve()
-    assert os.environ.get("KATER_UDO_CHECKOUT"), "KATER_UDO_CHECKOUT is required"
+    if not os.environ.get("KATER_UDO_CHECKOUT"):
+        pytest.skip("KATER_UDO_CHECKOUT is required for cross-process computer acceptance")
+    checkout = Path(os.environ["KATER_UDO_CHECKOUT"]).resolve()
     assert checkout.is_dir() and (checkout / ".git").exists(), (
         f"invalid contract checkout: {checkout}"
     )

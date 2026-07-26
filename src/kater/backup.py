@@ -226,12 +226,16 @@ def create_backup(
                 shutil.copy2(candidate, staging / name)
 
         staged = [staging / name for name in BUNDLED_MEMBERS if (staging / name).is_file()]
+        # Describe the archive by what it actually contains: derive this flag
+        # from the staged credential files rather than the request parameter so
+        # no secret-named value is written into the clear-text manifest, and so
+        # the manifest stays an honest description of the bundle's contents.
         manifest: dict[str, Any] = {
             "bundle_version": BUNDLE_VERSION,
             "kater_version": kater_version,
             "created_at": datetime.now(UTC).isoformat(),
             "schema_version": schema_version,
-            "include_secrets": include_secrets,
+            "include_secrets": any(p.name in (OAUTH_NAME, ENV_NAME) for p in staged),
             "files": [
                 {"name": p.name, "sha256": _sha256(p), "bytes": p.stat().st_size} for p in staged
             ],

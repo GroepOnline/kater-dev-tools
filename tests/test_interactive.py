@@ -188,8 +188,7 @@ def test_format_session_row() -> None:
             "current_url": "https://example.com/path",
         }
     )
-    assert "ready" in row
-    assert "example.com" in row
+    assert row == "  bsess_abcdefghijklmn ready    https://example.com/path"
 
 
 def test_format_automation_row() -> None:

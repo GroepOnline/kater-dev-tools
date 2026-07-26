@@ -648,3 +648,21 @@ def test_default_repo_from_env(monkeypatch) -> None:
     monkeypatch.setenv("KATER_PR_REPO", "SoonSoonTm/utrecht-data-os")
     assert GitHubPRClient().repo == "SoonSoonTm/utrecht-data-os"
     assert GitHubPRClient(repo="o/r").repo == "o/r"
+
+
+def test_review_threads_fails_closed_without_endcursor() -> None:
+    # hasNextPage without an endCursor would silently truncate the thread list
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(
+            returncode=0,
+            stdout=_graphql_threads_payload([{"isResolved": False}], has_next=True, end_cursor=None),
+            stderr=""
+        )
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    try:
+        client.review_threads(42)
+    except RuntimeError as exc:
+        assert "hasNextPage without an endCursor" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")

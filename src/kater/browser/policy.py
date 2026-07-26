@@ -1,6 +1,6 @@
 """Fail-closed navigation policy for the browser lane.
 
-Mirrors the gateway's egress invariant (CHE-742): a browser handed to an agent
+Mirrors the gateway's egress invariant: a browser handed to an agent
 is an SSRF primitive, so every URL is checked before navigation *and* after it
 (redirects), private address space is denied unless explicitly opted into, and
 anything the checker cannot resolve is refused rather than allowed.

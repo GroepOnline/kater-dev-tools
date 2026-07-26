@@ -1,4 +1,4 @@
-"""Persistence and CRUD for remote execution contexts (CHE-695).
+"""Persistence and CRUD for remote execution contexts.
 
 Table ownership lives in migration v4 (``remote_contexts``). The
 ``CREATE IF NOT EXISTS`` bootstrap below keeps unit tests and early

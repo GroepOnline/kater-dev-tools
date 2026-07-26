@@ -210,13 +210,13 @@ def test_cli_computer_invoke_fails_when_unconfigured(
 def test_computer_configured_and_build(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
+    from kater.capabilities.registry import reset_default_registry
     from kater.capabilities.wiring import (
         build_computer_connector,
         computer_configured,
         reset_computer_connector,
         set_computer_connector,
     )
-    from kater.capabilities.registry import reset_default_registry
 
     monkeypatch.chdir(tmp_path)
     reset_default_registry()

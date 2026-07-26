@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from typing import Any
 
@@ -13,9 +14,21 @@ from kater.settings import ListenConfig
 
 _log = logging.getLogger("kater.runtime")
 
-# How often the background janitor sweeps expired OAuth tokens/codes and prunes
-# persisted telemetry and control-plane state. These are cheap, so 10 minutes is plenty.
-_MAINTENANCE_INTERVAL = 600.0
+# Light janitor wake (browser reap + automations tick). Short enough that a
+# 1-minute automation schedule can actually fire.
+_TICK_INTERVAL = 60.0
+# Heavy work (oauth cleanup, telemetry prune, control-plane prune) runs every
+# N light wakes, or sooner if wall-clock since the last heavy pass exceeds
+# ``_HEAVY_INTERVAL`` (covers a wake that was interrupted early).
+_HEAVY_EVERY_N_TICKS = 10
+_HEAVY_INTERVAL = 600.0
+
+
+def _should_run_heavy(iteration: int, elapsed_since_heavy: float = 0.0) -> bool:
+    """Return True when the expensive janitor pass should run this wake."""
+    if iteration > 0 and iteration % _HEAVY_EVERY_N_TICKS == 0:
+        return True
+    return elapsed_since_heavy >= _HEAVY_INTERVAL
 
 
 class KaterRuntime:
@@ -120,49 +133,63 @@ class KaterRuntime:
 
         self._started = True
 
+    def _run_light_janitor(self) -> None:
+        """Browser reap + automations tick — every wake."""
+        try:
+            from kater.browser.session import get_manager
+
+            closed = get_manager().reap_expired()
+            if closed:
+                _log.info("janitor: reaped %d expired browser sessions", closed)
+        except Exception as exc:
+            _log.warning("janitor: browser reap failed: %s", exc)
+        try:
+            from kater.automations import get_engine
+
+            get_engine().ensure_defaults()
+            ran = get_engine().tick()
+            if ran:
+                _log.info("janitor: ran %d automations", ran)
+        except Exception as exc:
+            _log.warning("janitor: automations tick failed: %s", exc)
+
+    def _run_heavy_janitor(self) -> None:
+        """OAuth cleanup + telemetry / control-plane prune — sparse wakes."""
+        try:
+            from kater.oauth import cleanup_expired
+
+            removed = cleanup_expired()
+            if removed:
+                _log.info("janitor: purged %d expired OAuth entries", removed)
+        except Exception as exc:
+            _log.warning("janitor: oauth cleanup failed: %s", exc)
+        try:
+            from kater.storage import prune_all
+
+            prune_all()
+        except Exception as exc:
+            _log.warning("janitor: telemetry prune failed: %s", exc)
+        try:
+            from kater.control_plane import prune_control_plane_state
+
+            prune_control_plane_state()
+        except Exception as exc:
+            _log.warning("janitor: control-plane prune failed: %s", exc)
+
     def _maintenance_loop(self) -> None:
-        """Periodically purge expired state and enforce persisted row caps."""
+        """Wake often for automations; run heavier sweeps on a longer cadence."""
+        iteration = 0
+        last_heavy = time.monotonic()
         while not self._shutdown_event.is_set():
-            self._shutdown_event.wait(_MAINTENANCE_INTERVAL)
+            self._shutdown_event.wait(_TICK_INTERVAL)
             if self._shutdown_event.is_set():
                 break
-            try:
-                from kater.oauth import cleanup_expired
-
-                removed = cleanup_expired()
-                if removed:
-                    _log.info("janitor: purged %d expired OAuth entries", removed)
-            except Exception as exc:
-                _log.warning("janitor: oauth cleanup failed: %s", exc)
-            try:
-                from kater.storage import prune_all
-
-                prune_all()
-            except Exception as exc:
-                _log.warning("janitor: telemetry prune failed: %s", exc)
-            try:
-                from kater.control_plane import prune_control_plane_state
-
-                prune_control_plane_state()
-            except Exception as exc:
-                _log.warning("janitor: control-plane prune failed: %s", exc)
-            try:
-                from kater.browser.session import get_manager
-
-                closed = get_manager().reap_expired()
-                if closed:
-                    _log.info("janitor: reaped %d expired browser sessions", closed)
-            except Exception as exc:
-                _log.warning("janitor: browser reap failed: %s", exc)
-            try:
-                from kater.automations import get_engine
-
-                get_engine().ensure_defaults()
-                ran = get_engine().tick()
-                if ran:
-                    _log.info("janitor: ran %d automations", ran)
-            except Exception as exc:
-                _log.warning("janitor: automations tick failed: %s", exc)
+            iteration += 1
+            self._run_light_janitor()
+            elapsed = time.monotonic() - last_heavy
+            if _should_run_heavy(iteration, elapsed):
+                self._run_heavy_janitor()
+                last_heavy = time.monotonic()
 
     def stop(self, timeout: float = 5.0) -> None:
         if not self._started:

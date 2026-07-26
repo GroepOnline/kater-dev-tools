@@ -85,6 +85,15 @@ def test_k8s_config():
     config = render_k8s_config(profile="cloud")
     assert config["format"] == "kubernetes"
     assert config["manifests"]["deployment"]["kind"] == "Deployment"
+    ports = config["manifests"]["deployment"]["spec"]["template"]["spec"]["containers"][0][
+        "ports"
+    ]
+    assert {"mcp", "api", "ws"} <= {p["name"] for p in ports}
+    assert 9092 in {p["containerPort"] for p in ports}
+    svc_ports = config["manifests"]["service"]["spec"]["ports"]
+    assert 9092 in {p["port"] for p in svc_ports}
+    volumes = config["manifests"]["deployment"]["spec"]["template"]["spec"]["volumes"]
+    assert any(v["name"] == "kater-data" for v in volumes)
 
 
 def test_render_deploy_dispatch():

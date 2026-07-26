@@ -1454,3 +1454,92 @@ def browser_close_command(
         return
     session = result.get("session") or {}
     typer.echo(f"Closed {session.get('session_id', session_id)}")
+
+
+# ── automations ────────────────────────────────────────────────────
+
+
+automations_app = typer.Typer(help="Scheduled automations (doctor, reap, prune, nudges).")
+app.add_typer(automations_app, name="automations")
+
+
+@automations_app.command("list")
+def automations_list_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List automations and seed defaults when the table is empty."""
+    from kater.automations import get_engine
+
+    engine = get_engine()
+    engine.ensure_defaults()
+    items = [item.to_dict() for item in engine.list()]
+    if json_output:
+        _print_json({"automations": items, "total": len(items)})
+        return
+    typer.echo(f"{len(items)} automation(s):")
+    for item in items:
+        state = "on" if item["enabled"] else "off"
+        last = item.get("last_status") or "-"
+        typer.echo(
+            f"  {item['id']} [{state}] {item['kind']} every {item['schedule_seconds']}s "
+            f"last={last}"
+        )
+
+
+@automations_app.command("run")
+def automations_run_command(
+    automation_id: Annotated[str, typer.Argument(help="Automation id to run.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Force one automation run now."""
+    from kater.automations import get_engine
+
+    try:
+        result = get_engine().run_now(automation_id)
+    except KeyError:
+        typer.echo(f"Automation not found: {automation_id}", err=True)
+        raise typer.Exit(code=1) from None
+    payload = result.to_dict()
+    if json_output:
+        _print_json(payload)
+        return
+    if payload["status"] != "ok":
+        typer.echo(f"Run failed: {payload.get('error')}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Ran {payload['id']} ({payload['kind']}) ok")
+
+
+@automations_app.command("enable")
+def automations_enable_command(
+    automation_id: Annotated[str, typer.Argument(help="Automation id to enable.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Enable an automation."""
+    from kater.automations import get_engine
+
+    automation = get_engine().set_enabled(automation_id, True)
+    if automation is None:
+        typer.echo(f"Automation not found: {automation_id}", err=True)
+        raise typer.Exit(code=1)
+    if json_output:
+        _print_json(automation.to_dict())
+        return
+    typer.echo(f"Enabled {automation.id}")
+
+
+@automations_app.command("disable")
+def automations_disable_command(
+    automation_id: Annotated[str, typer.Argument(help="Automation id to disable.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Disable an automation."""
+    from kater.automations import get_engine
+
+    automation = get_engine().set_enabled(automation_id, False)
+    if automation is None:
+        typer.echo(f"Automation not found: {automation_id}", err=True)
+        raise typer.Exit(code=1)
+    if json_output:
+        _print_json(automation.to_dict())
+        return
+    typer.echo(f"Disabled {automation.id}")

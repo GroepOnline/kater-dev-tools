@@ -16,6 +16,7 @@ from urllib.parse import quote, urlencode
 
 from kater.adapters.external import scan_adapters
 from kater.api.models import Request, Response, route
+from kater.automations import get_engine
 from kater.browser.models import BrowserAction
 from kater.browser.policy import PolicyViolation
 from kater.browser.providers import BrowserUnavailableError, probe_providers
@@ -1084,3 +1085,125 @@ def _browser_close_all(_: Request) -> Response:
     except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, {"closed": closed})
+
+
+# ── Automations ────────────────────────────────────────────────────
+
+
+@route("GET", "/api/automations")
+def _automations_list(_: Request) -> Response:
+    engine = get_engine()
+    engine.ensure_defaults()
+    items = [item.to_dict() for item in engine.list()]
+    return Response.json(200, {"automations": items, "total": len(items)})
+
+
+@route("GET", "/api/automations/{id}")
+def _automations_get(req: Request) -> Response:
+    automation = get_engine().get(req.params["id"])
+    if automation is None:
+        return Response.json(404, {"error": "automation not found"})
+    return Response.json(200, automation.to_dict())
+
+
+@route("POST", "/api/automations")
+def _automations_upsert(req: Request) -> Response:
+    try:
+        body = req.json
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    name = str(body.get("name") or "").strip()
+    kind = str(body.get("kind") or "").strip()
+    if not name or not kind:
+        return Response.json(400, {"error": "name and kind are required"})
+    config = body.get("config")
+    if config is not None and not isinstance(config, dict):
+        return Response.json(400, {"error": "config must be an object"})
+    try:
+        automation = get_engine().upsert(
+            id=str(body["id"]) if body.get("id") else None,
+            name=name,
+            kind=kind,
+            enabled=bool(body.get("enabled", True)),
+            schedule_seconds=int(body.get("schedule_seconds") or 0),
+            config=config if isinstance(config, dict) else None,
+        )
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    _ws_broadcast(
+        "automation_upsert",
+        {"id": automation.id, "kind": automation.kind, "enabled": automation.enabled},
+    )
+    return Response.json(200, automation.to_dict())
+
+
+@route("POST", "/api/automations/{id}/run")
+def _automations_run(req: Request) -> Response:
+    automation_id = req.params["id"]
+    try:
+        result = get_engine().run_now(automation_id)
+    except KeyError:
+        return Response.json(404, {"error": "automation not found"})
+    return Response.json(200, result.to_dict())
+
+
+@route("POST", "/api/automations/{id}/enable")
+def _automations_enable(req: Request) -> Response:
+    automation = get_engine().set_enabled(req.params["id"], True)
+    if automation is None:
+        return Response.json(404, {"error": "automation not found"})
+    _ws_broadcast("automation_enabled", {"id": automation.id})
+    return Response.json(200, automation.to_dict())
+
+
+@route("POST", "/api/automations/{id}/disable")
+def _automations_disable(req: Request) -> Response:
+    automation = get_engine().set_enabled(req.params["id"], False)
+    if automation is None:
+        return Response.json(404, {"error": "automation not found"})
+    _ws_broadcast("automation_disabled", {"id": automation.id})
+    return Response.json(200, automation.to_dict())
+
+
+@route("PATCH", "/api/automations/{id}")
+def _automations_patch(req: Request) -> Response:
+    automation_id = req.params["id"]
+    engine = get_engine()
+    existing = engine.get(automation_id)
+    if existing is None:
+        return Response.json(404, {"error": "automation not found"})
+    try:
+        body = req.json
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    if "enabled" in body and len(body) == 1:
+        automation = engine.set_enabled(automation_id, bool(body["enabled"]))
+        if automation is None:
+            return Response.json(404, {"error": "automation not found"})
+        return Response.json(200, automation.to_dict())
+    name = str(body.get("name", existing.name)).strip()
+    kind = str(body.get("kind", existing.kind)).strip()
+    config = body.get("config", existing.config)
+    if config is not None and not isinstance(config, dict):
+        return Response.json(400, {"error": "config must be an object"})
+    try:
+        automation = engine.upsert(
+            id=automation_id,
+            name=name,
+            kind=kind,
+            enabled=bool(body.get("enabled", existing.enabled)),
+            schedule_seconds=int(body.get("schedule_seconds", existing.schedule_seconds)),
+            config=config if isinstance(config, dict) else existing.config,
+        )
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, automation.to_dict())
+
+
+@route("DELETE", "/api/automations/{id}")
+def _automations_delete(req: Request) -> Response:
+    automation_id = req.params["id"]
+    if not get_engine().delete(automation_id):
+        return Response.json(404, {"error": "automation not found"})
+    _ws_broadcast("automation_deleted", {"id": automation_id})
+    return Response.json(200, {"deleted": True, "id": automation_id})

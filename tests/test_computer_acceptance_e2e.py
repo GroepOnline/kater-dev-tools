@@ -1,4 +1,4 @@
-"""Named, real cross-process Kater x UDO Computer acceptance test."""
+"""Named, real cross-process Kater Computer acceptance test."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from kater.capabilities.computer import (
     GENERATED_CONTRACT_DIGEST,
     VENDORED_CONTRACT,
-    load_computer_manifests_from_udo,
+    load_computer_manifests_from_checkout,
 )
 from tests.acceptance.computer_lane import (
     ComputerAcceptanceHarness,
@@ -57,11 +57,13 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
     """Exercise canonical controller, real guest, and production Kater routing together."""
     checkout = Path(os.environ.get("KATER_UDO_CHECKOUT", "")).resolve()
     assert os.environ.get("KATER_UDO_CHECKOUT"), "KATER_UDO_CHECKOUT is required"
-    assert checkout.is_dir() and (checkout / ".git").exists(), f"invalid UDO checkout: {checkout}"
-    manifests = load_computer_manifests_from_udo(
+    assert checkout.is_dir() and (checkout / ".git").exists(), (
+        f"invalid contract checkout: {checkout}"
+    )
+    manifests = load_computer_manifests_from_checkout(
         checkout, expected_digest=GENERATED_CONTRACT_DIGEST
     )
-    assert manifests, "UDO generated contract is empty"
+    assert manifests, "generated contract is empty"
     generated = checkout / "platform/agent-control-plane/packages/protocol/generated"
     for filename in (
         "computer-capabilities.generated.json",

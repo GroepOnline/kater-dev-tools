@@ -16,7 +16,7 @@ from kater.profiles import (
     sources_for_profiles,
 )
 
-_GATEWAY_SERVER_NAMES = frozenset({"kater", "kater-utrecht"})
+_GATEWAY_SERVER_NAMES = frozenset({"kater"})
 
 
 class Finding(BaseModel):

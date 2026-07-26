@@ -237,8 +237,8 @@ See [docs/deploy-server.md](docs/deploy-server.md) and [SECURITY.md](SECURITY.md
 ### Private deployment extensions
 
 Org-specific profiles and adapters can live in a separate private repo and load at
-runtime via `KATER_EXTENSIONS_MODULE` (see `src/kater/extensions.py`,
-`docs/ops/kater-udo-full-use-runbook.md`, and `.env.example`).
+runtime via `KATER_EXTENSIONS_MODULE` (see `src/kater/extensions.py` and
+[docs/ops/private-overlays.md](docs/ops/private-overlays.md)).
 
 ```bash
 export KATER_EXTENSIONS_MODULE=your_package.extensions

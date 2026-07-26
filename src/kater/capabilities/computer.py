@@ -1,7 +1,8 @@
 """Schema-driven Computer connector primitives owned by Kater.
 
-The JSON catalog is a temporary digest-checked seam until the sibling UDO checkout
-publishes its generated contract artifact.  Kater does not define a second contract.
+The vendored JSON catalog in ``generated/`` is the public contract artifact. Private
+deployment overlays may publish a newer one via ``load_computer_manifests_from_checkout``;
+Kater does not define a second contract.
 """
 
 from __future__ import annotations
@@ -81,7 +82,9 @@ def _read_contract(path: Path, *, expected_digest: str | None = None) -> dict[st
     if source_digest != GENERATED_CONTRACT_DIGEST:
         raise ContractDigestError(f"Computer contract source_digest mismatch: {source_digest}")
     if expected_digest is not None and expected_digest != source_digest:
-        raise ContractDigestError(f"Computer contract does not match UDO digest: {source_digest}")
+        raise ContractDigestError(
+            f"Computer contract does not match expected digest: {source_digest}"
+        )
     return payload
 
 
@@ -269,7 +272,7 @@ def _manifest(data: dict[str, Any]) -> CapabilityManifest:
     return CapabilityManifest(
         capability_id=data["capability_id"],
         package_id="computer",
-        publisher_id="udo",
+        publisher_id="kater",
         version=data.get("version", "1.0.0"),
         digest=digest,
         transport=CapabilityTransport.HTTP,
@@ -299,12 +302,18 @@ def load_computer_manifests(
     return manifests
 
 
-def load_computer_manifests_from_udo(
+def load_computer_manifests_from_checkout(
     checkout: Path, *, expected_digest: str | None = None
 ) -> tuple[CapabilityManifest, ...]:
-    """Load the generated catalog from an explicitly supplied UDO checkout."""
+    """Load the generated catalog from an explicitly supplied private checkout.
+
+    Operators that publish a newer ``computer-capabilities.generated.json`` outside
+    the vendored set (for example through a private extension overlay) can supply
+    the checkout root here. Kater validates the digest against
+    :data:`GENERATED_CONTRACT_DIGEST` and refuses any drift.
+    """
     if not checkout.is_dir() or not (checkout / ".git").exists():
-        raise ContractDigestError(f"invalid UDO checkout: {checkout}")
+        raise ContractDigestError(f"invalid contract checkout: {checkout}")
     contract = checkout / (
         "platform/agent-control-plane/packages/protocol/generated/"
         "computer-capabilities.generated.json"

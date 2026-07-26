@@ -29,9 +29,14 @@ def test_ensure_migrated_records_browser_and_automations_versions(tmp_path) -> N
     finally:
         conn.close()
 
-    assert versions == [1, 2, 3]
-    assert {"browser_sessions", "browser_actions", "automations"} <= tables
-    assert migrations.latest_version() == 3
+    assert versions == [1, 2, 3, 4]
+    assert {
+        "browser_sessions",
+        "browser_actions",
+        "automations",
+        "remote_contexts",
+    } <= tables
+    assert migrations.latest_version() == 4
 
 
 def test_runtime_start_calls_ensure_migrated(monkeypatch, tmp_path) -> None:

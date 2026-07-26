@@ -7,6 +7,7 @@ import threading
 import time
 from http.server import ThreadingHTTPServer
 from typing import Any
+from urllib.parse import urlsplit
 
 import uvicorn
 
@@ -88,6 +89,29 @@ class KaterRuntime:
                 get_proxy().start(self._profile)
             except Exception as exc:
                 _log.warning("proxy startup failed: %s", exc)
+
+        # Computer lane: standalone HTTP guest connector (works with or without proxy).
+        try:
+            from kater.capabilities.wiring import (
+                build_computer_connector,
+                set_computer_connector,
+            )
+
+            connector = build_computer_connector(self._profile)
+            if connector is not None:
+                set_computer_connector(connector)
+                if self._use_proxy:
+                    from kater.proxy import get_proxy
+
+                    get_proxy().register_computer_connector(connector)
+                host = urlsplit(connector.base_url).hostname or ""
+                _log.info(
+                    "computer connector active (profile=%s, host=%s)",
+                    connector.profile,
+                    host,
+                )
+        except Exception as exc:
+            _log.warning("computer connector setup failed: %s", exc)
 
         from kater.api import create_api_server
         from kater.mcp_server import build_sse_app
@@ -238,6 +262,13 @@ class KaterRuntime:
             reset_manager()
         except Exception as exc:
             _log.warning("browser shutdown failed: %s", exc)
+
+        try:
+            from kater.capabilities.wiring import reset_computer_connector
+
+            reset_computer_connector()
+        except Exception as exc:
+            _log.warning("computer connector shutdown failed: %s", exc)
 
         self._started = False
 

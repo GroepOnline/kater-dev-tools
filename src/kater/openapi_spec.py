@@ -828,6 +828,49 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    # ── Computer lane (guest HTTP connector) ────────────────────────
+    paths["/api/computer"] = {
+        "get": _response(
+            "Computer connector status",
+            {"type": "object"},
+            "Configured state, redacted host, and capability ids.",
+        )
+    }
+
+    paths["/api/computer/capabilities"] = {
+        "get": _response(
+            "List Computer capabilities",
+            {"type": "object"},
+            "Tools exposed by the active Computer connector.",
+        )
+    }
+
+    paths["/api/computer/invoke"] = {
+        "post": {
+            "summary": "Invoke a Computer capability",
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["capability_id"],
+                            "properties": {
+                                "capability_id": {"type": "string"},
+                            },
+                            "additionalProperties": True,
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+                "503": _error_ref(),
+            },
+        }
+    }
+
     return paths
 
 
@@ -1173,7 +1216,8 @@ def generate_spec() -> dict[str, Any]:
             "description": (
                 "REST API for the Kater MCP Gateway. Provides profiles, tools, "
                 "adapters, chains, MCP server management, native browser sessions, "
-                "automations, diagnostics, telemetry, and deployment rendering."
+                "Computer guest capabilities, automations, diagnostics, telemetry, "
+                "and deployment rendering."
             ),
             "license": {"name": "MIT"},
         },

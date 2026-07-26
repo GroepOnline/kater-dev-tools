@@ -25,6 +25,7 @@ from kater.browser.session import (
     UnknownSessionError,
     get_manager,
 )
+from kater.capabilities.wiring import computer_status, get_computer_connector
 from kater.chains import list_chains
 
 if TYPE_CHECKING:
@@ -1209,3 +1210,39 @@ def _automations_delete(req: Request) -> Response:
         return Response.json(404, {"error": "automation not found"})
     _ws_broadcast("automation_deleted", {"id": automation_id})
     return Response.json(200, {"deleted": True, "id": automation_id})
+
+
+# ── Computer lane (guest HTTP connector) ───────────────────────────
+
+
+@route("GET", "/api/computer")
+def _computer_status(_: Request) -> Response:
+    return Response.json(200, computer_status())
+
+
+@route("GET", "/api/computer/capabilities")
+def _computer_capabilities(_: Request) -> Response:
+    connector = get_computer_connector()
+    if connector is None:
+        return Response.json(200, {"tools": [], "total": 0})
+    tools = connector.list_tools()
+    return Response.json(200, {"tools": tools, "total": len(tools)})
+
+
+@route("POST", "/api/computer/invoke")
+def _computer_invoke(req: Request) -> Response:
+    connector = get_computer_connector()
+    if connector is None:
+        return Response.json(503, {"error": "computer connector is not configured"})
+    try:
+        body = req.json
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be a JSON object"})
+    capability_id = body.get("capability_id")
+    if not isinstance(capability_id, str) or not capability_id.strip():
+        return Response.json(400, {"error": "capability_id is required"})
+    arguments = {key: value for key, value in body.items() if key != "capability_id"}
+    result = connector.call(capability_id.strip(), arguments)
+    return Response.json(200, result)

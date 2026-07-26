@@ -1,4 +1,4 @@
-"""Unit tests for remote context persistence (CHE-695)."""
+"""Unit tests for remote context persistence."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def test_create_and_get_context(ctx_db) -> None:
         environment="staging",
         allowed_capabilities=["web.search"],
         ttl_seconds=3600,
-        metadata={"ticket": "CHE-695"},
+        metadata={"ticket": "TICKET-1"},
     )
     assert record.context_id.startswith("rctx_")
     assert len(record.context_id) == len("rctx_") + 32
@@ -39,7 +39,7 @@ def test_create_and_get_context(ctx_db) -> None:
     assert record.allowed_capabilities == frozenset({"web.search"})
     assert record.repository == "acme/app"
     assert record.environment == "staging"
-    assert record.metadata == {"ticket": "CHE-695"}
+    assert record.metadata == {"ticket": "TICKET-1"}
     assert record.expires_at is not None
     assert record.is_active()
 

@@ -16,6 +16,14 @@ from urllib.parse import quote, urlencode
 
 from kater.adapters.external import scan_adapters
 from kater.api.models import Request, Response, route
+from kater.browser.models import BrowserAction
+from kater.browser.policy import PolicyViolation
+from kater.browser.providers import BrowserUnavailableError, probe_providers
+from kater.browser.session import (
+    SessionLimitError,
+    UnknownSessionError,
+    get_manager,
+)
 from kater.chains import list_chains
 
 if TYPE_CHECKING:
@@ -971,3 +979,108 @@ def _update_settings(req: Request) -> Response:
             )
     save_settings(settings)
     return Response.json(200, settings.to_safe_dict())
+
+
+# ── Native browser lane ────────────────────────────────────────────
+
+
+def _truthy_query(req: Request, key: str) -> bool:
+    raw = (req.query1(key) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+@route("GET", "/api/browser/providers")
+def _browser_providers(_: Request) -> Response:
+    return Response.json(200, {"providers": [info.to_dict() for info in probe_providers()]})
+
+
+@route("GET", "/api/browser/sessions")
+def _browser_list_sessions(req: Request) -> Response:
+    manager = get_manager()
+    live_only = _truthy_query(req, "live_only")
+    return Response.json(
+        200,
+        {
+            "sessions": [s.to_dict() for s in manager.list_sessions(live_only=live_only)],
+            "stats": manager.stats(),
+        },
+    )
+
+
+@route("POST", "/api/browser/sessions")
+def _browser_create_session(req: Request) -> Response:
+    body = req.json
+    try:
+        width = int(body.get("width") or 1280)
+        height = int(body.get("height") or 800)
+        session = get_manager().create(
+            label=body.get("label"),
+            profile=str(body.get("profile") or "core"),
+            viewport=(width, height),
+        )
+    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, {"session": session.to_dict()})
+
+
+@route("GET", "/api/browser/sessions/{session_id}")
+def _browser_get_session(req: Request) -> Response:
+    session_id = req.params["session_id"]
+    session = get_manager().get(session_id)
+    if session is None:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    return Response.json(200, session.to_dict())
+
+
+@route("DELETE", "/api/browser/sessions/{session_id}")
+def _browser_close_session(req: Request) -> Response:
+    session_id = req.params["session_id"]
+    try:
+        session = get_manager().close(session_id)
+    except UnknownSessionError:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, {"session": session.to_dict()})
+
+
+@route("POST", "/api/browser/sessions/{session_id}/act")
+def _browser_act(req: Request) -> Response:
+    session_id = req.params["session_id"]
+    body = req.json
+    payload = {k: v for k, v in body.items() if k != "session_id"}
+    try:
+        action = BrowserAction.from_dict(payload)
+        result = get_manager().act(session_id, action)
+    except UnknownSessionError:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, result.to_dict())
+
+
+@route("POST", "/api/browser/sessions/{session_id}/screenshot")
+def _browser_screenshot(req: Request) -> Response:
+    session_id = req.params["session_id"]
+    body = req.json
+    try:
+        result = get_manager().screenshot(session_id, full_page=bool(body.get("full_page", False)))
+    except UnknownSessionError:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, result.to_dict())
+
+
+@route("GET", "/api/browser/stats")
+def _browser_stats(_: Request) -> Response:
+    return Response.json(200, get_manager().stats())
+
+
+@route("DELETE", "/api/browser/sessions")
+def _browser_close_all(_: Request) -> Response:
+    try:
+        closed = get_manager().close_all()
+    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, {"closed": closed})

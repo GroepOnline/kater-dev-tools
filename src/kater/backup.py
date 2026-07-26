@@ -62,6 +62,12 @@ _DIR_MODE = 0o700
 _SECRET_MODE = 0o600
 _READ_CHUNK = 1 << 20
 
+#: Caps on untrusted archive members during inspect/extract. A single member
+#: larger than 256 MiB, or more than 512 MiB of payload in total, is refused
+#: before the restore swap so a hostile bundle cannot fill the disk.
+MAX_MEMBER_BYTES = 256 * 1024 * 1024
+MAX_TOTAL_BYTES = 512 * 1024 * 1024
+
 
 class BackupError(RuntimeError):
     """Raised for any unusable bundle, destination or source state."""
@@ -105,13 +111,33 @@ def _db_source(project_dir: Path | None) -> Path:
     return configured if configured.is_absolute() else root / configured
 
 
-def _digest_stream(reader: IO[bytes], sink: IO[bytes] | None = None) -> tuple[str, int]:
-    """Hash a stream in bounded chunks, optionally teeing it to ``sink``."""
+def _digest_stream(
+    reader: IO[bytes],
+    sink: IO[bytes] | None = None,
+    *,
+    max_member_bytes: int | None = None,
+    total_so_far: int = 0,
+    max_total_bytes: int | None = None,
+) -> tuple[str, int]:
+    """Hash a stream in bounded chunks, optionally teeing it to ``sink``.
+
+    When ``max_member_bytes`` / ``max_total_bytes`` are set, raise
+    :class:`BackupError` as soon as the stream would exceed either cap.
+    ``total_so_far`` is the byte count already accepted from earlier members.
+    """
     digest = hashlib.sha256()
     size = 0
     while chunk := reader.read(_READ_CHUNK):
         digest.update(chunk)
         size += len(chunk)
+        if max_member_bytes is not None and size > max_member_bytes:
+            raise BackupError(
+                f"archive member exceeds size cap of {max_member_bytes} bytes"
+            )
+        if max_total_bytes is not None and total_so_far + size > max_total_bytes:
+            raise BackupError(
+                f"archive payload exceeds total size cap of {max_total_bytes} bytes"
+            )
         if sink is not None:
             sink.write(chunk)
     return digest.hexdigest(), size
@@ -315,8 +341,15 @@ def inspect_backup(path: Path) -> dict[str, Any]:
                 continue
             present[member.name] = member
         mismatches: list[str] = []
+        total_bytes = 0
         for name, member in present.items():
-            checksum, size = _digest_stream(_open_member(archive, member))
+            checksum, size = _digest_stream(
+                _open_member(archive, member),
+                max_member_bytes=MAX_MEMBER_BYTES,
+                total_so_far=total_bytes,
+                max_total_bytes=MAX_TOTAL_BYTES,
+            )
+            total_bytes += size
             entry = declared[name]
             if checksum != entry.get("sha256") or size != entry.get("bytes"):
                 mismatches.append(name)
@@ -340,11 +373,17 @@ def inspect_backup(path: Path) -> dict[str, Any]:
 
 
 def _extract_verified(
-    archive: tarfile.TarFile, manifest: dict[str, Any], target: Path
+    archive: tarfile.TarFile,
+    manifest: dict[str, Any],
+    target: Path,
+    *,
+    max_member_bytes: int = MAX_MEMBER_BYTES,
+    max_total_bytes: int = MAX_TOTAL_BYTES,
 ) -> list[str]:
     """Write every manifest member into ``target`` after re-checking its digest."""
     declared = {str(entry["name"]): entry for entry in manifest["files"]}
     seen: set[str] = set()
+    total_bytes = 0
     for member in archive.getmembers():
         if member.name == MANIFEST_NAME:
             continue
@@ -362,7 +401,14 @@ def _extract_verified(
 
         out = target / member.name
         with out.open("wb") as sink:
-            checksum, size = _digest_stream(_open_member(archive, member), sink)
+            checksum, size = _digest_stream(
+                _open_member(archive, member),
+                sink,
+                max_member_bytes=max_member_bytes,
+                total_so_far=total_bytes,
+                max_total_bytes=max_total_bytes,
+            )
+        total_bytes += size
         entry = declared[member.name]
         if checksum != entry.get("sha256") or size != entry.get("bytes"):
             raise BackupError(f"checksum mismatch for {member.name!r}; bundle is corrupt")
@@ -371,6 +417,23 @@ def _extract_verified(
     if missing:
         raise BackupError(f"bundle is missing files declared in its manifest: {missing}")
     return sorted(seen)
+
+
+def _rollback_restore(kater_dir: Path, retired: Path) -> None:
+    """Best-effort: put ``retired`` back as ``.kater`` after a failed mid-swap.
+
+    Unlike the previous empty-dir-only path, this always clears a partial
+    ``.kater`` (if present) and renames ``retired`` into place so a failure
+    after the first ``os.replace`` does not leave the install half-restored.
+    """
+    if not retired.exists():
+        return
+    try:
+        if kater_dir.exists():
+            shutil.rmtree(kater_dir)
+        os.replace(retired, kater_dir)
+    except OSError as exc:
+        _log.warning("restore rollback from retired failed: %s", exc)
 
 
 def _has_state(kater_dir: Path) -> bool:
@@ -429,9 +492,7 @@ def restore_backup(
                 if name in SECRET_MEMBERS:
                     (kater_dir / name).chmod(_SECRET_MODE)
         except OSError as exc:
-            if retired.exists() and not any(kater_dir.iterdir()):
-                kater_dir.rmdir()
-                os.replace(retired, kater_dir)
+            _rollback_restore(kater_dir, retired)
             raise BackupError(
                 f"restore into {kater_dir} failed and was rolled back: {exc}"
             ) from exc

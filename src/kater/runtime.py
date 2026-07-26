@@ -61,6 +61,13 @@ class KaterRuntime:
         except Exception as exc:
             _log.warning("schema migrate failed: %s", exc)
 
+        try:
+            from kater.automations import get_engine
+
+            get_engine().ensure_defaults()
+        except Exception as exc:
+            _log.warning("automations ensure_defaults failed: %s", exc)
+
         if self._use_proxy:
             try:
                 from kater.proxy import get_proxy
@@ -147,6 +154,15 @@ class KaterRuntime:
                     _log.info("janitor: reaped %d expired browser sessions", closed)
             except Exception as exc:
                 _log.warning("janitor: browser reap failed: %s", exc)
+            try:
+                from kater.automations import get_engine
+
+                get_engine().ensure_defaults()
+                ran = get_engine().tick()
+                if ran:
+                    _log.info("janitor: ran %d automations", ran)
+            except Exception as exc:
+                _log.warning("janitor: automations tick failed: %s", exc)
 
     def stop(self, timeout: float = 5.0) -> None:
         if not self._started:

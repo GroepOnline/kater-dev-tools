@@ -788,6 +788,15 @@ def _build_paths() -> dict[str, Any]:
             "parameters": [_automation_id_param()],
             "responses": {"200": _ok(), "404": _error_ref()},
         },
+        "patch": {
+            "summary": "Update an automation",
+            "parameters": [_automation_id_param()],
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": {"type": "object"}}},
+            },
+            "responses": {"200": _ok(), "400": _error_ref(), "404": _error_ref()},
+        },
         "delete": {
             "summary": "Delete an automation",
             "parameters": [_automation_id_param()],

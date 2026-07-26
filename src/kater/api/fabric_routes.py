@@ -505,3 +505,7 @@ def _capability_audit_list(req: Request) -> Response:
         limit=limit,
     )
     return Response.json(200, {"total": len(rows), "events": rows})
+
+
+# Register usage ledger routes without a circular ``from kater.api import …``.
+import kater.api.usage_routes as _usage_routes  # noqa: E402, F401

@@ -21,6 +21,7 @@ from kater.web.dashboard import (
     _VIEW_DASHBOARD,
     _VIEW_DEPLOY,
     _VIEW_EVALS,
+    _VIEW_FABRIC,
     _VIEW_PR,
     _VIEW_SETTINGS,
 )
@@ -98,6 +99,7 @@ def test_each_view_is_present_via_its_own_seam():
         ("view-settings", _VIEW_SETTINGS),
         ("view-browser", _VIEW_BROWSER),
         ("view-automations", _VIEW_AUTOMATIONS),
+        ("view-fabric", _VIEW_FABRIC),
     ]:
         assert f'id="{view_id}"' in const, view_id
         assert const in _HTML, view_id
@@ -133,6 +135,9 @@ DASHBOARD_ENDPOINTS = [
     ("POST", "/api/automations/auto_demo/run"),
     ("POST", "/api/automations/auto_demo/enable"),
     ("POST", "/api/automations/auto_demo/disable"),
+    ("GET", "/api/capabilities"),
+    ("GET", "/api/contexts"),
+    ("GET", "/api/computer"),
 ]
 
 
@@ -205,15 +210,17 @@ def test_mobile_hides_tab_shortcut_hints():
 
 
 def test_pr_tab_does_not_claim_digit_shortcut():
-    # Digits 1-5 map to Overview/Servers/Browser/Deploy/Settings. PR and
-    # Automations are palette-only (no keycap); Performance lost its digit.
+    # Digits 1-5 map to Overview/Servers/Browser/Deploy/Settings. PR,
+    # Automations, and Fabric are palette-only (no keycap); Performance lost
+    # its digit.
     html = render_dashboard()
     assert "PR control" in html
-    # No tab-kbd immediately after the PR label.
+    # No tab-kbd immediately after the PR / Automations / Fabric labels.
     assert 'tab-label">PR control</span> <span class="tab-kbd">' not in html
     assert 'tab-label">Automations</span> <span class="tab-kbd">' not in html
+    assert 'tab-label">Fabric</span> <span class="tab-kbd">' not in html
     assert 'tab-label">Performance</span> <span class="tab-kbd">' not in html
-    # Digit map: Browser takes 3; Performance is palette-only.
+    # Digit map: Browser takes 3; Performance/Fabric are palette-only.
     assert "['dashboard', 'catalog', 'browser', 'deploy', 'settings']" in html
 
 
@@ -285,3 +292,19 @@ def test_automations_view_has_list_and_unavailable_fallback():
     assert "data-view=\"automations\"" in html
     assert "Automations unavailable" in html
     assert "function loadAutomationsView" in html
+
+
+def test_fabric_view_has_capabilities_contexts_computer_seams():
+    html = render_dashboard()
+    assert 'id="view-fabric"' in _VIEW_FABRIC
+    assert 'class="view-header"' in _VIEW_FABRIC
+    assert 'class="view-scroll"' in _VIEW_FABRIC
+    assert _VIEW_FABRIC in _HTML
+    assert 'id="fabric-capabilities"' in html
+    assert 'id="fabric-contexts"' in html
+    assert 'id="fabric-computer"' in html
+    assert 'data-view="fabric"' in html
+    assert "function loadFabricView" in html
+    assert "/api/capabilities" in html
+    assert "/api/contexts" in html
+    assert "/api/computer" in html

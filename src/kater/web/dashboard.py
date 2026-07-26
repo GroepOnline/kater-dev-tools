@@ -375,6 +375,24 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   .auto-row { grid-template-columns: 1fr; }
 }
 
+/* ── Fabric (capabilities / contexts / computer) ───────────── */
+.fabric-sections { display: flex; flex-direction: column; gap: 18px; padding: 14px 18px; }
+.fabric-section { display: flex; flex-direction: column; gap: 8px; }
+.fabric-section-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+}
+.fabric-section-title {
+  font-family: var(--sans); font-size: 12px; font-weight: 650;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+}
+.fabric-list { display: flex; flex-direction: column; gap: 6px; }
+.fabric-row {
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface);
+}
+.fabric-row-title { font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--text); }
+.fabric-row-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
 /* ── PR control (§3/§4/§6/§7) ──────────────────────────────── */
 .pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; padding: 14px 18px; }
 .pr-card {
@@ -1030,6 +1048,17 @@ _HTML_SHELL_TOP = r"""
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
         <span class="tab-label">PR control</span>
       </button>
+      <button class="tab interactive"
+        id="tab-nav-fabric"
+        role="tab"
+        aria-selected="false"
+        aria-controls="view-fabric"
+        tabindex="-1"
+        data-view="fabric"
+        onclick="switchView('fabric')">
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5h12"/><path d="M2 8h12"/><path d="M2 11.5h12"/><circle cx="5" cy="4.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="6.5" cy="11.5" r="1.2" fill="currentColor" stroke="none"/></svg>
+        <span class="tab-label">Fabric</span>
+      </button>
       <div class="nav-section" role="presentation">Automate</div>
       <button class="tab interactive"
         id="tab-nav-automations"
@@ -1402,6 +1431,50 @@ _VIEW_AUTOMATIONS = r"""
   </div>
 """
 
+_VIEW_FABRIC = r"""
+<div class="view" id="view-fabric" role="tabpanel" aria-labelledby="tab-nav-fabric">
+    <div class="view-header">
+      <span class="view-title">Fabric</span>
+      <div class="pr-header-actions">
+        <span class="panel-meta tnum" id="fabric-count" role="status">loading…</span>
+        <button class="mini-btn interactive" id="btn-fabric-refresh" type="button"
+          onclick="loadFabricView()" aria-label="Refresh fabric">Refresh</button>
+      </div>
+    </div>
+    <div class="view-scroll">
+      <div class="fabric-sections">
+        <section class="fabric-section" aria-labelledby="fabric-cap-heading">
+          <div class="fabric-section-head">
+            <span class="fabric-section-title" id="fabric-cap-heading">Capabilities</span>
+            <span class="panel-meta tnum" id="fabric-cap-count" role="status">—</span>
+          </div>
+          <div class="fabric-list" id="fabric-capabilities">
+            <div class="view-empty">Loading capabilities…</div>
+          </div>
+        </section>
+        <section class="fabric-section" aria-labelledby="fabric-ctx-heading">
+          <div class="fabric-section-head">
+            <span class="fabric-section-title" id="fabric-ctx-heading">Contexts</span>
+            <span class="panel-meta tnum" id="fabric-ctx-count" role="status">—</span>
+          </div>
+          <div class="fabric-list" id="fabric-contexts">
+            <div class="view-empty">Loading contexts…</div>
+          </div>
+        </section>
+        <section class="fabric-section" aria-labelledby="fabric-computer-heading">
+          <div class="fabric-section-head">
+            <span class="fabric-section-title" id="fabric-computer-heading">Computer</span>
+            <span class="panel-meta tnum" id="fabric-computer-status" role="status">—</span>
+          </div>
+          <div class="fabric-list" id="fabric-computer">
+            <div class="view-empty">Loading computer status…</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+"""
+
 
 _HTML_SHELL_BOTTOM = r"""
     </main>
@@ -1512,6 +1585,7 @@ _HTML = (
     + _VIEW_PR
     + _VIEW_BROWSER
     + _VIEW_AUTOMATIONS
+    + _VIEW_FABRIC
     + _HTML_SHELL_BOTTOM
 )
 
@@ -2732,7 +2806,7 @@ function buildPaletteItems() {
   const items = [];
   const views = [
     ['dashboard', 'Overview'], ['catalog', 'Servers'], ['browser', 'Browser'],
-    ['automations', 'Automations'], ['pr', 'PR control'],
+    ['automations', 'Automations'], ['fabric', 'Fabric'], ['pr', 'PR control'],
     ['evals', 'Performance'], ['deploy', 'Deploy'], ['settings', 'Settings'],
   ];
   for (const [v, label] of views) {
@@ -3249,6 +3323,7 @@ const viewTitles = {
   catalog: 'Servers',
   browser: 'Browser',
   automations: 'Automations',
+  fabric: 'Fabric',
   evals: 'Performance',
   deploy: 'Deploy',
   settings: 'Settings',
@@ -3285,6 +3360,7 @@ async function loadViewData(name) {
     else if (name === 'pr') await loadPRView();
     else if (name === 'browser') await loadBrowserView();
     else if (name === 'automations') await loadAutomationsView();
+    else if (name === 'fabric') await loadFabricView();
   } catch (e) {
     console.error('view load error:', e);
   }
@@ -4026,6 +4102,110 @@ function onBrowserWsEvent(data) {
         onBrowserWsEvent._t = null;
         loadBrowserView();
       }, 250);
+    }
+  }
+}
+
+// ── Fabric (capabilities / contexts / computer) ──
+async function loadFabricView() {
+  const count = document.getElementById('fabric-count');
+  const capsEl = document.getElementById('fabric-capabilities');
+  const ctxEl = document.getElementById('fabric-contexts');
+  const computerEl = document.getElementById('fabric-computer');
+  if (!capsEl || !ctxEl || !computerEl) return;
+  try {
+    const [capsData, ctxData, computerData] = await Promise.all([
+      api('/api/capabilities'),
+      api('/api/contexts'),
+      api('/api/computer'),
+    ]);
+    const caps = capsData.capabilities || [];
+    const contexts = ctxData.contexts || [];
+    const capCount = document.getElementById('fabric-cap-count');
+    const ctxCount = document.getElementById('fabric-ctx-count');
+    const computerStatus = document.getElementById('fabric-computer-status');
+    if (capCount) capCount.textContent = caps.length === 1 ? '1 capability' : caps.length + ' capabilities';
+    if (ctxCount) ctxCount.textContent = contexts.length === 1 ? '1 context' : contexts.length + ' contexts';
+    if (count) {
+      count.textContent = caps.length + ' caps · ' + contexts.length + ' contexts';
+    }
+    capsEl.replaceChildren();
+    if (!caps.length) {
+      const empty = document.createElement('div');
+      empty.className = 'view-empty';
+      empty.textContent = 'No capabilities discoverable for the current profile.';
+      capsEl.appendChild(empty);
+    } else {
+      for (const item of caps.slice(0, 50)) {
+        const m = item.manifest || item;
+        const row = document.createElement('div');
+        row.className = 'fabric-row';
+        const title = document.createElement('div');
+        title.className = 'fabric-row-title';
+        title.textContent = m.capability_id || item.capability_id || 'capability';
+        const meta = document.createElement('div');
+        meta.className = 'fabric-row-meta';
+        const risk = (m.risk_class || item.risk_class || '').toString();
+        const transport = (m.transport || item.transport || '').toString();
+        const score = item.score != null ? (' · score ' + item.score) : '';
+        meta.textContent = [transport, risk].filter(Boolean).join(' · ') + score;
+        row.appendChild(title);
+        row.appendChild(meta);
+        capsEl.appendChild(row);
+      }
+    }
+    ctxEl.replaceChildren();
+    if (!contexts.length) {
+      const empty = document.createElement('div');
+      empty.className = 'view-empty';
+      empty.textContent = 'No remote contexts yet.';
+      ctxEl.appendChild(empty);
+    } else {
+      for (const ctx of contexts.slice(0, 50)) {
+        const row = document.createElement('div');
+        row.className = 'fabric-row';
+        const title = document.createElement('div');
+        title.className = 'fabric-row-title';
+        title.textContent = ctx.label || ctx.context_id || 'context';
+        const meta = document.createElement('div');
+        meta.className = 'fabric-row-meta';
+        const active = ctx.active === false ? 'revoked/expired' : 'active';
+        meta.textContent = (ctx.principal_id || '—') + ' · ' + (ctx.profile || 'core') + ' · ' + active;
+        row.appendChild(title);
+        row.appendChild(meta);
+        ctxEl.appendChild(row);
+      }
+    }
+    computerEl.replaceChildren();
+    const configured = !!(computerData && computerData.configured);
+    const active = !!(computerData && computerData.active);
+    const statusLabel = !configured ? 'unconfigured' : (active ? 'active' : 'inactive');
+    if (computerStatus) computerStatus.textContent = String(statusLabel);
+    const row = document.createElement('div');
+    row.className = 'fabric-row';
+    const title = document.createElement('div');
+    title.className = 'fabric-row-title';
+    title.textContent = 'Computer connector';
+    const meta = document.createElement('div');
+    meta.className = 'fabric-row-meta';
+    const toolCount = computerData.capability_count != null
+      ? computerData.capability_count
+      : (Array.isArray(computerData.capability_ids) ? computerData.capability_ids.length : 0);
+    const bits = ['status: ' + statusLabel, toolCount + ' capabilities'];
+    if (computerData.profile) bits.push('profile ' + computerData.profile);
+    if (computerData.base_url_host) bits.push(String(computerData.base_url_host));
+    meta.textContent = bits.join(' · ');
+    row.appendChild(title);
+    row.appendChild(meta);
+    computerEl.appendChild(row);
+  } catch (e) {
+    if (count) count.textContent = 'unavailable';
+    for (const el of [capsEl, ctxEl, computerEl]) {
+      el.replaceChildren();
+      const empty = document.createElement('div');
+      empty.className = 'view-empty';
+      empty.textContent = 'Could not load fabric: ' + (e.message || 'error');
+      el.appendChild(empty);
     }
   }
 }

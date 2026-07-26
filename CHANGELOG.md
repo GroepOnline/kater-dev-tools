@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Usage / cost events ledger (`usage_events` migration) with `GET /api/usage` and `GET /api/usage/summary`; route decisions mirror into the ledger.
+- Dashboard Fabric view for capabilities, contexts, and computer status (palette-only nav).
 - HTTP capability discovery (`GET /api/capabilities`, `GET /api/capabilities/{id}`) and remote context CRUD (`/api/contexts*`) with migration v4 (`remote_contexts`).
 - `docs/browser.md` plus `.env.example` notes for the three browser backends (`local`, `cdp`, `steel`/`remote`).
 - OpenAPI paths for the native browser lane (`/api/browser/*`) and automations (`/api/automations/*`).

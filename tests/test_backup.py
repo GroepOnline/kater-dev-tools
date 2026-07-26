@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
 import sqlite3
 import stat
@@ -328,3 +329,107 @@ def test_create_backup_without_state_is_an_error(tmp_path) -> None:
 
     with pytest.raises(BackupError, match="no Kater state"):
         backup.create_backup(project_dir=empty)
+
+
+def _minimal_bundle(path: Path, members: dict[str, bytes]) -> None:
+    files = [
+        {
+            "name": name,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "bytes": len(data),
+        }
+        for name, data in members.items()
+    ]
+    manifest = {
+        "bundle_version": 1,
+        "kater_version": "1.0.0",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "schema_version": 1,
+        "include_secrets": True,
+        "files": files,
+    }
+    entries = [("manifest.json", json.dumps(manifest).encode("utf-8"))]
+    entries.extend(members.items())
+    _write_tar(path, entries)
+
+
+def test_digest_stream_enforces_member_and_total_caps() -> None:
+    payload = b"x" * 20
+    with pytest.raises(BackupError, match="member exceeds size cap"):
+        backup._digest_stream(io.BytesIO(payload), max_member_bytes=10)
+
+    sink = io.BytesIO()
+    with pytest.raises(BackupError, match="total size cap"):
+        backup._digest_stream(
+            io.BytesIO(payload),
+            sink,
+            max_member_bytes=100,
+            total_so_far=15,
+            max_total_bytes=30,
+        )
+
+
+def test_extract_enforces_custom_size_caps(tmp_path) -> None:
+    bundle = tmp_path / "capped.tar.gz"
+    _minimal_bundle(
+        bundle,
+        {
+            "settings.json": b'{"version": 1}\n',
+            "config.json": b'{"version": 1}\n',
+        },
+    )
+    staging = tmp_path / "staging"
+    staging.mkdir()
+
+    with tarfile.open(bundle, "r:gz") as archive:
+        manifest = backup._read_manifest(archive)
+        with pytest.raises(BackupError, match="member exceeds size cap"):
+            backup._extract_verified(
+                archive,
+                manifest,
+                staging,
+                max_member_bytes=5,
+                max_total_bytes=10_000,
+            )
+
+    staging2 = tmp_path / "staging2"
+    staging2.mkdir()
+    with tarfile.open(bundle, "r:gz") as archive:
+        manifest = backup._read_manifest(archive)
+        with pytest.raises(BackupError, match="total size cap"):
+            backup._extract_verified(
+                archive,
+                manifest,
+                staging2,
+                max_member_bytes=10_000,
+                max_total_bytes=20,
+            )
+
+
+def test_restore_rolls_back_from_retired_when_partial(project, tmp_path, monkeypatch) -> None:
+    bundle = tmp_path / "bundle.tar.gz"
+    backup.create_backup(bundle, project_dir=project)
+    marker = project / ".kater" / "marker.txt"
+    marker.write_text("local-only", encoding="utf-8")
+    before_settings = (project / ".kater" / "settings.json").read_text(encoding="utf-8")
+
+    real_replace = os.replace
+    member_swaps = {"count": 0}
+
+    def flaky_replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        dst_path = Path(dst)
+        if dst_path.parent.name == ".kater" and dst_path.name in backup.ALLOWED_MEMBERS:
+            member_swaps["count"] += 1
+            if member_swaps["count"] >= 2:
+                raise OSError("simulated mid-swap failure")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(backup.os, "replace", flaky_replace)
+
+    with pytest.raises(BackupError, match="rolled back"):
+        backup.restore_backup(bundle, project_dir=project, force=True)
+
+    assert marker.is_file()
+    assert marker.read_text(encoding="utf-8") == "local-only"
+    assert (project / ".kater" / "settings.json").read_text(encoding="utf-8") == before_settings
+    assert member_swaps["count"] >= 2

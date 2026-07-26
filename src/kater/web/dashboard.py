@@ -96,8 +96,6 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   }
 }
 
-#boot { display: none; }
-
 /* ── App shell ──────────────────────────────────────────────── */
 #app {
   display: grid;
@@ -237,6 +235,13 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 
 .view { display: none; flex: 1; min-height: 0; overflow: hidden; }
 .view.active { display: flex; flex-direction: column; }
+@media (prefers-reduced-motion: no-preference) {
+  .view.active { animation: view-in 160ms ease-out; }
+}
+@keyframes view-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .view-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px 0;
@@ -255,6 +260,120 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   background: none; border: none; font: inherit; padding: 0; margin-left: 4px;
 }
 .view-empty-link:hover { color: var(--text); }
+
+/* ── Browser workspace ─────────────────────────────────────── */
+.browser-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr 240px;
+  gap: 0; height: 100%; min-height: 0;
+}
+.browser-sessions, .browser-log-pane {
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; min-height: 0; background: var(--surface);
+}
+.browser-log-pane { border-right: none; border-left: 1px solid var(--border); }
+.browser-pane-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.browser-session-list, .browser-log {
+  flex: 1; overflow-y: auto; min-height: 0; padding: 8px;
+}
+.browser-session {
+  display: flex; flex-direction: column; gap: 3px;
+  width: 100%; text-align: left; padding: 9px 10px; margin-bottom: 4px;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  font-family: var(--sans); font-size: 12px;
+}
+.browser-session:hover { background: var(--surface-2); color: var(--text); }
+.browser-session.active {
+  background: var(--surface-2); color: var(--text);
+  border-color: var(--accent-line);
+}
+.browser-session .bs-id {
+  font-family: var(--mono); font-size: 11px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.browser-session .bs-meta {
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+}
+.browser-main {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+}
+.browser-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.browser-url {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: 12px;
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+.browser-stage {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(1200px 600px at 20% 0%, rgba(45,212,191,0.06), transparent 55%),
+    linear-gradient(180deg, #0e1116 0%, var(--bg) 100%);
+  position: relative; overflow: hidden;
+}
+.browser-shot {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: #000; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .browser-shot.fade-in { animation: shot-in 220ms ease-out; }
+}
+@keyframes shot-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.browser-empty {
+  max-width: 360px; padding: 24px; text-align: center;
+  font-family: var(--mono); font-size: 12px; color: var(--text-muted); line-height: 1.55;
+}
+.browser-log-row {
+  font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.browser-log-row.ok .bl-kind { color: var(--ok); }
+.browser-log-row.err .bl-kind { color: var(--err); }
+.browser-log-row .bl-kind { font-weight: 600; color: var(--text); }
+.browser-log-row .bl-detail {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint);
+}
+.provider-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 11px;
+  padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-muted); background: var(--surface);
+}
+.provider-chip.ok { border-color: var(--accent-line); color: var(--accent); background: var(--accent-dim); }
+.provider-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); }
+.provider-chip.ok .dot { background: var(--ok); }
+
+/* ── Automations ───────────────────────────────────────────── */
+.auto-list { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; }
+.auto-row {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface);
+}
+.auto-name { font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--text); }
+.auto-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+.auto-actions { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 900px) {
+  .browser-layout { grid-template-columns: 1fr; grid-template-rows: 160px 1fr 160px; }
+  .browser-sessions { border-right: none; border-bottom: 1px solid var(--border); }
+  .browser-log-pane { border-left: none; border-top: 1px solid var(--border); }
+  .auto-row { grid-template-columns: 1fr; }
+}
 
 /* ── PR control (§3/§4/§6/§7) ──────────────────────────────── */
 .pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; padding: 14px 18px; }
@@ -824,7 +943,6 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 
 
 _HTML_SHELL_TOP = r"""
-<div id="boot"></div>
 <a href="#main-content" class="sr-only skip-link">Skip to content</a>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -891,6 +1009,17 @@ _HTML_SHELL_TOP = r"""
         <span class="tab-label">Servers</span> <span class="tab-kbd">2</span>
       </button>
       <button class="tab interactive"
+        id="tab-nav-browser"
+        role="tab"
+        aria-selected="false"
+        aria-controls="view-browser"
+        tabindex="-1"
+        data-view="browser"
+        onclick="switchView('browser')">
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2" width="13" height="11" rx="1.5"/><path d="M1.5 5h13"/><circle cx="3.5" cy="3.5" r="0.6" fill="currentColor" stroke="none"/><circle cx="5.3" cy="3.5" r="0.6" fill="currentColor" stroke="none"/></svg>
+        <span class="tab-label">Browser</span> <span class="tab-kbd">3</span>
+      </button>
+      <button class="tab interactive"
         id="tab-nav-pr"
         role="tab"
         aria-selected="false"
@@ -901,6 +1030,19 @@ _HTML_SHELL_TOP = r"""
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
         <span class="tab-label">PR control</span>
       </button>
+      <div class="nav-section" role="presentation">Automate</div>
+      <button class="tab interactive"
+        id="tab-nav-automations"
+        role="tab"
+        aria-selected="false"
+        aria-controls="view-automations"
+        tabindex="-1"
+        data-view="automations"
+        onclick="switchView('automations')">
+        <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3.5h6.5l3.5 3.5V13a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 1.5 13V5A1.5 1.5 0 0 1 3 3.5z"/><path d="M9.5 3.5V7H13"/><path d="M5 9.5h6M5 12h4"/></svg>
+        <span class="tab-label">Automations</span>
+      </button>
+      <div class="nav-section" role="presentation">Configure</div>
       <button class="tab interactive"
         id="tab-nav-evals"
         role="tab"
@@ -910,9 +1052,8 @@ _HTML_SHELL_TOP = r"""
         data-view="evals"
         onclick="switchView('evals')">
         <svg class="tab-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 14.5h13"/><path d="M3.5 11v3"/><path d="M7 7v7"/><path d="M10.5 9v5"/><path d="M14 4v10"/></svg>
-        <span class="tab-label">Performance</span> <span class="tab-kbd">3</span>
+        <span class="tab-label">Performance</span>
       </button>
-      <div class="nav-section" role="presentation">Configure</div>
       <button class="tab interactive"
         id="tab-nav-deploy"
         role="tab"
@@ -1188,6 +1329,79 @@ _VIEW_PR = r"""
   </div>
 """
 
+_VIEW_BROWSER = r"""
+<div class="view" id="view-browser" role="tabpanel" aria-labelledby="tab-nav-browser">
+    <div class="view-header">
+      <span class="view-title">Browser</span>
+      <div class="pr-header-actions">
+        <span class="provider-chip" id="browser-providers" role="status">
+          <span class="dot"></span><span id="browser-providers-label">providers…</span>
+        </span>
+        <button class="mini-btn interactive" id="btn-browser-refresh" type="button"
+          onclick="loadBrowserView()" aria-label="Refresh browser sessions">Refresh</button>
+        <button class="mini-btn interactive" id="btn-browser-new" type="button"
+          onclick="createBrowserSession()" aria-label="Open new browser session">New session</button>
+      </div>
+    </div>
+    <div class="view-scroll" style="padding:0; display:flex; flex-direction:column;">
+      <div class="browser-layout">
+        <aside class="browser-sessions" aria-label="Browser sessions">
+          <div class="browser-pane-head">
+            <span>Sessions</span>
+            <span class="tnum" id="browser-session-count">0</span>
+          </div>
+          <div class="browser-session-list" id="browser-sessions">
+            <div class="view-empty">No sessions yet.</div>
+          </div>
+        </aside>
+        <section class="browser-main" aria-label="Live browser">
+          <div class="browser-toolbar">
+            <input class="browser-url" id="browser-url" type="url"
+              placeholder="https://…" autocomplete="off" aria-label="Browser URL"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();browserNavigate();}">
+            <button class="mini-btn interactive" type="button" onclick="browserNavigate()"
+              aria-label="Navigate">Go</button>
+            <button class="mini-btn interactive" type="button" onclick="browserReload()"
+              aria-label="Reload page">Reload</button>
+            <button class="mini-btn interactive" type="button" onclick="closeBrowserSession()"
+              aria-label="Close session">Close</button>
+          </div>
+          <div class="browser-stage" id="browser-stage">
+            <div class="browser-empty" id="browser-empty">
+              Open a session via MCP (<code>kater_browser_open</code>) or click New session
+            </div>
+            <img class="browser-shot" id="browser-shot" alt="Browser screenshot" hidden>
+          </div>
+        </section>
+        <aside class="browser-log-pane" aria-label="Action log">
+          <div class="browser-pane-head"><span>Action log</span></div>
+          <div class="browser-log" id="browser-log">
+            <div class="view-empty">Select a session.</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+"""
+
+_VIEW_AUTOMATIONS = r"""
+<div class="view" id="view-automations" role="tabpanel" aria-labelledby="tab-nav-automations">
+    <div class="view-header">
+      <span class="view-title">Automations</span>
+      <div class="pr-header-actions">
+        <span class="panel-meta tnum" id="automations-count" role="status">loading…</span>
+        <button class="mini-btn interactive" id="btn-automations-refresh" type="button"
+          onclick="loadAutomationsView()" aria-label="Refresh automations">Refresh</button>
+      </div>
+    </div>
+    <div class="view-scroll">
+      <div class="auto-list" id="automations-list">
+        <div class="view-empty">Loading automations…</div>
+      </div>
+    </div>
+  </div>
+"""
+
 
 _HTML_SHELL_BOTTOM = r"""
     </main>
@@ -1296,6 +1510,8 @@ _HTML = (
     + _VIEW_DEPLOY
     + _VIEW_SETTINGS
     + _VIEW_PR
+    + _VIEW_BROWSER
+    + _VIEW_AUTOMATIONS
     + _HTML_SHELL_BOTTOM
 )
 
@@ -1374,7 +1590,15 @@ function authHeaders() {
   return h;
 }
 
-function wsUrlWithAuth() {
+async function resolveWsUrl() {
+  // Prefer a short-lived ticket over putting a raw bearer in the query string.
+  try {
+    const data = await apiPost('/api/ws-ticket', {});
+    if (data && data.ticket) {
+      const sep = WS_URL.includes('?') ? '&' : '?';
+      return WS_URL + sep + 'ticket=' + encodeURIComponent(data.ticket);
+    }
+  } catch (e) { /* auth=none / offline: fall through */ }
   const token = sessionStorage.getItem(AUTH_STORAGE);
   if (!token) return WS_URL;
   const sep = WS_URL.includes('?') ? '&' : '?';
@@ -1480,7 +1704,6 @@ async function handleAuthBootstrap() {
 function showAuthGate() {
   const gate = document.getElementById('auth-gate');
   gate.classList.add('show');
-  document.getElementById('boot').style.display = 'none';
   document.getElementById('auth-oauth-btn').onclick = () => startOAuthLogin();
   document.getElementById('auth-key-btn').onclick = async () => {
     const key = document.getElementById('auth-key-input').value.trim();
@@ -1519,6 +1742,10 @@ async function apiPost(path, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {})
   });
+}
+
+async function apiDelete(path) {
+  return api(path, { method: 'DELETE' });
 }
 
 function toast(msg, type = '') {
@@ -1653,12 +1880,6 @@ function updateTrend(id, cur, prev, opts) {
 
 function latencyClass(ms) { return ms < 250 ? 'fast' : ms < 900 ? 'mid' : 'slow'; }
 
-// ── Boot Sequence ──────────────────────
-async function bootSequence() {
-  const boot = document.getElementById('boot');
-  if (boot) boot.style.display = 'none';
-}
-
 // ── Init ───────────────────────────────
 async function init() {
   if (appReady) return;
@@ -1666,13 +1887,10 @@ async function init() {
     console.error('auth bootstrap:', e);
     toast((e instanceof ApiError ? e.message : 'Login failed'), 'error');
   }
-  try { await bootSequence(); } catch (e) {
-    console.error('boot failed:', e);
-  }
   applyModKeyHints();
   restoreUrlState();
   // Server map MUST exist before loadCatalog() calls buildNodes().
-  initCanvas();
+  bindServerMapClicks();
   initExceptionStrip();
   initCatalogFacets();
   initLatencyStrip();
@@ -1719,7 +1937,7 @@ function applyModKeyHints() {
 function restoreUrlState() {
   const p = new URLSearchParams(location.search);
   const view = p.get('view');
-  if (view && ['dashboard','catalog','evals','deploy','settings','pr'].indexOf(view) !== -1) {
+  if (view && ['dashboard','catalog','evals','deploy','settings','pr','browser','automations'].indexOf(view) !== -1) {
     currentView = view;
   }
   const profile = p.get('profile');
@@ -1902,7 +2120,7 @@ function updateExceptionStrip() {
 }
 
 // ── Server routing table ─────────────────
-function initCanvas() {
+function bindServerMapClicks() {
   const el = document.getElementById('server-map');
   if (!el || el.dataset.bound) return;
   el.dataset.bound = '1';
@@ -2513,12 +2731,14 @@ function initPalette() {
 function buildPaletteItems() {
   const items = [];
   const views = [
-    ['dashboard', 'Overview'], ['catalog', 'Servers'],
+    ['dashboard', 'Overview'], ['catalog', 'Servers'], ['browser', 'Browser'],
+    ['automations', 'Automations'], ['pr', 'PR control'],
     ['evals', 'Performance'], ['deploy', 'Deploy'], ['settings', 'Settings'],
   ];
   for (const [v, label] of views) {
     items.push({ group: 'Navigate', label: 'Go to ' + label, hint: 'view', run: () => switchView(v) });
   }
+  items.push({ group: 'Actions', label: 'New browser session', hint: 'browser', run: () => { switchView('browser'); createBrowserSession(); } });
   items.push({ group: 'Actions', label: 'Refresh catalog', hint: 'refresh', run: () => loadCatalog().then(() => toast('catalog refreshed')) });
   items.push({ group: 'Actions', label: 'Start cloudflare tunnel', hint: 'tunnel', run: () => toggleTunnel('cloudflare') });
   items.push({ group: 'Actions', label: 'Start tailscale tunnel', hint: 'tunnel', run: () => toggleTunnel('tailscale') });
@@ -2672,10 +2892,12 @@ function closeWebSocket() {
   try { old.close(1000); } catch (e) {}
 }
 
-function initWebSocket() {
+async function initWebSocket() {
   closeWebSocket();
+  let url = WS_URL;
+  try { url = await resolveWsUrl(); } catch (e) { url = WS_URL; }
   try {
-    ws = new WebSocket(wsUrlWithAuth());
+    ws = new WebSocket(url);
   } catch (e) {
     setLive(false);
     scheduleReconnect();
@@ -2728,6 +2950,15 @@ function handleWSMessage(data) {
   if (data.type === 'tool_call' || data.type === 'chain_run'
       || data.type === 'telemetry') {
     appendTelemetry(data);
+  }
+  if (data.type === 'browser_session' || data.type === 'browser_action') {
+    onBrowserWsEvent(data);
+  }
+  if (data.type === 'automation_run'
+      || data.type === 'automation_enabled'
+      || data.type === 'automation_disabled'
+      || data.type === 'automation_upsert') {
+    if (currentView === 'automations') loadAutomationsView();
   }
 }
 
@@ -3016,6 +3247,8 @@ let currentView = 'dashboard';
 const viewTitles = {
   dashboard: 'Overview',
   catalog: 'Servers',
+  browser: 'Browser',
+  automations: 'Automations',
   evals: 'Performance',
   deploy: 'Deploy',
   settings: 'Settings',
@@ -3023,6 +3256,7 @@ const viewTitles = {
 };
 
 function switchView(name, quiet) {
+  const prev = currentView;
   currentView = name;
   const title = document.getElementById('page-title');
   if (title) title.textContent = viewTitles[name] || name;
@@ -3037,6 +3271,7 @@ function switchView(name, quiet) {
     t.setAttribute('tabindex', on ? '0' : '-1');
   });
   if (name === 'dashboard') setTimeout(drawLatencyStrip, 0);
+  if (prev === 'browser' && name !== 'browser') stopBrowserPoll();
   loadViewData(name);
   if (!quiet) writeUrlState();
 }
@@ -3048,6 +3283,8 @@ async function loadViewData(name) {
     else if (name === 'deploy') await loadDeployView();
     else if (name === 'settings') await loadSettingsView();
     else if (name === 'pr') await loadPRView();
+    else if (name === 'browser') await loadBrowserView();
+    else if (name === 'automations') await loadAutomationsView();
   } catch (e) {
     console.error('view load error:', e);
   }
@@ -3507,6 +3744,404 @@ async function onMergeClick(e) {
 }
 
 
+// ── Browser workspace ──────────────────
+let browserSessions = [];
+let browserSelectedId = null;
+let browserPollTimer = null;
+let browserShotSeq = 0;
+const browserActionLog = new Map(); // session_id -> [{kind, ok, detail, ts}]
+
+function stopBrowserPoll() {
+  if (browserPollTimer) { clearInterval(browserPollTimer); browserPollTimer = null; }
+}
+
+function startBrowserPoll() {
+  stopBrowserPoll();
+  if (currentView !== 'browser' || !browserSelectedId) return;
+  browserPollTimer = setInterval(() => {
+    if (currentView === 'browser' && browserSelectedId) pollBrowserScreenshot();
+  }, 2000);
+}
+
+function pushBrowserLog(sessionId, entry) {
+  if (!sessionId) return;
+  const list = browserActionLog.get(sessionId) || [];
+  list.unshift({
+    kind: entry.kind || 'action',
+    ok: entry.ok !== false,
+    detail: entry.detail || entry.url || entry.error || '',
+    ts: entry.ts || Date.now(),
+  });
+  while (list.length > 80) list.pop();
+  browserActionLog.set(sessionId, list);
+  if (sessionId === browserSelectedId) renderBrowserLog();
+}
+
+function renderBrowserLog() {
+  const el = document.getElementById('browser-log');
+  if (!el) return;
+  el.replaceChildren();
+  const rows = browserActionLog.get(browserSelectedId) || [];
+  if (!rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'view-empty';
+    empty.textContent = browserSelectedId ? 'No actions yet.' : 'Select a session.';
+    el.appendChild(empty);
+    return;
+  }
+  for (const r of rows) {
+    const row = document.createElement('div');
+    row.className = 'browser-log-row ' + (r.ok ? 'ok' : 'err');
+    const kind = document.createElement('span');
+    kind.className = 'bl-kind';
+    kind.textContent = r.kind + (r.ok ? '' : ' · fail');
+    const detail = document.createElement('span');
+    detail.className = 'bl-detail';
+    detail.textContent = r.detail || '';
+    detail.title = r.detail || '';
+    row.appendChild(kind);
+    row.appendChild(detail);
+    el.appendChild(row);
+  }
+}
+
+function showBrowserShot(b64) {
+  const img = document.getElementById('browser-shot');
+  const empty = document.getElementById('browser-empty');
+  if (!img) return;
+  if (!b64) {
+    img.hidden = true;
+    img.removeAttribute('src');
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+  img.hidden = false;
+  img.classList.remove('fade-in');
+  // Force reflow so fade-in restarts on each frame.
+  void img.offsetWidth;
+  img.classList.add('fade-in');
+  img.src = 'data:image/jpeg;base64,' + b64;
+}
+
+function renderBrowserSessions() {
+  const list = document.getElementById('browser-sessions');
+  const count = document.getElementById('browser-session-count');
+  if (!list) return;
+  if (count) count.textContent = String(browserSessions.length);
+  list.replaceChildren();
+  if (!browserSessions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'view-empty';
+    empty.textContent = 'No sessions yet.';
+    list.appendChild(empty);
+    return;
+  }
+  for (const s of browserSessions) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'browser-session interactive'
+      + (s.session_id === browserSelectedId ? ' active' : '');
+    btn.dataset.id = s.session_id;
+    const id = document.createElement('span');
+    id.className = 'bs-id';
+    id.textContent = s.label || s.title || s.session_id;
+    const meta = document.createElement('span');
+    meta.className = 'bs-meta';
+    meta.textContent = (s.state || '') + (s.current_url ? ' · ' + s.current_url : '');
+    btn.appendChild(id);
+    btn.appendChild(meta);
+    btn.onclick = () => selectBrowserSession(s.session_id);
+    list.appendChild(btn);
+  }
+}
+
+function selectBrowserSession(id) {
+  browserSelectedId = id;
+  const s = browserSessions.find(x => x.session_id === id);
+  const url = document.getElementById('browser-url');
+  if (url) url.value = (s && s.current_url) || '';
+  renderBrowserSessions();
+  renderBrowserLog();
+  const empty = document.getElementById('browser-empty');
+  const img = document.getElementById('browser-shot');
+  if (!id) {
+    if (empty) {
+      empty.hidden = false;
+      empty.textContent = 'Open a session via MCP (`kater_browser_open`) or click New session';
+    }
+    if (img) { img.hidden = true; img.removeAttribute('src'); }
+    stopBrowserPoll();
+    return;
+  }
+  if (empty) empty.hidden = true;
+  pollBrowserScreenshot();
+  startBrowserPoll();
+}
+
+async function loadBrowserProviders() {
+  const chip = document.getElementById('browser-providers');
+  const label = document.getElementById('browser-providers-label');
+  try {
+    const data = await api('/api/browser/providers');
+    const providers = data.providers || [];
+    const available = providers.filter(p => p.available);
+    if (label) {
+      label.textContent = available.length
+        ? available.map(p => p.kind).join(', ')
+        : (providers.length ? 'unavailable' : 'no providers');
+    }
+    if (chip) chip.classList.toggle('ok', available.length > 0);
+  } catch (e) {
+    if (label) label.textContent = 'providers unavailable';
+    if (chip) chip.classList.remove('ok');
+  }
+}
+
+async function loadBrowserView() {
+  await loadBrowserProviders();
+  try {
+    const data = await api('/api/browser/sessions');
+    browserSessions = data.sessions || [];
+  } catch (e) {
+    browserSessions = [];
+    toast('browser sessions unavailable', 'error');
+  }
+  if (browserSelectedId && !browserSessions.some(s => s.session_id === browserSelectedId)) {
+    browserSelectedId = null;
+  }
+  if (!browserSelectedId && browserSessions.length) {
+    browserSelectedId = browserSessions[0].session_id;
+  }
+  renderBrowserSessions();
+  if (browserSelectedId) selectBrowserSession(browserSelectedId);
+  else selectBrowserSession(null);
+}
+
+async function createBrowserSession() {
+  try {
+    const data = await apiPost('/api/browser/sessions', { profile: activeProfile || 'core' });
+    const session = data.session || data;
+    if (session && session.session_id) {
+      toast('browser session opened', 'success');
+      browserSelectedId = session.session_id;
+      pushBrowserLog(session.session_id, { kind: 'open', ok: true, detail: 'session created' });
+      await loadBrowserView();
+    } else {
+      toast('could not open session', 'error');
+    }
+  } catch (e) {
+    toast('new session: ' + (e.message || 'failed'), 'error');
+  }
+}
+
+async function closeBrowserSession() {
+  if (!browserSelectedId) { toast('no session selected', 'error'); return; }
+  const id = browserSelectedId;
+  try {
+    await apiDelete('/api/browser/sessions/' + encodeURIComponent(id));
+    toast('session closed');
+    browserActionLog.delete(id);
+    browserSelectedId = null;
+    stopBrowserPoll();
+    showBrowserShot(null);
+    await loadBrowserView();
+  } catch (e) {
+    toast('close: ' + (e.message || 'failed'), 'error');
+  }
+}
+
+async function browserNavigate() {
+  if (!browserSelectedId) { toast('no session selected', 'error'); return; }
+  const urlEl = document.getElementById('browser-url');
+  const url = urlEl ? urlEl.value.trim() : '';
+  if (!url) { toast('enter a URL', 'error'); return; }
+  try {
+    const data = await apiPost(
+      '/api/browser/sessions/' + encodeURIComponent(browserSelectedId) + '/act',
+      { kind: 'navigate', url: url }
+    );
+    pushBrowserLog(browserSelectedId, {
+      kind: 'navigate', ok: data.ok !== false, detail: data.url || url, error: data.error,
+    });
+    if (data.screenshot_b64) showBrowserShot(data.screenshot_b64);
+    else await pollBrowserScreenshot();
+    await loadBrowserView();
+  } catch (e) {
+    pushBrowserLog(browserSelectedId, { kind: 'navigate', ok: false, detail: e.message || 'failed' });
+    toast('navigate: ' + (e.message || 'failed'), 'error');
+  }
+}
+
+async function browserReload() {
+  if (!browserSelectedId) { toast('no session selected', 'error'); return; }
+  try {
+    const data = await apiPost(
+      '/api/browser/sessions/' + encodeURIComponent(browserSelectedId) + '/act',
+      { kind: 'reload' }
+    );
+    pushBrowserLog(browserSelectedId, {
+      kind: 'reload', ok: data.ok !== false, detail: data.url || '', error: data.error,
+    });
+    if (data.screenshot_b64) showBrowserShot(data.screenshot_b64);
+    else await pollBrowserScreenshot();
+  } catch (e) {
+    pushBrowserLog(browserSelectedId, { kind: 'reload', ok: false, detail: e.message || 'failed' });
+    toast('reload: ' + (e.message || 'failed'), 'error');
+  }
+}
+
+async function pollBrowserScreenshot() {
+  if (!browserSelectedId || currentView !== 'browser') return;
+  const id = browserSelectedId;
+  const seq = ++browserShotSeq;
+  try {
+    const data = await apiPost(
+      '/api/browser/sessions/' + encodeURIComponent(id) + '/screenshot', {}
+    );
+    if (seq !== browserShotSeq || id !== browserSelectedId) return;
+    if (data.screenshot_b64) showBrowserShot(data.screenshot_b64);
+    if (data.url) {
+      const urlEl = document.getElementById('browser-url');
+      if (urlEl && document.activeElement !== urlEl) urlEl.value = data.url;
+    }
+  } catch (e) {
+    /* polling is best-effort; keep last frame */
+  }
+}
+
+function onBrowserWsEvent(data) {
+  if (data.type === 'browser_action') {
+    pushBrowserLog(data.session_id, {
+      kind: data.kind || 'action',
+      ok: data.ok !== false,
+      detail: data.error || data.url || data.title || '',
+      ts: (data.timestamp || Date.now() / 1000) * 1000,
+    });
+  }
+  if (currentView === 'browser') {
+    // Debounce: reload session list without fighting an in-flight screenshot.
+    if (!onBrowserWsEvent._t) {
+      onBrowserWsEvent._t = setTimeout(() => {
+        onBrowserWsEvent._t = null;
+        loadBrowserView();
+      }, 250);
+    }
+  }
+}
+
+// ── Automations ────────────────────────
+async function loadAutomationsView() {
+  const list = document.getElementById('automations-list');
+  const count = document.getElementById('automations-count');
+  if (!list) return;
+  try {
+    const data = await api('/api/automations');
+    const items = data.automations || data.items || [];
+    if (count) {
+      count.textContent = items.length === 1 ? '1 automation' : items.length + ' automations';
+    }
+    list.replaceChildren();
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.className = 'view-empty';
+      empty.textContent = 'No automations configured yet.';
+      list.appendChild(empty);
+      return;
+    }
+    for (const a of items) {
+      list.appendChild(makeAutomationRow(a));
+    }
+  } catch (e) {
+    if (count) count.textContent = 'unavailable';
+    list.replaceChildren();
+    const empty = document.createElement('div');
+    empty.className = 'view-empty';
+    if (e instanceof ApiError && e.status === 404) {
+      empty.textContent = 'Automations unavailable — this gateway build has no automation API yet.';
+    } else {
+      empty.textContent = 'Could not load automations: ' + (e.message || 'error');
+    }
+    list.appendChild(empty);
+  }
+}
+
+function makeAutomationRow(a) {
+  const row = document.createElement('div');
+  row.className = 'auto-row';
+  const left = document.createElement('div');
+  const name = document.createElement('div');
+  name.className = 'auto-name';
+  name.textContent = a.name || a.id || 'automation';
+  const meta = document.createElement('div');
+  meta.className = 'auto-meta';
+  const secs = Number(a.schedule_seconds) || 0;
+  const schedule = secs > 0 ? ('every ' + secs + 's') : (a.schedule || a.cron || 'manual');
+  const status = a.last_status || a.status || (a.enabled ? 'idle' : 'disabled');
+  const err = a.last_error ? (' · ' + a.last_error) : '';
+  meta.textContent = (a.kind ? a.kind + ' · ' : '') + schedule + ' · last: ' + status + err;
+  left.appendChild(name);
+  left.appendChild(meta);
+  const toggle = document.createElement('div');
+  toggle.className = 'toggle-switch' + (a.enabled ? ' on' : '');
+  toggle.setAttribute('role', 'switch');
+  toggle.setAttribute('aria-checked', String(!!a.enabled));
+  toggle.setAttribute('aria-label', (a.enabled ? 'Disable ' : 'Enable ') + (a.name || a.id || 'automation'));
+  toggle.tabIndex = 0;
+  const id = a.id || a.name;
+  toggle.onclick = (e) => { e.stopPropagation(); toggleAutomation(id, !a.enabled, toggle); };
+  toggle.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggleAutomation(id, !a.enabled, toggle);
+    }
+  };
+  const actions = document.createElement('div');
+  actions.className = 'auto-actions';
+  const run = document.createElement('button');
+  run.type = 'button';
+  run.className = 'mini-btn interactive';
+  run.textContent = 'Run now';
+  run.setAttribute('aria-label', 'Run ' + (a.name || a.id || 'automation') + ' now');
+  run.onclick = () => runAutomation(id, run);
+  actions.appendChild(run);
+  row.appendChild(left);
+  row.appendChild(toggle);
+  row.appendChild(actions);
+  return row;
+}
+
+async function toggleAutomation(id, enable, toggleEl) {
+  if (!id) return;
+  const action = enable ? 'enable' : 'disable';
+  try {
+    await apiPost('/api/automations/' + encodeURIComponent(id) + '/' + action, {});
+    toast(action + 'd ' + id, 'success');
+    await loadAutomationsView();
+  } catch (e) {
+    toast(action + ': ' + (e.message || 'failed'), 'error');
+    if (toggleEl) {
+      toggleEl.classList.toggle('on', !enable);
+      toggleEl.setAttribute('aria-checked', String(!enable));
+    }
+  }
+}
+
+async function runAutomation(id, btn) {
+  if (!id) return;
+  const original = btn ? btn.textContent : 'Run now';
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  try {
+    await apiPost('/api/automations/' + encodeURIComponent(id) + '/run', {});
+    toast('automation queued', 'success');
+    await loadAutomationsView();
+  } catch (e) {
+    toast('run: ' + (e.message || 'failed'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+}
+
 async function saveSettings(btn) {
   const originalText = btn ? btn.textContent : 'Save settings';
   if (btn) {
@@ -3557,7 +4192,7 @@ function initKeyboard() {
     if (paletteIsOpen()) return;
 
     if (e.key >= '1' && e.key <= '5') {
-      const views = ['dashboard', 'catalog', 'evals', 'deploy', 'settings'];
+      const views = ['dashboard', 'catalog', 'browser', 'deploy', 'settings'];
       const v = views[parseInt(e.key) - 1];
       if (v) switchView(v);
       return;

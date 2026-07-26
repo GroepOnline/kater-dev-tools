@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- HTTP capability discovery (`GET /api/capabilities`, `GET /api/capabilities/{id}`) and remote context CRUD (`/api/contexts*`) with migration v4 (`remote_contexts`).
+- `docs/browser.md` plus `.env.example` notes for the three browser backends (`local`, `cdp`, `steel`/`remote`).
 - OpenAPI paths for the native browser lane (`/api/browser/*`) and automations (`/api/automations/*`).
 - `.env.example` knobs for optional browser providers, domain policy, and session limits.
 - Deploy docs cover three-port layout (9090/9091/9092), `kater migrate apply` / `kater backup create`, and optional Playwright browser install.

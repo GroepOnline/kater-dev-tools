@@ -247,11 +247,30 @@ _AUTOMATIONS_V3 = (
     "CREATE INDEX IF NOT EXISTS idx_automations_enabled ON automations(enabled)",
 )
 
+_REMOTE_CONTEXTS_V4 = (
+    """CREATE TABLE IF NOT EXISTS remote_contexts (
+        context_id TEXT PRIMARY KEY,
+        principal_id TEXT NOT NULL,
+        label TEXT,
+        profile TEXT NOT NULL DEFAULT 'core',
+        scopes TEXT NOT NULL DEFAULT '[]',
+        repository TEXT,
+        environment TEXT,
+        allowed_capabilities TEXT NOT NULL DEFAULT '[]',
+        expires_at REAL,
+        revoked_at REAL,
+        created_at REAL NOT NULL,
+        metadata TEXT NOT NULL DEFAULT '{}'
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_remote_contexts_principal ON remote_contexts(principal_id)",
+)
+
 #: Ordered, append-only. Add new versions at the end; never edit a released one.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="baseline", statements=_BASELINE),
     Migration(version=2, name="browser_lane", statements=_BROWSER_V2),
     Migration(version=3, name="automations", statements=_AUTOMATIONS_V3),
+    Migration(version=4, name="remote_contexts", statements=_REMOTE_CONTEXTS_V4),
 )
 
 _CREATE_SCHEMA_TABLE = f"""CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (

@@ -1246,3 +1246,7 @@ def _computer_invoke(req: Request) -> Response:
     arguments = {key: value for key, value in body.items() if key != "capability_id"}
     result = connector.call(capability_id.strip(), arguments)
     return Response.json(200, result)
+
+
+# Fabric lane (capability discovery + remote contexts). Side-effect import.
+from kater.api import fabric_routes as _fabric_routes  # noqa: E402, F401

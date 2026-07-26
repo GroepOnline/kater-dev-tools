@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from kater.api.fabric_routes import FABRIC_OPENAPI_PATHS
+
 OPENAPI_VERSION = "3.1.0"
 API_TITLE = "Kater MCP Gateway API"
 API_VERSION = "1.0.0"
@@ -871,6 +873,7 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths.update(FABRIC_OPENAPI_PATHS)
     return paths
 
 

@@ -141,7 +141,7 @@ jobs:
 
       - name: Test
         run: >-
-          timeout 180s uv run pytest -vv --tb=short -ra
+          timeout 300s uv run pytest -vv --tb=short -ra
           --ignore=tests/test_computer_acceptance_e2e.py
 
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──

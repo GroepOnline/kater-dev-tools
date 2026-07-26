@@ -145,10 +145,12 @@ class AutomationEngine:
                 ran += 1
         return ran
 
-    def run_now(self, automation_id: str) -> AutomationRunResult:
+    def run_now(self, automation_id: str, *, force: bool = False) -> AutomationRunResult:
         automation = self._store.get(automation_id)
         if automation is None:
             raise KeyError(automation_id)
+        if not automation.enabled and not force:
+            raise ValueError(f"automation {automation_id} is disabled")
         with self._lock:
             return self._execute(automation, ran_at=float(self._clock()))
 

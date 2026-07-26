@@ -18,6 +18,7 @@ from kater.browser.providers import (
     SteelProvider,
     browsers_root,
     launch_args,
+    probe_cdp,
     probe_providers,
     resolve_provider,
 )
@@ -81,6 +82,30 @@ def test_probe_cdp_and_steel_report_env(monkeypatch):
     assert "ws://localhost:9222" in cdp.detail
     assert steel.available is True
     assert "with api key" in steel.detail
+
+
+def test_probe_and_provider_info_redact_cdp_secrets(monkeypatch):
+    from kater.browser.base import redact_endpoint
+
+    dirty = "wss://user:s3cret@browserless.example:443/chrome?token=abc123"
+    safe = redact_endpoint(dirty)
+    assert "s3cret" not in safe
+    assert "token=" not in safe
+    assert "user@" not in safe
+    assert "browserless.example" in safe
+
+    monkeypatch.setenv("KATER_BROWSER_CDP_URL", dirty)
+    info = probe_cdp()
+    assert info.available is True
+    assert "s3cret" not in info.detail
+    assert "token=" not in info.detail
+    assert "abc123" not in info.detail
+
+    provider = CdpProvider(dirty)
+    detail = provider.info().detail
+    assert "s3cret" not in detail
+    assert "token=" not in detail
+    assert "abc123" not in detail
 
 
 def test_browsers_root_honours_override(monkeypatch, tmp_path):
@@ -241,6 +266,8 @@ class FakePage:
         self.calls.append(("evaluate", expression))
         if args:
             return self.snapshot_payload
+        if self.redirect_to:
+            self.url = self.redirect_to
         return "evaluated"
 
 
@@ -299,6 +326,33 @@ def test_evaluate_is_denied_unless_explicitly_allowed():
     )
     assert allowed.ok is True
     assert allowed.text == "evaluated"
+
+
+def test_evaluate_that_navigates_to_a_denied_host_is_caught():
+    page = FakePage(redirect_to="https://evil.com/")
+    policy = public_policy(deny_domains=("evil.com",))
+    result = run_action(
+        page,
+        {"kind": "evaluate", "expression": "location.href='https://evil.com/'"},
+        policy,
+        allow_evaluate=True,
+    )
+    assert result.ok is False
+    assert "denied domain" in (result.error or "")
+
+
+def test_action_timeout_is_clamped_to_policy():
+    page = FakePage()
+    calls: list[float] = []
+
+    def wait_for_timeout(timeout):
+        calls.append(timeout)
+
+    page.wait_for_timeout = wait_for_timeout  # type: ignore[method-assign]
+    policy = public_policy(action_timeout_ms=1_000)
+    result = run_action(page, {"kind": "wait", "timeout_ms": 999_999}, policy)
+    assert result.ok is True
+    assert calls == [1_000.0]
 
 
 def test_screenshot_over_the_cap_is_refused():

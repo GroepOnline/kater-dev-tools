@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from kater.browser.models import ActionResult, BrowserAction, BrowserSession, ProviderKind
 from kater.browser.policy import BrowserPolicy
@@ -111,3 +112,24 @@ def browsers_root() -> Path:
 
 def env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in _TRUTHY
+
+
+def redact_endpoint(url: str) -> str:
+    """Strip credentials, query string and fragment from a CDP/API endpoint URL."""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return "<redacted>"
+    host = parts.hostname or ""
+    if not host and not parts.scheme:
+        # Opaque or unparseable value — never echo secrets.
+        return "<redacted>"
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = host
+    if parts.port is not None:
+        netloc = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))

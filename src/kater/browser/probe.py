@@ -17,6 +17,7 @@ from kater.browser.base import (
     ENV_STEEL_URL,
     ProviderInfo,
     browsers_root,
+    redact_endpoint,
 )
 from kater.browser.models import ProviderKind
 
@@ -45,7 +46,7 @@ def probe_cdp() -> ProviderInfo:
     endpoint = os.environ.get(ENV_CDP_URL, "").strip()
     if not endpoint:
         return ProviderInfo(ProviderKind.CDP, False, f"{ENV_CDP_URL} is not set")
-    return ProviderInfo(ProviderKind.CDP, True, f"endpoint {endpoint}")
+    return ProviderInfo(ProviderKind.CDP, True, f"endpoint {redact_endpoint(endpoint)}")
 
 
 def probe_steel() -> ProviderInfo:
@@ -57,7 +58,9 @@ def probe_steel() -> ProviderInfo:
             f"{ENV_STEEL_URL} is not set (default {DEFAULT_STEEL_URL})",
         )
     keyed = "with api key" if os.environ.get(ENV_STEEL_KEY, "").strip() else "no api key"
-    return ProviderInfo(ProviderKind.REMOTE, True, f"steel api {base_url} ({keyed})")
+    return ProviderInfo(
+        ProviderKind.REMOTE, True, f"steel api {redact_endpoint(base_url)} ({keyed})"
+    )
 
 
 def _has_chromium_build(root: Path) -> bool:

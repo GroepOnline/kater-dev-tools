@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 
 from kater.browser.models import (
+    MAX_ACTION_TIMEOUT_MS,
+    NAVIGATING_KINDS,
     SESSION_ID_PREFIX,
     ActionKind,
     ActionResult,
@@ -164,3 +166,14 @@ def test_action_result_reports_errors():
     assert payload["ok"] is False
     assert payload["error"] == "policy: blocked"
     assert "title" not in payload
+
+
+def test_action_from_dict_clamps_timeout_ms_to_hard_max():
+    action = BrowserAction.from_dict(
+        {"kind": "wait", "timeout_ms": MAX_ACTION_TIMEOUT_MS * 10}
+    )
+    assert action.timeout_ms == MAX_ACTION_TIMEOUT_MS
+
+
+def test_evaluate_is_a_navigating_kind():
+    assert ActionKind.EVALUATE in NAVIGATING_KINDS

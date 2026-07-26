@@ -4,7 +4,7 @@ from kater.capabilities.builtins import BUILTIN_CAPABILITIES, iter_builtins
 from kater.capabilities.computer import (
     computer_tool_source,
     load_computer_manifests,
-    load_computer_manifests_from_udo,
+    load_computer_manifests_from_checkout,
 )
 from kater.capabilities.discovery import CapabilityDenied, assert_invocable, discover
 from kater.capabilities.models import (
@@ -40,7 +40,7 @@ __all__ = [
     "get_default_registry",
     "iter_builtins",
     "load_computer_manifests",
-    "load_computer_manifests_from_udo",
+    "load_computer_manifests_from_checkout",
     "reset_default_registry",
     "risk_rank",
 ]

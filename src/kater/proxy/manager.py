@@ -351,7 +351,7 @@ class ProxyManager:
 
         if self._computer_connector is not None and self._computer_connector.is_reserved(name):
             return self._computer_connector.call(name, arguments)
-        # Re-check registry on every invoke: discovery is not authority (CHE-659).
+        # Re-check registry on every invoke: discovery is not authority.
         try:
             assert_invocable(name)
         except CapabilityDenied as exc:

@@ -187,8 +187,8 @@ def _default_repo() -> str | None:
 
     ``KATER_PR_REPO`` (owner/name) pins the repo explicitly; without it the
     `gh` CLI falls back to the server process cwd, which for a daemonized
-    kater is the kater-dev-tools checkout rather than the repo being gated
-    (CHE-793).
+    kater is the repo in the working tree rather than whichever repo a caller
+    asked to gate.
     """
     return os.environ.get("KATER_PR_REPO", "").strip() or None
 

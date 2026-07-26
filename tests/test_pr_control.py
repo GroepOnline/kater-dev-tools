@@ -622,6 +622,6 @@ def test_default_repo_from_env(monkeypatch) -> None:
     assert GitHubPRClient().repo is None
     monkeypatch.setenv("KATER_PR_REPO", "  ")
     assert GitHubPRClient().repo is None
-    monkeypatch.setenv("KATER_PR_REPO", "SoonSoonTm/utrecht-data-os")
-    assert GitHubPRClient().repo == "SoonSoonTm/utrecht-data-os"
+    monkeypatch.setenv("KATER_PR_REPO", "acme-co/example-repo")
+    assert GitHubPRClient().repo == "acme-co/example-repo"
     assert GitHubPRClient(repo="o/r").repo == "o/r"

@@ -87,6 +87,39 @@ Add to Cursor MCP config:
 }
 ```
 
+## Ports
+
+One `kater serve` process opens three listeners (override with `KATER_*_PORT`):
+
+| Port | Role |
+|------|------|
+| 9090 | MCP SSE (`/sse`) |
+| 9091 | REST API + dashboard |
+| 9092 | WebSocket telemetry |
+
+Persist SQLite and secrets under `.kater/` (Docker/K8s: mount a volume at `/app/.kater`).
+
+## Schema migrate and backups
+
+Stop the server before write-heavy CLI against the same DB file:
+
+```bash
+uv run kater migrate apply
+uv run kater backup create
+```
+
+## Optional native browser lane
+
+Gateway, MCP proxy, and dashboard work without Playwright. For local browser sessions:
+
+```bash
+uv sync --extra browser
+uv run playwright install chromium
+```
+
+Configure via `KATER_BROWSER_*` in `.env` (see `.env.example`). Containers that need the
+browser extra should install Chromium in the image; CDP/remote providers avoid shipping a browser.
+
 ## Pre-flight check
 
 ```bash

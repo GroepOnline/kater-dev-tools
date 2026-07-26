@@ -41,7 +41,8 @@ from kater.browser.base import (
     redact_endpoint,
 )
 from kater.browser.models import ActionResult, BrowserAction, BrowserSession, ProviderKind
-from kater.browser.policy import BrowserPolicy
+from kater.browser.network import install_network_guard, validate_cdp_endpoint
+from kater.browser.policy import BrowserPolicy, load_policy
 from kater.browser.probe import probe_cdp, probe_local, probe_providers, probe_steel
 from kater.browser.runner import CallRunner
 from kater.settings import KaterSettings
@@ -102,6 +103,9 @@ class PlaywrightProvider(BrowserProvider):
         self._lock = threading.RLock()
         self._playwright: Any = None
         self._browser: Any = None
+        # Session manager cannot always pass policy into new_page; act() sets
+        # this so the network guard sees the active session policy.
+        self._guard_policy: BrowserPolicy | None = None
 
     # ── lifecycle ──────────────────────────────────────────────────
 
@@ -109,7 +113,7 @@ class PlaywrightProvider(BrowserProvider):
         with self._lock:
             if self._browser is not None:
                 return
-            self._runner.submit(self._start_on_worker)
+            self._submit(self._start_on_worker)
 
     def _start_on_worker(self) -> None:
         try:
@@ -136,7 +140,7 @@ class PlaywrightProvider(BrowserProvider):
                 self._runner.stop()
                 return
             if self._runner.running:
-                _quiet(lambda: self._runner.submit(self._stop_on_worker, timeout=20.0))
+                _quiet(lambda: self._submit(self._stop_on_worker, timeout=20.0))
             self._browser = None
             self._playwright = None
             self._runner.stop()
@@ -150,11 +154,34 @@ class PlaywrightProvider(BrowserProvider):
         if playwright is not None:
             _quiet(playwright.stop)
 
+    def _invalidate_after_timeout(self) -> None:
+        """Drop Playwright objects bound to a wedged worker thread.
+
+        Closing them from another thread is unsafe; leaking one Chromium until
+        process exit is preferable to wedging the lane forever. The next
+        ``start()`` relaunches on the replacement worker.
+        """
+        with self._lock:
+            self._browser = None
+            self._playwright = None
+
+    def _submit(self, fn: Any, *, timeout: float | None = None) -> Any:
+        try:
+            return self._runner.submit(fn, timeout=timeout)
+        except TimeoutError:
+            # Runner already replaced the wedged worker; drop thread-affine state.
+            self._invalidate_after_timeout()
+            raise
+
     # ── pages ──────────────────────────────────────────────────────
 
-    def new_page(self, session: BrowserSession) -> PageHandle:
+    def new_page(
+        self, session: BrowserSession, policy: BrowserPolicy | None = None
+    ) -> PageHandle:
+        if policy is not None:
+            self._guard_policy = policy
         self.start()
-        return self._runner.submit(lambda: self._new_page_on_worker(session), timeout=60.0)
+        return self._submit(lambda: self._new_page_on_worker(session), timeout=60.0)
 
     def _new_page_on_worker(self, session: BrowserSession) -> PageHandle:
         if self._browser is None:
@@ -164,15 +191,18 @@ class PlaywrightProvider(BrowserProvider):
             ignore_https_errors=False,
         )
         page = context.new_page()
+        self._attach_guard(page)
         return PageHandle(session_id=session.session_id, context=context, page=page)
+
+    def _attach_guard(self, page: Any) -> None:
+        install_network_guard(page, lambda: self._guard_policy or load_policy())
+        page.on("popup", lambda popup: self._attach_guard(popup))
 
     def close_page(self, handle: Any) -> None:
         if not isinstance(handle, PageHandle) or not self._runner.running:
             return
         _quiet(
-            lambda: self._runner.submit(
-                lambda: self._close_page_on_worker(handle), timeout=20.0
-            )
+            lambda: self._submit(lambda: self._close_page_on_worker(handle), timeout=20.0)
         )
 
     def _close_page_on_worker(self, handle: PageHandle) -> None:
@@ -184,12 +214,13 @@ class PlaywrightProvider(BrowserProvider):
     def act(self, handle: Any, action: BrowserAction, policy: BrowserPolicy) -> ActionResult:
         if not isinstance(handle, PageHandle):
             raise TypeError(f"expected a PageHandle, got {type(handle).__name__}")
+        self._guard_policy = policy
         budget_ms = min(
             float(action.timeout_ms or policy.action_timeout_ms),
             float(policy.action_timeout_ms),
         )
         deadline = budget_ms / 1000.0 + ACTION_TIMEOUT_SLACK_SECONDS
-        return self._runner.submit(
+        return self._submit(
             lambda: execute_action(
                 handle.page,
                 action,
@@ -226,7 +257,18 @@ class CdpProvider(PlaywrightProvider):
             raise BrowserUnavailableError(
                 f"no CDP endpoint configured; set {ENV_CDP_URL} to e.g. ws://localhost:9222"
             )
-        return playwright.chromium.connect_over_cdp(self.endpoint)
+        endpoint = validate_cdp_endpoint(self.endpoint)
+        return playwright.chromium.connect_over_cdp(endpoint)
+
+    def _stop_on_worker(self) -> None:
+        # CDP / Steel attach to a browser we do not own. browser.close() would
+        # kill the remote Chrome (or the operator's debug session). Pages and
+        # contexts are already disposed via close_page; only disconnect the
+        # Playwright driver.
+        self._browser = None
+        playwright, self._playwright = self._playwright, None
+        if playwright is not None:
+            _quiet(playwright.stop)
 
     def info(self) -> ProviderInfo:
         safe = redact_endpoint(self.endpoint) if self.endpoint else ""
@@ -278,6 +320,14 @@ class SteelProvider(CdpProvider):
             return ProviderInfo(self.kind, True, f"steel session on {safe}")
         return ProviderInfo(self.kind, True, f"steel api {safe} (not started)")
 
+    def _connect(self, playwright: Any) -> Any:
+        if not self.endpoint:
+            raise BrowserUnavailableError(
+                f"steel session at {self.base_url} has no CDP endpoint"
+            )
+        endpoint = validate_cdp_endpoint(self.endpoint, steel_base_url=self.base_url)
+        return playwright.chromium.connect_over_cdp(endpoint)
+
     def _create_steel_session(self) -> tuple[str, str | None]:
         payload = self._steel_request("POST", "/v1/sessions", body={})
         endpoint = _first_url(payload)
@@ -286,6 +336,7 @@ class SteelProvider(CdpProvider):
                 f"steel session response from {self.base_url} carried no CDP url "
                 f"(looked for {', '.join(_CDP_URL_KEYS)})"
             )
+        endpoint = validate_cdp_endpoint(endpoint, steel_base_url=self.base_url)
         session_id = payload.get("id") or payload.get("sessionId")
         return endpoint, str(session_id) if session_id else None
 

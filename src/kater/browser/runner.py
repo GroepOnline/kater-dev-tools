@@ -3,6 +3,10 @@
 Playwright's sync API is bound to the thread that created it, while Kater
 serves HTTP/MCP requests from a thread pool. Every provider call is therefore
 funnelled through one dedicated worker thread via this runner.
+
+If a job exceeds its timeout the worker is abandoned (it may still be blocked
+inside Playwright) and a fresh worker is started so later calls are not
+poisoned by the wedged thread.
 """
 
 from __future__ import annotations
@@ -26,44 +30,86 @@ class CallRunner:
         self._queue: queue.Queue[_Job | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._generation = 0
+        self._restarts = 0
 
     @property
     def running(self) -> bool:
         thread = self._thread
         return thread is not None and thread.is_alive()
 
+    @property
+    def restarts(self) -> int:
+        return self._restarts
+
+    @property
+    def generation(self) -> int:
+        return self._generation
+
     def start(self) -> None:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return
-            self._queue = queue.Queue()
-            thread = threading.Thread(target=self._loop, name=self._name, daemon=True)
-            self._thread = thread
-            thread.start()
+            self._spawn_worker_unlocked()
 
     def submit(self, fn: Callable[[], T], *, timeout: float | None = None) -> T:
         """Execute ``fn`` on the worker thread and return its result.
 
         Raises ``TimeoutError`` when the call does not finish in ``timeout``
-        seconds; the job itself keeps running and later jobs queue behind it.
+        seconds. The wedged worker is abandoned and replaced so later submits
+        are not stuck behind it.
         """
         self.start()
         future: Future[T] = Future()
-        self._queue.put((fn, future))
-        return future.result(timeout=timeout)
+        with self._lock:
+            generation = self._generation
+            self._queue.put((fn, future))
+        try:
+            return future.result(timeout=timeout)
+        except TimeoutError:
+            with self._lock:
+                if generation == self._generation:
+                    self._replace_worker_unlocked()
+            raise
+
+    def replace_worker(self) -> None:
+        """Abandon the current worker (if any) and start a fresh one."""
+        with self._lock:
+            self._replace_worker_unlocked()
 
     def stop(self, *, timeout: float = 10.0) -> None:
         with self._lock:
             thread = self._thread
+            q = self._queue
             self._thread = None
         if thread is None:
             return
-        self._queue.put(None)
+        q.put(None)
         thread.join(timeout=timeout)
 
-    def _loop(self) -> None:
+    def _spawn_worker_unlocked(self) -> None:
+        self._queue = queue.Queue()
+        q = self._queue
+        thread = threading.Thread(
+            target=self._loop, args=(q,), name=self._name, daemon=True
+        )
+        self._thread = thread
+        thread.start()
+
+    def _replace_worker_unlocked(self) -> None:
+        # Leave the old thread alone: it may be blocked inside ``fn``, so
+        # putting None on its queue would not run until the call returns.
+        # Daemon threads are abandoned; Playwright objects bound to them must
+        # be dropped by the provider (see PlaywrightProvider._invalidate_after_timeout).
+        self._generation += 1
+        self._restarts += 1
+        self._spawn_worker_unlocked()
+
+    def _loop(self, q: queue.Queue[_Job | None]) -> None:
+        # Bind the queue at thread start so a later replace_worker() cannot
+        # make this abandoned worker drain the new queue.
         while True:
-            job = self._queue.get()
+            job = q.get()
             if job is None:
                 return
             fn, future = job

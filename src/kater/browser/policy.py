@@ -33,6 +33,13 @@ BLOCKED_SCHEMES = frozenset(
     {"file", "data", "javascript", "chrome", "about", "blob", "view-source"}
 )
 
+# Subresources may use data:/blob: (images, workers); still never file:/js:/chrome:.
+_SUBRESOURCE_OK_SCHEMES = frozenset({"data", "blob"})
+_SUBRESOURCE_BLOCKED_SCHEMES = frozenset({"file", "javascript", "chrome", "view-source", "about"})
+
+# Playwright resource types treated as top-level navigations for domain policy.
+_DOCUMENT_RESOURCE_TYPES = frozenset({"document", "nav", "navigation"})
+
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
@@ -82,6 +89,57 @@ class BrowserPolicy:
 
         if not self.allow_private_networks:
             self._check_addresses(host, parts.port or (443 if scheme == "https" else 80), resolver)
+
+    def check_request(self, url: str, *, resource_type: str = "") -> None:
+        """Network-level check for every request (navigation + subresource).
+
+        Document navigations use the full navigation policy (blocked schemes,
+        allow/deny domains, private-network refusal). Subresources still refuse
+        file:/javascript:/chrome: and private addresses, but allow ``data:`` /
+        ``blob:`` and skip domain allow-lists so CDNs on allowlisted pages work.
+        """
+        if not url or not url.strip():
+            raise PolicyViolation("empty url")
+        candidate = url.strip()
+        if candidate.lower() == "about:blank":
+            return
+
+        kind = (resource_type or "").strip().lower()
+        is_document = kind in _DOCUMENT_RESOURCE_TYPES
+
+        parts = urlsplit(candidate)
+        scheme = parts.scheme.lower()
+        if not scheme:
+            raise PolicyViolation(f"url has no scheme: {candidate!r}")
+
+        if is_document:
+            if scheme in BLOCKED_SCHEMES:
+                raise PolicyViolation(f"scheme '{scheme}:' is never allowed in the browser lane")
+            if scheme not in self.allowed_schemes:
+                allowed = ", ".join(sorted(self.allowed_schemes))
+                raise PolicyViolation(f"scheme '{scheme}:' is not allowed (allowed: {allowed})")
+        else:
+            if scheme in _SUBRESOURCE_BLOCKED_SCHEMES:
+                raise PolicyViolation(f"scheme '{scheme}:' is never allowed in the browser lane")
+            if scheme in _SUBRESOURCE_OK_SCHEMES:
+                return
+            if scheme not in self.allowed_schemes and scheme not in {"ws", "wss"}:
+                allowed = ", ".join(sorted(self.allowed_schemes | {"ws", "wss"}))
+                raise PolicyViolation(f"scheme '{scheme}:' is not allowed (allowed: {allowed})")
+
+        host = (parts.hostname or "").strip().lower().rstrip(".")
+        if not host:
+            raise PolicyViolation(f"url has no host: {candidate!r}")
+
+        if is_document:
+            if _matches_domain(host, self.deny_domains):
+                raise PolicyViolation(f"host '{host}' matches a denied domain")
+            if self.allow_domains and not _matches_domain(host, self.allow_domains):
+                raise PolicyViolation(f"host '{host}' is not in the browser allow-list")
+
+        if not self.allow_private_networks:
+            default_port = 443 if scheme in {"https", "wss"} else 80
+            self._check_addresses(host, parts.port or default_port, None)
 
     def _check_addresses(self, host: str, port: int, resolver: Resolver | None) -> None:
         literal = _literal_ip(host)

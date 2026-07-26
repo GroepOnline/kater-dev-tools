@@ -3,14 +3,15 @@ from __future__ import annotations
 import base64
 import socket
 import sys
+import time
 from typing import Any
 
 import pytest
 
 from kater.browser.actions import execute_action
-from kater.browser.base import redact_endpoint
-from kater.browser.models import BrowserAction, ProviderKind
-from kater.browser.policy import BrowserPolicy
+from kater.browser.base import PageHandle, redact_endpoint
+from kater.browser.models import ActionKind, BrowserAction, ProviderKind
+from kater.browser.policy import BrowserPolicy, PolicyViolation
 from kater.browser.providers import (
     BrowserUnavailableError,
     CdpProvider,
@@ -401,3 +402,95 @@ def test_act_rejects_a_foreign_handle():
     provider = PlaywrightProvider()
     with pytest.raises(TypeError, match="PageHandle"):
         provider.act(object(), None, None)  # type: ignore[arg-type]
+
+
+def test_cdp_stop_does_not_close_remote_browser():
+    provider = CdpProvider("ws://127.0.0.1:9222")
+    closed: list[str] = []
+
+    class _Browser:
+        def close(self) -> None:
+            closed.append("browser")
+
+    class _Playwright:
+        def stop(self) -> None:
+            closed.append("playwright")
+
+    provider._browser = _Browser()
+    provider._playwright = _Playwright()
+    provider._stop_on_worker()
+    assert closed == ["playwright"]
+    assert provider._browser is None
+    assert provider._playwright is None
+
+
+def test_local_stop_closes_browser():
+    provider = PlaywrightProvider()
+    closed: list[str] = []
+
+    class _Browser:
+        def close(self) -> None:
+            closed.append("browser")
+
+    class _Playwright:
+        def stop(self) -> None:
+            closed.append("playwright")
+
+    provider._browser = _Browser()
+    provider._playwright = _Playwright()
+    provider._stop_on_worker()
+    assert closed == ["browser", "playwright"]
+
+
+def test_steel_rejects_metadata_cdp_url_in_session_response(monkeypatch):
+    provider = SteelProvider("https://steel.example.com")
+    monkeypatch.setattr(
+        SteelProvider,
+        "_steel_request",
+        lambda self, method, path, body=None: {
+            "id": "sess-evil",
+            "websocketUrl": "ws://169.254.169.254/devtools",
+        },
+    )
+    with pytest.raises(PolicyViolation, match="metadata"):
+        provider._create_steel_session()
+
+
+def test_steel_rejects_private_cdp_url_when_base_is_public(monkeypatch):
+    provider = SteelProvider("https://steel.example.com")
+    monkeypatch.setattr(
+        SteelProvider,
+        "_steel_request",
+        lambda self, method, path, body=None: {
+            "id": "sess-evil",
+            "websocketUrl": "ws://10.0.0.5:9222/devtools",
+        },
+    )
+    with pytest.raises(PolicyViolation, match="non-public"):
+        provider._create_steel_session()
+
+
+def test_act_timeout_invalidates_browser_state(monkeypatch):
+    provider = PlaywrightProvider()
+    provider._browser = object()
+    provider._playwright = object()
+    provider._runner.start()
+    handle = PageHandle(session_id="bsess_" + "a" * 32, context=object(), page=object())
+
+    monkeypatch.setattr(
+        "kater.browser.providers.execute_action",
+        lambda *args, **kwargs: time.sleep(60),
+    )
+    with pytest.raises(TimeoutError):
+        provider.act(
+            handle,
+            BrowserAction(kind=ActionKind.SNAPSHOT, timeout_ms=100),
+            public_policy(action_timeout_ms=100),
+        )
+    assert provider._browser is None
+    assert provider._playwright is None
+    assert provider._runner.restarts >= 1
+    # Replacement worker must still accept work.
+    assert provider._runner.submit(lambda: 42, timeout=2.0) == 42
+    provider.stop()
+

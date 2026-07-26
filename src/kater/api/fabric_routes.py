@@ -10,10 +10,13 @@ from __future__ import annotations
 from typing import Any
 
 from kater.api.models import Request, Response, route
+from kater.authgate import capability_allowed, resolve_request_identity
+from kater.capabilities.audit import query_capability_audit
 from kater.capabilities.discovery import discover
 from kater.capabilities.models import CapabilityManifest, DiscoveryContext, RiskClass
 from kater.capabilities.registry import get_default_registry
 from kater.control_plane import contexts as remote_contexts
+from kater.control_plane.tokens import issue_token, token_expires_at
 
 # OpenAPI path fragments merged by ``openapi_spec._build_paths``.
 FABRIC_OPENAPI_PATHS: dict[str, Any] = {
@@ -202,6 +205,72 @@ FABRIC_OPENAPI_PATHS: dict[str, Any] = {
             },
         }
     },
+    "/api/contexts/{context_id}/token": {
+        "post": {
+            "summary": "Issue a signed context token",
+            "parameters": [
+                {
+                    "name": "context_id",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string"},
+                }
+            ],
+            "requestBody": {
+                "required": False,
+                "content": {"application/json": {"schema": {"type": "object"}}},
+            },
+            "responses": {
+                "200": {
+                    "description": "Signed token and expiry.",
+                    "content": {"application/json": {"schema": {"type": "object"}}},
+                },
+                "400": {
+                    "description": "Invalid body",
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
+                    },
+                },
+                "404": {
+                    "description": "Not found or inactive",
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
+                    },
+                },
+            },
+        }
+    },
+    "/api/audit/capabilities": {
+        "get": {
+            "summary": "List recent capability invoke audit rows",
+            "parameters": [
+                {
+                    "name": "limit",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "integer", "default": 100},
+                },
+                {
+                    "name": "capability_id",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string"},
+                },
+                {
+                    "name": "context_id",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string"},
+                },
+            ],
+            "responses": {
+                "200": {
+                    "description": "Recent capability audit rows.",
+                    "content": {"application/json": {"schema": {"type": "object"}}},
+                }
+            },
+        }
+    },
 }
 
 
@@ -272,12 +341,21 @@ def _capabilities_discover(req: Request) -> Response:
                 )
             },
         )
+    identity = resolve_request_identity(req)
+    principal = identity.principal_id or "anonymous"
     context = DiscoveryContext(
+        principal_id=principal,
         profile_ids=_csv_set(profile) or frozenset({"core"}),
         task_intent=intent,
         max_risk=max_risk,
     )
     results = discover(context)
+    if identity.allowed_capabilities is not None:
+        results = [
+            item
+            for item in results
+            if capability_allowed(item.capability_id, identity.allowed_capabilities)
+        ]
     return Response.json(
         200,
         {
@@ -285,6 +363,13 @@ def _capabilities_discover(req: Request) -> Response:
                 "profile_ids": sorted(context.profile_ids),
                 "task_intent": context.task_intent,
                 "max_risk": context.max_risk.value,
+                "principal_id": context.principal_id,
+                "context_id": identity.context_id,
+                "allowed_capabilities": (
+                    sorted(identity.allowed_capabilities)
+                    if identity.allowed_capabilities is not None
+                    else None
+                ),
             },
             "total": len(results),
             "capabilities": [_discovered_payload(item) for item in results],
@@ -374,3 +459,49 @@ def _contexts_delete(req: Request) -> Response:
     if record is None:
         return Response.json(404, {"error": "context not found"})
     return Response.json(200, record.to_dict())
+
+
+@route("POST", "/api/contexts/{context_id}/token")
+def _contexts_issue_token(req: Request) -> Response:
+    record = remote_contexts.get_context(req.params["context_id"])
+    if record is None or not record.is_active():
+        return Response.json(404, {"error": "context not found"})
+    try:
+        body = req.json
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    ttl_raw = body.get("ttl_seconds", 3600)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        return Response.json(400, {"error": "ttl_seconds must be an integer"})
+    try:
+        token = issue_token(record, ttl_seconds=ttl_seconds)
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    expires_at = token_expires_at(token)
+    return Response.json(
+        200,
+        {
+            "token": token,
+            "expires_at": expires_at,
+            "context_id": record.context_id,
+        },
+    )
+
+
+@route("GET", "/api/audit/capabilities")
+def _capability_audit_list(req: Request) -> Response:
+    limit_raw = req.query1("limit", "100") or "100"
+    try:
+        limit = int(limit_raw)
+    except ValueError:
+        return Response.json(400, {"error": "limit must be an integer"})
+    capability_id = req.query1("capability_id") or None
+    context_id = req.query1("context_id") or None
+    rows = query_capability_audit(
+        capability_id=capability_id,
+        context_id=context_id,
+        limit=limit,
+    )
+    return Response.json(200, {"total": len(rows), "events": rows})

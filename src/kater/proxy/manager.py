@@ -10,6 +10,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from kater.adapters.external import resolve_remote_headers
+from kater.authgate import RequestIdentity, capability_allowed, get_request_identity
+from kater.capabilities.audit import record_capability_audit
+from kater.capabilities.discovery import CapabilityDenied, assert_invocable
 from kater.control_plane import (
     AccountState,
     ProviderAccount,
@@ -274,8 +277,6 @@ class ProxyManager:
         return compatible
 
     def list_tools(self) -> list[dict[str, Any]]:
-        from kater.capabilities.discovery import CapabilityDenied, assert_invocable
-
         tools = self._aggregator.for_mcp()
         if self._computer_connector is not None:
             tools = self._computer_connector.list_tools() + tools
@@ -346,26 +347,86 @@ class ProxyManager:
             seen.add(capability)
         return tools
 
-    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        from kater.capabilities.discovery import CapabilityDenied, assert_invocable
+    def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        identity: RequestIdentity | None = None,
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        ident = identity if identity is not None else get_request_identity()
+        profile = load_settings().default_profile
+
+        def _audit(outcome: str, reason: str | None = None) -> None:
+            try:
+                record_capability_audit(
+                    capability_id=name,
+                    outcome=outcome,
+                    principal_id=ident.principal_id,
+                    context_id=ident.context_id,
+                    reason=reason,
+                    duration_ms=(time.perf_counter() - started) * 1000.0,
+                    profile=profile,
+                )
+            except Exception:  # pragma: no cover - audit must never break invokes
+                logger.exception("failed to record capability audit for %s", name)
 
         if self._computer_connector is not None and self._computer_connector.is_reserved(name):
-            return self._computer_connector.call(name, arguments)
+            if not capability_allowed(name, ident.allowed_capabilities):
+                _audit("denied", "not in context allowlist")
+                return {
+                    "error": f"capability {name!r} denied: not in context allowlist",
+                    "code": "capability_denied",
+                    "capability_id": name,
+                    "reason": "not in context allowlist",
+                }
+            try:
+                result = self._computer_connector.call(name, arguments)
+            except Exception as exc:
+                _audit("error", type(exc).__name__)
+                raise
+            if isinstance(result, dict) and result.get("error"):
+                _audit("error", str(result.get("error")))
+            else:
+                _audit("allowed")
+            return result
+
         # Re-check registry on every invoke: discovery is not authority.
         try:
             assert_invocable(name)
         except CapabilityDenied as exc:
+            _audit("denied", exc.reason)
             return {
                 "error": str(exc),
                 "code": "capability_denied",
                 "capability_id": exc.capability_id,
                 "reason": exc.reason,
             }
-        route = self._aggregator.resolve(name)
-        if route is not None:
-            result, _ = self._call_backend(route[0], route[1], arguments)
-            return result
-        return self._call_logical_tool(name, arguments)
+
+        if not capability_allowed(name, ident.allowed_capabilities):
+            _audit("denied", "not in context allowlist")
+            return {
+                "error": f"capability {name!r} denied: not in context allowlist",
+                "code": "capability_denied",
+                "capability_id": name,
+                "reason": "not in context allowlist",
+            }
+
+        try:
+            route = self._aggregator.resolve(name)
+            if route is not None:
+                result, _ = self._call_backend(route[0], route[1], arguments)
+            else:
+                result = self._call_logical_tool(name, arguments)
+        except Exception as exc:
+            _audit("error", type(exc).__name__)
+            raise
+        if isinstance(result, dict) and result.get("error"):
+            _audit("error", str(result.get("error")))
+        else:
+            _audit("allowed")
+        return result
 
     def _call_backend(
         self,

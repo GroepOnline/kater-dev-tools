@@ -1110,3 +1110,82 @@ def pr_merge_command(
         typer.echo(f"Merge failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Merged PR #{result['pr_number']} (head {result['head_sha']}).")
+
+
+# ── backup ─────────────────────────────────────────────────────────
+
+backup_app = typer.Typer(help="Backup and restore .kater state.")
+app.add_typer(backup_app, name="backup")
+
+
+@backup_app.command("create")
+def backup_create_command(
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Destination .tar.gz path or directory."),
+    ] = None,
+    no_secrets: Annotated[
+        bool,
+        typer.Option("--no-secrets", help="Omit secrets from the backup bundle."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Bundle .kater state into a verifiable .tar.gz backup."""
+    from kater.backup import BackupError, create_backup
+
+    try:
+        result = create_backup(output, include_secrets=not no_secrets)
+    except BackupError as exc:
+        typer.echo(f"Backup failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        import json
+
+        typer.echo(json.dumps({
+            "path": str(result.path),
+            "bytes": result.bytes,
+            "files": list(result.files),
+        }))
+    else:
+        size = f"{result.bytes} bytes"
+        files = len(result.files)
+        typer.echo(f"Wrote {result.path} ({size}, {files} files)")
+
+
+@backup_app.command("inspect")
+def backup_inspect_command(
+    path: Annotated[Path, typer.Argument(help="Backup .tar.gz to inspect.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Validate a backup bundle and print its manifest."""
+    from kater.backup import BackupError, inspect_backup
+
+    try:
+        manifest = inspect_backup(path)
+    except BackupError as exc:
+        typer.echo(f"Inspect failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        import json
+
+        typer.echo(json.dumps(manifest))
+    else:
+        typer.echo(f"Backup version: {manifest.get('version')}")
+        typer.echo(f"Created: {manifest.get('created_at')}")
+        typer.echo(f"Files: {manifest.get('files', [])}")
+
+
+@backup_app.command("restore")
+def backup_restore_command(
+    path: Annotated[Path, typer.Argument(help="Backup .tar.gz to restore.")],
+    force: Annotated[bool, typer.Option("--force", help="Overwrite existing state.")] = False,
+) -> None:
+    """Restore .kater state from a backup bundle."""
+    from kater.backup import BackupError, restore_backup
+
+    try:
+        result = restore_backup(path, force=force)
+    except BackupError as exc:
+        typer.echo(f"Restore failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Restored {result.path}")

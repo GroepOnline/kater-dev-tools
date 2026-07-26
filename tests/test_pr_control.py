@@ -358,6 +358,29 @@ def test_review_threads_paginates_past_first_page() -> None:
     assert summ["open_threads"] == 1
 
 
+def test_review_threads_fails_closed_on_missing_cursor() -> None:
+    # hasNextPage without an endCursor would silently truncate the thread list
+    # and under-count open threads; the client must fail closed instead.
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(
+            returncode=0,
+            stdout=_graphql_threads_payload(
+                [{"isResolved": True, "isOutdated": False}],
+                has_next=True,
+                end_cursor=None,
+            ),
+            stderr="",
+        )
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    try:
+        client.review_threads(42)
+    except RuntimeError as exc:
+        assert "hasNextPage without an endCursor" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
 def test_client_api_error_raises() -> None:
     def fake_runner(args: list[str]) -> Any:
         return SimpleNamespace(returncode=1, stdout="", stderr="boom")

@@ -189,8 +189,8 @@ def test_ensure_migrated_writes_nothing_when_up_to_date(db_path) -> None:
 
         conn.set_trace_callback(None)
         assert conn.total_changes == changes_before
-        assert len(statements) == 1
-        assert statements[0].strip().upper().startswith("SELECT")
+        assert statements  # current-check + checksum drift read
+        assert all(s.strip().upper().startswith("SELECT") for s in statements)
     finally:
         conn.close()
 
@@ -203,6 +203,22 @@ def test_ensure_migrated_bootstraps_an_empty_database(db_path) -> None:
         assert set(BASELINE_TABLES) <= _tables(conn)
     finally:
         conn.close()
+
+
+def test_ensure_migrated_detects_checksum_drift(db_path) -> None:
+    migrations.run_migrations(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            f"UPDATE {migrations.SCHEMA_TABLE} SET checksum = ? WHERE version = 1",  # noqa: S608
+            ("0" * 64,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with pytest.raises(MigrationError, match="released migration was edited"):
+        migrations.ensure_migrated(db_path)
 
 
 def test_migration_checksum_ignores_formatting_only_changes() -> None:

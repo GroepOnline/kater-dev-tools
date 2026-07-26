@@ -192,6 +192,27 @@ def test_run_now_records_errors():
     assert loaded.last_error == "boom"
 
 
+def test_run_now_refuses_disabled_unless_forced():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(
+        id="auto_off",
+        name="Off",
+        kind="browser_reap",
+        enabled=False,
+        schedule_seconds=60,
+    )
+    with pytest.raises(ValueError, match="disabled"):
+        engine.run_now("auto_off")
+
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        manager = MagicMock()
+        manager.reap_expired.return_value = 0
+        manager_factory.return_value = manager
+        forced = engine.run_now("auto_off", force=True)
+    assert forced.status == "ok"
+    manager.reap_expired.assert_called_once()
+
+
 def test_builtins_do_not_crash_with_mocks():
     with patch("kater.automations.builtins.run_doctor") as doctor:
         report = MagicMock()
@@ -266,6 +287,11 @@ def test_api_crud_enable_run_delete():
     assert disabled.status == 200
     assert disabled.payload is not None
     assert disabled.payload["enabled"] is False
+
+    refused = _call("POST", "/api/automations/auto_api_test/run")
+    assert refused.status == 400
+    assert refused.payload is not None
+    assert "disabled" in refused.payload["error"]
 
     patched = _call(
         "PATCH",

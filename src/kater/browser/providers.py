@@ -38,6 +38,7 @@ from kater.browser.base import (
     browsers_root,
     env_truthy,
     launch_args,
+    redact_endpoint,
 )
 from kater.browser.models import ActionResult, BrowserAction, BrowserSession, ProviderKind
 from kater.browser.policy import BrowserPolicy
@@ -183,7 +184,10 @@ class PlaywrightProvider(BrowserProvider):
     def act(self, handle: Any, action: BrowserAction, policy: BrowserPolicy) -> ActionResult:
         if not isinstance(handle, PageHandle):
             raise TypeError(f"expected a PageHandle, got {type(handle).__name__}")
-        budget_ms = float(action.timeout_ms or policy.action_timeout_ms)
+        budget_ms = min(
+            float(action.timeout_ms or policy.action_timeout_ms),
+            float(policy.action_timeout_ms),
+        )
         deadline = budget_ms / 1000.0 + ACTION_TIMEOUT_SLACK_SECONDS
         return self._runner.submit(
             lambda: execute_action(
@@ -225,9 +229,10 @@ class CdpProvider(PlaywrightProvider):
         return playwright.chromium.connect_over_cdp(self.endpoint)
 
     def info(self) -> ProviderInfo:
+        safe = redact_endpoint(self.endpoint) if self.endpoint else ""
         if self._browser is not None:
-            return ProviderInfo(self.kind, True, f"connected to {self.endpoint}")
-        detail = f"endpoint {self.endpoint}" if self.endpoint else "no endpoint configured"
+            return ProviderInfo(self.kind, True, f"connected to {safe}")
+        detail = f"endpoint {safe}" if safe else "no endpoint configured"
         return ProviderInfo(self.kind, bool(self.endpoint), detail)
 
 
@@ -268,9 +273,10 @@ class SteelProvider(CdpProvider):
                 _quiet(lambda: self._release_steel_session(session_id))
 
     def info(self) -> ProviderInfo:
+        safe = redact_endpoint(self.base_url)
         if self._browser is not None:
-            return ProviderInfo(self.kind, True, f"steel session on {self.base_url}")
-        return ProviderInfo(self.kind, True, f"steel api {self.base_url} (not started)")
+            return ProviderInfo(self.kind, True, f"steel session on {safe}")
+        return ProviderInfo(self.kind, True, f"steel api {safe} (not started)")
 
     def _create_steel_session(self) -> tuple[str, str | None]:
         payload = self._steel_request("POST", "/v1/sessions", body={})

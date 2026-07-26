@@ -1144,6 +1144,8 @@ def _automations_run(req: Request) -> Response:
         result = get_engine().run_now(automation_id)
     except KeyError:
         return Response.json(404, {"error": "automation not found"})
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
     return Response.json(200, result.to_dict())
 
 

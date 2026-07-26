@@ -1,18 +1,32 @@
+"""Terminal interactive dashboard for Kater.
+
+Dependency-light TUI: ANSI helpers only. Browser / automations panels soft-fail
+when those subsystems are not importable or not running.
+"""
+
 from __future__ import annotations
 
+import importlib
 import os
 import shlex
 import sys
 import time
+from typing import Any
+
+from kater.ansi import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW
+from kater.profiles import all_tool_sources, get_source, list_profiles
+from kater.settings import load_settings, save_settings
+from kater.telemetry import clear_events, load_events, record_server_toggle, status_overview
+
+_RULE = f"{DIM}{'─' * 72}{RESET}"
+_CMD_HINT = (
+    f"{DIM}commands: toggle|enable|disable <name> | profile <name> | "
+    f"browser | auto | status | clear | help | quit{RESET}"
+)
 
 
 def _clear() -> None:
     sys.stdout.write("\033[2J\033[H")
-    sys.stdout.flush()
-
-
-def _move(row: int, col: int = 1) -> None:
-    sys.stdout.write(f"\033[{row};{col}H")
     sys.stdout.flush()
 
 
@@ -26,20 +40,196 @@ def _show_cursor() -> None:
     sys.stdout.flush()
 
 
+# ── soft probes (browser / automations) ─────────────────────────────
+
+
+def browser_stats() -> dict[str, Any] | None:
+    """Return ``get_manager().stats()`` or None if the lane is unavailable."""
+    try:
+        from kater.browser.session import get_manager
+    except ImportError:
+        return None
+    try:
+        return get_manager().stats()
+    except Exception:
+        return None
+
+
+def browser_sessions(*, live_only: bool = False) -> list[dict[str, Any]] | None:
+    """List browser sessions as dicts, or None if the lane is unavailable."""
+    try:
+        from kater.browser.session import get_manager
+    except ImportError:
+        return None
+    try:
+        sessions = get_manager().list_sessions(live_only=live_only)
+    except Exception:
+        return None
+    return [s.to_dict() for s in sessions]
+
+
+def automation_count() -> int | None:
+    """Return automation count when an engine is importable; else None."""
+    engine = _automation_engine()
+    if engine is None:
+        return None
+    try:
+        items = _automation_items(engine)
+    except Exception:
+        return None
+    return len(items)
+
+
+def automation_list() -> list[dict[str, Any]] | None:
+    """List automations as dicts, or None if no engine is available."""
+    engine = _automation_engine()
+    if engine is None:
+        return None
+    try:
+        return _automation_items(engine)
+    except Exception:
+        return None
+
+
+def _automation_engine() -> Any | None:
+    getter: Any | None = None
+    try:
+        from kater.automations import get_engine as getter
+    except ImportError:
+        try:
+            mod = importlib.import_module("kater.automations.engine")
+        except ImportError:
+            return None
+        getter = getattr(mod, "get_engine", None)
+    if getter is None:
+        return None
+    try:
+        return getter()
+    except Exception:
+        return None
+
+
+def _automation_items(engine: Any) -> list[dict[str, Any]]:
+    if hasattr(engine, "list_automations"):
+        raw = engine.list_automations()
+    elif hasattr(engine, "list"):
+        raw = engine.list()
+    elif hasattr(engine, "all"):
+        raw = engine.all()
+    else:
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw or []:
+        if isinstance(item, dict):
+            out.append(item)
+        elif hasattr(item, "to_dict"):
+            out.append(item.to_dict())
+        else:
+            out.append(
+                {
+                    "id": getattr(item, "id", "?"),
+                    "name": getattr(item, "name", str(item)),
+                    "enabled": bool(getattr(item, "enabled", True)),
+                    "kind": getattr(item, "kind", ""),
+                    "last_status": getattr(item, "last_status", None),
+                }
+            )
+    return out
+
+
+# ── pure formatters (unit-tested without a TTY) ─────────────────────
+
+
+def format_status_lines(
+    *,
+    version: str,
+    profile: str,
+    auth_mode: str,
+    servers_enabled: int,
+    servers_total: int,
+    servers_configured: int,
+    servers_missing: int,
+    browser_sessions: int | None,
+    automations: int | None,
+    events_total: int,
+    tool_calls: int,
+    errors: int,
+    success_rate: float,
+) -> list[str]:
+    """Build the header / summary lines for the status panel."""
+    browser = "-" if browser_sessions is None else str(browser_sessions)
+    autos = "-" if automations is None else str(automations)
+    en_color = GREEN if servers_enabled == servers_total else YELLOW
+    cfg_color = GREEN if servers_configured > 0 else RED
+    miss_color = RED if servers_missing else GREEN
+    return [
+        (
+            f"{BOLD}KATER{RESET} {DIM}v{version}{RESET}"
+            f"  {CYAN}profile{RESET} {BOLD}{profile}{RESET}"
+            f"  {YELLOW}auth{RESET} {auth_mode}"
+        ),
+        _RULE,
+        (
+            f"  servers {en_color}{servers_enabled}/{servers_total}{RESET} enabled"
+            f"  {DIM}|{RESET}  {cfg_color}{servers_configured}{RESET} configured"
+            f"  {DIM}|{RESET}  {miss_color}{servers_missing}{RESET} missing env"
+            f"  {DIM}|{RESET}  browser {CYAN}{browser}{RESET}"
+            f"  {DIM}|{RESET}  autos {CYAN}{autos}{RESET}"
+        ),
+        (
+            f"  events {events_total}"
+            f"  {DIM}|{RESET}  calls {tool_calls}"
+            f"  {DIM}|{RESET}  errors {errors}"
+            f"  {DIM}|{RESET}  success {success_rate:.1f}%"
+        ),
+    ]
+
+
+def format_server_mark(enabled: bool, env_ok: bool) -> str:
+    """ASCII status mark: on+env, on+missing, or off."""
+    if enabled and env_ok:
+        return f"{GREEN}*{RESET}"
+    if enabled:
+        return f"{YELLOW}o{RESET}"
+    return f"{RED}-{RESET}"
+
+
+def format_session_row(session: dict[str, Any]) -> str:
+    sid = str(session.get("session_id", "?"))
+    short = sid if len(sid) <= 20 else sid[:20]
+    state = str(session.get("state", "?"))
+    label = session.get("label") or ""
+    url = session.get("current_url") or ""
+    detail = str(label or url or "-")
+    if len(detail) > 36:
+        detail = detail[:35] + "~"
+    return f"  {short:<20} {state:<8} {detail}"
+
+
+def format_automation_row(item: dict[str, Any]) -> str:
+    name = str(item.get("name") or item.get("id") or "?")
+    if len(name) > 24:
+        name = name[:23] + "~"
+    enabled = item.get("enabled", True)
+    flag = "on " if enabled else "off"
+    kind = str(item.get("kind") or "-")
+    status = str(item.get("last_status") or "-")
+    return f"  {name:<24} {flag:<3} {kind:<10} {status}"
+
+
+# ── render / commands ──────────────────────────────────────────────
+
+
 def interactive_loop(
     profile: str = "core",
     refresh_interval: float = 3.0,
 ) -> None:
-    from kater.ansi import DIM, RESET
-    from kater.profiles import list_profiles
-
     current_profile = profile
     running = True
     refresh_needed = True
     last_refresh = 0.0
 
     _hide_cursor()
-
     try:
         while running:
             now = time.time()
@@ -55,12 +245,10 @@ def interactive_loop(
                 raw = sys.stdin.readline()
             except (EOFError, KeyboardInterrupt):
                 break
-            # readline() returns "" at EOF — without this guard the loop would
-            # spin forever burning CPU once stdin closes (e.g. piped input end).
+            # readline() returns "" at EOF — guard against a tight spin.
             if not raw:
                 break
             line = raw.strip()
-
             if not line:
                 continue
 
@@ -76,27 +264,26 @@ def interactive_loop(
                     refresh_needed = True
                 else:
                     _print_err(f"unknown profile: {parts[1]}")
-                    time.sleep(1)
             elif cmd in ("toggle", "enable", "disable") and len(parts) > 1:
                 _handle_toggle(parts[0], parts[1])
                 refresh_needed = True
             elif cmd == "status":
                 refresh_needed = True
+            elif cmd == "browser":
+                _print_browser()
+                last_refresh = time.time()
+            elif cmd in ("auto", "automations"):
+                _print_automations()
+                last_refresh = time.time()
             elif cmd == "help":
                 _print_help()
-                time.sleep(2)
-                refresh_needed = True
+                last_refresh = time.time()
             elif cmd == "clear":
-                from kater.telemetry import clear_events
-
                 count = clear_events()
                 _print_ok(f"cleared {count} events")
-                time.sleep(1)
                 refresh_needed = True
             else:
                 _print_err(f"unknown: {line} (type 'help')")
-                time.sleep(1)
-
     finally:
         _show_cursor()
         _clear()
@@ -104,105 +291,104 @@ def interactive_loop(
 
 
 def _render(profile: str) -> None:
-    from kater.ansi import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW
-    from kater.telemetry import status_overview
-
     _clear()
-
     data = status_overview()
     s = data["servers"]
     t = data["telemetry"]
+    stats = browser_stats()
+    browser_n = None if stats is None else int(stats.get("sessions", 0))
+    auto_n = automation_count()
 
-    print(
-        f"{BOLD}KATER{RESET} {DIM}v{data['version']}{RESET}"
-        f"  {CYAN}profile:{RESET} {BOLD}{data['profile']}{RESET}"
-        f"  {YELLOW}auth:{RESET} {data['auth_mode']}"
-        f"  {DIM}storage:{RESET} {data['storage_backend']}"
-    )
-    print(f"{DIM}{'─' * 72}{RESET}")
-    print(
-        f"  Servers: {GREEN if s['enabled'] == s['total'] else YELLOW}"
-        f"{s['enabled']}/{s['total']}{RESET} enabled"
-        f"  {DIM}|{RESET}  "
-        f"{GREEN if s['configured'] > 0 else RED}{s['configured']}{RESET} configured"
-        f"  {DIM}|{RESET}  "
-        f"{RED if s['missing_env'] else GREEN}{s['missing_env']}{RESET} missing env"
-    )
-    print(
-        f"  Events: {t['total_events']} total"
-        f"  {DIM}|{RESET}  "
-        f"{t['tool_calls']} calls"
-        f"  {DIM}|{RESET}  "
-        f"{t['errors']} errors"
-        f"  {DIM}|{RESET}  "
-        f"{'{:.1f}'.format(t['success_rate'])}% success"
-    )
-    print(f"{DIM}{'─' * 72}{RESET}")
+    for line in format_status_lines(
+        version=str(data["version"]),
+        profile=str(data["profile"]),
+        auth_mode=str(data["auth_mode"]),
+        servers_enabled=int(s["enabled"]),
+        servers_total=int(s["total"]),
+        servers_configured=int(s["configured"]),
+        servers_missing=int(s["missing_env"]),
+        browser_sessions=browser_n,
+        automations=auto_n,
+        events_total=int(t["total_events"]),
+        tool_calls=int(t["tool_calls"]),
+        errors=int(t["errors"]),
+        success_rate=float(t["success_rate"]),
+    ):
+        print(line)
 
-    from kater.profiles import all_tool_sources
-    from kater.settings import load_settings
+    print(_RULE)
+    print(f"  {BOLD}SERVERS{RESET}  {DIM}* on  o missing env  - off{RESET}")
 
     settings = load_settings()
-
-    print(f"  {BOLD}SERVER STATUS{RESET}")
-    print()
-
     for source in all_tool_sources():
         if source.transport == "native":
             continue
         if profile not in source.profiles and profile != "core":
             continue
-
         enabled = settings.is_server_enabled(source.name, default=True)
         env_ok = all(os.environ.get(v) for v in source.env)
-
-        if enabled and env_ok:
-            status = f"{GREEN}●{RESET}"
-        elif enabled and not env_ok:
-            status = f"{YELLOW}○{RESET}"
-        else:
-            status = f"{RED}✕{RESET}"
-
-        name = source.name.ljust(20)
-        transport = source.transport.value.ljust(6)
+        mark = format_server_mark(enabled, env_ok)
         risk = source.risk.value
-
         risk_color = RED if risk == "high" else YELLOW if risk == "medium" else GREEN
+        print(
+            f"  {mark} {source.name:<20} "
+            f"{DIM}{source.transport.value:<6}{RESET} "
+            f"{risk_color}{risk}{RESET}"
+        )
 
-        print(f"  {status} {name} {DIM}{transport}{RESET} {risk_color}{risk}{RESET}")
-
-    print(f"{DIM}{'─' * 72}{RESET}")
-    print(f"  {BOLD}RECENT EVENTS{RESET}")
-
-    from kater.telemetry import load_events
-
+    print(_RULE)
+    print(f"  {BOLD}EVENTS{RESET}")
     events = load_events()
-    for e in events[-5:]:
-        ok = e.get("success", True)
-        icon = f"{GREEN}✓{RESET}" if ok else f"{RED}✗{RESET}"
-        name = e.get("name", "?")[:20]
-        dur = e.get("duration_ms", 0)
-        print(f"  {icon} {DIM}{e.get('type', ''):<12}{RESET} {name:<20} {dur:>6.1f}ms")
+    recent = events[-5:]
+    if not recent:
+        print(f"  {DIM}(none){RESET}")
+    else:
+        for e in recent:
+            ok = e.get("success", True)
+            mark = f"{GREEN}+{RESET}" if ok else f"{RED}x{RESET}"
+            name = str(e.get("name", "?"))[:20]
+            dur = float(e.get("duration_ms", 0) or 0)
+            etype = str(e.get("type", ""))[:12]
+            print(f"  {mark} {DIM}{etype:<12}{RESET} {name:<20} {dur:>6.1f}ms")
 
-    if not events:
-        print(f"  {DIM}(no events){RESET}")
+    print(_RULE)
+    print(f"  {_CMD_HINT}")
 
-    print(f"{DIM}{'─' * 72}{RESET}")
-    print(
-        f"  {DIM}commands: toggle <name> | enable <name> | disable <name> | "
-        f"profile <name> | status | clear | help | quit{RESET}"
-    )
+
+def _print_browser() -> None:
+    sessions = browser_sessions()
+    if sessions is None:
+        _print_err("browser lane unavailable")
+        return
+    stats = browser_stats() or {}
+    live = stats.get("live", "?")
+    print(f"  {BOLD}BROWSER{RESET}  {len(sessions)} session(s)  {DIM}live {live}{RESET}")
+    if not sessions:
+        print(f"  {DIM}(no sessions){RESET}")
+        return
+    print(f"  {DIM}{'id':<20} {'state':<8} detail{RESET}")
+    for session in sessions:
+        print(format_session_row(session))
+
+
+def _print_automations() -> None:
+    items = automation_list()
+    if items is None:
+        _print_err("automations engine unavailable")
+        return
+    print(f"  {BOLD}AUTOMATIONS{RESET}  {len(items)}")
+    if not items:
+        print(f"  {DIM}(none){RESET}")
+        return
+    print(f"  {DIM}{'name':<24} {'en':<3} {'kind':<10} status{RESET}")
+    for item in items:
+        print(format_automation_row(item))
 
 
 def _handle_toggle(action: str, server_name: str) -> None:
-    from kater.profiles import get_source
-    from kater.settings import load_settings, save_settings
-    from kater.telemetry import record_server_toggle
-
     source = get_source(server_name)
     if not source:
         _print_err(f"unknown server: {server_name}")
-        time.sleep(1)
         return
 
     settings = load_settings()
@@ -219,23 +405,25 @@ def _handle_toggle(action: str, server_name: str) -> None:
 
 
 def _print_ok(msg: str) -> None:
-    from kater.ansi import GREEN, RESET
-
-    print(f"  {GREEN}✓ {msg}{RESET}")
+    print(f"  {GREEN}ok{RESET} {msg}")
 
 
 def _print_err(msg: str) -> None:
-    from kater.ansi import RED, RESET
-
-    print(f"  {RED}✗ {msg}{RESET}")
+    print(f"  {RED}err{RESET} {msg}")
 
 
 def _print_help() -> None:
-    print("  Commands:")
-    print("    toggle <server>   Toggle a server on/off")
-    print("    enable <server>   Enable a server")
-    print("    disable <server>  Disable a server")
-    print("    profile <name>    Switch active profile")
-    print("    status            Refresh display")
-    print("    clear             Clear telemetry data")
-    print("    quit              Exit interactive mode")
+    print(f"  {BOLD}commands{RESET}")
+    rows = (
+        ("toggle <server>", "Toggle a server on/off"),
+        ("enable <server>", "Enable a server"),
+        ("disable <server>", "Disable a server"),
+        ("profile <name>", "Switch active profile"),
+        ("browser", "List browser sessions"),
+        ("auto", "List automations"),
+        ("status", "Refresh display"),
+        ("clear", "Clear telemetry data"),
+        ("quit", "Exit interactive mode"),
+    )
+    for cmd, desc in rows:
+        print(f"    {cmd:<18} {DIM}{desc}{RESET}")

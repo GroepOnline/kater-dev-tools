@@ -1543,3 +1543,120 @@ def automations_disable_command(
         _print_json(automation.to_dict())
         return
     typer.echo(f"Disabled {automation.id}")
+
+
+# ── computer ───────────────────────────────────────────────────────
+
+
+computer_app = typer.Typer(help="Computer guest connector (HTTP capability lane).")
+app.add_typer(computer_app, name="computer")
+
+
+@computer_app.command("status")
+def computer_status_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Show whether the Computer connector is configured and active."""
+    from kater.capabilities.wiring import computer_status, ensure_computer_connector
+
+    ensure_computer_connector()
+    payload = computer_status()
+    if json_output:
+        _print_json(payload)
+        return
+    state = "active" if payload["active"] else ("configured" if payload["configured"] else "off")
+    typer.echo(
+        f"Computer [{state}] host={payload['base_url_host'] or '-'} "
+        f"profile={payload['profile']} capabilities={payload['capability_count']}"
+    )
+
+
+@computer_app.command("capabilities")
+def computer_capabilities_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List Computer tools exposed by the active connector."""
+    from kater.capabilities.wiring import ensure_computer_connector
+
+    connector = ensure_computer_connector()
+    tools = connector.list_tools() if connector is not None else []
+    payload = {"tools": tools, "total": len(tools)}
+    if json_output:
+        _print_json(payload)
+        return
+    if not tools:
+        typer.echo("No Computer capabilities (connector not configured).")
+        return
+    typer.echo(f"{len(tools)} capability(ies):")
+    for tool in tools:
+        typer.echo(f"  {tool.get('name')}")
+
+
+@computer_app.command("invoke")
+def computer_invoke_command(
+    capability_id: Annotated[str, typer.Argument(help="Capability id to invoke.")],
+    arg: Annotated[
+        list[str] | None,
+        typer.Option("--arg", help="Argument as key=value (repeatable)."),
+    ] = None,
+    args_json: Annotated[
+        str,
+        typer.Option("--args", help="JSON object of invocation arguments."),
+    ] = "",
+    args_file: Annotated[
+        Path | None,
+        typer.Option("--args-file", help="Path to a JSON object of arguments."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Invoke a Computer capability through the configured connector."""
+    from kater.capabilities.wiring import ensure_computer_connector
+
+    connector = ensure_computer_connector()
+    if connector is None:
+        typer.echo("Computer connector is not configured (set KATER_COMPUTER_URL+TOKEN).", err=True)
+        raise typer.Exit(code=1)
+
+    arguments: dict[str, Any] = {}
+    if args_file is not None:
+        try:
+            loaded = json.loads(args_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            typer.echo(f"Failed to read --args-file: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        if not isinstance(loaded, dict):
+            typer.echo("--args-file must contain a JSON object.", err=True)
+            raise typer.Exit(code=2)
+        arguments.update(loaded)
+    if args_json.strip():
+        try:
+            loaded = json.loads(args_json)
+        except json.JSONDecodeError as exc:
+            typer.echo(f"Invalid --args JSON: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        if not isinstance(loaded, dict):
+            typer.echo("--args must be a JSON object.", err=True)
+            raise typer.Exit(code=2)
+        arguments.update(loaded)
+    for item in arg or ():
+        if "=" not in item:
+            typer.echo(f"--arg must be key=value, got {item!r}", err=True)
+            raise typer.Exit(code=2)
+        key, value = item.split("=", 1)
+        if not key:
+            typer.echo(f"--arg must be key=value, got {item!r}", err=True)
+            raise typer.Exit(code=2)
+        arguments[key] = value
+
+    result = connector.call(capability_id, arguments)
+    if json_output:
+        _print_json(result)
+        return
+    status = result.get("status", "unknown")
+    typer.echo(f"{capability_id}: {status}")
+    if status != "succeeded":
+        error = result.get("error") or {}
+        code = error.get("code") if isinstance(error, dict) else None
+        if code:
+            typer.echo(f"  error: {code}", err=True)
+        raise typer.Exit(code=1)

@@ -27,6 +27,10 @@ from kater.api.models import (
 # re-exported because tests import it directly.
 from kater.api.routes import _backends, _events, _visible_source
 
+# Fabric routes live in a separate module to avoid merge fights on routes.py.
+# Import here so registration survives if the routes.py side-effect line is lost.
+from kater.api import fabric_routes as _fabric_routes  # noqa: F401
+
 # Server — pipeline, rate limiter, HTTP handler, factory functions.
 from kater.api.server import (
     KaterAPIHandler,

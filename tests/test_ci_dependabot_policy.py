@@ -10,22 +10,20 @@ TRUSTED_ACTOR_GUARD = (
 )
 
 
-def _computer_acceptance_block() -> str:
+def _job_block(job: str, next_job: str) -> str:
     text = WORKFLOW.read_text(encoding="utf-8")
-    return text.split("  computer-acceptance:\n", 1)[1].split(
-        "\n  # ── e2e:", 1
-    )[0]
+    return text.split(f"  {job}:\n", 1)[1].split(f"\n  {next_job}:\n", 1)[0]
 
 
 def test_dependabot_gets_auditable_private_lane_skip() -> None:
-    block = _computer_acceptance_block()
+    block = _job_block("computer-acceptance", "e2e")
     assert DEPENDABOT_SKIP in block
     assert "Explain skipped private acceptance" in block
     assert "withholds repository secrets" in block
 
 
 def test_private_lane_stays_strict_for_trusted_runs() -> None:
-    block = _computer_acceptance_block()
+    block = _job_block("computer-acceptance", "e2e")
     # Checkout Kater, checkout UDO, setup uv, sync, npm install, acceptance test,
     # and evidence upload must all remain behind the same trusted-actor guard.
     assert block.count(TRUSTED_ACTOR_GUARD) == 7
@@ -34,6 +32,5 @@ def test_private_lane_stays_strict_for_trusted_runs() -> None:
 
 
 def test_public_e2e_still_depends_on_acceptance_job_result() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    e2e_block = text.split("  e2e:\n", 1)[1].split("\n  # ── package:", 1)[0]
+    e2e_block = _job_block("e2e", "package")
     assert "needs: [unit, integration, computer-acceptance]" in e2e_block

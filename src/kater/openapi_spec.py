@@ -635,6 +635,190 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    # ── Native browser lane ────────────────────────────────────────
+    paths["/api/browser/providers"] = {
+        "get": _response(
+            "List browser providers",
+            {"type": "object"},
+            "Available browser providers and probe status.",
+        )
+    }
+
+    paths["/api/browser/sessions"] = {
+        "get": {
+            "summary": "List browser sessions",
+            "parameters": [
+                {
+                    "name": "live_only",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string", "enum": ["0", "1", "true", "false"]},
+                    "description": "When truthy, return only live sessions.",
+                }
+            ],
+            "responses": {"200": _ok()},
+        },
+        "post": {
+            "summary": "Create a browser session",
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string"},
+                                "profile": {"type": "string", "default": "core"},
+                                "width": {"type": "integer", "default": 1280},
+                                "height": {"type": "integer", "default": 800},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {"200": _ok(), "400": _error_ref()},
+        },
+        "delete": {
+            "summary": "Close all browser sessions",
+            "responses": {"200": _ok(), "400": _error_ref()},
+        },
+    }
+
+    paths["/api/browser/sessions/{session_id}"] = {
+        "get": {
+            "summary": "Get a browser session",
+            "parameters": [_session_id_param()],
+            "responses": {"200": _ok(), "404": _error_ref()},
+        },
+        "delete": {
+            "summary": "Close a browser session",
+            "parameters": [_session_id_param()],
+            "responses": {"200": _ok(), "400": _error_ref(), "404": _error_ref()},
+        },
+    }
+
+    paths["/api/browser/sessions/{session_id}/act"] = {
+        "post": {
+            "summary": "Run an action in a browser session",
+            "parameters": [_session_id_param()],
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["kind"],
+                            "properties": {
+                                "kind": {"type": "string"},
+                                "url": {"type": "string"},
+                                "selector": {"type": "string"},
+                                "text": {"type": "string"},
+                                "key": {"type": "string"},
+                                "timeout_ms": {"type": "integer"},
+                                "full_page": {"type": "boolean"},
+                                "expression": {"type": "string"},
+                                "delta_y": {"type": "number"},
+                                "value": {"type": "string"},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+                "404": _error_ref(),
+            },
+        }
+    }
+
+    paths["/api/browser/sessions/{session_id}/screenshot"] = {
+        "post": {
+            "summary": "Capture a screenshot from a browser session",
+            "parameters": [_session_id_param()],
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "full_page": {"type": "boolean", "default": False},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+                "404": _error_ref(),
+            },
+        }
+    }
+
+    paths["/api/browser/stats"] = {
+        "get": _response(
+            "Browser session manager stats",
+            {"type": "object"},
+            "Aggregate browser session statistics.",
+        )
+    }
+
+    # ── Automations (scheduled / on-demand workflows) ──────────────
+    paths["/api/automations"] = {
+        "get": _response(
+            "List automations",
+            {"type": "object"},
+            "Defined automations.",
+        ),
+        "post": {
+            "summary": "Create an automation",
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": {"type": "object"}}},
+            },
+            "responses": {"200": _ok(), "201": _ok(), "400": _error_ref()},
+        },
+    }
+
+    paths["/api/automations/{id}"] = {
+        "get": {
+            "summary": "Get an automation",
+            "parameters": [_automation_id_param()],
+            "responses": {"200": _ok(), "404": _error_ref()},
+        },
+        "delete": {
+            "summary": "Delete an automation",
+            "parameters": [_automation_id_param()],
+            "responses": {"200": _ok(), "404": _error_ref()},
+        },
+    }
+
+    paths["/api/automations/{id}/run"] = {
+        "post": {
+            "summary": "Run an automation now",
+            "parameters": [_automation_id_param()],
+            "responses": {"200": _ok(), "400": _error_ref(), "404": _error_ref()},
+        }
+    }
+
+    paths["/api/automations/{id}/enable"] = {
+        "post": {
+            "summary": "Enable an automation",
+            "parameters": [_automation_id_param()],
+            "responses": {"200": _ok(), "404": _error_ref()},
+        }
+    }
+
+    paths["/api/automations/{id}/disable"] = {
+        "post": {
+            "summary": "Disable an automation",
+            "parameters": [_automation_id_param()],
+            "responses": {"200": _ok(), "404": _error_ref()},
+        }
+    }
+
     return paths
 
 
@@ -708,6 +892,26 @@ def _pr_number_param() -> dict[str, Any]:
         "required": True,
         "schema": {"type": "integer"},
         "description": "Pull request number.",
+    }
+
+
+def _session_id_param() -> dict[str, Any]:
+    return {
+        "name": "session_id",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "Browser session id.",
+    }
+
+
+def _automation_id_param() -> dict[str, Any]:
+    return {
+        "name": "id",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "Automation id.",
     }
 
 
@@ -959,8 +1163,8 @@ def generate_spec() -> dict[str, Any]:
             "version": api_version,
             "description": (
                 "REST API for the Kater MCP Gateway. Provides profiles, tools, "
-                "adapters, chains, MCP server management, diagnostics, "
-                "telemetry, and deployment rendering."
+                "adapters, chains, MCP server management, native browser sessions, "
+                "automations, diagnostics, telemetry, and deployment rendering."
             ),
             "license": {"name": "MIT"},
         },

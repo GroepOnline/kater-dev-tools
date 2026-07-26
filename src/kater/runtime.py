@@ -54,6 +54,13 @@ class KaterRuntime:
         load_project_env()
         load_settings().apply_credentials_to_env()
 
+        from kater.migrations import ensure_migrated
+
+        try:
+            ensure_migrated()
+        except Exception as exc:
+            _log.warning("schema migrate failed: %s", exc)
+
         if self._use_proxy:
             try:
                 from kater.proxy import get_proxy
@@ -132,6 +139,14 @@ class KaterRuntime:
                 prune_control_plane_state()
             except Exception as exc:
                 _log.warning("janitor: control-plane prune failed: %s", exc)
+            try:
+                from kater.browser.session import get_manager
+
+                closed = get_manager().reap_expired()
+                if closed:
+                    _log.info("janitor: reaped %d expired browser sessions", closed)
+            except Exception as exc:
+                _log.warning("janitor: browser reap failed: %s", exc)
 
     def stop(self, timeout: float = 5.0) -> None:
         if not self._started:
@@ -173,6 +188,13 @@ class KaterRuntime:
                 thread.join(timeout=timeout)
         if self._maintenance_thread is not None and self._maintenance_thread.is_alive():
             self._maintenance_thread.join(timeout=2.0)
+
+        try:
+            from kater.browser.session import reset_manager
+
+            reset_manager()
+        except Exception as exc:
+            _log.warning("browser shutdown failed: %s", exc)
 
         self._started = False
 

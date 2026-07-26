@@ -165,7 +165,10 @@ def record_usage_event(
             ),
         )
         db.commit()
-        row_id = int(cur.lastrowid)
+        raw_id = cur.lastrowid
+        if raw_id is None:
+            raise RuntimeError("usage event insert returned no row id")
+        row_id = int(raw_id)
         row = db.execute("SELECT * FROM usage_events WHERE id = ?", (row_id,)).fetchone()
     if row is None:
         raise RuntimeError(f"usage event {row_id} missing after insert")

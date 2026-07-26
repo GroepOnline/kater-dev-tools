@@ -386,6 +386,16 @@ def _apply(conn: sqlite3.Connection, migration: Migration) -> None:
         conn.isolation_level = previous_isolation
 
 
+def _raise_on_fatal_drift(applied: dict[int, str]) -> None:
+    """Reject edited applied migrations; warn on unknown newer versions."""
+    problems = _drift(applied)
+    fatal = [p for p in problems if "was applied with checksum" in p]
+    if fatal:
+        raise MigrationError("; ".join(fatal))
+    for problem in problems:
+        _log.warning("schema drift: %s", problem)
+
+
 def run_migrations(
     conn: sqlite3.Connection | Path | str | None = None,
     *,
@@ -398,12 +408,7 @@ def run_migrations(
     """
     with _session(conn) as db:
         applied = _read_applied(db) if dry_run else applied_versions(db)
-        problems = _drift(applied)
-        fatal = [p for p in problems if "was applied with checksum" in p]
-        if fatal:
-            raise MigrationError("; ".join(fatal))
-        for problem in problems:
-            _log.warning("schema drift: %s", problem)
+        _raise_on_fatal_drift(applied)
 
         results: list[MigrationResult] = []
         for migration in MIGRATIONS:
@@ -433,9 +438,12 @@ def _is_current(conn: sqlite3.Connection) -> bool:
 
 
 def ensure_migrated(conn: sqlite3.Connection | Path | str | None = None) -> None:
-    """Idempotent startup hook: migrate when needed, one SELECT when not."""
+    """Idempotent startup hook: migrate when needed; always check checksum drift."""
     with _session(conn) as db:
         if _is_current(db):
+            # Still verify recorded checksums match the code — otherwise a
+            # drifted install would silently skip run_migrations' fatal check.
+            _raise_on_fatal_drift(_read_applied(db))
             return
         run_migrations(db)
 

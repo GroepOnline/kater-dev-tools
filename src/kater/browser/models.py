@@ -16,6 +16,9 @@ SESSION_ID_HEX_LEN = 32
 
 DEFAULT_VIEWPORT = (1280, 800)
 
+# Hard ceiling for untrusted timeout_ms input (policy may clamp further).
+MAX_ACTION_TIMEOUT_MS = 300_000
+
 
 def new_session_id() -> str:
     """Return a fresh opaque session id (``bsess_`` + 32 hex chars)."""
@@ -81,6 +84,7 @@ NAVIGATING_KINDS = frozenset(
         ActionKind.FORWARD,
         ActionKind.RELOAD,
         ActionKind.SELECT,
+        ActionKind.EVALUATE,
     }
 )
 
@@ -195,13 +199,17 @@ class BrowserAction:
         if kind is ActionKind.WAIT and not data.get("selector") and not data.get("timeout_ms"):
             raise ValueError("action 'wait' requires 'selector' or 'timeout_ms'")
 
+        timeout_ms = _opt_int(data.get("timeout_ms"), "timeout_ms", minimum=1)
+        if timeout_ms is not None:
+            timeout_ms = min(timeout_ms, MAX_ACTION_TIMEOUT_MS)
+
         return cls(
             kind=kind,
             url=_opt_str(data.get("url"), "url"),
             selector=_opt_str(data.get("selector"), "selector"),
             text=_opt_str(data.get("text"), "text", strip=False),
             key=_opt_str(data.get("key"), "key"),
-            timeout_ms=_opt_int(data.get("timeout_ms"), "timeout_ms", minimum=1),
+            timeout_ms=timeout_ms,
             full_page=bool(data.get("full_page", False)),
             expression=_opt_str(data.get("expression"), "expression", strip=False),
             delta_y=_opt_int(data.get("delta_y"), "delta_y"),

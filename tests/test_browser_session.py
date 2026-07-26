@@ -209,6 +209,65 @@ def test_act_reports_a_timeout_as_a_failed_result():
 
     assert result.ok is False
     assert "deadline" in (result.error or "")
+    assert session.session_id not in manager._handles
+    assert provider.closed == [session.session_id]
+
+
+def test_failed_session_releases_handle_and_rejects_further_acts():
+    manager, provider = make_manager(policy=BrowserPolicy(max_sessions=1, session_ttl_seconds=60))
+    session = manager.create()
+    provider.raise_on_act = TimeoutError()
+
+    failed = manager.act(session.session_id, BrowserAction(kind=ActionKind.SNAPSHOT))
+    assert failed.ok is False
+    assert manager.get(session.session_id).state is SessionState.FAILED
+    assert manager._handles == {}
+    assert manager.stats()["live"] == 0
+    assert provider.closed == [session.session_id]
+
+    rejected = manager.act(session.session_id, BrowserAction(kind=ActionKind.RELOAD))
+    assert rejected.ok is False
+    assert "failed" in (rejected.error or "")
+
+    # Handle was released, so a new session can be created under the limit.
+    assert manager.create().state is SessionState.READY
+
+
+def test_close_all_drains_failed_session_handles():
+    manager, provider = make_manager()
+    session = manager.create()
+    # Simulate a leaked FAILED handle (pre-fix behaviour) by forcing state
+    # without going through _finish's cleanup path.
+    with manager._lock:
+        manager._sessions[session.session_id] = session.with_state(SessionState.FAILED)
+    assert session.session_id in manager._handles
+
+    assert manager.close_all() == 1
+    assert manager._handles == {}
+    assert provider.closed == [session.session_id]
+    assert provider.stopped is True
+
+
+def test_act_rejects_busy_sessions():
+    manager, provider = make_manager()
+    session = manager.create()
+    with manager._lock:
+        manager._sessions[session.session_id] = session.with_state(SessionState.BUSY)
+
+    result = manager.act(session.session_id, BrowserAction(kind=ActionKind.RELOAD))
+    assert result.ok is False
+    assert "busy" in (result.error or "")
+    assert provider.actions == []
+
+
+def test_create_clamps_viewport_to_safe_bounds():
+    manager, _ = make_manager()
+    huge = manager.create(viewport=(99999, 1))
+    assert huge.viewport_width == 2560
+    assert huge.viewport_height == 200
+    tiny = manager.create(viewport=(10, 10))
+    assert tiny.viewport_width == 320
+    assert tiny.viewport_height == 200
 
 
 def test_act_on_unknown_or_closed_sessions_returns_an_error_result():

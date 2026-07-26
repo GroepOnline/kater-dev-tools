@@ -85,7 +85,10 @@ def execute_action(
 ) -> ActionResult:
     """Run one action, enforcing the navigation policy before and after it."""
     started = clock()
-    timeout = float(action.timeout_ms or policy.action_timeout_ms)
+    timeout = min(
+        float(action.timeout_ms or policy.action_timeout_ms),
+        float(policy.action_timeout_ms),
+    )
     text: str | None = None
     screenshot: str | None = None
     snapshot: tuple[dict[str, Any], ...] | None = None

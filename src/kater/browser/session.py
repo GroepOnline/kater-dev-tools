@@ -84,6 +84,7 @@ class BrowserSessionManager:
     ) -> BrowserSession:
         """Open a fresh isolated browser context and register it."""
         now = self._clock()
+        width, height = _clamp_viewport(viewport)
         with self._lock:
             live = [s for s in self._sessions.values() if s.state in _LIVE_STATES]
             if len(live) >= self._policy.max_sessions:
@@ -101,8 +102,8 @@ class BrowserSessionManager:
                 expires_at=now + self._policy.session_ttl_seconds,
                 label=label,
                 profile=profile,
-                viewport_width=int(viewport[0]),
-                viewport_height=int(viewport[1]),
+                viewport_width=width,
+                viewport_height=height,
             )
             self._sessions[session.session_id] = session
         store.upsert_session(session)
@@ -161,9 +162,12 @@ class BrowserSessionManager:
         return closed
 
     def close_all(self) -> int:
-        """Close every live session and stop the provider. Returns count closed."""
+        """Close every session that still holds a page handle (or is live) and stop the provider."""
         with self._lock:
-            ids = [sid for sid, s in self._sessions.items() if s.state in _LIVE_STATES]
+            ids = sorted(
+                set(self._handles)
+                | {sid for sid, s in self._sessions.items() if s.state in _LIVE_STATES}
+            )
         for session_id in ids:
             try:
                 self.close(session_id)
@@ -204,15 +208,19 @@ class BrowserSessionManager:
         with self._lock:
             session = self._sessions.get(session_id)
             handle = self._handles.get(session_id)
-        if session is None:
-            return self._error_result(action, session_id, started, "unknown session")
-        if session.state is SessionState.CLOSED:
-            return self._error_result(action, session_id, started, "session is closed")
-        if handle is None:
-            return self._error_result(action, session_id, started, "session has no live page")
-
-        busy = session.with_state(SessionState.BUSY, last_used_at=started)
-        with self._lock:
+            if session is None:
+                return self._error_result(action, session_id, started, "unknown session")
+            if session.state is SessionState.CLOSED:
+                return self._error_result(action, session_id, started, "session is closed")
+            if session.state is SessionState.FAILED:
+                return self._error_result(action, session_id, started, "session has failed")
+            if session.state is SessionState.BUSY:
+                return self._error_result(action, session_id, started, "session is busy")
+            if handle is None:
+                return self._error_result(
+                    action, session_id, started, "session has no live page"
+                )
+            busy = session.with_state(SessionState.BUSY, last_used_at=started)
             self._sessions[session_id] = busy
         store.upsert_session(busy)
 
@@ -247,11 +255,21 @@ class BrowserSessionManager:
             title=result.title if result.title is not None else session.title,
             error=result.error,
         )
+        handle_to_close: Any | None = None
         with self._lock:
             self._sessions[updated.session_id] = updated
             self._action_count += 1
             if result.error:
                 self._last_error = result.error
+            if next_state is SessionState.FAILED:
+                # Drop the page immediately so FAILED sessions cannot leak Playwright
+                # handles or be reused via a second act().
+                handle_to_close = self._handles.pop(updated.session_id, None)
+        if handle_to_close is not None:
+            try:
+                self.provider.close_page(handle_to_close)
+            except Exception as exc:
+                _log.debug("close_page failed for %s: %s", updated.session_id, exc)
         store.upsert_session(updated)
         try:
             store.record_action(result, detail={"title": result.title} if result.title else None)
@@ -325,12 +343,18 @@ class BrowserSessionManager:
             # break an agent's browser call.
             _log.debug("browser broadcast failed: %s", exc)
 
-
 def _describe(exc: BaseException) -> str:
     message = str(exc).strip()
     first = message.splitlines()[0] if message else ""
     return f"{exc.__class__.__name__}: {first}" if first else exc.__class__.__name__
 
+MIN_VIEWPORT = (320, 200)
+MAX_VIEWPORT = (2560, 1440)
+
+def _clamp_viewport(viewport: tuple[int, int]) -> tuple[int, int]:
+    width = max(MIN_VIEWPORT[0], min(MAX_VIEWPORT[0], int(viewport[0])))
+    height = max(MIN_VIEWPORT[1], min(MAX_VIEWPORT[1], int(viewport[1])))
+    return width, height
 
 def _safe_count() -> int:
     try:
@@ -338,10 +362,8 @@ def _safe_count() -> int:
     except Exception:
         return 0
 
-
 _manager: BrowserSessionManager | None = None
 _manager_lock = threading.Lock()
-
 
 def get_manager() -> BrowserSessionManager:
     """Process-wide session manager used by the CLI, REST API and MCP tools."""
@@ -351,13 +373,11 @@ def get_manager() -> BrowserSessionManager:
             _manager = BrowserSessionManager()
         return _manager
 
-
 def set_manager(manager: BrowserSessionManager | None) -> None:
     """Install a manager explicitly (used by tests and by the runtime bootstrap)."""
     global _manager
     with _manager_lock:
         _manager = manager
-
 
 def reset_manager() -> None:
     """Close everything and drop the singleton."""

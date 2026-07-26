@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from kater.browser.actions import execute_action
+from kater.browser.base import redact_endpoint
 from kater.browser.models import BrowserAction, ProviderKind
 from kater.browser.policy import BrowserPolicy
 from kater.browser.providers import (
@@ -85,8 +86,6 @@ def test_probe_cdp_and_steel_report_env(monkeypatch):
 
 
 def test_probe_and_provider_info_redact_cdp_secrets(monkeypatch):
-    from kater.browser.base import redact_endpoint
-
     dirty = "wss://user:s3cret@browserless.example:443/chrome?token=abc123"
     safe = redact_endpoint(dirty)
     assert "s3cret" not in safe

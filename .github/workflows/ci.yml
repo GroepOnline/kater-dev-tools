@@ -136,6 +136,9 @@ jobs:
       - name: Sync dependencies (frozen)
         run: uv sync --frozen --dev
 
+      - name: Install Playwright Chromium
+        run: uv run playwright install chromium
+
       - name: Test
         run: >-
           timeout 180s uv run pytest -vv --tb=short -ra
@@ -361,6 +364,8 @@ jobs:
           enable-cache: true
       - name: Sync project
         run: uv sync --extra dev || uv sync
+      - name: Install Playwright Chromium
+        run: uv run playwright install chromium
       - name: Run full test suite with coverage gate
         run: |
           uv run pytest \

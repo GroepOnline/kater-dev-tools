@@ -46,7 +46,7 @@ def test_loader_rejects_contract_digest_drift(tmp_path: Path) -> None:
         load_computer_manifests(drifted)
 
 
-def test_checkout_loader_requires_generated_contract(tmp_path: Path) -> None:
+def test_udo_loader_requires_generated_contract(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     with pytest.raises(ContractDigestError, match="generated Computer contract missing"):
         load_computer_manifests_from_checkout(tmp_path)

@@ -1170,7 +1170,7 @@ def backup_inspect_command(
 
         typer.echo(json.dumps(manifest))
     else:
-        typer.echo(f"Backup version: {manifest.get('version')}")
+        typer.echo(f"Backup version: {manifest.get('bundle_version')}")
         typer.echo(f"Created: {manifest.get('created_at')}")
         typer.echo(f"Files: {manifest.get('files', [])}")
 
@@ -1188,4 +1188,5 @@ def backup_restore_command(
     except BackupError as exc:
         typer.echo(f"Restore failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo(f"Restored {result.path}")
+    files = ", ".join(result.restored_files)
+    typer.echo(f"Restored {len(result.restored_files)} files: {files}")

@@ -10,7 +10,7 @@ from typing import Any
 
 from kater.capabilities.computer import (
     ComputerConnector,
-    load_computer_manifests_from_udo,
+    load_computer_manifests_from_checkout,
     revoke_computer_capability,
 )
 from kater.capabilities.registry import CapabilityRegistry
@@ -21,7 +21,7 @@ from kater.proxy.manager import ProxyManager
 def build() -> tuple[CapabilityRegistry, ProxyManager]:
     checkout = Path(os.environ["KATER_UDO_CHECKOUT"])
     digest = os.environ["GENERATED_CONTRACT_DIGEST"]
-    manifests = load_computer_manifests_from_udo(checkout, expected_digest=digest)
+    manifests = load_computer_manifests_from_checkout(checkout, expected_digest=digest)
     registry = CapabilityRegistry()
     for manifest in manifests:
         upsert_capability(manifest)

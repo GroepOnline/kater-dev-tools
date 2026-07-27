@@ -51,7 +51,10 @@ def _read_materialized(path: Path) -> dict[str, str]:
         except json.JSONDecodeError as error:
             raise SystemExit(f"invalid ChefVault env value for {key}: {error}") from error
         if not isinstance(value, str):
-            raise SystemExit(f"invalid ChefVault env value for {key}")
+            # Optional provider keys that ChefVault could not resolve are
+            # reported as non-string values (e.g. JSON null). Per the runbook
+            # these must not block startup, so skip them instead of failing.
+            continue
         result[key] = value
     return result
 
@@ -92,6 +95,9 @@ def main() -> None:
         env=env,
         label="ChefVault profile materialization",
     )
+    # Lock down the materialized credential file as soon as it exists, before
+    # it is read or handed to the child process. The runbook promises mode 0600.
+    output.chmod(0o600)
 
     env.update(_read_materialized(output))
     env["KATER_EXTENSIONS_MODULE"] = "kater.chefvault_extension"

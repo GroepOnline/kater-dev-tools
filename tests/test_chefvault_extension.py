@@ -12,4 +12,9 @@ def test_chefvault_extension_is_private_and_scoped() -> None:
     assert source.profiles == {"chef-vault"}
     assert source.mcp is not None
     assert source.mcp.command == "chefvault-profile-mcp"
-    assert set(source.env) == {"CHEF_VAULT_BROKER_URL", "CHEF_VAULT_BROKER_TOKEN"}
+    assert set(source.env) == {
+        "CHEF_VAULT_BROKER_URL",
+        "CHEF_VAULT_BROKER_TOKEN",
+        "CHEF_VAULT_RUNTIME_DIR",
+    }
+    assert "CHEF_VAULT_RUNTIME_DIR" in source.mcp.env_template

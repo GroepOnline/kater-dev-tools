@@ -56,6 +56,19 @@ def _read_materialized(path: Path) -> dict[str, str]:
     return result
 
 
+def _run_checked(command: list[str], *, env: dict[str, str], label: str) -> None:
+    completed = subprocess.run(
+        command,
+        env=env,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+        raise SystemExit(f"{label} failed: {detail}")
+
+
 def main() -> None:
     root = Path.cwd()
     output = root / ".kater" / ".env.chefvault"
@@ -66,10 +79,10 @@ def main() -> None:
     env.setdefault("CHEF_VAULT_BROKER_URL", "http://127.0.0.1:8322")
     env.setdefault("CHEF_VAULT_RUNTIME_DIR", str(root / ".kater" / "runtime" / "chefvault"))
 
-    command = env.get("CHEF_VAULT_PROFILE_COMMAND", "chefvault-profile")
-    completed = subprocess.run(
+    profile_command = env.get("CHEF_VAULT_PROFILE_COMMAND", "chefvault-profile")
+    _run_checked(
         [
-            command,
+            profile_command,
             "--json",
             "materialize",
             "kater-dev-tools/ops",
@@ -77,13 +90,8 @@ def main() -> None:
             str(output),
         ],
         env=env,
-        check=False,
-        text=True,
-        capture_output=True,
+        label="ChefVault profile materialization",
     )
-    if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
-        raise SystemExit(f"ChefVault profile materialization failed: {detail}")
 
     env.update(_read_materialized(output))
     env["KATER_EXTENSIONS_MODULE"] = "kater.chefvault_extension"
@@ -94,6 +102,14 @@ def main() -> None:
     }
     profiles.add("chef-vault")
     env["KATER_PROFILE"] = ",".join(sorted(profiles))
+
+    # High-risk backends are disabled by default. Persist an explicit enable for
+    # this private source so the wrapper is a complete bootstrap, not a partial hint.
+    _run_checked(
+        ["uv", "run", "kater", "enable", "chefvault"],
+        env=env,
+        label="Kater ChefVault backend enable",
+    )
 
     args = sys.argv[1:] or ["up"]
     os.execvpe("uv", ["uv", "run", "kater", *args], env)

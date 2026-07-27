@@ -292,6 +292,30 @@ def get_context(context_id: str) -> ContextRecord | None:
     return _row_to_record(row) if row else None
 
 
+def mint_context_token(
+    context_id: str,
+    *,
+    ttl_seconds: int = 3600,
+) -> tuple[str, ContextRecord]:
+    """Fetch an active context and mint a signed token under the store lock."""
+    from kater.control_plane.tokens import issue_token
+
+    with _lock:
+        row = (
+            _get_db()
+            .execute(
+                "SELECT * FROM remote_contexts WHERE context_id = ?",
+                (context_id,),
+            )
+            .fetchone()
+        )
+        record = _row_to_record(row) if row else None
+        if record is None or not record.is_active():
+            raise ValueError("context is not active")
+        token = issue_token(record, ttl_seconds=ttl_seconds)
+        return token, record
+
+
 def list_contexts(
     *,
     principal_id: str | None = None,

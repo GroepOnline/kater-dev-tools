@@ -16,7 +16,7 @@ from kater.capabilities.discovery import discover
 from kater.capabilities.models import CapabilityManifest, DiscoveryContext, RiskClass
 from kater.capabilities.registry import get_default_registry
 from kater.control_plane import contexts as remote_contexts
-from kater.control_plane.tokens import issue_token, token_expires_at
+from kater.control_plane.tokens import token_expires_at
 
 # OpenAPI path fragments merged by ``openapi_spec._build_paths``.
 FABRIC_OPENAPI_PATHS: dict[str, Any] = {
@@ -490,10 +490,9 @@ def _contexts_delete(req: Request) -> Response:
 @route("POST", "/api/contexts/{context_id}/token")
 def _contexts_issue_token(req: Request) -> Response:
     identity = resolve_request_identity(req)
-    record = remote_contexts.get_context(req.params["context_id"])
-    if record is None or not record.is_active():
-        return Response.json(404, {"error": "context not found"})
-    if not _identity_owns_context(identity, record):
+    context_id = req.params["context_id"]
+    record = remote_contexts.get_context(context_id)
+    if record is None or not _identity_owns_context(identity, record):
         return Response.json(404, {"error": "context not found"})
     try:
         body = req.json
@@ -505,8 +504,13 @@ def _contexts_issue_token(req: Request) -> Response:
     except (TypeError, ValueError):
         return Response.json(400, {"error": "ttl_seconds must be an integer"})
     try:
-        token = issue_token(record, ttl_seconds=ttl_seconds)
+        token, record = remote_contexts.mint_context_token(
+            context_id,
+            ttl_seconds=ttl_seconds,
+        )
     except ValueError as exc:
+        if str(exc) == "context is not active":
+            return Response.json(404, {"error": "context not found"})
         return Response.json(400, {"error": str(exc)})
     expires_at = token_expires_at(token)
     return Response.json(

@@ -58,6 +58,13 @@ def test_revoked_context_token_fails(ctx_db) -> None:
     assert context_tokens.verify_token(token) is None
 
 
+def test_mint_context_token_rejects_revoked_context(ctx_db) -> None:
+    record = contexts.create_context(principal_id="agent-a")
+    contexts.revoke_context(record.context_id)
+    with pytest.raises(ValueError, match="context is not active"):
+        contexts.mint_context_token(record.context_id, ttl_seconds=120)
+
+
 def test_expired_token_fails(ctx_db, monkeypatch) -> None:
     record = contexts.create_context(principal_id="agent-a")
     token = context_tokens.issue_token(record, ttl_seconds=1)

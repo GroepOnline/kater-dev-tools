@@ -14,7 +14,6 @@ from kater.capabilities.computer import (
     ComputerConnector,
     ContractDigestError,
     build_invocation_request,
-    computer_tool_source,
     load_computer_manifests,
     load_computer_manifests_from_checkout,
     make_invocation_result,
@@ -23,8 +22,6 @@ from kater.capabilities.computer import (
 )
 from kater.capabilities.models import LifecycleState
 from kater.capabilities.registry import CapabilityRegistry
-from kater.control_plane import ProviderAccount, upsert_route_candidate
-from kater.proxy.base import MockBackend
 
 
 def test_vendored_contract_loads_the_schema_owned_acceptance_catalog() -> None:

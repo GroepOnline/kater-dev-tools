@@ -24,3 +24,7 @@
 
 **Learning:** Implementing the complete WAI-ARIA Combobox pattern (role="combobox", aria-autocomplete="list", aria-controls, aria-expanded, aria-activedescendant, and role="option") for a command palette ensures screen readers can correctly announce the search box, the live item count, and focus changes when navigating options via Arrow keys without losing typing focus.
 **Action:** Always fully bind role="combobox" inputs with their respective role="listbox" container using dynamic aria-activedescendant to ensure standard-compliant command palette accessibility.
+
+## 2026-07-27 - [Connection Modal Label-Input Pairing]
+**Learning:** Dynamically generated input fields (such as those in connection or credentials modals) must be explicitly associated with their corresponding `<label>` elements by generating a sanitized unique ID (e.g. `cred-input-[name]`) and setting the label's `for` attribute and input's `id` attribute. This guarantees that screen readers correctly read out the field name when the field gains focus.
+**Action:** Always pair dynamically generated labels and inputs using sanitized matching ID / for attributes.

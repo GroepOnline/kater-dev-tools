@@ -1203,6 +1203,7 @@ def _automations_patch(req: Request) -> Response:
         automation = engine.set_enabled(automation_id, bool(body["enabled"]))
         if automation is None:
             return Response.json(404, {"error": "automation not found"})
+        _ws_broadcast("automation_upserted", {"automation": automation.to_dict()})
         return Response.json(200, automation.to_dict())
     name = str(body["name"]).strip() if body.get("name") is not None else existing.name
     kind = str(body["kind"]).strip() if body.get("kind") is not None else existing.kind

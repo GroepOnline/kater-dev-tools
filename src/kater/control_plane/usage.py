@@ -44,12 +44,6 @@ _db_cache: sqlite3.Connection | None = None
 _db_path_cache: str | None = None
 
 
-def _resolve_db_path() -> Path:
-    configured = load_settings().db_path
-    if "/" in configured or configured.startswith("."):
-        return Path(configured).expanduser()
-    return Path.cwd() / configured
-
 
 def _quiet_close(conn: sqlite3.Connection) -> None:
     try:
@@ -68,7 +62,7 @@ def _is_usable(conn: sqlite3.Connection) -> bool:
 
 def _get_db() -> sqlite3.Connection:
     global _db_cache, _db_path_cache
-    db_path = str(_resolve_db_path())
+    db_path = str(load_settings().resolved_db_path)
     if _db_cache is not None:
         if _db_path_cache == db_path and Path(db_path).exists() and _is_usable(_db_cache):
             return _db_cache

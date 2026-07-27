@@ -66,16 +66,10 @@ _db_path_cache: str | None = None
 _insert_counter = 0
 
 
-def _resolve_db_path() -> Path:
-    configured = load_settings().db_path
-    if "/" in configured:
-        return Path(configured).expanduser()
-    return Path.cwd() / configured
-
 
 def _get_db() -> sqlite3.Connection:
     global _db_cache, _db_path_cache
-    db_path = str(_resolve_db_path())
+    db_path = str(load_settings().resolved_db_path)
     if _db_cache is not None:
         # The file itself has to still be there: an unlinked database keeps
         # answering reads through the open handle while every write fails.

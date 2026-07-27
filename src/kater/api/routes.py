@@ -992,17 +992,39 @@ def _truthy_query(req: Request, key: str) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _capability_denied(capability_id: str) -> Response:
+    return Response.json(
+        403,
+        {
+            "error": f"capability {capability_id!r} denied: not in context allowlist",
+            "code": "capability_denied",
+            "capability_id": capability_id,
+        },
+    )
+
+
+def _require_capability(req: Request, capability_id: str) -> Response | None:
+    identity = resolve_request_identity(req)
+    if not capability_allowed(capability_id, identity.allowed_capabilities):
+        return _capability_denied(capability_id)
+    return None
+
+
 # Errors from the browser lane that map to a 400 Bad Request response.
 _BROWSER_400_ERRORS = (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError)
 
 
 @route("GET", "/api/browser/providers")
-def _browser_providers(_: Request) -> Response:
+def _browser_providers(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_providers"):
+        return denied
     return Response.json(200, {"providers": [info.to_dict() for info in probe_providers()]})
 
 
 @route("GET", "/api/browser/sessions")
 def _browser_list_sessions(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_sessions"):
+        return denied
     manager = get_manager()
     live_only = _truthy_query(req, "live_only")
     return Response.json(
@@ -1016,6 +1038,8 @@ def _browser_list_sessions(req: Request) -> Response:
 
 @route("POST", "/api/browser/sessions")
 def _browser_create_session(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_open"):
+        return denied
     try:
         body = req.json
     except ValueError:
@@ -1037,6 +1061,8 @@ def _browser_create_session(req: Request) -> Response:
 
 @route("GET", "/api/browser/sessions/{session_id}")
 def _browser_get_session(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_sessions"):
+        return denied
     session_id = req.params["session_id"]
     session = get_manager().get(session_id)
     if session is None:
@@ -1046,6 +1072,8 @@ def _browser_get_session(req: Request) -> Response:
 
 @route("DELETE", "/api/browser/sessions/{session_id}")
 def _browser_close_session(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_close"):
+        return denied
     session_id = req.params["session_id"]
     try:
         session = get_manager().close(session_id)
@@ -1058,6 +1086,8 @@ def _browser_close_session(req: Request) -> Response:
 
 @route("POST", "/api/browser/sessions/{session_id}/act")
 def _browser_act(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_act"):
+        return denied
     session_id = req.params["session_id"]
     try:
         body = req.json
@@ -1078,6 +1108,8 @@ def _browser_act(req: Request) -> Response:
 
 @route("POST", "/api/browser/sessions/{session_id}/screenshot")
 def _browser_screenshot(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_screenshot"):
+        return denied
     session_id = req.params["session_id"]
     try:
         body = req.json
@@ -1095,12 +1127,16 @@ def _browser_screenshot(req: Request) -> Response:
 
 
 @route("GET", "/api/browser/stats")
-def _browser_stats(_: Request) -> Response:
+def _browser_stats(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_sessions"):
+        return denied
     return Response.json(200, get_manager().stats())
 
 
 @route("DELETE", "/api/browser/sessions")
-def _browser_close_all(_: Request) -> Response:
+def _browser_close_all(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_close"):
+        return denied
     try:
         closed = get_manager().close_all()
     except _BROWSER_400_ERRORS as exc:
@@ -1112,7 +1148,9 @@ def _browser_close_all(_: Request) -> Response:
 
 
 @route("GET", "/api/automations")
-def _automations_list(_: Request) -> Response:
+def _automations_list(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.list"):
+        return denied
     engine = get_engine()
     engine.ensure_defaults()
     items = [item.to_dict() for item in engine.list()]
@@ -1121,6 +1159,8 @@ def _automations_list(_: Request) -> Response:
 
 @route("GET", "/api/automations/{id}")
 def _automations_get(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.get"):
+        return denied
     automation = get_engine().get(req.params["id"])
     if automation is None:
         return Response.json(404, {"error": "automation not found"})
@@ -1129,6 +1169,8 @@ def _automations_get(req: Request) -> Response:
 
 @route("POST", "/api/automations")
 def _automations_upsert(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.upsert"):
+        return denied
     try:
         body = req.json
     except ValueError as exc:
@@ -1160,6 +1202,8 @@ def _automations_upsert(req: Request) -> Response:
 
 @route("POST", "/api/automations/{id}/run")
 def _automations_run(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.run"):
+        return denied
     automation_id = req.params["id"]
     try:
         result = get_engine().run_now(automation_id)
@@ -1172,6 +1216,8 @@ def _automations_run(req: Request) -> Response:
 
 @route("POST", "/api/automations/{id}/enable")
 def _automations_enable(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.enable"):
+        return denied
     automation = get_engine().set_enabled(req.params["id"], True)
     if automation is None:
         return Response.json(404, {"error": "automation not found"})
@@ -1181,6 +1227,8 @@ def _automations_enable(req: Request) -> Response:
 
 @route("POST", "/api/automations/{id}/disable")
 def _automations_disable(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.disable"):
+        return denied
     automation = get_engine().set_enabled(req.params["id"], False)
     if automation is None:
         return Response.json(404, {"error": "automation not found"})
@@ -1190,6 +1238,8 @@ def _automations_disable(req: Request) -> Response:
 
 @route("PATCH", "/api/automations/{id}")
 def _automations_patch(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.update"):
+        return denied
     automation_id = req.params["id"]
     engine = get_engine()
     existing = engine.get(automation_id)
@@ -1226,6 +1276,8 @@ def _automations_patch(req: Request) -> Response:
 
 @route("DELETE", "/api/automations/{id}")
 def _automations_delete(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.delete"):
+        return denied
     automation_id = req.params["id"]
     if not get_engine().delete(automation_id):
         return Response.json(404, {"error": "automation not found"})
@@ -1237,16 +1289,36 @@ def _automations_delete(req: Request) -> Response:
 
 
 @route("GET", "/api/computer")
-def _computer_status(_: Request) -> Response:
-    return Response.json(200, computer_status())
+def _computer_status(req: Request) -> Response:
+    payload = computer_status()
+    identity = resolve_request_identity(req)
+    if identity.allowed_capabilities is not None:
+        allowed_ids = [
+            cap_id
+            for cap_id in payload["capability_ids"]
+            if capability_allowed(cap_id, identity.allowed_capabilities)
+        ]
+        payload = {
+            **payload,
+            "capability_ids": allowed_ids,
+            "capability_count": len(allowed_ids),
+        }
+    return Response.json(200, payload)
 
 
 @route("GET", "/api/computer/capabilities")
-def _computer_capabilities(_: Request) -> Response:
+def _computer_capabilities(req: Request) -> Response:
     connector = get_computer_connector()
     if connector is None:
         return Response.json(200, {"tools": [], "total": 0})
     tools = connector.list_tools()
+    identity = resolve_request_identity(req)
+    if identity.allowed_capabilities is not None:
+        tools = [
+            tool
+            for tool in tools
+            if capability_allowed(str(tool["name"]), identity.allowed_capabilities)
+        ]
     return Response.json(200, {"tools": tools, "total": len(tools)})
 
 

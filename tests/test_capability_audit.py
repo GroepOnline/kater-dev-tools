@@ -136,3 +136,74 @@ def test_unrestricted_identity_skips_allowlist(audit_db, monkeypatch) -> None:
     assert result.get("ok") is True
     rows = capability_audit.query_capability_audit(limit=5)
     assert rows[0]["outcome"] == "allowed"
+
+
+@pytest.fixture
+def ctx_db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "test-context-secret")
+    from kater.control_plane import contexts
+    from kater.control_plane import tokens as context_tokens
+
+    context_tokens.reset_token_secret_cache()
+    contexts.reset_cache()
+    yield tmp_path
+    contexts.reset_cache()
+    context_tokens.reset_token_secret_cache()
+
+
+def test_browser_rest_denies_out_of_allowlist(ctx_db, monkeypatch) -> None:
+    from kater.control_plane import contexts
+    from kater.control_plane import tokens as context_tokens
+
+    record = contexts.create_context(
+        principal_id="agent-browser",
+        allowed_capabilities=["kater.profiles.list"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=300)
+    headers = {"x-kater-context": token}
+
+    resp = call("GET", "/api/browser/providers", headers=headers)
+    assert resp.status == 403
+    assert resp.payload is not None
+    assert resp.payload["code"] == "capability_denied"
+    assert resp.payload["capability_id"] == "kater_browser_providers"
+
+
+def test_browser_rest_allows_prefix_glob(ctx_db, monkeypatch) -> None:
+    from kater.control_plane import contexts
+    from kater.control_plane import tokens as context_tokens
+
+    record = contexts.create_context(
+        principal_id="agent-browser",
+        allowed_capabilities=["kater_browser_*"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=300)
+    headers = {"x-kater-context": token}
+
+    resp = call("GET", "/api/browser/providers", headers=headers)
+    assert resp.status == 200
+
+
+def test_computer_invoke_denies_out_of_allowlist(ctx_db, monkeypatch) -> None:
+    import kater.api.routes as routes
+    from kater.control_plane import contexts
+    from kater.control_plane import tokens as context_tokens
+
+    connector = MagicMock()
+    monkeypatch.setattr(routes, "get_computer_connector", lambda: connector)
+    record = contexts.create_context(
+        principal_id="agent-computer",
+        allowed_capabilities=["kater.profiles.list"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=300)
+    resp = call(
+        "POST",
+        "/api/computer/invoke",
+        body={"capability_id": "filesystem.read", "arguments": {}},
+        headers={"x-kater-context": token},
+    )
+    assert resp.status == 403
+    assert resp.payload is not None
+    assert resp.payload["code"] == "capability_denied"
+    connector.call.assert_not_called()

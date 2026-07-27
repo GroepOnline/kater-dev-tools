@@ -43,6 +43,9 @@ _lock = threading.RLock()
 _db_cache: sqlite3.Connection | None = None
 _db_path_cache: str | None = None
 
+# Keep usage ledger bounded so summary queries stay predictable on long-lived hosts.
+MAX_USAGE_ROWS = 50_000
+
 
 
 def _quiet_close(conn: sqlite3.Connection) -> None:
@@ -88,6 +91,45 @@ def reset_cache() -> None:
             _quiet_close(_db_cache)
         _db_cache = None
         _db_path_cache = None
+
+
+def _trim_usage_rows(db: sqlite3.Connection) -> int:
+    row = db.execute("SELECT COUNT(*) FROM usage_events").fetchone()
+    count = int(row[0]) if row is not None else 0
+    if count <= MAX_USAGE_ROWS:
+        return 0
+    excess = count - MAX_USAGE_ROWS
+    db.execute(
+        """DELETE FROM usage_events WHERE id IN (
+               SELECT id FROM usage_events
+               ORDER BY timestamp ASC, id ASC
+               LIMIT ?
+           )""",
+        (excess,),
+    )
+    return excess
+
+
+def prune_usage_events(*, max_rows: int = MAX_USAGE_ROWS) -> int:
+    """Drop oldest usage rows when the ledger exceeds ``max_rows``."""
+    keep = max(1, int(max_rows))
+    with _lock:
+        db = _get_db()
+        row = db.execute("SELECT COUNT(*) FROM usage_events").fetchone()
+        count = int(row[0]) if row is not None else 0
+        if count <= keep:
+            return 0
+        excess = count - keep
+        db.execute(
+            """DELETE FROM usage_events WHERE id IN (
+                   SELECT id FROM usage_events
+                   ORDER BY timestamp ASC, id ASC
+                   LIMIT ?
+               )""",
+            (excess,),
+        )
+        db.commit()
+        return excess
 
 
 def _parse_metadata(raw: str | None) -> dict[str, Any]:
@@ -158,11 +200,12 @@ def record_usage_event(
                 json.dumps(meta, default=str),
             ),
         )
-        db.commit()
         raw_id = cur.lastrowid
         if raw_id is None:
             raise RuntimeError("usage event insert returned no row id")
         row_id = int(raw_id)
+        _trim_usage_rows(db)
+        db.commit()
         row = db.execute("SELECT * FROM usage_events WHERE id = ?", (row_id,)).fetchone()
     if row is None:
         raise RuntimeError(f"usage event {row_id} missing after insert")
@@ -216,58 +259,65 @@ def usage_summary(*, capability: str | None = None) -> dict[str, Any]:
     with _lock:
         db = _get_db()
         if cap_filter is not None:
-            rows = db.execute(
-                """SELECT capability, success, duration_ms, cost_units
-                   FROM usage_events WHERE capability = ?""",
+            agg_rows = db.execute(
+                """SELECT capability,
+                          COUNT(*) AS count,
+                          SUM(success) AS success,
+                          SUM(cost_units) AS total_cost
+                   FROM usage_events
+                   WHERE capability = ?
+                   GROUP BY capability""",
+                (cap_filter,),
+            ).fetchall()
+            duration_rows = db.execute(
+                "SELECT duration_ms FROM usage_events WHERE capability = ?",
                 (cap_filter,),
             ).fetchall()
         else:
-            rows = db.execute(
-                "SELECT capability, success, duration_ms, cost_units FROM usage_events"
+            agg_rows = db.execute(
+                """SELECT capability,
+                          COUNT(*) AS count,
+                          SUM(success) AS success,
+                          SUM(cost_units) AS total_cost
+                   FROM usage_events
+                   GROUP BY capability"""
+            ).fetchall()
+            duration_rows = db.execute(
+                "SELECT capability, duration_ms FROM usage_events"
             ).fetchall()
 
-    by_cap: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        name = str(row["capability"])
-        bucket = by_cap.setdefault(
-            name,
-            {
-                "capability": name,
-                "count": 0,
-                "success": 0,
-                "failed": 0,
-                "total_cost_units": 0.0,
-                "durations": [],
-            },
-        )
-        bucket["count"] += 1
-        if row["success"]:
-            bucket["success"] += 1
-        else:
-            bucket["failed"] += 1
-        bucket["total_cost_units"] += float(row["cost_units"] or 0)
-        bucket["durations"].append(float(row["duration_ms"] or 0))
+    durations_by_cap: dict[str, list[float]] = {}
+    if cap_filter is not None:
+        durations_by_cap[cap_filter] = [
+            float(row["duration_ms"] or 0) for row in duration_rows
+        ]
+    else:
+        for row in duration_rows:
+            name = str(row["capability"])
+            durations_by_cap.setdefault(name, []).append(float(row["duration_ms"] or 0))
 
     capabilities: list[dict[str, Any]] = []
     total_count = 0
     total_success = 0
     total_cost = 0.0
-    for name in sorted(by_cap):
-        bucket = by_cap[name]
-        durations = sorted(bucket.pop("durations"))
-        count = int(bucket["count"])
-        success = int(bucket["success"])
+    for row in sorted(agg_rows, key=lambda item: str(item["capability"])):
+        name = str(row["capability"])
+        count = int(row["count"])
+        success = int(row["success"] or 0)
+        failed = count - success
+        cost = float(row["total_cost"] or 0)
+        durations = sorted(durations_by_cap.get(name, []))
         total_count += count
         total_success += success
-        total_cost += float(bucket["total_cost_units"])
+        total_cost += cost
         capabilities.append(
             {
                 "capability": name,
                 "count": count,
                 "success": success,
-                "failed": int(bucket["failed"]),
+                "failed": failed,
                 "success_rate": round((success / count) * 100, 1) if count else 0.0,
-                "total_cost_units": round(float(bucket["total_cost_units"]), 4),
+                "total_cost_units": round(cost, 4),
                 "duration_p50_ms": _percentile(durations, 0.50),
                 "duration_p95_ms": _percentile(durations, 0.95),
             }

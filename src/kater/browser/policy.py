@@ -95,8 +95,10 @@ class BrowserPolicy:
 
         Document navigations use the full navigation policy (blocked schemes,
         allow/deny domains, private-network refusal). Subresources still refuse
-        file:/javascript:/chrome: and private addresses, but allow ``data:`` /
-        ``blob:`` and skip domain allow-lists so CDNs on allowlisted pages work.
+        file:/javascript:/chrome: and private addresses, and allow ``data:`` /
+        ``blob:``. The allow/deny domain lists are an egress boundary, so they
+        are enforced for every request: a subresource fetch/XHR to a denied or
+        non-allowlisted host is exactly the exfiltration path they must close.
         """
         if not url or not url.strip():
             raise PolicyViolation("empty url")
@@ -131,11 +133,13 @@ class BrowserPolicy:
         if not host:
             raise PolicyViolation(f"url has no host: {candidate!r}")
 
-        if is_document:
-            if _matches_domain(host, self.deny_domains):
-                raise PolicyViolation(f"host '{host}' matches a denied domain")
-            if self.allow_domains and not _matches_domain(host, self.allow_domains):
-                raise PolicyViolation(f"host '{host}' is not in the browser allow-list")
+        # Enforce the allow/deny lists for subresources too, not just documents:
+        # otherwise a page could exfiltrate data via fetch/XHR/websocket to any
+        # denied or non-allowlisted host, bypassing the egress boundary.
+        if _matches_domain(host, self.deny_domains):
+            raise PolicyViolation(f"host '{host}' matches a denied domain")
+        if self.allow_domains and not _matches_domain(host, self.allow_domains):
+            raise PolicyViolation(f"host '{host}' is not in the browser allow-list")
 
         if not self.allow_private_networks:
             default_port = 443 if scheme in {"https", "wss"} else 80

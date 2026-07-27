@@ -46,13 +46,25 @@ _SNAPSHOT_JS = """
     }
     return parts.join(' > ');
   };
+  // Only button-like <input> elements carry a human label in `value`
+  // (e.g. <input type="submit" value="Search">). Text/password/email inputs,
+  // textareas and selects hold user-entered or autofilled data, so their live
+  // value must never leak through the snapshot name.
+  const valueLabel = (el) => {
+    if (el.tagName !== 'INPUT') { return ''; }
+    const type = (el.getAttribute('type') || 'text').toLowerCase();
+    if (type === 'submit' || type === 'button' || type === 'reset') {
+      return typeof el.value === 'string' ? el.value : '';
+    }
+    return '';
+  };
   const nameFor = (el) => (
     el.getAttribute('aria-label') ||
     el.getAttribute('placeholder') ||
     el.getAttribute('name') ||
     el.getAttribute('title') ||
     el.getAttribute('alt') ||
-    (typeof el.value === 'string' ? el.value : '') ||
+    valueLabel(el) ||
     (el.innerText || '')
   );
   const out = [];

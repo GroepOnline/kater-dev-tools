@@ -406,6 +406,15 @@ def test_extract_enforces_custom_size_caps(tmp_path) -> None:
             )
 
 
+def test_read_manifest_rejects_oversized_manifest(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(backup, "MAX_MANIFEST_BYTES", 64)
+    bundle = tmp_path / "huge_manifest.tar.gz"
+    oversized = json.dumps({"bundle_version": 1, "files": [], "pad": "x" * 512}).encode("utf-8")
+    _write_tar(bundle, [("manifest.json", oversized)])
+    with pytest.raises(BackupError, match="manifest cap"):
+        backup.inspect_backup(bundle)
+
+
 def test_restore_rolls_back_from_retired_when_partial(project, tmp_path, monkeypatch) -> None:
     bundle = tmp_path / "bundle.tar.gz"
     backup.create_backup(bundle, project_dir=project)

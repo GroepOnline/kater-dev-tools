@@ -68,6 +68,12 @@ _READ_CHUNK = 1 << 20
 MAX_MEMBER_BYTES = 256 * 1024 * 1024
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
 
+#: The manifest is small metadata (a bundle header plus one entry per member),
+#: so cap its decompressed size hard. Without this a crafted archive could
+#: declare a multi-GB ``manifest.json`` and force the whole thing into memory
+#: during inspect/restore before any per-member limit is applied.
+MAX_MANIFEST_BYTES = 1 * 1024 * 1024
+
 
 class BackupError(RuntimeError):
     """Raised for any unusable bundle, destination or source state."""
@@ -295,8 +301,19 @@ def _read_manifest(archive: tarfile.TarFile) -> dict[str, Any]:
         raise BackupError(f"bundle has no {MANIFEST_NAME}; it is not a Kater backup") from exc
     if not member.isfile():
         raise BackupError(f"{MANIFEST_NAME} is not a regular file")
+    # Refuse an over-cap manifest before reading it: the declared size guards
+    # against a header claiming gigabytes, and the bounded read guards against a
+    # stream that yields more than it declares.
+    if member.size > MAX_MANIFEST_BYTES:
+        raise BackupError(
+            f"{MANIFEST_NAME} is {member.size} bytes; exceeds the "
+            f"{MAX_MANIFEST_BYTES}-byte manifest cap"
+        )
+    raw = _open_member(archive, member).read(MAX_MANIFEST_BYTES + 1)
+    if len(raw) > MAX_MANIFEST_BYTES:
+        raise BackupError(f"{MANIFEST_NAME} exceeds the {MAX_MANIFEST_BYTES}-byte manifest cap")
     try:
-        data = json.loads(_open_member(archive, member).read().decode("utf-8"))
+        data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise BackupError(f"{MANIFEST_NAME} is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):

@@ -73,21 +73,26 @@ def test_check_request_blocks_data_on_document_navigation():
         policy.check_request("data:text/html,<h1>x</h1>", resource_type="document")
 
 
-def test_check_request_applies_allow_domains_only_to_documents():
+def test_check_request_applies_allow_domains_to_subresources():
     policy = public_policy(allow_domains=("example.com",))
     policy.check_request("https://example.com/", resource_type="document")
+    policy.check_request("https://example.com/app.js", resource_type="script")
     with pytest.raises(PolicyViolation, match="not in the browser allow-list"):
         policy.check_request("https://cdn.other.test/app.js", resource_type="document")
-    # CDN subresource on an allowlisted page must still load.
-    policy.check_request("https://cdn.other.test/app.js", resource_type="script")
-    policy.check_request("https://cdn.other.test/x.png", resource_type="image")
+    # A non-allowlisted host is an exfiltration path even as a subresource.
+    with pytest.raises(PolicyViolation, match="not in the browser allow-list"):
+        policy.check_request("https://cdn.other.test/app.js", resource_type="script")
+    with pytest.raises(PolicyViolation, match="not in the browser allow-list"):
+        policy.check_request("https://cdn.other.test/x.png", resource_type="image")
 
 
-def test_check_request_deny_domains_only_for_documents():
+def test_check_request_deny_domains_apply_to_subresources():
     policy = public_policy(deny_domains=("evil.com",))
     with pytest.raises(PolicyViolation, match="denied domain"):
         policy.check_request("https://evil.com/", resource_type="document")
-    policy.check_request("https://evil.com/tracker.js", resource_type="script")
+    # Denied hosts stay denied for subresources (trackers, beacons, XHR).
+    with pytest.raises(PolicyViolation, match="denied domain"):
+        policy.check_request("https://evil.com/tracker.js", resource_type="script")
 
 
 def test_check_request_allow_private_opt_in():

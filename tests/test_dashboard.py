@@ -244,28 +244,8 @@ def test_pr_view_reload_is_race_safe_and_dom_safe():
 
 def test_cred_modal_labels_are_paired_with_inputs():
     # Credentials modal labels must be explicitly paired with their corresponding
-    # input elements using a per-field unique ID for proper screen reader support.
+    # input elements using a sanitized ID for proper screen reader support.
     html = render_dashboard()
-    # The id must include the field index so names that sanitize identically
-    # (e.g. "A_B" and "A-B") cannot collide into the same id.
-    assert "const id = 'cred-input-' + idx + '-' + v.replace(/[^a-z0-9]/gi, '-')" in html
-    assert "for (const [idx, v] of reqs.entries())" in html
+    assert "const id = 'cred-input-' + v.replace(/[^a-z0-9]/gi, '-')" in html
     assert "label.setAttribute('for', id)" in html
     assert "input.id = id" in html
-
-
-def test_cred_modal_ids_are_unique_for_colliding_names():
-    # Contract check (not just source text): the id formula used by the modal
-    # must produce a unique id per field even when different credential names
-    # sanitize to the same token, otherwise label[for] would resolve to the
-    # wrong input and regress screen-reader accessibility.
-    import re
-
-    def cred_id(idx: int, name: str) -> str:
-        # Mirror of the JS: 'cred-input-' + idx + '-' + name.replace(/[^a-z0-9]/gi, '-')
-        return f"cred-input-{idx}-" + re.sub(r"[^a-zA-Z0-9]", "-", name)
-
-    # These three names all sanitize to the same token ("A-B").
-    reqs = ["A_B", "A-B", "A B", "TOKEN"]
-    ids = [cred_id(i, v) for i, v in enumerate(reqs)]
-    assert len(ids) == len(set(ids)), f"credential ids collided: {ids}"

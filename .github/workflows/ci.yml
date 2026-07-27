@@ -104,7 +104,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --extra browser
 
       - name: Ruff
         run: uv run ruff check .
@@ -134,7 +134,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --extra browser
 
       # The inner `timeout` is a fast, explicit guard that yields a clean
       # exit 124 if a test wedges; the job-level `timeout-minutes: 15` above is
@@ -165,7 +165,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --extra browser
 
       - name: Integration tests
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_api.py tests/test_oauth.py tests/test_authgate.py tests/test_storage.py tests/test_proxy.py
@@ -250,7 +250,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --extra browser
 
       - name: Start Kater
         run: |
@@ -380,7 +380,9 @@ jobs:
         with:
           enable-cache: true
       - name: Sync project
-        run: uv sync --extra dev || uv sync
+        run: uv sync --extra dev --extra browser || uv sync --extra browser
+      - name: Install Playwright Chromium
+        run: uv run playwright install chromium
       - name: Run full test suite with coverage gate
         run: |
           uv run pytest \

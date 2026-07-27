@@ -44,10 +44,19 @@ def install_network_guard(page: Any, policy: PolicySource) -> None:
         resource_type = getattr(req, "resource_type", "") or ""
         try:
             _current().check_request(req.url, resource_type=resource_type)
-        except PolicyViolation:
-            route.abort("blockedbyclient")
+        except Exception:
+            try:
+                route.abort("blockedbyclient")
+            except Exception:
+                return
             return
-        route.continue_()
+        try:
+            route.continue_()
+        except Exception:
+            try:
+                route.abort("blockedbyclient")
+            except Exception:
+                return
 
     page.route("**/*", _on_route)
 

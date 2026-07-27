@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import IO, Any
+from urllib.parse import quote
 
 from kater import __version__ as kater_version
 from kater import migrations
@@ -164,7 +165,8 @@ def _timestamp() -> str:
 def _snapshot_db(source: Path, target: Path) -> int:
     """Copy the database through the SQLite backup API; returns schema version."""
     try:
-        src = sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=10.0)
+        path_uri = quote(source.resolve().as_posix(), safe="/")
+        src = sqlite3.connect(f"file:{path_uri}?mode=ro", uri=True, timeout=10.0)
     except sqlite3.Error as exc:
         raise BackupError(f"cannot open database {source}: {exc}") from exc
     try:

@@ -82,6 +82,9 @@ class CallRunner:
             thread = self._thread
             q = self._queue
             self._thread = None
+            # Invalidate in-flight submit() generations so a late TimeoutError
+            # after stop cannot resurrect a worker via _replace_worker_unlocked.
+            self._generation += 1
         if thread is None:
             return
         q.put(None)

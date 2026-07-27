@@ -129,7 +129,11 @@ def redact_endpoint(url: str) -> str:
         return "<redacted>"
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
+    try:
+        port = parts.port
+    except ValueError:
+        return "<redacted>"
     netloc = host
-    if parts.port is not None:
-        netloc = f"{host}:{parts.port}"
+    if port is not None:
+        netloc = f"{host}:{port}"
     return urlunsplit((parts.scheme, netloc, parts.path, "", ""))

@@ -123,15 +123,15 @@ BROWSER_TOOL_SPECS: tuple[dict[str, Any], ...] = (
 
 def browser_open_tool(**kwargs: Any) -> dict[str, Any]:
     manager = _manager(kwargs)
-    width = int(kwargs.get("width") or 1280)
-    height = int(kwargs.get("height") or 800)
     try:
+        width = int(kwargs.get("width") or 1280)
+        height = int(kwargs.get("height") or 800)
         session = manager.create(
             label=kwargs.get("label"),
             profile=str(kwargs.get("profile") or "core"),
             viewport=(width, height),
         )
-    except (SessionLimitError, BrowserUnavailableError) as exc:
+    except (SessionLimitError, BrowserUnavailableError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "session": session.to_dict()}
 

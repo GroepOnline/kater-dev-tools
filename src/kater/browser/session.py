@@ -377,7 +377,15 @@ def set_manager(manager: BrowserSessionManager | None) -> None:
     """Install a manager explicitly (used by tests and by the runtime bootstrap)."""
     global _manager
     with _manager_lock:
+        previous = _manager
+        if previous is manager:
+            return
         _manager = manager
+    if previous is not None:
+        try:
+            previous.close_all()
+        except Exception as exc:
+            _log.debug("manager shutdown failed: %s", exc)
 
 def reset_manager() -> None:
     """Close everything and drop the singleton."""

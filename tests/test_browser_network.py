@@ -101,6 +101,14 @@ def test_check_request_allow_private_opt_in():
     policy.check_request("http://127.0.0.1/", resource_type="document")
 
 
+def test_invalid_port_raises_policy_violation():
+    policy = public_policy()
+    with pytest.raises(PolicyViolation, match="invalid port"):
+        policy.check_url("http://example.com:99999/")
+    with pytest.raises(PolicyViolation, match="invalid port"):
+        policy.check_request("http://example.com:99999/x", resource_type="xhr")
+
+
 # ── validate_cdp_endpoint ──────────────────────────────────────────
 
 

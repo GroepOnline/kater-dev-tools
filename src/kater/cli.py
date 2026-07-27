@@ -1499,6 +1499,9 @@ def automations_run_command(
     except KeyError:
         typer.echo(f"Automation not found: {automation_id}", err=True)
         raise typer.Exit(code=1) from None
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
     payload = result.to_dict()
     if json_output:
         _print_json(payload)

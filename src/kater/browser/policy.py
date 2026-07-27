@@ -14,7 +14,7 @@ import socket
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from kater.settings import KaterSettings
 
@@ -87,8 +87,10 @@ class BrowserPolicy:
         if self.allow_domains and not _matches_domain(host, self.allow_domains):
             raise PolicyViolation(f"host '{host}' is not in the browser allow-list")
 
+        default_port = 443 if scheme == "https" else 80
+        port = _port_or_default(parts, default_port)
         if not self.allow_private_networks:
-            self._check_addresses(host, parts.port or (443 if scheme == "https" else 80), resolver)
+            self._check_addresses(host, port, resolver)
 
     def check_request(self, url: str, *, resource_type: str = "") -> None:
         """Network-level check for every request (navigation + subresource).
@@ -141,9 +143,10 @@ class BrowserPolicy:
         if self.allow_domains and not _matches_domain(host, self.allow_domains):
             raise PolicyViolation(f"host '{host}' is not in the browser allow-list")
 
+        default_port = 443 if scheme in {"https", "wss"} else 80
+        port = _port_or_default(parts, default_port)
         if not self.allow_private_networks:
-            default_port = 443 if scheme in {"https", "wss"} else 80
-            self._check_addresses(host, parts.port or default_port, None)
+            self._check_addresses(host, port, None)
 
     def _check_addresses(self, host: str, port: int, resolver: Resolver | None) -> None:
         literal = _literal_ip(host)
@@ -193,6 +196,14 @@ def load_policy(settings: KaterSettings | None = None) -> BrowserPolicy:
             "MAX_SCREENSHOT_BYTES", DEFAULT_MAX_SCREENSHOT_BYTES, minimum=1024
         ),
     )
+
+
+def _port_or_default(parts: SplitResult, default: int) -> int:
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise PolicyViolation(f"url has an invalid port: {exc}") from exc
+    return default if port is None else port
 
 
 def _matches_domain(host: str, patterns: tuple[str, ...]) -> bool:

@@ -79,13 +79,13 @@ def build_computer_connector(profile: str = "core") -> ComputerConnector | None:
 
 def ensure_computer_connector(profile: str = "core") -> ComputerConnector | None:
     """Return the active connector, building and installing one from env when needed."""
-    existing = get_computer_connector()
-    if existing is not None:
-        return existing
-    connector = build_computer_connector(profile)
-    if connector is not None:
-        set_computer_connector(connector)
-    return connector
+    global _active_connector
+    with _lock:
+        if _active_connector is not None:
+            return _active_connector
+        connector = build_computer_connector(profile)
+        _active_connector = connector
+        return connector
 
 
 def computer_status() -> dict[str, Any]:

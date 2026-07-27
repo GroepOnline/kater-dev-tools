@@ -20,12 +20,12 @@ chmod 600 ~/.config/chefgroep/kater-broker-token
 ```
 
 The token must allow profile `kater-dev-tools/ops` and only the `Kater/*` collections
-referenced by that profile. It must not allow UDO or production master collections.
+referenced by that profile. It must not allow unrelated or master/admin collections.
 
 Set the broker URL when it is not local:
 
 ```bash
-export CHEF_VAULT_BROKER_URL=http://<sofie-tailscale-ip>:8322
+export CHEF_VAULT_BROKER_URL=http://<broker-private-ip>:8322
 ```
 
 ## Start Kater

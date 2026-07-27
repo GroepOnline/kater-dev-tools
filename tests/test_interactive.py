@@ -238,16 +238,17 @@ def test_automation_count_soft_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     assert interactive.automation_list() is None
 
 
-def test_automation_count_when_engine_present() -> None:
+def test_automation_count_when_engine_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    import collections
+    FakeAutomation = collections.namedtuple("FakeAutomation", ["id"])
+    fake_engine = type("FakeEngine", (), {"count": lambda self: 2, "list": lambda self: [FakeAutomation("1"), FakeAutomation("2")]})()
+    monkeypatch.setattr(interactive, "_automation_engine", lambda: fake_engine)
     count = interactive.automation_count()
     items = interactive.automation_list()
-    # Engine is optional at import time but present on this branch.
-    if count is None:
-        assert items is None
-    else:
-        assert count >= 0
-        assert items is not None
-        assert len(items) == count
+    
+    assert count >= 0
+    assert items is not None
+    assert len(items) == count
 
 
 def test_automation_items_from_objects() -> None:

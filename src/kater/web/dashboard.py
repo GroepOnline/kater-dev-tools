@@ -1603,7 +1603,7 @@ const WS_URL = (location.protocol === 'https:')
 let ws = null;
 let wsRetry = 0;
 let wsTimer = null;
-let wsGen = 0;
+let wsGeneration = 0;
 let appReady = false;
 let catalogQuery = '';
 let catalogReloadTimer = null;
@@ -2968,11 +2968,12 @@ function closeWebSocket() {
 }
 
 async function initWebSocket() {
+  const gen = ++wsGeneration;
   closeWebSocket();
   const gen = ++wsGen;
   let url = WS_URL;
   try { url = await resolveWsUrl(); } catch (e) { url = WS_URL; }
-  if (gen !== wsGen) return;  // superseded by a newer init
+  if (wsGeneration !== gen) return; // Superseded by another concurrent call
   try {
     ws = new WebSocket(url);
   } catch (e) {

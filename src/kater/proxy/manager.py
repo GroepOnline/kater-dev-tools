@@ -720,6 +720,18 @@ class ProxyManager:
             result.append(status)
         return result
 
+    def heal(self) -> dict[str, Any]:
+        if not self._started:
+            return {"healed": 0, "status": "skipped_not_started"}
+        unhealthy = [name for name, backend in self._backends.items() if not backend.is_healthy()]
+        healed_count = 0
+        for name in unhealthy:
+            breaker = self._breakers.get(name)
+            if breaker:
+                breaker.reset()
+                healed_count += 1
+        return {"healed": healed_count, "unhealthy_before": unhealthy}
+
     def health_check(self) -> dict[str, bool]:
         return {name: backend.is_healthy() for name, backend in self._backends.items()}
 

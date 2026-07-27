@@ -67,19 +67,11 @@ def run_proxy_heal(config: dict[str, Any]) -> dict[str, Any]:
     proxy = get_proxy()
     if not proxy.started:
         return {"healed": 0, "skipped": "proxy_not_started"}
-    for method_name in ("restart_failed", "heal_backends", "heal"):
-        method = getattr(proxy, method_name, None)
-        if not callable(method):
-            continue
-        result = method()
-        if isinstance(result, dict):
-            return {"healed": result.get("healed", result), "method": method_name}
-        return {"healed": result, "method": method_name}
-    # No restart API on ProxyManager yet — succeed as a no-op.
-    unhealthy = [
-        name for name, ok in proxy.health_check().items() if not ok
-    ]
-    return {"healed": 0, "skipped": "no_heal_api", "unhealthy": unhealthy}
+    
+    result = proxy.heal()
+    if isinstance(result, dict) and "healed" in result:
+        return result
+    return {"healed": result}
 
 
 def run_telemetry_prune(config: dict[str, Any]) -> dict[str, Any]:

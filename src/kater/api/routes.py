@@ -1272,7 +1272,11 @@ def _automations_patch(req: Request) -> Response:
             name=name,
             kind=kind,
             enabled=bool(body.get("enabled", existing.enabled)),
-            schedule_seconds=int(body.get("schedule_seconds") or existing.schedule_seconds),
+            schedule_seconds=(
+                existing.schedule_seconds
+                if body.get("schedule_seconds") is None
+                else int(body["schedule_seconds"])
+            ),
             config=config if isinstance(config, dict) else existing.config,
         )
     except (TypeError, ValueError) as exc:

@@ -4160,7 +4160,12 @@ async function loadFabricView() {
       }
     }
     ctxEl.replaceChildren();
-    if (!contexts.length) {
+    if (ctxRes.status === 'rejected') {
+      const err = document.createElement('div');
+      err.className = 'view-empty';
+      err.textContent = 'Could not load contexts: ' + ((ctxRes.reason && ctxRes.reason.message) || 'error');
+      ctxEl.appendChild(err);
+    } else if (!contexts.length) {
       const empty = document.createElement('div');
       empty.className = 'view-empty';
       empty.textContent = 'No remote contexts yet.';
@@ -4182,27 +4187,35 @@ async function loadFabricView() {
       }
     }
     computerEl.replaceChildren();
-    const configured = !!(computerData && computerData.configured);
-    const active = !!(computerData && computerData.active);
-    const statusLabel = !configured ? 'unconfigured' : (active ? 'active' : 'inactive');
-    if (computerStatus) computerStatus.textContent = String(statusLabel);
-    const row = document.createElement('div');
-    row.className = 'fabric-row';
-    const title = document.createElement('div');
-    title.className = 'fabric-row-title';
-    title.textContent = 'Computer connector';
-    const meta = document.createElement('div');
-    meta.className = 'fabric-row-meta';
-    const toolCount = computerData.capability_count != null
-      ? computerData.capability_count
-      : (Array.isArray(computerData.capability_ids) ? computerData.capability_ids.length : 0);
-    const bits = ['status: ' + statusLabel, toolCount + ' capabilities'];
-    if (computerData.profile) bits.push('profile ' + computerData.profile);
-    if (computerData.base_url_host) bits.push(String(computerData.base_url_host));
-    meta.textContent = bits.join(' · ');
-    row.appendChild(title);
-    row.appendChild(meta);
-    computerEl.appendChild(row);
+    if (computerRes.status === 'rejected') {
+      if (computerStatus) computerStatus.textContent = 'unavailable';
+      const err = document.createElement('div');
+      err.className = 'view-empty';
+      err.textContent = 'Could not load Computer connector: ' + ((computerRes.reason && computerRes.reason.message) || 'error');
+      computerEl.appendChild(err);
+    } else {
+      const configured = !!(computerData && computerData.configured);
+      const active = !!(computerData && computerData.active);
+      const statusLabel = !configured ? 'unconfigured' : (active ? 'active' : 'inactive');
+      if (computerStatus) computerStatus.textContent = String(statusLabel);
+      const row = document.createElement('div');
+      row.className = 'fabric-row';
+      const title = document.createElement('div');
+      title.className = 'fabric-row-title';
+      title.textContent = 'Computer connector';
+      const meta = document.createElement('div');
+      meta.className = 'fabric-row-meta';
+      const toolCount = computerData.capability_count != null
+        ? computerData.capability_count
+        : (Array.isArray(computerData.capability_ids) ? computerData.capability_ids.length : 0);
+      const bits = ['status: ' + statusLabel, toolCount + ' capabilities'];
+      if (computerData.profile) bits.push('profile ' + computerData.profile);
+      if (computerData.base_url_host) bits.push(String(computerData.base_url_host));
+      meta.textContent = bits.join(' · ');
+      row.appendChild(title);
+      row.appendChild(meta);
+      computerEl.appendChild(row);
+    }
   } catch (e) {
     if (count) count.textContent = 'unavailable';
     for (const el of [capsEl, ctxEl, computerEl]) {

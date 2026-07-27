@@ -49,9 +49,8 @@ class KaterSettings(BaseModel):
 
     @property
     def resolved_db_path(self) -> Path:
-        if "/" in self.db_path:
-            return Path(self.db_path).expanduser()
-        return Path.cwd() / self.db_path
+        path = Path(self.db_path).expanduser()
+        return path if path.is_absolute() else Path.cwd() / path
 
     def is_server_enabled(self, name: str, default: bool = True) -> bool:
         override = self.server_overrides.get(name)

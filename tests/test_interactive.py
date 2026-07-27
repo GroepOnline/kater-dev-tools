@@ -252,10 +252,11 @@ def test_automation_count_when_engine_present(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(interactive, "_automation_engine", lambda: fake_engine)
     count = interactive.automation_count()
     items = interactive.automation_list()
-    
-    assert count >= 0
+
+    assert count == 2
     assert items is not None
     assert len(items) == count
+    assert [item["id"] for item in items] == ["1", "2"]
 
 
 def test_automation_items_from_objects() -> None:

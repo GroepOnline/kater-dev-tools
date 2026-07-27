@@ -6,7 +6,7 @@ Kater’s browser lane is not a single browser. Pick a backend with
 ## local (default)
 
 Playwright Chromium runs in-process. Install with
-`pip/uv install kater[browser]` and `playwright install chromium`.
+`uv tool install "kater[browser]"` and `playwright install chromium`.
 Good for laptop demos and CI without an external browser service.
 
 ## cdp

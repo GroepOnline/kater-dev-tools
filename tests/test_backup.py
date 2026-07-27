@@ -309,6 +309,35 @@ def test_restore_migrates_a_bundle_from_an_older_schema(tmp_path) -> None:
     assert _events(root) == [("tool_call", "github__search")]
 
 
+def test_restore_places_database_at_configured_db_path(project, tmp_path) -> None:
+    custom_db = project / "data" / "custom.db"
+    settings = json.loads((project / ".kater" / "settings.json").read_text(encoding="utf-8"))
+    settings["db_path"] = str(custom_db)
+    (project / ".kater" / "settings.json").write_text(
+        json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+    )
+    custom_db.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(project / ".kater" / "kater.db", custom_db)
+
+    bundle = tmp_path / "bundle.tar.gz"
+    backup.create_backup(bundle, project_dir=project)
+
+    shutil.rmtree(project / ".kater")
+    custom_db.unlink(missing_ok=True)
+    assert not custom_db.exists()
+
+    backup.restore_backup(bundle, project_dir=project)
+
+    assert custom_db.is_file()
+    assert not (project / ".kater" / "kater.db").exists()
+    conn = sqlite3.connect(custom_db)
+    try:
+        rows = [tuple(row) for row in conn.execute("SELECT type, name FROM events")]
+    finally:
+        conn.close()
+    assert rows == [("tool_call", "github__search")]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
 def test_restore_sets_tight_permissions(project, tmp_path) -> None:
     bundle = tmp_path / "bundle.tar.gz"

@@ -22,6 +22,7 @@ Two details matter:
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
 import os
@@ -292,7 +293,14 @@ def _read_manifest(archive: tarfile.TarFile) -> dict[str, Any]:
     if not member.isfile():
         raise BackupError(f"{MANIFEST_NAME} is not a regular file")
     try:
-        data = json.loads(_open_member(archive, member).read().decode("utf-8"))
+        buffer = io.BytesIO()
+        _digest_stream(
+            _open_member(archive, member),
+            buffer,
+            max_member_bytes=MAX_MEMBER_BYTES,
+            max_total_bytes=MAX_TOTAL_BYTES,
+        )
+        data = json.loads(buffer.getvalue().decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise BackupError(f"{MANIFEST_NAME} is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
@@ -444,6 +452,20 @@ def _has_state(kater_dir: Path) -> bool:
     return kater_dir.is_dir() and any(kater_dir.iterdir())
 
 
+def _relocate_restored_db(kater_dir: Path, project_dir: Path | None) -> Path:
+    """Place the restored database at the path declared in settings."""
+    bundled = kater_dir / DB_NAME
+    if not bundled.is_file():
+        return _db_source(project_dir)
+    target = _db_source(project_dir)
+    if bundled.resolve() == target.resolve():
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(bundled, target)
+    target.chmod(_SECRET_MODE)
+    return target
+
+
 def restore_backup(
     path: Path,
     *,
@@ -516,9 +538,13 @@ def restore_backup(
     invalidate_settings_cache()
     reset_db_cache()
 
+    db_path = kater_dir / DB_NAME
+    if DB_NAME in restored:
+        db_path = _relocate_restored_db(kater_dir, project_dir)
+
     applied: tuple[int, ...] = ()
     if DB_NAME in restored:
-        results = migrations.run_migrations(kater_dir / DB_NAME)
+        results = migrations.run_migrations(db_path)
         applied = tuple(r.version for r in results if r.status == "applied")
 
     _log.info("restored %d files into %s", len(restored), kater_dir)

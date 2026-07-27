@@ -203,16 +203,17 @@ def test_builtins_do_not_crash_with_mocks():
         assert run_kind("browser_reap", {})["closed"] == 1
 
     with patch("kater.automations.builtins.get_proxy") as proxy_factory:
-        proxy = MagicMock(spec=["started", "health_check"])
+        proxy = MagicMock(spec=["started", "heal"])
         proxy.started = False
         proxy_factory.return_value = proxy
         assert run_kind("proxy_heal", {})["skipped"] == "proxy_not_started"
+        proxy.heal.assert_not_called()
 
         proxy.started = True
-        proxy.health_check.return_value = {"github": False}
+        proxy.heal.return_value = {"healed": 1, "unhealthy_before": ["github"]}
         out = run_kind("proxy_heal", {})
-        assert out["healed"] == 0
-        assert out["skipped"] == "no_heal_api"
+        assert out["healed"] == 1
+        proxy.heal.assert_called_once()
 
     with patch("kater.automations.builtins.prune_all", return_value=3):
         assert run_kind("telemetry_prune", {})["removed"] == 3

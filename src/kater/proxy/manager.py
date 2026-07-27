@@ -103,6 +103,13 @@ class CircuitBreaker:
             self._state = "closed"
             self._probe_in_flight = False
 
+    def reset(self) -> None:
+        with self._lock:
+            self._failures = 0
+            self._state = "closed"
+            self._opened_at = 0.0
+            self._probe_in_flight = False
+
     def record_failure(self) -> None:
         with self._lock:
             self._failures += 1

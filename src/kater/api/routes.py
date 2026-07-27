@@ -1016,7 +1016,12 @@ def _browser_list_sessions(req: Request) -> Response:
 
 @route("POST", "/api/browser/sessions")
 def _browser_create_session(req: Request) -> Response:
-    body = req.json
+    try:
+        body = req.json
+    except ValueError:
+        return Response.json(400, {"error": "malformed JSON body"})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "JSON body must be an object"})
     try:
         width = int(body.get("width") or 1280)
         height = int(body.get("height") or 800)
@@ -1054,7 +1059,12 @@ def _browser_close_session(req: Request) -> Response:
 @route("POST", "/api/browser/sessions/{session_id}/act")
 def _browser_act(req: Request) -> Response:
     session_id = req.params["session_id"]
-    body = req.json
+    try:
+        body = req.json
+    except ValueError:
+        return Response.json(400, {"error": "malformed JSON body"})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "JSON body must be an object"})
     payload = {k: v for k, v in body.items() if k != "session_id"}
     try:
         action = BrowserAction.from_dict(payload)
@@ -1069,7 +1079,12 @@ def _browser_act(req: Request) -> Response:
 @route("POST", "/api/browser/sessions/{session_id}/screenshot")
 def _browser_screenshot(req: Request) -> Response:
     session_id = req.params["session_id"]
-    body = req.json
+    try:
+        body = req.json
+    except ValueError:
+        return Response.json(400, {"error": "malformed JSON body"})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "JSON body must be an object"})
     try:
         result = get_manager().screenshot(session_id, full_page=bool(body.get("full_page", False)))
     except UnknownSessionError:

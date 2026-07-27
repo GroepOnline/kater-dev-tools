@@ -185,11 +185,24 @@ def test_format_session_row() -> None:
         {
             "session_id": "bsess_abcdefghijklmnopqrstuvwxyz",
             "state": "ready",
-            "current_url": "https://example.com/path",
+            "current_url": "https://user:hunter2@example.com/path?token=abc",
         }
     )
-    assert "ready" in row
-    assert "example.com" in row
+    assert row == "  bsess_abcdefghijklmn ready    https://example.com/path"
+    assert "hunter2" not in row
+    assert "token=" not in row
+
+
+def test_format_session_row_prefers_label() -> None:
+    row = interactive.format_session_row(
+        {
+            "session_id": "bsess_short",
+            "state": "ready",
+            "label": "checkout",
+            "current_url": "https://example.com/secret",
+        }
+    )
+    assert row == "  bsess_short          ready    checkout"
 
 
 def test_format_automation_row() -> None:

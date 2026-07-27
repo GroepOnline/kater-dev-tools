@@ -11,9 +11,14 @@ import pytest
 from kater.browser.base import BrowserUnavailableError
 from kater.browser.network import install_network_guard, validate_cdp_endpoint
 from kater.browser.policy import BrowserPolicy, PolicyViolation
+from kater.browser.providers import probe_local
 from kater.browser.runner import CallRunner
 
 PUBLIC_IP = "93.184.216.34"
+_LOCAL_PROBE = probe_local()
+requires_chromium = pytest.mark.skipif(
+    not _LOCAL_PROBE.available, reason=f"local chromium unavailable: {_LOCAL_PROBE.detail}"
+)
 
 
 def resolver_for(*addresses: str):
@@ -253,16 +258,9 @@ def test_call_runner_replace_worker_increments_restarts():
 # ── playwright integration (optional) ──────────────────────────────
 
 
-def _playwright_available() -> bool:
-    try:
-        from playwright.sync_api import sync_playwright  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
-@pytest.mark.skipif(not _playwright_available(), reason="playwright not installed")
+@requires_chromium
 def test_network_guard_aborts_private_fetch_in_page():
+    """Live Chromium check — skipped when the browser binary is not installed."""
     from playwright.sync_api import sync_playwright
 
     hits: list[str] = []
@@ -287,8 +285,8 @@ def test_network_guard_aborts_private_fetch_in_page():
     policy = BrowserPolicy(allow_private_networks=False)
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
             try:
                 page = browser.new_page()
                 install_network_guard(page, policy)

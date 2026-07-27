@@ -14,6 +14,7 @@ import time
 from typing import Any
 
 from kater.ansi import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW
+from kater.browser.base import redact_endpoint
 from kater.profiles import all_tool_sources, get_source, list_profiles
 from kater.settings import load_settings, save_settings
 from kater.telemetry import clear_events, load_events, record_server_toggle, status_overview
@@ -199,8 +200,11 @@ def format_session_row(session: dict[str, Any]) -> str:
     short = sid if len(sid) <= 20 else sid[:20]
     state = str(session.get("state", "?"))
     label = session.get("label") or ""
-    url = session.get("current_url") or ""
-    detail = str(label or url or "-")
+    if label:
+        detail = str(label)
+    else:
+        raw_url = str(session.get("current_url") or "")
+        detail = redact_endpoint(raw_url) if raw_url else "-"
     if len(detail) > 36:
         detail = detail[:35] + "~"
     return f"  {short:<20} {state:<8} {detail}"

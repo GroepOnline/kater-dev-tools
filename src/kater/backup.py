@@ -226,6 +226,10 @@ def create_backup(
                 shutil.copy2(candidate, staging / name)
 
         staged = [staging / name for name in BUNDLED_MEMBERS if (staging / name).is_file()]
+        # Manifest carries integrity digests only (sha256 of each member), not
+        # secret bodies. CodeQL still taints digests of .env/oauth/settings as
+        # cleartext-storage; the bundle itself is mode 0600 by design for
+        # migrate. Use --no-secrets for untrusted media.
         manifest: dict[str, Any] = {
             "bundle_version": BUNDLE_VERSION,
             "kater_version": kater_version,
@@ -236,6 +240,7 @@ def create_backup(
                 {"name": p.name, "sha256": _sha256(p), "bytes": p.stat().st_size} for p in staged
             ],
         }
+        # codeql[py/clear-text-storage-sensitive-data]
         (staging / MANIFEST_NAME).write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )

@@ -13,7 +13,7 @@ docker compose up --build
 | 9091 | REST API + dashboard |
 | 9092 | WebSocket telemetry |
 
-Health check: `curl -s http://127.0.0.1:9091/health`.
+Health check: `curl -fsS http://127.0.0.1:9091/health`.
 
 Cursor MCP snippet:
 

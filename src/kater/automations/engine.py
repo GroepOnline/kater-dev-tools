@@ -57,6 +57,7 @@ class AutomationEngine:
         self._store = store or AutomationStore()
         self._clock = clock or time.time
         self._lock = threading.RLock()
+        self._in_flight: set[str] = set()
         self._defaults_ensured = False
 
     def ensure_defaults(self) -> list[Automation]:
@@ -127,9 +128,15 @@ class AutomationEngine:
         return self._store.delete(automation_id)
 
     def tick(self) -> int:
-        """Run every enabled automation that is due. Returns how many ran."""
+        """Run every enabled automation that is due. Returns how many ran.
+
+        Due automations are claimed under the lock (recorded in
+        ``self._in_flight``) and then executed *outside* it, so a long-running
+        ``run_kind`` never blocks a concurrent ``run_now`` on a different
+        automation. An automation already in flight is skipped this tick.
+        """
         now = float(self._clock())
-        ran = 0
+        due: list[Automation] = []
         with self._lock:
             for automation in self._store.list():
                 if not automation.enabled:
@@ -141,18 +148,35 @@ class AutomationEngine:
                     and (now - automation.last_run_at) < automation.schedule_seconds
                 ):
                     continue
+                if automation.id in self._in_flight:
+                    continue
+                self._in_flight.add(automation.id)
+                due.append(automation)
+        ran = 0
+        for automation in due:
+            try:
                 self._execute(automation, ran_at=now)
                 ran += 1
+            finally:
+                with self._lock:
+                    self._in_flight.discard(automation.id)
         return ran
 
     def run_now(self, automation_id: str, *, force: bool = False) -> AutomationRunResult:
-        automation = self._store.get(automation_id)
-        if automation is None:
-            raise KeyError(automation_id)
-        if not automation.enabled and not force:
-            raise ValueError(f"automation {automation_id} is disabled")
         with self._lock:
+            automation = self._store.get(automation_id)
+            if automation is None:
+                raise KeyError(automation_id)
+            if not automation.enabled and not force:
+                raise ValueError(f"automation {automation_id} is disabled")
+            if automation_id in self._in_flight:
+                raise ValueError(f"automation {automation_id} is already running")
+            self._in_flight.add(automation_id)
+        try:
             return self._execute(automation, ran_at=float(self._clock()))
+        finally:
+            with self._lock:
+                self._in_flight.discard(automation_id)
 
     def _execute(self, automation: Automation, *, ran_at: float) -> AutomationRunResult:
         started = time.perf_counter()

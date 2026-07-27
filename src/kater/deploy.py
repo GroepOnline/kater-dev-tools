@@ -69,7 +69,10 @@ def render_docker_config(
         "format": "docker-compose",
         "description": "Self-hosted Docker deployment",
         "notes": [
-            "Exposes three listeners: MCP SSE :9090, REST/dashboard :9091, WebSocket :9092.",
+            (
+                f"Exposes three listeners: MCP SSE :{mcp_port}, "
+                f"REST/dashboard :{api_port}, WebSocket :{ws_port}."
+            ),
             "Persist state with a volume mount on /app/.kater (SQLite + secrets).",
             (
                 "Optional native browser lane: build/install with the browser extra "

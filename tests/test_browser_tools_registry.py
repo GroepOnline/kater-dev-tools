@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 from kater.browser import reset_manager
@@ -23,7 +25,7 @@ _EXPECTED_BROWSER_NAMES = {
 
 
 @pytest.fixture(autouse=True)
-def _isolate_browser_manager() -> None:
+def _isolate_browser_manager() -> Iterator[None]:
     reset_manager()
     yield
     reset_manager()

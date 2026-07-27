@@ -17,7 +17,8 @@ from kater.browser.models import (
 
 
 @pytest.fixture(autouse=True)
-def _clean_browser_store():
+def _clean_browser_store(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     store.reset_cache()
     yield
     store.reset_cache()

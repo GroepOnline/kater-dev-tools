@@ -146,7 +146,8 @@ def test_computer_invoke_calls_connector(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_computer_status_redacts_to_host_only(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    from kater.capabilities import wiring
+    import kater.api.routes as routes
+    import kater.capabilities.wiring as wiring
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KATER_COMPUTER_URL", "http://guest.internal:8080/v1")
@@ -156,6 +157,11 @@ def test_computer_status_redacts_to_host_only(
     connector.list_tools.return_value = [
         {"name": "filesystem.read", "description": "read", "inputSchema": {}}
     ]
+    # routes.py imports get_computer_connector directly (so /capabilities and
+    # /invoke resolve the routes-bound symbol), while /api/computer flows through
+    # wiring.computer_status(), which calls wiring's own module-level reference.
+    # Patch both so every computer route sees the mock connector.
+    monkeypatch.setattr(routes, "get_computer_connector", lambda: connector)
     monkeypatch.setattr(wiring, "get_computer_connector", lambda: connector)
 
     resp = _call("GET", "/api/computer")

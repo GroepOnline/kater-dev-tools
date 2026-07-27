@@ -425,6 +425,18 @@ def _apply(conn: sqlite3.Connection, migration: Migration) -> None:
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # BEGIN IMMEDIATE serialises writers, so re-check under the write
+            # lock: another process may have applied this version between our
+            # snapshot of the recorded versions and acquiring the lock. If so,
+            # commit the empty transaction and treat it as already applied
+            # instead of hitting a primary-key conflict on the insert.
+            already = conn.execute(
+                f"SELECT 1 FROM {SCHEMA_TABLE} WHERE version = ?",  # noqa: S608
+                (migration.version,),
+            ).fetchone()
+            if already is not None:
+                conn.execute("COMMIT")
+                return
             for statement in migration.statements:
                 conn.execute(statement)
             conn.execute(

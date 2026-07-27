@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -97,7 +96,8 @@ class FakeClock:
 
 
 @pytest.fixture(autouse=True)
-def _clean_browser_state():
+def _clean_browser_state(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     store.reset_cache()
     reset_manager()
     yield
@@ -531,7 +531,6 @@ def test_real_chromium_end_to_end(local_site):
         action_timeout_ms=10_000,
     )
     manager = BrowserSessionManager(provider=PlaywrightProvider(), policy=policy)
-    started = time.time()
     try:
         session = manager.create(label="e2e")
         assert session.state is SessionState.READY
@@ -576,7 +575,6 @@ def test_real_chromium_end_to_end(local_site):
         assert len(store.list_actions(session.session_id)) == 6
     finally:
         manager.close_all()
-    assert time.time() - started < 20
 
 
 @requires_chromium

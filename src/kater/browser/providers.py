@@ -21,6 +21,7 @@ import threading
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import quote
 
 from kater.browser.actions import execute_action
 from kater.browser.base import (
@@ -75,6 +76,9 @@ STEEL_HTTP_TIMEOUT = 10.0
 # Slack added to the per-action deadline so the provider's own watchdog only
 # fires when Playwright's internal timeout has already failed to.
 ACTION_TIMEOUT_SLACK_SECONDS = 5.0
+# Bound the browser launch/attach so start() cannot block on the worker forever
+# while holding self._lock.
+START_TIMEOUT_SECONDS = 60.0
 
 _CDP_URL_KEYS = (
     "websocketUrl",
@@ -104,8 +108,13 @@ class PlaywrightProvider(BrowserProvider):
         self._playwright: Any = None
         self._browser: Any = None
         # Session manager cannot always pass policy into new_page; act() sets
-        # this so the network guard sees the active session policy.
+        # this so the network guard sees the active session policy. Kept as the
+        # fallback for pages that have no per-page policy registered yet.
         self._guard_policy: BrowserPolicy | None = None
+        # Per-page policy keyed by id(page). The provider is shared across
+        # sessions, so a single shared policy would let one page's request be
+        # evaluated against another session's policy; resolve each page's own.
+        self._page_policies: dict[int, BrowserPolicy] = {}
 
     # ── lifecycle ──────────────────────────────────────────────────
 
@@ -113,7 +122,7 @@ class PlaywrightProvider(BrowserProvider):
         with self._lock:
             if self._browser is not None:
                 return
-            self._submit(self._start_on_worker)
+            self._submit(self._start_on_worker, timeout=START_TIMEOUT_SECONDS)
 
     def _start_on_worker(self) -> None:
         try:
@@ -181,9 +190,13 @@ class PlaywrightProvider(BrowserProvider):
         if policy is not None:
             self._guard_policy = policy
         self.start()
-        return self._submit(lambda: self._new_page_on_worker(session), timeout=60.0)
+        return self._submit(
+            lambda: self._new_page_on_worker(session, policy), timeout=60.0
+        )
 
-    def _new_page_on_worker(self, session: BrowserSession) -> PageHandle:
+    def _new_page_on_worker(
+        self, session: BrowserSession, policy: BrowserPolicy | None = None
+    ) -> PageHandle:
         if self._browser is None:
             raise BrowserUnavailableError("browser is not running")
         context = self._browser.new_context(
@@ -191,12 +204,24 @@ class PlaywrightProvider(BrowserProvider):
             ignore_https_errors=False,
         )
         page = context.new_page()
-        self._attach_guard(page)
+        self._attach_guard(page, policy)
         return PageHandle(session_id=session.session_id, context=context, page=page)
 
-    def _attach_guard(self, page: Any) -> None:
-        install_network_guard(page, lambda: self._guard_policy or load_policy())
-        page.on("popup", lambda popup: self._attach_guard(popup))
+    def _attach_guard(self, page: Any, policy: BrowserPolicy | None = None) -> None:
+        if policy is not None:
+            self._page_policies[id(page)] = policy
+        install_network_guard(page, lambda: self._policy_for(page))
+        # Popups belong to the opener's session; inherit its active policy.
+        page.on("popup", lambda popup: self._attach_guard(popup, self._policy_for(page)))
+        # Drop the per-page entry when the page closes so a recycled id() cannot
+        # inherit a stale policy.
+        page.on("close", lambda: self._page_policies.pop(id(page), None))
+
+    def _policy_for(self, page: Any) -> BrowserPolicy:
+        policy = self._page_policies.get(id(page))
+        if policy is not None:
+            return policy
+        return self._guard_policy or load_policy()
 
     def close_page(self, handle: Any) -> None:
         if not isinstance(handle, PageHandle) or not self._runner.running:
@@ -206,6 +231,7 @@ class PlaywrightProvider(BrowserProvider):
         )
 
     def _close_page_on_worker(self, handle: PageHandle) -> None:
+        self._page_policies.pop(id(handle.page), None)
         _quiet(handle.page.close)
         _quiet(handle.context.close)
 
@@ -215,6 +241,7 @@ class PlaywrightProvider(BrowserProvider):
         if not isinstance(handle, PageHandle):
             raise TypeError(f"expected a PageHandle, got {type(handle).__name__}")
         self._guard_policy = policy
+        self._page_policies[id(handle.page)] = policy
         budget_ms = min(
             float(action.timeout_ms or policy.action_timeout_ms),
             float(policy.action_timeout_ms),
@@ -341,7 +368,7 @@ class SteelProvider(CdpProvider):
         return endpoint, str(session_id) if session_id else None
 
     def _release_steel_session(self, session_id: str) -> None:
-        self._steel_request("DELETE", f"/v1/sessions/{session_id}")
+        self._steel_request("DELETE", f"/v1/sessions/{quote(session_id, safe='')}")
 
     def _steel_request(
         self, method: str, path: str, *, body: dict[str, Any] | None = None

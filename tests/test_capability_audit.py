@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kater.api import ROUTER, Request, Response
 from kater.authgate import RequestIdentity
 from kater.capabilities import audit as capability_audit
 from kater.proxy.manager import ProxyManager
+from tests._rest import call
 
 
 @pytest.fixture
@@ -19,28 +19,6 @@ def audit_db(tmp_path, monkeypatch):
     capability_audit.reset_cache()
     yield tmp_path
     capability_audit.reset_cache()
-
-
-def _call(
-    method: str,
-    path: str,
-    *,
-    query: dict[str, list[str]] | None = None,
-) -> Response:
-    matched = ROUTER.match(method, path)
-    assert matched is not None, f"{method} {path} has no route"
-    route, params = matched
-    req = Request(
-        method=method,
-        path=path,
-        query=query or {},
-        headers={},
-        raw_body=b"",
-        client_ip="127.0.0.1",
-        base_url="http://127.0.0.1",
-        params=params,
-    )
-    return route.handler(req)
 
 
 def test_record_and_query_capability_audit(audit_db) -> None:
@@ -81,7 +59,7 @@ def test_audit_api_lists_recent_rows(audit_db) -> None:
         principal_id="api-agent",
         context_id="rctx_api",
     )
-    resp = _call("GET", "/api/audit/capabilities", query={"limit": ["5"]})
+    resp = call("GET", "/api/audit/capabilities", query={"limit": ["5"]})
     assert resp.status == 200
     assert resp.payload is not None
     assert resp.payload["total"] >= 1

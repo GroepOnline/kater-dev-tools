@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from kater.api.models import Request, Response, route
-from kater.authgate import capability_allowed, resolve_request_identity
+from kater.authgate import RequestIdentity, capability_allowed, resolve_request_identity
 from kater.capabilities.audit import query_capability_audit
 from kater.capabilities.discovery import discover
 from kater.capabilities.models import CapabilityManifest, DiscoveryContext, RiskClass
@@ -284,6 +284,18 @@ def _truthy(raw: str | None) -> bool:
     return (raw or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _identity_owns_context(identity: RequestIdentity, record: Any) -> bool:
+    """Ownership gate for remote-context records.
+
+    An absent principal (no scoped context token: a trusted/admin API-key or
+    ``auth=none`` caller) is unrestricted. A scoped caller may only touch
+    records whose ``principal_id`` matches its own.
+    """
+    if identity.principal_id is None:
+        return True
+    return record.principal_id == identity.principal_id
+
+
 def _discovered_payload(item: Any) -> dict[str, Any]:
     return {
         "capability_id": item.capability_id,
@@ -388,7 +400,12 @@ def _capabilities_get(req: Request) -> Response:
 
 @route("GET", "/api/contexts")
 def _contexts_list(req: Request) -> Response:
+    identity = resolve_request_identity(req)
     principal_id = req.query1("principal_id") or None
+    # Scoped callers may only ever see their own principal's contexts; ignore
+    # any principal_id query override for them. Absent principal = admin.
+    if identity.principal_id is not None:
+        principal_id = identity.principal_id
     include_revoked = _truthy(req.query1("include_revoked", ""))
     rows = remote_contexts.list_contexts(
         principal_id=principal_id,
@@ -439,32 +456,44 @@ def _contexts_create(req: Request) -> Response:
 
 @route("GET", "/api/contexts/{context_id}")
 def _contexts_get(req: Request) -> Response:
+    identity = resolve_request_identity(req)
     record = remote_contexts.get_context(req.params["context_id"])
-    if record is None:
+    if record is None or not _identity_owns_context(identity, record):
         return Response.json(404, {"error": "context not found"})
     return Response.json(200, record.to_dict())
 
 
 @route("POST", "/api/contexts/{context_id}/revoke")
 def _contexts_revoke(req: Request) -> Response:
-    record = remote_contexts.revoke_context(req.params["context_id"])
-    if record is None:
+    identity = resolve_request_identity(req)
+    record = remote_contexts.get_context(req.params["context_id"])
+    if record is None or not _identity_owns_context(identity, record):
         return Response.json(404, {"error": "context not found"})
-    return Response.json(200, record.to_dict())
+    revoked = remote_contexts.revoke_context(req.params["context_id"])
+    if revoked is None:
+        return Response.json(404, {"error": "context not found"})
+    return Response.json(200, revoked.to_dict())
 
 
 @route("DELETE", "/api/contexts/{context_id}")
 def _contexts_delete(req: Request) -> Response:
-    record = remote_contexts.revoke_context(req.params["context_id"])
-    if record is None:
+    identity = resolve_request_identity(req)
+    record = remote_contexts.get_context(req.params["context_id"])
+    if record is None or not _identity_owns_context(identity, record):
         return Response.json(404, {"error": "context not found"})
-    return Response.json(200, record.to_dict())
+    revoked = remote_contexts.revoke_context(req.params["context_id"])
+    if revoked is None:
+        return Response.json(404, {"error": "context not found"})
+    return Response.json(200, revoked.to_dict())
 
 
 @route("POST", "/api/contexts/{context_id}/token")
 def _contexts_issue_token(req: Request) -> Response:
+    identity = resolve_request_identity(req)
     record = remote_contexts.get_context(req.params["context_id"])
     if record is None or not record.is_active():
+        return Response.json(404, {"error": "context not found"})
+    if not _identity_owns_context(identity, record):
         return Response.json(404, {"error": "context not found"})
     try:
         body = req.json

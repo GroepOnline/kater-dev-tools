@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kater.api import ROUTER, Request, Response
+from kater.api import ROUTER
 from kater.browser.models import (
     ActionKind,
     ActionResult,
@@ -17,6 +15,7 @@ from kater.browser.models import (
     SessionState,
 )
 from kater.browser.providers import BrowserUnavailableError
+from tests._rest import call
 
 BROWSER_ROUTES = [
     ("GET", "/api/browser/providers"),
@@ -29,31 +28,6 @@ BROWSER_ROUTES = [
     ("GET", "/api/browser/stats"),
     ("DELETE", "/api/browser/sessions"),
 ]
-
-
-def _call(
-    method: str,
-    path: str,
-    *,
-    query: dict[str, list[str]] | None = None,
-    body: dict[str, Any] | None = None,
-) -> Response:
-    matched = ROUTER.match(method, path)
-    assert matched is not None, f"{method} {path} has no route"
-    route, params = matched
-    raw = b"" if body is None else json.dumps(body).encode()
-    headers = {"content-type": "application/json"} if body is not None else {}
-    req = Request(
-        method=method,
-        path=path,
-        query=query or {},
-        headers=headers,
-        raw_body=raw,
-        client_ip="127.0.0.1",
-        base_url="http://127.0.0.1",
-        params=params,
-    )
-    return route.handler(req)
 
 
 def _session(session_id: str = "bsess_deadbeefdeadbeefdeadbeefdeadbeef") -> BrowserSession:
@@ -112,7 +86,7 @@ def test_browser_routes_registered(method: str, path: str) -> None:
 
 
 def test_browser_providers_returns_list() -> None:
-    resp = _call("GET", "/api/browser/providers")
+    resp = call("GET", "/api/browser/providers")
     assert resp.status == 200
     assert isinstance(resp.payload, dict)
     providers = resp.payload["providers"]
@@ -124,7 +98,7 @@ def test_browser_providers_returns_list() -> None:
 def test_browser_sessions_list_empty() -> None:
     manager = _fake_manager()
     with patch("kater.api.routes.get_manager", return_value=manager):
-        resp = _call("GET", "/api/browser/sessions")
+        resp = call("GET", "/api/browser/sessions")
     assert resp.status == 200
     assert resp.payload == {
         "sessions": [],
@@ -136,7 +110,7 @@ def test_browser_sessions_list_empty() -> None:
 def test_browser_sessions_list_live_only() -> None:
     manager = _fake_manager()
     with patch("kater.api.routes.get_manager", return_value=manager):
-        resp = _call(
+        resp = call(
             "GET",
             "/api/browser/sessions",
             query={"live_only": ["true"]},
@@ -148,7 +122,7 @@ def test_browser_sessions_list_live_only() -> None:
 def test_browser_create_session_ok() -> None:
     manager = _fake_manager()
     with patch("kater.api.routes.get_manager", return_value=manager):
-        resp = _call(
+        resp = call(
             "POST",
             "/api/browser/sessions",
             body={"label": "lane", "profile": "ops", "width": 1024, "height": 768},
@@ -167,7 +141,7 @@ def test_browser_create_session_unavailable() -> None:
     manager = _fake_manager()
     manager.create.side_effect = BrowserUnavailableError("playwright is not installed")
     with patch("kater.api.routes.get_manager", return_value=manager):
-        resp = _call("POST", "/api/browser/sessions", body={})
+        resp = call("POST", "/api/browser/sessions", body={})
     assert resp.status == 400
     assert resp.payload == {"error": "playwright is not installed"}
 
@@ -176,9 +150,9 @@ def test_browser_get_session_ok_and_404() -> None:
     manager = _fake_manager()
     sid = manager.get.return_value.session_id
     with patch("kater.api.routes.get_manager", return_value=manager):
-        ok = _call("GET", f"/api/browser/sessions/{sid}")
+        ok = call("GET", f"/api/browser/sessions/{sid}")
         manager.get.return_value = None
-        missing = _call("GET", "/api/browser/sessions/bsess_missingmissingmissingmissingmi")
+        missing = call("GET", "/api/browser/sessions/bsess_missingmissingmissingmissingmi")
     assert ok.status == 200
     assert ok.payload is not None
     assert ok.payload["session_id"] == sid
@@ -189,8 +163,8 @@ def test_browser_close_session_and_close_all() -> None:
     manager = _fake_manager()
     sid = manager.close.return_value.session_id
     with patch("kater.api.routes.get_manager", return_value=manager):
-        one = _call("DELETE", f"/api/browser/sessions/{sid}")
-        all_resp = _call("DELETE", "/api/browser/sessions")
+        one = call("DELETE", f"/api/browser/sessions/{sid}")
+        all_resp = call("DELETE", "/api/browser/sessions")
     assert one.status == 200
     assert one.payload is not None
     assert one.payload["session"]["state"] == "closed"
@@ -202,17 +176,17 @@ def test_browser_act_and_screenshot() -> None:
     manager = _fake_manager()
     sid = "bsess_deadbeefdeadbeefdeadbeefdeadbeef"
     with patch("kater.api.routes.get_manager", return_value=manager):
-        act = _call(
+        act = call(
             "POST",
             f"/api/browser/sessions/{sid}/act",
             body={"kind": "navigate", "url": "https://example.com"},
         )
-        shot = _call(
+        shot = call(
             "POST",
             f"/api/browser/sessions/{sid}/screenshot",
             body={"full_page": True},
         )
-        bad = _call(
+        bad = call(
             "POST",
             f"/api/browser/sessions/{sid}/act",
             body={"kind": "navigate"},
@@ -231,6 +205,6 @@ def test_browser_act_and_screenshot() -> None:
 def test_browser_stats() -> None:
     manager = _fake_manager()
     with patch("kater.api.routes.get_manager", return_value=manager):
-        resp = _call("GET", "/api/browser/stats")
+        resp = call("GET", "/api/browser/stats")
     assert resp.status == 200
     assert resp.payload == manager.stats.return_value

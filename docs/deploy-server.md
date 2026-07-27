@@ -89,13 +89,14 @@ Add to Cursor MCP config:
 
 ## Ports
 
-One `kater serve` process opens three listeners (override with `KATER_*_PORT`):
+One `kater serve` process opens three listeners, each overridable via its own
+environment variable:
 
-| Port | Role |
-|------|------|
-| 9090 | MCP SSE (`/sse`) |
-| 9091 | REST API + dashboard |
-| 9092 | WebSocket telemetry |
+| Port | Env var | Role |
+|------|---------|------|
+| 9090 | `KATER_MCP_PORT` | MCP SSE (`/sse`) |
+| 9091 | `KATER_API_PORT` | REST API + dashboard |
+| 9092 | `KATER_WS_PORT` | WebSocket telemetry |
 
 Persist SQLite and secrets under `.kater/` (Docker/K8s: mount a volume at `/app/.kater`).
 
@@ -118,7 +119,10 @@ uv run playwright install chromium
 ```
 
 Configure via `KATER_BROWSER_*` in `.env` (see `.env.example`). Containers that need the
-browser extra should install Chromium in the image; CDP/remote providers avoid shipping a browser.
+browser extra must also provide Playwright's Linux system dependencies: either run
+`uv run playwright install --with-deps chromium` in the image (installs the OS libraries
+Chromium needs, not just the browser binary) or base the image on a pinned Playwright-matched
+image. CDP/remote providers avoid shipping a browser.
 
 ## Pre-flight check
 

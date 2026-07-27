@@ -24,6 +24,24 @@ _TOKEN_VERSION = 1
 _process_secret: bytes | None = None
 _secret_lock = threading.Lock()
 
+# Domain-separation parameters for deriving the fallback signing key from an
+# API key (RFC 5869 HKDF-SHA256). Fixed salt/info keep the derivation stable.
+_CONTEXT_TOKEN_HKDF_SALT = b"kater-context-token-hkdf-salt-v1"
+_CONTEXT_TOKEN_HKDF_INFO = b"kater-context-token-signing-key-v1"
+
+
+def _hkdf_sha256(ikm: bytes, *, salt: bytes, info: bytes, length: int = 32) -> bytes:
+    """Derive a key from ``ikm`` via HKDF-SHA256 (RFC 5869)."""
+    prk = hmac.new(salt, ikm, hashlib.sha256).digest()
+    okm = b""
+    block = b""
+    counter = 1
+    while len(okm) < length:
+        block = hmac.new(prk, block + info + bytes([counter]), hashlib.sha256).digest()
+        okm += block
+        counter += 1
+    return okm[:length]
+
 
 def reset_token_secret_cache() -> None:
     """Drop the process-local fallback secret (tests)."""
@@ -61,7 +79,11 @@ def _token_secret() -> bytes:
     except Exception:  # pragma: no cover - settings should always load
         keys = []
     if keys:
-        return ("kater-ctx:" + keys[0]).encode("utf-8")
+        return _hkdf_sha256(
+            keys[0].encode("utf-8"),
+            salt=_CONTEXT_TOKEN_HKDF_SALT,
+            info=_CONTEXT_TOKEN_HKDF_INFO,
+        )
     with _secret_lock:
         if _process_secret is None:
             _process_secret = secrets.token_bytes(32)

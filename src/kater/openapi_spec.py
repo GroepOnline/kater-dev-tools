@@ -779,7 +779,22 @@ def _build_paths() -> dict[str, Any]:
             "summary": "Create an automation",
             "requestBody": {
                 "required": True,
-                "content": {"application/json": {"schema": {"type": "object"}}},
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["name", "kind"],
+                            "properties": {
+                                "id": {"type": "string"},
+                                "name": {"type": "string"},
+                                "kind": {"type": "string"},
+                                "schedule_seconds": {"type": "integer", "default": 0},
+                                "enabled": {"type": "boolean", "default": True},
+                                "config": {"type": "object"},
+                            },
+                        }
+                    }
+                },
             },
             "responses": {"200": _ok(), "201": _ok(), "400": _error_ref()},
         },
@@ -796,7 +811,20 @@ def _build_paths() -> dict[str, Any]:
             "parameters": [_automation_id_param()],
             "requestBody": {
                 "required": True,
-                "content": {"application/json": {"schema": {"type": "object"}}},
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "kind": {"type": "string"},
+                                "schedule_seconds": {"type": "integer"},
+                                "enabled": {"type": "boolean"},
+                                "config": {"type": "object"},
+                            },
+                        }
+                    }
+                },
             },
             "responses": {"200": _ok(), "400": _error_ref(), "404": _error_ref()},
         },

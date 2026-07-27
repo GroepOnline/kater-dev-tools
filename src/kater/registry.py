@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -99,7 +100,7 @@ def kater_browser_act(
     key: str | None = None,
     value: str | None = None,
     expression: str | None = None,
-    delta_y: int | None = None,
+    delta_y: float | None = None,
     timeout_ms: int | None = None,
     full_page: bool = False,
 ) -> dict[str, Any]:
@@ -150,7 +151,27 @@ _BROWSER_HANDLERS: dict[str, ToolHandler] = {
 }
 
 
+_ENV_BROWSER_ENABLE = "KATER_BROWSER_ENABLE"
+
+
+def _browser_lane_enabled() -> bool:
+    """Whether the native browser tools should be surfaced.
+
+    Browser tools ship in ``core`` so they are always available on trusted local
+    deployments. On a public deployment (``KATER_PUBLIC``) they must NOT be
+    auto-exposed: there they surface only when explicitly enabled via
+    ``KATER_BROWSER_ENABLE`` (1/true/yes/on).
+    """
+    from kater.profiles import is_public_mode
+
+    if not is_public_mode():
+        return True
+    return os.environ.get(_ENV_BROWSER_ENABLE, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _browser_native_tools() -> list[NativeTool]:
+    if not _browser_lane_enabled():
+        return []
     return [
         NativeTool(
             name=spec["name"],

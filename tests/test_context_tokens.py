@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import time
-from typing import Any
 
 import pytest
 
-from kater.api import ROUTER, Request, Response
+from kater.api import Request
 from kater.authgate import (
     AuthContext,
     RequestIdentity,
@@ -20,6 +18,7 @@ from kater.authgate import (
 from kater.control_plane import contexts
 from kater.control_plane import tokens as context_tokens
 from kater.settings import KaterSettings
+from tests._rest import call
 
 
 @pytest.fixture
@@ -31,34 +30,6 @@ def ctx_db(tmp_path, monkeypatch):
     yield tmp_path
     contexts.reset_cache()
     context_tokens.reset_token_secret_cache()
-
-
-def _call(
-    method: str,
-    path: str,
-    *,
-    query: dict[str, list[str]] | None = None,
-    body: dict[str, Any] | None = None,
-    headers: dict[str, str] | None = None,
-) -> Response:
-    matched = ROUTER.match(method, path)
-    assert matched is not None, f"{method} {path} has no route"
-    route, params = matched
-    raw = b"" if body is None else json.dumps(body).encode()
-    req_headers = dict(headers or {})
-    if body is not None:
-        req_headers.setdefault("content-type", "application/json")
-    req = Request(
-        method=method,
-        path=path,
-        query=query or {},
-        headers={k.lower(): v for k, v in req_headers.items()},
-        raw_body=raw,
-        client_ip="127.0.0.1",
-        base_url="http://127.0.0.1",
-        params=params,
-    )
-    return route.handler(req)
 
 
 def test_issue_verify_roundtrip(ctx_db) -> None:
@@ -106,7 +77,7 @@ def test_tampered_token_fails(ctx_db) -> None:
 
 
 def test_issue_token_rest_endpoint(ctx_db) -> None:
-    created = _call(
+    created = call(
         "POST",
         "/api/contexts",
         body={"principal_id": "agent-rest", "allowed_capabilities": ["kater.profiles"]},
@@ -115,7 +86,7 @@ def test_issue_token_rest_endpoint(ctx_db) -> None:
     assert created.payload is not None
     context_id = created.payload["context_id"]
 
-    issued = _call(
+    issued = call(
         "POST",
         f"/api/contexts/{context_id}/token",
         body={"ttl_seconds": 600},
@@ -134,14 +105,14 @@ def test_discover_filters_allowed_capabilities(ctx_db) -> None:
     )
     token = context_tokens.issue_token(record, ttl_seconds=300)
 
-    open_resp = _call("GET", "/api/capabilities", query={"profile": ["core"]})
+    open_resp = call("GET", "/api/capabilities", query={"profile": ["core"]})
     assert open_resp.status == 200
     assert open_resp.payload is not None
     open_ids = {item["capability_id"] for item in open_resp.payload["capabilities"]}
     assert "kater.profiles.list" in open_ids
     assert len(open_ids) >= 2
 
-    scoped = _call(
+    scoped = call(
         "GET",
         "/api/capabilities",
         query={"profile": ["core"]},

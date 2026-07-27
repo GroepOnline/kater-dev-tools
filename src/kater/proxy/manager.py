@@ -387,7 +387,7 @@ class ProxyManager:
                 _audit("error", type(exc).__name__)
                 raise
             if isinstance(result, dict) and result.get("error"):
-                _audit("error", str(result.get("error")))
+                _audit("error", _route_error_summary(str(result.get("error"))))
             else:
                 _audit("allowed")
             return result
@@ -423,7 +423,7 @@ class ProxyManager:
             _audit("error", type(exc).__name__)
             raise
         if isinstance(result, dict) and result.get("error"):
-            _audit("error", str(result.get("error")))
+            _audit("error", _route_error_summary(str(result.get("error"))))
         else:
             _audit("allowed")
         return result

@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kater.api import ROUTER, Request, Response
 from kater.automations import (
     DEFAULT_AUTOMATIONS,
     Automation,
@@ -19,6 +16,7 @@ from kater.automations import (
 from kater.automations import store as automations_store
 from kater.automations.builtins import run_kind
 from kater.automations.models import new_automation_id
+from tests._rest import call
 
 
 @pytest.fixture(autouse=True)
@@ -26,30 +24,6 @@ def _clean_automations():
     reset_engine()
     yield
     reset_engine()
-
-
-def _call(
-    method: str,
-    path: str,
-    *,
-    body: dict[str, Any] | None = None,
-) -> Response:
-    matched = ROUTER.match(method, path)
-    assert matched is not None, f"{method} {path} has no route"
-    route, params = matched
-    raw = b"" if body is None else json.dumps(body).encode()
-    headers = {"content-type": "application/json"} if body is not None else {}
-    req = Request(
-        method=method,
-        path=path,
-        query={},
-        headers=headers,
-        raw_body=raw,
-        client_ip="127.0.0.1",
-        base_url="http://127.0.0.1",
-        params=params,
-    )
-    return route.handler(req)
 
 
 def test_store_crud_round_trip():
@@ -257,7 +231,7 @@ def test_builtins_do_not_crash_with_mocks():
 
 
 def test_api_list_seeds_defaults():
-    resp = _call("GET", "/api/automations")
+    resp = call("GET", "/api/automations")
     assert resp.status == 200
     assert resp.payload is not None
     assert resp.payload["total"] == len(DEFAULT_AUTOMATIONS)
@@ -265,7 +239,7 @@ def test_api_list_seeds_defaults():
 
 
 def test_api_crud_enable_run_delete():
-    create = _call(
+    create = call(
         "POST",
         "/api/automations",
         body={
@@ -280,20 +254,20 @@ def test_api_crud_enable_run_delete():
     assert create.payload is not None
     assert create.payload["id"] == "auto_api_test"
 
-    got = _call("GET", "/api/automations/auto_api_test")
+    got = call("GET", "/api/automations/auto_api_test")
     assert got.status == 200
 
-    disabled = _call("POST", "/api/automations/auto_api_test/disable")
+    disabled = call("POST", "/api/automations/auto_api_test/disable")
     assert disabled.status == 200
     assert disabled.payload is not None
     assert disabled.payload["enabled"] is False
 
-    refused = _call("POST", "/api/automations/auto_api_test/run")
+    refused = call("POST", "/api/automations/auto_api_test/run")
     assert refused.status == 400
     assert refused.payload is not None
     assert "disabled" in refused.payload["error"]
 
-    patched = _call(
+    patched = call(
         "PATCH",
         "/api/automations/auto_api_test",
         body={"enabled": True},
@@ -306,19 +280,19 @@ def test_api_crud_enable_run_delete():
         manager = MagicMock()
         manager.reap_expired.return_value = 0
         manager_factory.return_value = manager
-        ran = _call("POST", "/api/automations/auto_api_test/run")
+        ran = call("POST", "/api/automations/auto_api_test/run")
     assert ran.status == 200
     assert ran.payload is not None
     assert ran.payload["status"] == "ok"
 
-    deleted = _call("DELETE", "/api/automations/auto_api_test")
+    deleted = call("DELETE", "/api/automations/auto_api_test")
     assert deleted.status == 200
-    missing = _call("GET", "/api/automations/auto_api_test")
+    missing = call("GET", "/api/automations/auto_api_test")
     assert missing.status == 404
 
 
 def test_api_rejects_unknown_kind():
-    resp = _call(
+    resp = call(
         "POST",
         "/api/automations",
         body={"name": "Nope", "kind": "not_a_real_kind"},

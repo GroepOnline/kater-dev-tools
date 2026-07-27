@@ -1603,6 +1603,7 @@ const WS_URL = (location.protocol === 'https:')
 let ws = null;
 let wsRetry = 0;
 let wsTimer = null;
+let wsGen = 0;
 let appReady = false;
 let catalogQuery = '';
 let catalogReloadTimer = null;
@@ -2011,7 +2012,7 @@ function applyModKeyHints() {
 function restoreUrlState() {
   const p = new URLSearchParams(location.search);
   const view = p.get('view');
-  if (view && ['dashboard','catalog','evals','deploy','settings','pr','browser','automations'].indexOf(view) !== -1) {
+  if (view && ['dashboard','catalog','evals','deploy','settings','pr','browser','automations','fabric'].indexOf(view) !== -1) {
     currentView = view;
   }
   const profile = p.get('profile');
@@ -2968,8 +2969,10 @@ function closeWebSocket() {
 
 async function initWebSocket() {
   closeWebSocket();
+  const gen = ++wsGen;
   let url = WS_URL;
   try { url = await resolveWsUrl(); } catch (e) { url = WS_URL; }
+  if (gen !== wsGen) return;  // superseded by a newer init
   try {
     ws = new WebSocket(url);
   } catch (e) {
@@ -4114,11 +4117,13 @@ async function loadFabricView() {
   const computerEl = document.getElementById('fabric-computer');
   if (!capsEl || !ctxEl || !computerEl) return;
   try {
-    const [capsData, ctxData, computerData] = await Promise.all([
+    const [capsRes, ctxRes, computerRes] = await Promise.allSettled([
       api('/api/capabilities'),
       api('/api/contexts'),
       api('/api/computer'),
     ]);
+    const val = (r) => (r.status === 'fulfilled' ? r.value : {});
+    const capsData = val(capsRes), ctxData = val(ctxRes), computerData = val(computerRes);
     const caps = capsData.capabilities || [];
     const contexts = ctxData.contexts || [];
     const capCount = document.getElementById('fabric-cap-count');

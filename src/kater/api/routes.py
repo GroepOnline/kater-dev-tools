@@ -16,6 +16,7 @@ from urllib.parse import quote, urlencode
 
 from kater.adapters.external import scan_adapters
 from kater.api.models import Request, Response, route
+from kater.authgate import capability_allowed, resolve_request_identity
 from kater.automations import get_engine
 from kater.browser.models import BrowserAction
 from kater.browser.policy import PolicyViolation
@@ -991,6 +992,10 @@ def _truthy_query(req: Request, key: str) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+# Errors from the browser lane that map to a 400 Bad Request response.
+_BROWSER_400_ERRORS = (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError)
+
+
 @route("GET", "/api/browser/providers")
 def _browser_providers(_: Request) -> Response:
     return Response.json(200, {"providers": [info.to_dict() for info in probe_providers()]})
@@ -1020,7 +1025,7 @@ def _browser_create_session(req: Request) -> Response:
             profile=str(body.get("profile") or "core"),
             viewport=(width, height),
         )
-    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+    except _BROWSER_400_ERRORS as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, {"session": session.to_dict()})
 
@@ -1041,7 +1046,7 @@ def _browser_close_session(req: Request) -> Response:
         session = get_manager().close(session_id)
     except UnknownSessionError:
         return Response.json(404, {"error": f"unknown session: {session_id}"})
-    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+    except _BROWSER_400_ERRORS as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, {"session": session.to_dict()})
 
@@ -1056,7 +1061,7 @@ def _browser_act(req: Request) -> Response:
         result = get_manager().act(session_id, action)
     except UnknownSessionError:
         return Response.json(404, {"error": f"unknown session: {session_id}"})
-    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+    except _BROWSER_400_ERRORS as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, result.to_dict())
 
@@ -1069,7 +1074,7 @@ def _browser_screenshot(req: Request) -> Response:
         result = get_manager().screenshot(session_id, full_page=bool(body.get("full_page", False)))
     except UnknownSessionError:
         return Response.json(404, {"error": f"unknown session: {session_id}"})
-    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+    except _BROWSER_400_ERRORS as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, result.to_dict())
 
@@ -1083,7 +1088,7 @@ def _browser_stats(_: Request) -> Response:
 def _browser_close_all(_: Request) -> Response:
     try:
         closed = get_manager().close_all()
-    except (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError) as exc:
+    except _BROWSER_400_ERRORS as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, {"closed": closed})
 
@@ -1184,8 +1189,8 @@ def _automations_patch(req: Request) -> Response:
         if automation is None:
             return Response.json(404, {"error": "automation not found"})
         return Response.json(200, automation.to_dict())
-    name = str(body.get("name", existing.name)).strip()
-    kind = str(body.get("kind", existing.kind)).strip()
+    name = str(body["name"]).strip() if body.get("name") is not None else existing.name
+    kind = str(body["kind"]).strip() if body.get("kind") is not None else existing.kind
     config = body.get("config", existing.config)
     if config is not None and not isinstance(config, dict):
         return Response.json(400, {"error": "config must be an object"})
@@ -1195,10 +1200,10 @@ def _automations_patch(req: Request) -> Response:
             name=name,
             kind=kind,
             enabled=bool(body.get("enabled", existing.enabled)),
-            schedule_seconds=int(body.get("schedule_seconds", existing.schedule_seconds)),
+            schedule_seconds=int(body.get("schedule_seconds") or existing.schedule_seconds),
             config=config if isinstance(config, dict) else existing.config,
         )
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, automation.to_dict())
 
@@ -1243,8 +1248,21 @@ def _computer_invoke(req: Request) -> Response:
     capability_id = body.get("capability_id")
     if not isinstance(capability_id, str) or not capability_id.strip():
         return Response.json(400, {"error": "capability_id is required"})
+    capability_name = capability_id.strip()
+    # Mirror ProxyManager.call_tool: a scoped context token may only invoke
+    # capabilities on its allowlist. An absent/empty allowlist is unrestricted.
+    identity = resolve_request_identity(req)
+    if not capability_allowed(capability_name, identity.allowed_capabilities):
+        return Response.json(
+            403,
+            {
+                "error": f"capability {capability_name!r} denied: not in context allowlist",
+                "code": "capability_denied",
+                "capability_id": capability_name,
+            },
+        )
     arguments = {key: value for key, value in body.items() if key != "capability_id"}
-    result = connector.call(capability_id.strip(), arguments)
+    result = connector.call(capability_name, arguments)
     return Response.json(200, result)
 
 

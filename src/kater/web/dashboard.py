@@ -2970,7 +2970,6 @@ function closeWebSocket() {
 async function initWebSocket() {
   const gen = ++wsGeneration;
   closeWebSocket();
-  const gen = ++wsGen;
   let url = WS_URL;
   try { url = await resolveWsUrl(); } catch (e) { url = WS_URL; }
   if (wsGeneration !== gen) return; // Superseded by another concurrent call

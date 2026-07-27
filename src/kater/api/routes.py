@@ -1096,9 +1096,12 @@ def _browser_act(req: Request) -> Response:
     if not isinstance(body, dict):
         return Response.json(400, {"error": "JSON body must be an object"})
     payload = {k: v for k, v in body.items() if k != "session_id"}
+    manager = get_manager()
+    if manager.get(session_id) is None:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
     try:
         action = BrowserAction.from_dict(payload)
-        result = get_manager().act(session_id, action)
+        result = manager.act(session_id, action)
     except UnknownSessionError:
         return Response.json(404, {"error": f"unknown session: {session_id}"})
     except _BROWSER_400_ERRORS as exc:
@@ -1117,8 +1120,11 @@ def _browser_screenshot(req: Request) -> Response:
         return Response.json(400, {"error": "malformed JSON body"})
     if not isinstance(body, dict):
         return Response.json(400, {"error": "JSON body must be an object"})
+    manager = get_manager()
+    if manager.get(session_id) is None:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
     try:
-        result = get_manager().screenshot(session_id, full_page=bool(body.get("full_page", False)))
+        result = manager.screenshot(session_id, full_page=bool(body.get("full_page", False)))
     except UnknownSessionError:
         return Response.json(404, {"error": f"unknown session: {session_id}"})
     except _BROWSER_400_ERRORS as exc:

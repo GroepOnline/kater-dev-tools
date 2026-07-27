@@ -3,6 +3,11 @@
 Kater’s browser lane is not a single browser. Pick a backend with
 `KATER_BROWSER_PROVIDER`. Extra setup lives in `.env.example`.
 
+> **Public deployments must opt in.** On trusted local runs the browser tools are
+> always available. On a public deployment (`KATER_PUBLIC=1`) they are NOT exposed
+> just by configuring a provider: you must also set `KATER_BROWSER_ENABLE` to a
+> truthy value (`1`, `true`, `yes`, or `on`) to surface the browser MCP tools.
+
 ## local (default)
 
 Playwright Chromium runs in-process. Install with

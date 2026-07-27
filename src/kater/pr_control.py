@@ -344,9 +344,17 @@ class GitHubPRClient:
                 )
             threads.extend(n for n in (conn.get("nodes") or []) if isinstance(n, dict))
             page = conn.get("pageInfo") or {}
-            after = page.get("endCursor")
-            if not page.get("hasNextPage") or not after:
+            if not page.get("hasNextPage"):
                 break
+            after = page.get("endCursor")
+            if not after:
+                # hasNextPage with no endCursor would silently truncate the
+                # thread list and under-count open threads, letting the merge
+                # gate pass on partial data. Fail closed instead.
+                raise RuntimeError(
+                    f"gh api graphql reviewThreads for PR {number} reported "
+                    "hasNextPage without an endCursor"
+                )
         return {"baseRefOid": base_oid, "reviewThreads": threads}
 
     def is_base_protected(self, base_ref: str) -> bool:

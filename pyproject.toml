@@ -111,6 +111,9 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 "scripts/sync_cursor_plugins.py" = ["S603", "S607"]
 # no_org_leak.py runs git with list-form argv (operator-controlled).
 "scripts/no_org_leak.py" = ["S603", "S607"]
+# kater-with-chefvault bootstrap runs list-form argv against operator-controlled
+# binaries (chefvault-profile, uv) and re-execs uv; not user input.
+"scripts/kater-with-chefvault.py" = ["S603", "S606", "S607"]
 # pr_control shells out to the operator's gh CLI (read-only) and uses constant
 # verdict constants; S603/S607/S105 flagging is noise here.
 "src/kater/pr_control.py" = ["S603", "S607", "S105"]

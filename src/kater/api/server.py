@@ -94,6 +94,19 @@ def handle(request: Request) -> Response:
         )
         if not decision.allowed:
             return Response.json(401, {"error": decision.error or "Unauthorized"})
+    else:
+        # Public routes skip credential checks, but a caller that presents an
+        # explicit context token must still fail closed when it is invalid --
+        # otherwise a bad token silently downgrades to anonymous access.
+        from kater.authgate import resolve_identity_from_headers, set_request_identity
+
+        identity, ctx_error = resolve_identity_from_headers(
+            request.header("x-kater-context"), request.header("authorization")
+        )
+        if ctx_error:
+            set_request_identity(None)
+            return Response.json(401, {"error": ctx_error})
+        set_request_identity(identity)
 
     try:
         return matched_route.handler(request)
@@ -220,8 +233,13 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
             # with a permissive ACAO header and serve it to a different origin.
             if allow != "*":
                 self.send_header("Vary", "Origin")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS"
+        )
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Authorization, Content-Type, X-Kater-Context",
+        )
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header(
             "Content-Security-Policy",

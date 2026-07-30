@@ -11,6 +11,7 @@ import json
 import sqlite3
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -212,31 +213,64 @@ def record_usage_event(
     return _row_to_dict(row)
 
 
+def list_capabilities() -> list[str]:
+    """Return the distinct capability ids present in the ledger."""
+    with _lock:
+        rows = (
+            _get_db()
+            .execute("SELECT DISTINCT capability FROM usage_events ORDER BY capability")
+            .fetchall()
+        )
+    return [str(row["capability"]) for row in rows]
+
+
+def _capability_where(
+    capability: str | None,
+    capabilities: Sequence[str] | None,
+) -> tuple[str, list[Any]] | None:
+    """Build the shared ``WHERE`` fragment for the capability filters.
+
+    ``capabilities`` restricts the query to an explicit set (used to scope a
+    caller to its allowlist *in SQL*, before any row limit applies). Returns
+    ``None`` when the filters can never match, i.e. an empty set.
+    """
+    clauses: list[str] = []
+    params: list[Any] = []
+    if capability is not None:
+        clauses.append("capability = ?")
+        params.append(capability)
+    if capabilities is not None:
+        allowed = [str(name) for name in capabilities]
+        if not allowed:
+            return None
+        placeholders = ", ".join("?" * len(allowed))
+        clauses.append(f"capability IN ({placeholders})")
+        params.extend(allowed)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    return where, params
+
+
 def list_usage_events(
     *,
     limit: int = 100,
     capability: str | None = None,
+    capabilities: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return newest-first usage events, optionally filtered by capability."""
     lim = max(1, min(int(limit), 1000))
     cap = (capability or "").strip() or None
+    built = _capability_where(cap, capabilities)
+    if built is None:
+        return []
+    where, params = built
     with _lock:
         db = _get_db()
-        if cap is not None:
-            rows = db.execute(
-                """SELECT * FROM usage_events
-                   WHERE capability = ?
-                   ORDER BY timestamp DESC, id DESC
-                   LIMIT ?""",
-                (cap, lim),
-            ).fetchall()
-        else:
-            rows = db.execute(
-                """SELECT * FROM usage_events
-                   ORDER BY timestamp DESC, id DESC
-                   LIMIT ?""",
-                (lim,),
-            ).fetchall()
+        rows = db.execute(
+            f"""SELECT * FROM usage_events{where}
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ?""",  # noqa: S608 - fragment is placeholders only
+            (*params, lim),
+        ).fetchall()
     return [_row_to_dict(row) for row in rows]
 
 
@@ -253,50 +287,49 @@ def _percentile(sorted_values: list[float], pct: float) -> float:
     return round(value, 2)
 
 
-def usage_summary(*, capability: str | None = None) -> dict[str, Any]:
-    """Aggregate usage by capability (count, success rate, cost, duration p50/p95)."""
+def usage_summary(
+    *,
+    capability: str | None = None,
+    capabilities: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Aggregate usage by capability (count, success rate, cost, duration p50/p95).
+
+    Aggregation happens in SQL over every matching row, so a caller scoped via
+    ``capabilities`` gets a complete aggregate of what it may see rather than a
+    truncated page.
+    """
     cap_filter = (capability or "").strip() or None
+    built = _capability_where(cap_filter, capabilities)
+    if built is None:
+        return {
+            "total_events": 0,
+            "overall_success_rate": 0.0,
+            "total_cost_units": 0.0,
+            "capabilities": [],
+        }
+    where, params = built
     with _lock:
         db = _get_db()
-        if cap_filter is not None:
-            agg_rows = db.execute(
-                """SELECT capability,
-                          COUNT(*) AS count,
-                          SUM(success) AS success,
-                          SUM(cost_units) AS total_cost
-                   FROM usage_events
-                   WHERE capability = ?
-                   GROUP BY capability""",
-                (cap_filter,),
-            ).fetchall()
-            duration_rows = db.execute(
-                "SELECT duration_ms FROM usage_events WHERE capability = ?",
-                (cap_filter,),
-            ).fetchall()
-        else:
-            agg_rows = db.execute(
-                """SELECT capability,
-                          COUNT(*) AS count,
-                          SUM(success) AS success,
-                          SUM(cost_units) AS total_cost
-                   FROM usage_events
-                   GROUP BY capability"""
-            ).fetchall()
-            duration_rows = db.execute(
-                "SELECT capability, duration_ms FROM usage_events"
-            ).fetchall()
+        agg_rows = db.execute(
+            f"""SELECT capability,
+                       COUNT(*) AS count,
+                       SUM(success) AS success,
+                       SUM(cost_units) AS total_cost
+                FROM usage_events{where}
+                GROUP BY capability""",  # noqa: S608 - fragment is placeholders only
+            tuple(params),
+        ).fetchall()
+        duration_rows = db.execute(
+            f"SELECT capability, duration_ms FROM usage_events{where}",  # noqa: S608
+            tuple(params),
+        ).fetchall()
 
     durations_by_cap: dict[str, list[float]] = {}
-    if cap_filter is not None:
-        durations_by_cap[cap_filter] = [
-            float(row["duration_ms"] or 0) for row in duration_rows
-        ]
-    else:
-        for row in duration_rows:
-            name = str(row["capability"])
-            durations_by_cap.setdefault(name, []).append(float(row["duration_ms"] or 0))
+    for row in duration_rows:
+        name = str(row["capability"])
+        durations_by_cap.setdefault(name, []).append(float(row["duration_ms"] or 0))
 
-    capabilities: list[dict[str, Any]] = []
+    per_capability: list[dict[str, Any]] = []
     total_count = 0
     total_success = 0
     total_cost = 0.0
@@ -310,7 +343,7 @@ def usage_summary(*, capability: str | None = None) -> dict[str, Any]:
         total_count += count
         total_success += success
         total_cost += cost
-        capabilities.append(
+        per_capability.append(
             {
                 "capability": name,
                 "count": count,
@@ -329,5 +362,5 @@ def usage_summary(*, capability: str | None = None) -> dict[str, Any]:
         if total_count
         else 0.0,
         "total_cost_units": round(total_cost, 4),
-        "capabilities": capabilities,
+        "capabilities": per_capability,
     }

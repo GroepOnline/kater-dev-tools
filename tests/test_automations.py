@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from kater import migrations
 from kater.automations import (
     DEFAULT_AUTOMATIONS,
     Automation,
@@ -20,10 +21,16 @@ from tests._rest import call
 
 
 @pytest.fixture(autouse=True)
-def _clean_automations():
+def _clean_automations(tmp_path, monkeypatch):
+    # Isolate the store: each test gets its own migrated .kater/kater.db under
+    # tmp_path instead of writing to the repository checkout.
+    monkeypatch.chdir(tmp_path)
+    automations_store.reset_cache()
+    migrations.ensure_migrated(tmp_path / ".kater" / "kater.db")
     reset_engine()
     yield
     reset_engine()
+    automations_store.reset_cache()
 
 
 def test_store_crud_round_trip():
@@ -73,6 +80,27 @@ def test_ensure_defaults_seeds_four_rows():
     again = engine.ensure_defaults()
     assert len(again) == len(DEFAULT_AUTOMATIONS)
     assert automations_store.count() == len(DEFAULT_AUTOMATIONS)
+
+
+def test_ensure_defaults_does_not_resurrect_deleted_builtins():
+    """Deleting every built-in must stick; the next list call may not re-seed."""
+    engine = get_engine()
+    seeded = engine.ensure_defaults()
+    assert len(seeded) == len(DEFAULT_AUTOMATIONS)
+
+    for item in seeded:
+        assert automations_store.delete(item.id) is True
+    assert automations_store.count() == 0
+
+    # A fresh engine (as after a restart) still respects the deletions.
+    reset_engine()
+    assert get_engine().ensure_defaults() == []
+    assert automations_store.count() == 0
+
+    listed = call("GET", "/api/automations")
+    assert listed.status == 200
+    assert listed.payload is not None
+    assert listed.payload["automations"] == []
 
 
 def test_tick_respects_schedule():

@@ -292,6 +292,10 @@ def get_context(context_id: str) -> ContextRecord | None:
     return _row_to_record(row) if row else None
 
 
+class ContextNotActiveError(ValueError):
+    """Raised when a token is requested for an unknown, revoked, or expired context."""
+
+
 def mint_context_token(
     context_id: str,
     *,
@@ -311,7 +315,7 @@ def mint_context_token(
         )
         record = _row_to_record(row) if row else None
         if record is None or not record.is_active():
-            raise ValueError("context is not active")
+            raise ContextNotActiveError("context is not active")
         token = issue_token(record, ttl_seconds=ttl_seconds)
         return token, record
 

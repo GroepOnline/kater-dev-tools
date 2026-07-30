@@ -86,6 +86,24 @@ def test_internal_addresses_are_rejected(address):
         policy.check_url("https://intranet.test/")
 
 
+@pytest.mark.parametrize(
+    "address",
+    [
+        "100.64.0.1",  # RFC 6598 carrier-grade NAT
+        "100.127.255.254",
+        "198.18.0.1",  # RFC 2544 benchmarking
+        "198.19.255.254",
+        "192.0.2.1",  # RFC 5737 documentation
+        "2001:db8::1",
+    ],
+)
+def test_shared_and_non_global_addresses_are_rejected(address):
+    """Ranges that are routable-but-not-public must not slip past ``is_private``."""
+    policy = BrowserPolicy(resolver=resolver_for(address))
+    with pytest.raises(PolicyViolation, match="non-public address"):
+        policy.check_url("https://shared.test/")
+
+
 def test_every_resolved_address_is_checked():
     """A host that resolves to one public and one internal address is refused."""
     policy = BrowserPolicy(resolver=resolver_for(PUBLIC_IP, "169.254.169.254"))

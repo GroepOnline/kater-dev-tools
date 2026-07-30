@@ -558,7 +558,7 @@ def merge_pr(
 
     args = ["pr", "merge", str(number), "--squash", "--delete-branch"]
     if expected_head_sha:
-        args += ["--ref", head]
+        args += ["--match-head-commit", expected_head_sha]
     if client.repo:
         args += ["--repo", client.repo]
     result = client.runner(args)

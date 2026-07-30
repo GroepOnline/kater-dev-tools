@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from kater.api.models import Request, Response, route
+from kater.authgate import RequestIdentity, capability_allowed, resolve_request_identity
 from kater.control_plane import usage as usage_ledger
 
 # OpenAPI path fragments merged by ``openapi_spec._build_paths``.
@@ -83,14 +84,46 @@ def _parse_limit(req: Request, default: int = 100, maximum: int = 1000) -> int:
     return min(value, maximum)
 
 
+def _visible(event: dict[str, Any], identity: RequestIdentity) -> bool:
+    """Report whether a scoped caller may see a ledger row."""
+    if identity.allowed_capabilities is None:
+        return True
+    return capability_allowed(str(event.get("capability") or ""), identity.allowed_capabilities)
+
+
+def _allowed_capabilities(identity: RequestIdentity) -> list[str] | None:
+    """Resolve the caller's allowlist against the capabilities in the ledger.
+
+    Returns ``None`` for an unrestricted caller. Otherwise the concrete set of
+    ledger capabilities the caller may see, so the SQL query can filter on it
+    *before* any row limit applies — filtering a limited page in Python would
+    truncate a scoped caller's view (and its aggregate) as soon as newer
+    unauthorised events fill that page.
+    """
+    if identity.allowed_capabilities is None:
+        return None
+    return [
+        name
+        for name in usage_ledger.list_capabilities()
+        if capability_allowed(name, identity.allowed_capabilities)
+    ]
+
+
 @route("GET", "/api/usage")
 def _usage_list(req: Request) -> Response:
     try:
         limit = _parse_limit(req)
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    identity = resolve_request_identity(req)
     capability = (req.query1("capability") or "").strip() or None
-    events = usage_ledger.list_usage_events(limit=limit, capability=capability)
+    if capability is not None and not _visible({"capability": capability}, identity):
+        return Response.json(403, {"error": f"Capability not allowed: {capability}"})
+    events = usage_ledger.list_usage_events(
+        limit=limit,
+        capability=capability,
+        capabilities=_allowed_capabilities(identity),
+    )
     return Response.json(
         200,
         {
@@ -102,5 +135,14 @@ def _usage_list(req: Request) -> Response:
 
 @route("GET", "/api/usage/summary")
 def _usage_summary(req: Request) -> Response:
+    identity = resolve_request_identity(req)
     capability = (req.query1("capability") or "").strip() or None
-    return Response.json(200, usage_ledger.usage_summary(capability=capability))
+    if capability is not None and not _visible({"capability": capability}, identity):
+        return Response.json(403, {"error": f"Capability not allowed: {capability}"})
+    return Response.json(
+        200,
+        usage_ledger.usage_summary(
+            capability=capability,
+            capabilities=_allowed_capabilities(identity),
+        ),
+    )

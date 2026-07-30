@@ -61,11 +61,16 @@ class AutomationEngine:
         self._defaults_ensured = False
 
     def ensure_defaults(self) -> list[Automation]:
-        """Seed the four built-in schedules when the table is empty."""
+        """Seed the four built-in schedules once, on an unseeded store.
+
+        Gated on a persisted marker rather than an empty table, so deleting
+        every built-in is respected instead of being undone by the next list
+        call (``GET /api/automations`` calls this on every request).
+        """
         with self._lock:
-            if self._defaults_ensured and self._store.count() > 0:
+            if self._defaults_ensured:
                 return self._store.list()
-            if self._store.count() == 0:
+            if not self._store.defaults_seeded():
                 now = float(self._clock())
                 for spec in DEFAULT_AUTOMATIONS:
                     self._store.upsert(
@@ -80,6 +85,7 @@ class AutomationEngine:
                             updated_at=now,
                         )
                     )
+                self._store.mark_defaults_seeded()
                 _log.info("seeded %d default automations", len(DEFAULT_AUTOMATIONS))
             self._defaults_ensured = True
             return self._store.list()

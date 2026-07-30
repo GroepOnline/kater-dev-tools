@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from kater.api import Request
+from kater.api import Request, Response
 from kater.authgate import (
     AuthContext,
     RequestIdentity,
@@ -268,3 +268,75 @@ def test_restricted_context_cannot_mint_broader_existing_context(ctx_db) -> None
     )
 
     assert issued.status == 403
+
+
+def test_token_for_a_revoked_context_is_a_typed_404(ctx_db) -> None:
+    """Minting against a revoked context raises ContextNotActiveError -> 404."""
+    record = contexts.create_context(principal_id="agent-revoked")
+    contexts.revoke_context(record.context_id)
+
+    with pytest.raises(contexts.ContextNotActiveError):
+        contexts.mint_context_token(record.context_id)
+
+    resp = call(
+        "POST",
+        f"/api/contexts/{record.context_id}/token",
+        body={"ttl_seconds": 300},
+    )
+    assert resp.status == 404
+
+    unknown = call("POST", "/api/contexts/ctx_missing/token", body={"ttl_seconds": 300})
+    assert unknown.status == 404
+
+
+def test_cross_principal_creation_is_blocked_through_the_full_pipeline(ctx_db) -> None:
+    """Principal isolation on ``POST /api/contexts`` holds through ``handle()``.
+
+    The sibling coverage above invokes the route handler directly. This drives
+    the real request pipeline instead, so the guard cannot regress by way of
+    identity wiring in ``kater.api.server.handle`` rather than the handler.
+    """
+    import json as _json
+
+    from kater.api.models import Request as _Request
+    from kater.api.server import handle
+    from kater.authgate import set_request_identity
+
+    victim = contexts.create_context(principal_id="principal-b")
+    attacker = contexts.create_context(
+        principal_id="principal-a",
+        scopes=["github.read"],
+        allowed_capabilities=["kater.profiles.list"],
+    )
+    token, _ = contexts.mint_context_token(attacker.context_id)
+
+    def _post(body: dict) -> Response:
+        return handle(
+            _Request(
+                method="POST",
+                path="/api/contexts",
+                query={},
+                headers={
+                    "x-kater-context": token,
+                    "content-type": "application/json",
+                },
+                raw_body=_json.dumps(body).encode(),
+                client_ip="127.0.0.1",
+                base_url="http://127.0.0.1",
+            )
+        )
+
+    try:
+        assert _post({"principal_id": "principal-b"}).status == 403
+        assert _post({"principal_id": victim.principal_id}).status == 403
+        # The caller may still create contexts for itself.
+        assert _post({"principal_id": "principal-a"}).status == 201
+
+        # No context was persisted for the victim principal beyond its own.
+        victim_contexts = contexts.list_contexts(principal_id="principal-b")
+        assert [record.context_id for record in victim_contexts] == [victim.context_id]
+    finally:
+        # ``handle()`` binds the caller identity to a context variable and does
+        # not clear it, so leaving it set would scope every later test in this
+        # process to this token's allowlist.
+        set_request_identity(None)

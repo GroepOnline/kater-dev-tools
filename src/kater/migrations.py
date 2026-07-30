@@ -300,6 +300,27 @@ _CAPABILITY_AUDIT_V6 = (
     "CREATE INDEX IF NOT EXISTS idx_capability_audit_cap ON capability_audit(capability_id)",
 )
 
+_AUTOMATION_META_V7 = (
+    """CREATE TABLE IF NOT EXISTS automation_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at REAL NOT NULL
+    )""",
+)
+
+# An install that already had automations before ``automation_meta`` existed has,
+# by definition, been seeded once. Record the marker (key kept in sync with
+# ``kater.automations.store.DEFAULTS_SEEDED_KEY``) so the engine's default upsert
+# does not run again on the next start, resurrecting deleted built-ins and
+# resetting customised ones. A fresh database has no automations at this point,
+# so the insert selects no row and the engine seeds the defaults normally.
+_AUTOMATION_DEFAULTS_ADOPTED_V8 = (
+    """INSERT INTO automation_meta (key, value, updated_at)
+       SELECT 'defaults_seeded', '1', CAST(strftime('%s', 'now') AS REAL)
+       WHERE EXISTS (SELECT 1 FROM automations)
+         AND NOT EXISTS (SELECT 1 FROM automation_meta WHERE key = 'defaults_seeded')""",
+)
+
 #: Ordered, append-only. Add new versions at the end; never edit a released one.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="baseline", statements=_BASELINE),
@@ -308,6 +329,12 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=4, name="remote_contexts", statements=_REMOTE_CONTEXTS_V4),
     Migration(version=5, name="usage_events", statements=_USAGE_EVENTS_V5),
     Migration(version=6, name="capability_audit", statements=_CAPABILITY_AUDIT_V6),
+    Migration(version=7, name="automation_meta", statements=_AUTOMATION_META_V7),
+    Migration(
+        version=8,
+        name="automation_defaults_adopted",
+        statements=_AUTOMATION_DEFAULTS_ADOPTED_V8,
+    ),
 )
 
 _CREATE_SCHEMA_TABLE = f"""CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (

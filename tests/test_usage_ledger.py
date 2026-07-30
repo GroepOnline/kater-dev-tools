@@ -10,8 +10,11 @@ import pytest
 
 from kater import migrations
 from kater.api import ROUTER, Request, Response
+from kater.control_plane import contexts as remote_contexts
+from kater.control_plane import tokens as context_tokens
 from kater.control_plane import usage as usage_ledger
 from kater.telemetry import TelemetryEvent, record_event
+from tests._rest import call as _call_with_headers
 
 
 @pytest.fixture(autouse=True)
@@ -207,3 +210,115 @@ def test_openapi_includes_usage_paths() -> None:
     spec = generate_spec()
     assert "/api/usage" in spec["paths"]
     assert "/api/usage/summary" in spec["paths"]
+
+
+def test_api_usage_is_scoped_to_the_callers_allowlist(monkeypatch) -> None:
+    """A scoped context token may only read (and aggregate) its own capabilities."""
+    monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "usage-scope-secret")
+    context_tokens.reset_token_secret_cache()
+    remote_contexts.reset_cache()
+    try:
+        for capability, cost in (("mine.cap", 2.0), ("theirs.cap", 5.0)):
+            usage_ledger.record_usage_event(
+                capability=capability,
+                backend="proxy",
+                tool_name="do",
+                success=True,
+                duration_ms=8.0,
+                cost_units=cost,
+            )
+        record = remote_contexts.create_context(
+            principal_id="agent-usage",
+            allowed_capabilities=["mine.cap"],
+        )
+        token, _ = remote_contexts.mint_context_token(record.context_id)
+        headers = {"X-Kater-Context": token}
+
+        listed = _call_with_headers("GET", "/api/usage", headers=headers)
+        assert listed.status == 200
+        assert listed.payload is not None
+        assert {event["capability"] for event in listed.payload["events"]} == {"mine.cap"}
+        assert listed.payload["total"] == 1
+
+        denied = _call_with_headers(
+            "GET", "/api/usage", query={"capability": ["theirs.cap"]}, headers=headers
+        )
+        assert denied.status == 403
+
+        summary = _call_with_headers("GET", "/api/usage/summary", headers=headers)
+        assert summary.status == 200
+        assert summary.payload is not None
+        assert [item["capability"] for item in summary.payload["capabilities"]] == ["mine.cap"]
+        assert summary.payload["total_events"] == 1
+        assert summary.payload["total_cost_units"] == 2.0
+
+        # Unscoped callers still see everything.
+        unscoped = _call("GET", "/api/usage/summary")
+        assert unscoped.payload is not None
+        assert unscoped.payload["total_events"] == 2
+    finally:
+        remote_contexts.reset_cache()
+        context_tokens.reset_token_secret_cache()
+
+
+def _seed_events(capability: str, count: int, *, first_timestamp: float) -> None:
+    """Bulk-insert cheap ledger rows (one commit) for page-limit tests."""
+    db = usage_ledger._get_db()
+    db.executemany(
+        """INSERT INTO usage_events
+           (timestamp, capability, success, duration_ms, cost_units, metadata)
+           VALUES (?, ?, 1, 1.0, 1.0, '{}')""",
+        [(first_timestamp + index, capability) for index in range(count)],
+    )
+    db.commit()
+
+
+def test_scoped_usage_is_not_truncated_by_the_page_limit(monkeypatch) -> None:
+    """Authorised rows must be selected before any limit, not filtered after it."""
+    monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "usage-page-secret")
+    context_tokens.reset_token_secret_cache()
+    remote_contexts.reset_cache()
+    try:
+        # 1001 authorised events, then 1000 newer events the caller cannot see:
+        # enough to fill the ledger's 1000-row page on its own.
+        _seed_events("mine.cap", 1001, first_timestamp=1_000.0)
+        _seed_events("theirs.cap", 1000, first_timestamp=100_000.0)
+        record = remote_contexts.create_context(
+            principal_id="agent-usage-page",
+            allowed_capabilities=["mine.cap"],
+        )
+        token, _ = remote_contexts.mint_context_token(record.context_id)
+        headers = {"X-Kater-Context": token}
+
+        summary = _call_with_headers("GET", "/api/usage/summary", headers=headers)
+        assert summary.status == 200
+        assert summary.payload is not None
+        assert [item["capability"] for item in summary.payload["capabilities"]] == ["mine.cap"]
+        assert summary.payload["total_events"] == 1001
+        assert summary.payload["total_cost_units"] == 1001.0
+
+        listed = _call_with_headers(
+            "GET", "/api/usage", query={"limit": ["5"]}, headers=headers
+        )
+        assert listed.status == 200
+        assert listed.payload is not None
+        assert listed.payload["total"] == 5
+        assert {event["capability"] for event in listed.payload["events"]} == {"mine.cap"}
+    finally:
+        remote_contexts.reset_cache()
+        context_tokens.reset_token_secret_cache()
+
+
+def test_usage_summary_accepts_an_explicit_capability_set() -> None:
+    for capability, cost in (("a.cap", 1.0), ("b.cap", 4.0)):
+        usage_ledger.record_usage_event(capability=capability, cost_units=cost)
+
+    scoped = usage_ledger.usage_summary(capabilities=["a.cap"])
+    assert scoped["total_events"] == 1
+    assert scoped["total_cost_units"] == 1.0
+
+    empty = usage_ledger.usage_summary(capabilities=[])
+    assert empty["total_events"] == 0
+    assert empty["capabilities"] == []
+    assert usage_ledger.list_usage_events(capabilities=[]) == []
+    assert usage_ledger.list_capabilities() == ["a.cap", "b.cap"]

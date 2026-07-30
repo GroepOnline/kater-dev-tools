@@ -597,9 +597,9 @@ def _contexts_issue_token(req: Request) -> Response:
             context_id,
             ttl_seconds=ttl_seconds,
         )
+    except remote_contexts.ContextNotActiveError:
+        return Response.json(404, {"error": "context not found"})
     except ValueError as exc:
-        if str(exc) == "context is not active":
-            return Response.json(404, {"error": "context not found"})
         return Response.json(400, {"error": str(exc)})
     expires_at = token_expires_at(token)
     return Response.json(

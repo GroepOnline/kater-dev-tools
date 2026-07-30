@@ -54,6 +54,36 @@ def _get_err(port: int, path: str, headers: dict | None = None) -> urllib.error.
     pytest.fail("Expected HTTPError")
 
 
+def test_public_path_fails_closed_on_an_invalid_context_token(api_server) -> None:
+    """A public route ignores absent credentials, but not an invalid one.
+
+    ``/health`` skips the credential check, so an explicit but unverifiable
+    ``X-Kater-Context`` must be rejected rather than silently downgraded to
+    anonymous access.
+    """
+    assert _get(9912, "/health")["status"] == "ok"
+
+    err = _get_err(9912, "/health", headers={"X-Kater-Context": "garbage"})
+    assert err.code == 401
+    assert json.loads(err.read().decode())["error"] == "Invalid context token."
+
+
+def test_cors_advertises_the_context_header_and_mutating_methods(api_server) -> None:
+    """Preflight must allow X-Kater-Context and the PATCH/DELETE routes."""
+    req = urllib.request.Request(
+        "http://127.0.0.1:9912/api/profiles",
+        method="OPTIONS",
+        headers={"Origin": "http://127.0.0.1"},
+    )
+    resp = urllib.request.urlopen(req)
+    allowed_headers = resp.headers.get("Access-Control-Allow-Headers", "")
+    allowed_methods = resp.headers.get("Access-Control-Allow-Methods", "")
+    assert "X-Kater-Context" in allowed_headers
+    assert "Authorization" in allowed_headers
+    for method in ("GET", "POST", "PATCH", "DELETE", "OPTIONS"):
+        assert method in allowed_methods
+
+
 # ── Basic endpoints ────────────────────────────────────────────────
 
 

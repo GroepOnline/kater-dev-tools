@@ -43,7 +43,14 @@ _SUBRESOURCE_BLOCKED_SCHEMES = frozenset(
 _DOCUMENT_RESOURCE_TYPES = frozenset({"document", "nav", "navigation"})
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
-_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+# Ranges that are reachable-but-not-public and that ``is_private`` does not
+# flag: carrier-grade NAT (RFC 6598) commonly fronts ISP/cloud-internal hosts,
+# and the benchmarking range (RFC 2544) is routed inside some lab networks.
+_NON_PUBLIC_NETWORKS = (
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("198.18.0.0/15"),
+)
 
 
 class PolicyViolation(Exception):
@@ -265,7 +272,7 @@ def _reject_internal(
 def _is_internal(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
         address = address.ipv4_mapped
-    if isinstance(address, ipaddress.IPv4Address) and address in _CGNAT_NETWORK:
+    if any(address in network for network in _NON_PUBLIC_NETWORKS):
         return True
     return bool(
         address.is_private
@@ -274,6 +281,9 @@ def _is_internal(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool
         or address.is_reserved
         or address.is_multicast
         or address.is_unspecified
+        # Backstop for ranges this runtime does not flag above (6to4 relays,
+        # documentation prefixes, future reservations, ...).
+        or not address.is_global
     )
 
 

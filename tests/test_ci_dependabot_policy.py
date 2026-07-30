@@ -33,3 +33,19 @@ def test_private_lane_stays_strict_for_trusted_runs() -> None:
 def test_public_e2e_still_depends_on_acceptance_job_result() -> None:
     e2e_block = _job_block("e2e", "package")
     assert "needs: [unit, integration, computer-acceptance]" in e2e_block
+
+
+def test_fork_runs_get_an_auditable_acceptance_skip() -> None:
+    block = _job_block("computer-acceptance", "e2e")
+    assert "Explain skipped fork acceptance" in block
+    assert "if: github.event.repository.fork == true" in block
+    assert "skipped outside the upstream repository" in block
+
+
+def test_dependency_review_is_skipped_on_forked_pull_requests() -> None:
+    block = _job_block("security-pr", "coverage")
+    assert (
+        "if: github.event.repository.fork != true && github.event_name == 'pull_request'"
+        in block
+    )
+    assert "Dependency review" in block

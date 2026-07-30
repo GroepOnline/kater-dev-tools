@@ -15,7 +15,9 @@ from kater.automations import (
 )
 from kater.automations import store as automations_store
 from kater.automations.builtins import run_kind
-from kater.automations.models import new_automation_id
+from kater.automations.models import AutomationRunResult, new_automation_id
+from kater.control_plane import contexts
+from kater.control_plane import tokens as context_tokens
 from tests._rest import call
 
 
@@ -310,3 +312,268 @@ def test_get_engine_singleton_and_reset():
     reset_engine()
     third = get_engine()
     assert third is not first
+
+
+# ── REST route edge cases not covered by test_api_crud_enable_run_delete ──
+
+
+def test_api_get_missing_returns_404():
+    resp = call("GET", "/api/automations/does_not_exist")
+    assert resp.status == 404
+    assert resp.payload is not None
+    assert "not found" in resp.payload["error"]
+
+
+def test_api_upsert_requires_name_and_kind():
+    missing_name = call("POST", "/api/automations", body={"kind": "browser_reap"})
+    assert missing_name.status == 400
+    assert missing_name.payload is not None
+    assert "name and kind" in missing_name.payload["error"]
+
+    missing_kind = call("POST", "/api/automations", body={"name": "No kind"})
+    assert missing_kind.status == 400
+
+
+def test_api_upsert_rejects_non_dict_config():
+    resp = call(
+        "POST",
+        "/api/automations",
+        body={"name": "Bad config", "kind": "browser_reap", "config": "not-a-dict"},
+    )
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "config must be an object" in resp.payload["error"]
+
+
+def test_api_patch_missing_automation_returns_404():
+    resp = call(
+        "PATCH",
+        "/api/automations/does_not_exist",
+        body={"name": "New name"},
+    )
+    assert resp.status == 404
+
+
+def test_api_patch_full_update_beyond_enabled_shortcut():
+    create = call(
+        "POST",
+        "/api/automations",
+        body={
+            "id": "auto_patch_full",
+            "name": "Original",
+            "kind": "browser_reap",
+            "schedule_seconds": 30,
+            "config": {"a": 1},
+        },
+    )
+    assert create.status == 200
+
+    patched = call(
+        "PATCH",
+        "/api/automations/auto_patch_full",
+        body={
+            "name": "Renamed",
+            "kind": "telemetry_prune",
+            "schedule_seconds": 999,
+            "config": {"b": 2},
+        },
+    )
+    assert patched.status == 200
+    assert patched.payload is not None
+    assert patched.payload["name"] == "Renamed"
+    assert patched.payload["kind"] == "telemetry_prune"
+    assert patched.payload["schedule_seconds"] == 999
+    assert patched.payload["config"] == {"b": 2}
+    # enabled was not supplied; the existing value must be preserved.
+    assert patched.payload["enabled"] is True
+
+
+def test_api_patch_preserves_unspecified_fields():
+    create = call(
+        "POST",
+        "/api/automations",
+        body={
+            "id": "auto_patch_partial",
+            "name": "Keep me",
+            "kind": "browser_reap",
+            "schedule_seconds": 45,
+            "config": {"keep": "me"},
+        },
+    )
+    assert create.status == 200
+
+    # Patch only the schedule; name/kind/config must survive unchanged.
+    patched = call(
+        "PATCH",
+        "/api/automations/auto_patch_partial",
+        body={"schedule_seconds": 60},
+    )
+    assert patched.status == 200
+    assert patched.payload is not None
+    assert patched.payload["name"] == "Keep me"
+    assert patched.payload["kind"] == "browser_reap"
+    assert patched.payload["config"] == {"keep": "me"}
+    assert patched.payload["schedule_seconds"] == 60
+
+
+def test_api_patch_rejects_non_dict_config():
+    call(
+        "POST",
+        "/api/automations",
+        body={"id": "auto_patch_bad_cfg", "name": "X", "kind": "browser_reap"},
+    )
+    resp = call(
+        "PATCH",
+        "/api/automations/auto_patch_bad_cfg",
+        body={"config": ["not", "a", "dict"]},
+    )
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "config must be an object" in resp.payload["error"]
+
+
+def test_api_patch_rejects_unknown_kind():
+    call(
+        "POST",
+        "/api/automations",
+        body={"id": "auto_patch_bad_kind", "name": "X", "kind": "browser_reap"},
+    )
+    resp = call(
+        "PATCH",
+        "/api/automations/auto_patch_bad_kind",
+        body={"kind": "not_a_real_kind"},
+    )
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "unknown" in resp.payload["error"]
+
+
+# ── Capability allowlist gating on the automations REST surface ──
+
+
+@pytest.fixture
+def ctx_db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "test-context-secret")
+    context_tokens.reset_token_secret_cache()
+    contexts.reset_cache()
+    yield tmp_path
+    contexts.reset_cache()
+    context_tokens.reset_token_secret_cache()
+
+
+def test_api_list_denied_for_scoped_context_without_capability(ctx_db):
+    record = contexts.create_context(
+        principal_id="agent-automations",
+        allowed_capabilities=["kater.profiles.list"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=120)
+    resp = call("GET", "/api/automations", headers={"x-kater-context": token})
+    assert resp.status == 403
+    assert resp.payload is not None
+    assert resp.payload["code"] == "capability_denied"
+    assert resp.payload["capability_id"] == "kater.automations.list"
+
+
+def test_api_list_allowed_via_prefix_wildcard(ctx_db):
+    record = contexts.create_context(
+        principal_id="agent-automations",
+        allowed_capabilities=["kater.automations.*"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=120)
+    resp = call("GET", "/api/automations", headers={"x-kater-context": token})
+    assert resp.status == 200
+
+
+def test_api_unrestricted_context_still_allowed(ctx_db):
+    # allowed_capabilities=[] on create means "unrestricted" (identity_from_record
+    # maps an empty stored allowlist to None).
+    record = contexts.create_context(principal_id="agent-open")
+    token = context_tokens.issue_token(record, ttl_seconds=120)
+    resp = call("GET", "/api/automations", headers={"x-kater-context": token})
+    assert resp.status == 200
+
+
+# ── Model serialization ──
+
+
+def test_automation_to_dict_round_trips_fields():
+    auto = Automation(
+        id="auto_x",
+        name="X",
+        kind="browser_reap",
+        enabled=False,
+        schedule_seconds=15,
+        config={"k": "v"},
+        last_run_at=100.0,
+        last_status="ok",
+        last_error=None,
+        created_at=1.0,
+        updated_at=2.0,
+    )
+    as_dict = auto.to_dict()
+    assert as_dict == {
+        "id": "auto_x",
+        "name": "X",
+        "enabled": False,
+        "kind": "browser_reap",
+        "schedule_seconds": 15,
+        "config": {"k": "v"},
+        "last_run_at": 100.0,
+        "last_status": "ok",
+        "last_error": None,
+        "created_at": 1.0,
+        "updated_at": 2.0,
+    }
+    # Mutating the returned dict must not leak back into the automation's config.
+    as_dict["config"]["k"] = "mutated"
+    assert auto.config == {"k": "v"}
+
+
+def test_automation_run_result_to_dict_rounds_duration():
+    result = AutomationRunResult(
+        id="auto_x",
+        kind="browser_reap",
+        status="ok",
+        error=None,
+        detail={"closed": 1},
+        duration_ms=12.3456,
+        ran_at=99.0,
+    )
+    as_dict = result.to_dict()
+    assert as_dict["duration_ms"] == 12.35
+    assert as_dict["detail"] == {"closed": 1}
+    assert as_dict["error"] is None
+
+
+def test_new_automation_id_has_expected_shape():
+    generated = new_automation_id()
+    assert generated.startswith("auto_")
+    suffix = generated.removeprefix("auto_")
+    assert len(suffix) == 32
+    int(suffix, 16)  # raises ValueError if not valid hex
+    assert new_automation_id() != new_automation_id()
+
+
+# ── Store resilience ──
+
+
+def test_store_falls_back_to_empty_config_on_malformed_json():
+    auto = Automation(
+        id=new_automation_id(),
+        name="Corrupt",
+        kind="browser_reap",
+        config={"ok": True},
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    automations_store.upsert(auto)
+    db = automations_store._get_db()
+    db.execute(
+        "UPDATE automations SET config = ? WHERE id = ?",
+        ("{not valid json", auto.id),
+    )
+    db.commit()
+    loaded = automations_store.get_automation(auto.id)
+    assert loaded is not None
+    assert loaded.config == {}

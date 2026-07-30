@@ -1,0 +1,72 @@
+name: Automerge
+
+# Auto-merge Dependabot PRs once the CI gate is green.
+# Keeps public dependency/security bumps moving without manual babysitting.
+
+on:
+  check_suite:
+    types: [completed]
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
+    steps:
+      - name: Enable auto-merge for Dependabot
+        if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) return;
+            // Squash-merge once required checks pass.
+            await github.graphql(`
+              mutation($id: ID!) {
+                enablePullRequestAutoMerge(input: {
+                  pullRequestId: $id,
+                  mergeMethod: SQUASH
+                }) { clientMutationId }
+              }
+            `, { id: pr.node_id });
+            core.info(`auto-merge enabled for PR #${pr.number}`);
+
+      - name: Approve Dependabot PR when CI is green
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            if (!run || run.event !== 'pull_request') return;
+            const prs = run.pull_requests || [];
+            for (const pr of prs) {
+              const { data: full } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+              });
+              if (full.user?.login !== 'dependabot[bot]') continue;
+              // Leave an approving review so branch protection can merge.
+              try {
+                await github.rest.pulls.createReview({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  event: 'APPROVE',
+                  body: 'CI gate green — auto-approved for Dependabot.',
+                });
+              } catch (e) {
+                core.warning(`approve skipped for #${pr.number}: ${e.message}`);
+              }
+            }

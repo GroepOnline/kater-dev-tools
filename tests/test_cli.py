@@ -8,8 +8,40 @@ import typer
 from typer.testing import CliRunner
 
 from kater.cli import _prepare_public_bind_environment, app
+from kater.settings import invalidate_settings_cache
 
 runner = CliRunner()
+
+# Keys `_prepare_public_bind_environment` writes straight into `os.environ`.
+BIND_ENV_KEYS = (
+    "KATER_HOST",
+    "KATER_PUBLIC",
+    "KATER_AUTH_MODE",
+    "KATER_RATE_LIMIT",
+    "KATER_CORS_ORIGINS",
+)
+
+
+@pytest.fixture(autouse=True)
+def _restore_bind_env():
+    """Stop CLI env mutations from leaking into the rest of the session.
+
+    `_prepare_public_bind_environment` sets `KATER_HOST` (plus public-bind
+    defaults) itself, so `monkeypatch.delenv` cannot roll them back: the tests
+    never set those keys. A leaked non-loopback `KATER_HOST` flips global public
+    mode, and every later test that calls the API then sees
+    `401 Missing bearer token` instead of its expected status.
+    """
+    before = {key: os.environ.get(key) for key in BIND_ENV_KEYS}
+    try:
+        yield
+    finally:
+        for key, value in before.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        invalidate_settings_cache()
 
 
 # ── version ────────────────────────────────────────────────────────
@@ -227,6 +259,20 @@ def test_deploy_render_stdio() -> None:
 # ── auth ───────────────────────────────────────────────────────────
 
 
+@pytest.fixture
+def throwaway_project(tmp_path, monkeypatch):
+    """Run a state-mutating CLI command against a disposable project dir.
+
+    `kater auth set` persists through `save_settings()`, which resolves
+    `.kater/settings.json` from the current working directory. Without this the
+    repo's own settings file keeps the written auth mode for the rest of the
+    session, and every later test that calls the API sees `401 Missing bearer
+    token` instead of its expected status.
+    """
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
 def test_auth_status_json() -> None:
     result = runner.invoke(app, ["auth", "--json"])
     assert result.exit_code == 0
@@ -240,21 +286,21 @@ def test_auth_status_text() -> None:
     assert "Auth mode" in result.stdout
 
 
-def test_auth_set_none() -> None:
+def test_auth_set_none(throwaway_project) -> None:
     result = runner.invoke(app, ["auth", "set", "none", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["mode"] == "none"
 
 
-def test_auth_set_apikey() -> None:
+def test_auth_set_apikey(throwaway_project) -> None:
     result = runner.invoke(app, ["auth", "set", "apikey", "--key", "test-key-123", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["mode"] == "apikey"
 
 
-def test_auth_set_invalid_mode() -> None:
+def test_auth_set_invalid_mode(throwaway_project) -> None:
     result = runner.invoke(app, ["auth", "set", "invalid"])
     assert result.exit_code == 1
 

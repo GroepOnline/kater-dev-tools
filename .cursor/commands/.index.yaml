@@ -1,0 +1,60 @@
+version: 1
+generated_by: scripts/generate_cursor_index.py
+items:
+- name: ci-fixer
+  path: .cursor/commands/ci-fixer.md
+  kind: command
+  summary: CI and local lint/test fixer for the current PR branch.
+  when: CI and local lint/test fixer for the current PR branch. Use…
+- name: create-skill
+  path: .cursor/commands/create-skill.md
+  kind: command
+  summary: Scaffold a Cursor Agent Skill under .cursor/skills/<name>/SKILL.md with
+    valid frontmatter, twin-chain hookup to a subagent when needed, and a short verify
+    pass.
+  when: Scaffold a Cursor Agent Skill under .cursor/skills/<name>/S…
+- name: create-subagent
+  path: .cursor/commands/create-subagent.md
+  kind: command
+  summary: Scaffold a focused Cursor subagent at .cursor/agents/<name>.md with YAML
+    frontmatter and a strict return contract.
+  when: Scaffold a focused Cursor subagent at .cursor/agents/<name>…
+- name: kater-dashboard
+  path: .cursor/commands/kater-dashboard.md
+  kind: command
+  summary: Verify the Kater web dashboard and REST API surfaces on :9091.
+  when: Verify the Kater web dashboard and REST API surfaces on :90…
+- name: kater-doctor
+  path: .cursor/commands/kater-doctor.md
+  kind: command
+  summary: Run Kater doctor diagnostics, fix plans, and safe apply for MCP/Cursor
+    wiring.
+  when: Run Kater doctor diagnostics, fix plans, and safe apply for…
+- name: kater-e2e
+  path: .cursor/commands/kater-e2e.md
+  kind: command
+  summary: 'End-to-end gateway proof: REST, MCP SSE initialize/tools, WebSocket handshake.'
+  when: 'End-to-end gateway proof: REST, MCP SSE initialize/tools, W…'
+- name: kater-gateway
+  path: .cursor/commands/kater-gateway.md
+  kind: command
+  summary: Start, configure, and verify the Kater MCP gateway locally or in cloud.
+  when: Start, configure, and verify the Kater MCP gateway locally…
+- name: local-verify
+  path: .cursor/commands/local-verify.md
+  kind: command
+  summary: 'Umbrella verify matrix: what to test on cloud VM vs local desktop vs Docker,
+    port koppelingen, and canonical order of operations before push.'
+  when: 'Umbrella verify matrix: what to test on cloud VM vs local d…'
+- name: parallel-lanes
+  path: .cursor/commands/parallel-lanes.md
+  kind: command
+  summary: Dispatch parallel Cursor subagents with disjoint file scopes (~4 lanes)
+    and a coordinator integrate step.
+  when: Dispatch parallel Cursor subagents with disjoint file scope…
+- name: pr-gate
+  path: .cursor/commands/pr-gate.md
+  kind: command
+  summary: Evaluate and fix one PR until merge-ready using Kater PR gate rules and
+    gh.
+  when: Evaluate and fix one PR until merge-ready using Kater PR ga…

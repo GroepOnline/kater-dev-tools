@@ -1,0 +1,33 @@
+---
+description: Probe gateway health and ports before claiming live runtime state
+alwaysApply: true
+---
+
+# Verify before claim (FAIL-CLOSED)
+
+When the topic is whether Kater (gateway, dashboard, MCP, WebSocket) is running **now**, do not answer from README, `environment.json`, or port tables alone.
+
+## Hard law
+
+1. **Probe in this turn** before any live claim: `curl -sf http://127.0.0.1:9091/health`, `uv run kater status --json`, or `./scripts/e2e-mcp.sh` (server must be up).
+2. If you cannot probe → start with **`NOT_VERIFIED:`** and stop guessing.
+3. Every answer about live gateway/runtime state **must** begin with exactly one of:
+   - **`VERIFIED_LIVE:`** — probed here; health or port responded (cite the command output)
+   - **`NOT_RUNNING_HERE:`** — probed here; down or unreachable in **this** environment
+   - **`NOT_VERIFIED:`** — no trustworthy evidence this turn
+4. Do not equate a Cloud agent VM with a local laptop (or reverse) without probe proof.
+5. **`./scripts/smoke.sh` requires the server stopped** (SQLite writer conflict). **`./scripts/e2e-mcp.sh` requires the server running** on `:9091`.
+
+## Kater listeners (reference only — not evidence of *now*)
+
+| Surface | Port | Probe |
+| --- | --- | --- |
+| MCP SSE | 9090 | `./scripts/e2e-mcp.sh` or MCP client to `/sse` |
+| REST / dashboard / health | 9091 | `curl -sf http://127.0.0.1:9091/health` |
+| WebSocket telemetry | 9092 | `./scripts/e2e-mcp.sh` (handshake section) |
+
+## Anti-patterns
+
+- "The gateway is up because Cloud starts `kater serve` in terminals"
+- Running smoke while `kater serve` is active and ignoring `disk I/O error`
+- Skipping markers to sound conversational

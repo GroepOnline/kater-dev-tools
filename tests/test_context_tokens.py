@@ -193,3 +193,87 @@ def test_resolve_request_identity_from_header(ctx_db) -> None:
     assert identity.context_id == record.context_id
     assert capability_allowed("kater.profiles.list", identity.allowed_capabilities)
     assert not capability_allowed("web.search", identity.allowed_capabilities)
+
+
+def test_scoped_caller_cannot_create_a_broader_context(ctx_db) -> None:
+    """A restricted context token may not mint a context with wider permissions."""
+    record = contexts.create_context(
+        principal_id="agent-scoped",
+        scopes=["github.read"],
+        allowed_capabilities=["kater.profiles.list"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=300)
+    headers = {"X-Kater-Context": token}
+
+    other_principal = call(
+        "POST",
+        "/api/contexts",
+        body={"principal_id": "agent-admin"},
+        headers=headers,
+    )
+    assert other_principal.status == 403
+
+    wider_capabilities = call(
+        "POST",
+        "/api/contexts",
+        body={
+            "principal_id": "agent-scoped",
+            "allowed_capabilities": ["kater.profiles.list", "web.search"],
+        },
+        headers=headers,
+    )
+    assert wider_capabilities.status == 403
+
+    unrestricted = call(
+        "POST",
+        "/api/contexts",
+        body={"principal_id": "agent-scoped"},
+        headers=headers,
+    )
+    assert unrestricted.status == 403
+
+    wider_scopes = call(
+        "POST",
+        "/api/contexts",
+        body={
+            "principal_id": "agent-scoped",
+            "scopes": ["github.read", "github.write"],
+            "allowed_capabilities": ["kater.profiles.list"],
+        },
+        headers=headers,
+    )
+    assert wider_scopes.status == 403
+
+
+def test_scoped_caller_can_create_a_narrower_context(ctx_db) -> None:
+    """Non-broadening context creation stays available to scoped callers."""
+    record = contexts.create_context(
+        principal_id="agent-narrow",
+        scopes=["github.read", "github.write"],
+        allowed_capabilities=["kater.profiles"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=300)
+
+    created = call(
+        "POST",
+        "/api/contexts",
+        body={
+            "principal_id": "agent-narrow",
+            "scopes": ["github.read"],
+            "allowed_capabilities": ["kater.profiles.list"],
+        },
+        headers={"X-Kater-Context": token},
+    )
+    assert created.status == 201
+    assert created.payload is not None
+    assert created.payload["principal_id"] == "agent-narrow"
+
+
+def test_unscoped_caller_still_creates_any_context(ctx_db) -> None:
+    """Requests without a context token keep administrative creation rights."""
+    created = call(
+        "POST",
+        "/api/contexts",
+        body={"principal_id": "agent-any", "allowed_capabilities": ["web.search"]},
+    )
+    assert created.status == 201

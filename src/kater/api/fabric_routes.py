@@ -318,6 +318,60 @@ def _identity_owns_context(identity: RequestIdentity, record: Any) -> bool:
     return record.principal_id == identity.principal_id
 
 
+def _reject_broadening_context(
+    identity: RequestIdentity, body: dict[str, Any], principal_id: str
+) -> Response | None:
+    """
+    Refuse a context creation that would widen the caller's own permissions.
+
+    A caller authenticated with a scoped context token may only create contexts
+    for its own principal, with scopes and capabilities it already holds.
+    Unrestricted callers (no context token) keep full control.
+
+    Parameters:
+        identity (RequestIdentity): Identity resolved from the request headers.
+        body (dict[str, Any]): Parsed request body.
+        principal_id (str): Principal the new context is requested for.
+
+    Returns:
+        Response | None: A 403 response when the request broadens the caller's
+            permissions, otherwise `None`.
+    """
+    if identity.principal_id is None:
+        return None
+    if principal_id != identity.principal_id:
+        return Response.json(
+            403, {"error": "scoped callers may only create contexts for their own principal"}
+        )
+    try:
+        scopes = remote_contexts._as_str_set(body.get("scopes"))
+        capabilities = remote_contexts._as_str_set(body.get("allowed_capabilities"))
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    if not scopes <= identity.scopes:
+        return Response.json(
+            403, {"error": "requested scopes exceed the scopes of the calling context"}
+        )
+    if identity.allowed_capabilities is None:
+        return None
+    # The caller is capability-restricted, so the new context must be too, and
+    # every entry has to fall inside the caller's own allowlist.
+    if not capabilities:
+        return Response.json(
+            403,
+            {"error": "allowed_capabilities is required and must be a subset of the caller's"},
+        )
+    widened = sorted(
+        name for name in capabilities if not capability_allowed(name, identity.allowed_capabilities)
+    )
+    if widened:
+        return Response.json(
+            403,
+            {"error": f"requested capabilities exceed the calling context: {widened}"},
+        )
+    return None
+
+
 def _discovered_payload(item: Any) -> dict[str, Any]:
     """
     Builds the serialized payload for a discovered capability.
@@ -500,6 +554,7 @@ def _contexts_create(req: Request) -> Response:
         Response: A 201 response with the created context, or a 400 response when the request body
             or context configuration is invalid.
     """
+    identity = resolve_request_identity(req)
     try:
         body = req.json
     except ValueError as exc:
@@ -507,6 +562,9 @@ def _contexts_create(req: Request) -> Response:
     principal_id = str(body.get("principal_id") or "").strip()
     if not principal_id:
         return Response.json(400, {"error": "principal_id is required"})
+    denied = _reject_broadening_context(identity, body, principal_id)
+    if denied is not None:
+        return denied
     ttl_raw = body.get("ttl_seconds")
     try:
         ttl_seconds = float(ttl_raw) if ttl_raw is not None else None

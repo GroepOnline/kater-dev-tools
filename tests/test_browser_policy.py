@@ -99,6 +99,23 @@ def test_internal_addresses_are_rejected(address):
         policy.check_url("https://intranet.test/")
 
 
+@pytest.mark.parametrize(
+    "address", ["100.64.0.0", "100.64.1.1", "100.127.255.255", "::ffff:100.64.1.1", "198.18.0.1"]
+)
+def test_shared_address_space_is_rejected(address):
+    """CGNAT and benchmarking ranges are not private per ``ipaddress`` but are not public."""
+    policy = BrowserPolicy(resolver=resolver_for(address))
+    with pytest.raises(PolicyViolation, match="non-public address"):
+        policy.check_url("https://cgnat.test/")
+
+
+@pytest.mark.parametrize("address", ["100.63.255.255", "100.128.0.0"])
+def test_addresses_outside_shared_address_space_are_allowed(address):
+    """Both sides of the ``100.64.0.0/10`` boundary stay reachable."""
+    policy = BrowserPolicy(resolver=resolver_for(address))
+    policy.check_url("https://public.test/")
+
+
 def test_every_resolved_address_is_checked():
     """A host that resolves to one public and one internal address is refused."""
     policy = BrowserPolicy(resolver=resolver_for(PUBLIC_IP, "169.254.169.254"))

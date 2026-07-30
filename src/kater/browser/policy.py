@@ -42,6 +42,14 @@ _DOCUMENT_RESOURCE_TYPES = frozenset({"document", "nav", "navigation"})
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
+# Ranges that are not publicly routable but that ``ipaddress`` does not report
+# as private on the Python versions we support: RFC 6598 carrier-grade NAT
+# shared address space and RFC 2544 benchmarking space.
+_NON_PUBLIC_NETWORKS = (
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("198.18.0.0/15"),
+)
+
 
 class PolicyViolation(Exception):
     """Raised when a URL is not allowed by the active browser policy."""
@@ -330,11 +338,14 @@ def _is_internal(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool
         address (IPv4Address | IPv6Address): The IP address to classify.
 
     Returns:
-        bool: `true` if the address is private, loopback, link-local, reserved, multicast, or
-            unspecified, `false` otherwise.
+        bool: `true` if the address is private, loopback, link-local, reserved, multicast,
+            unspecified, inside a known non-public range, or not globally routable, `false`
+            otherwise.
     """
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
         address = address.ipv4_mapped
+    if any(address in network for network in _NON_PUBLIC_NETWORKS):
+        return True
     return bool(
         address.is_private
         or address.is_loopback
@@ -342,6 +353,9 @@ def _is_internal(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool
         or address.is_reserved
         or address.is_multicast
         or address.is_unspecified
+        # Backstop for ranges this runtime does not flag above (carrier-grade
+        # NAT, benchmarking, documentation prefixes, 6to4 relays, ...).
+        or not address.is_global
     )
 
 

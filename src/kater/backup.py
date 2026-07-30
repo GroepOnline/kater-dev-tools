@@ -497,6 +497,16 @@ def restore_backup(
             manifest = _read_manifest(archive)
             restored = _extract_verified(archive, manifest, staging)
 
+        applied: tuple[int, ...] = ()
+        if DB_NAME in restored:
+            try:
+                results = migrations.run_migrations(staging / DB_NAME)
+            except migrations.MigrationError as exc:
+                raise BackupError(
+                    f"restored database failed migration before install: {exc}"
+                ) from exc
+            applied = tuple(r.version for r in results if r.status == "applied")
+
         safety_source: Path | None = None
         if _has_state(kater_dir):
             safety_source = workdir / f"kater-safety-{_timestamp()}.tar.gz"
@@ -538,14 +548,8 @@ def restore_backup(
     invalidate_settings_cache()
     reset_db_cache()
 
-    db_path = kater_dir / DB_NAME
     if DB_NAME in restored:
-        db_path = _relocate_restored_db(kater_dir, project_dir)
-
-    applied: tuple[int, ...] = ()
-    if DB_NAME in restored:
-        results = migrations.run_migrations(db_path)
-        applied = tuple(r.version for r in results if r.status == "applied")
+        _relocate_restored_db(kater_dir, project_dir)
 
     _log.info("restored %d files into %s", len(restored), kater_dir)
     return RestoreResult(

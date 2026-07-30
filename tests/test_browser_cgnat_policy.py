@@ -15,8 +15,9 @@ from kater.browser.policy import BrowserPolicy, PolicyViolation
     ],
 )
 def test_cgnat_addresses_are_rejected(address: str) -> None:
+    url = f"http://[{address}]/" if ":" in address else f"http://{address}/"
     with pytest.raises(PolicyViolation, match="non-public address"):
-        BrowserPolicy().check_url(f"http://[{address}]/" if ":" in address else f"http://{address}/")
+        BrowserPolicy().check_url(url)
 
 
 @pytest.mark.parametrize("address", ["100.63.255.255", "100.128.0.0"])

@@ -11,7 +11,7 @@ htmlcov/
 .env.local
 .env.kater.example
 *.pyc
-.cursor/
+.cursor/*
 !.cursor/rules/
 !.cursor/rules/taste.mdc
 .opencode/

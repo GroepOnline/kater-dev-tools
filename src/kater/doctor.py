@@ -120,6 +120,7 @@ def run_doctor(
     findings.extend(_adapter_config_check(selected_profiles))
     findings.extend(_find_context_bloat(cursor_mcp_path=effective_mcp_path, selected=sources))
     findings.extend(_security_check())
+    findings.extend(_browser_lane_check())
     fix_actions = _build_fix_actions(findings) if include_fix_plan else []
     return DoctorReport(
         profiles=sorted(selected_profiles),
@@ -264,6 +265,45 @@ def _find_context_bloat(
                     suggested_action="Expose it only through an explicit task profile.",
                 )
             )
+    return findings
+
+
+def _browser_lane_check() -> list[Finding]:
+    """Surface native browser provider readiness without launching a browser."""
+    from kater.browser.providers import probe_providers
+
+    findings: list[Finding] = []
+    providers = probe_providers()
+    available = [info for info in providers if info.available]
+    if available:
+        kinds = ", ".join(info.kind.value for info in available)
+        findings.append(
+            Finding(
+                code="browser_lane_ready",
+                severity="info",
+                source="browser",
+                message=f"Native browser lane providers available: {kinds}.",
+                suggested_action=(
+                    "Use kater_browser_open / kater browser open, or open the Browser view."
+                ),
+            )
+        )
+        return findings
+    findings.append(
+        Finding(
+            code="browser_lane_unavailable",
+            severity="info",
+            source="browser",
+            message=(
+                "No native browser provider is available "
+                "(install kater[browser] + playwright install chromium, "
+                "or set KATER_BROWSER_CDP_URL / KATER_BROWSER_STEEL_URL)."
+            ),
+            suggested_action=(
+                "uv sync --extra browser && playwright install chromium"
+            ),
+        )
+    )
     return findings
 
 

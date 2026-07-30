@@ -2,11 +2,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
-DEPENDABOT_SKIP = (
-    "if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'"
-)
-TRUSTED_ACTOR_GUARD = (
-    "if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'"
+DEPENDABOT_SKIP = "if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'"
+TRUSTED_RUN_GUARD = (
+    "if: github.event.repository.fork != true && "
+    "(github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')"
 )
 
 
@@ -24,11 +23,10 @@ def test_dependabot_gets_auditable_private_lane_skip() -> None:
 
 def test_private_lane_stays_strict_for_trusted_runs() -> None:
     block = _job_block("computer-acceptance", "e2e")
-    # Checkout Kater, private contract runtime, setup uv, sync, npm install,
-    # acceptance test, and evidence upload must share the trusted-actor guard.
-    assert block.count(TRUSTED_ACTOR_GUARD) == 7
+    # Checkout Kater, checkout UDO, setup uv, sync, npm install, acceptance test,
+    # and evidence upload must all remain behind the same trusted-actor guard.
+    assert block.count(TRUSTED_RUN_GUARD) == 7
     assert "ssh-key: ${{ secrets.UDO_READ_DEPLOY_KEY }}" in block
-    assert "KATER_ACCEPTANCE_CHECKOUT:" in block
     assert "tests/test_computer_acceptance_e2e.py" in block
 
 

@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -99,7 +99,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -110,7 +110,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --extra browser
 
       - name: Ruff
         run: uv run ruff check .
@@ -129,7 +129,7 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -140,11 +140,17 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --extra browser
 
+      # The inner `timeout` is a fast, explicit guard that yields a clean
+      # exit 124 if a test wedges; the job-level `timeout-minutes: 15` above is
+      # the real backstop against hangs. Keep this comfortably above the actual
+      # suite runtime: 3.11/3.12 finish ~150s and 3.13 ~157s, but 3.14 runs
+      # ~20-30s slower and was tripping a 180s cap even though the full suite
+      # (see the coverage job, with instrumentation) completes in ~185s.
       - name: Test
         run: >-
-          timeout 180s uv run pytest -vv --tb=short -ra
+          timeout 300s uv run pytest -vv --tb=short -ra
           --ignore=tests/test_computer_acceptance_e2e.py
 
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──
@@ -154,7 +160,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -165,7 +171,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --extra browser
 
       - name: Integration tests
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_api.py tests/test_oauth.py tests/test_authgate.py tests/test_storage.py tests/test_proxy.py
@@ -185,15 +191,20 @@ jobs:
         run: |
           echo "Private computer-acceptance skipped for Dependabot because GitHub withholds repository secrets from Dependabot-triggered workflows." | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Explain skipped fork acceptance
+        if: github.event.repository.fork == true
+        run: |
+          echo "Private UDO acceptance skipped outside the upstream repository; the public Kater gates remain required." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout Kater
-        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Checkout pinned private contract runtime
-        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         with:
           repository: ${{ github.repository_owner }}/utrecht-data-os
           ref: 4fc8217eb90d1a6024030620e35f84369bb5c805
@@ -202,30 +213,30 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: "3.12"
           enable-cache: true
 
       - name: Sync Kater dependencies (frozen)
-        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         run: uv sync --frozen --dev
 
       - name: Install pinned controller dependencies
-        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         working-directory: utrecht-data-os/platform/agent-control-plane/apps/session-controller
         run: npm ci --ignore-scripts
 
       - name: Run Computer acceptance lane
-        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         env:
           COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
           KATER_ACCEPTANCE_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
 
       - name: Publish schema-validated acceptance evidence
-        if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: computer-acceptance-evidence
@@ -239,7 +250,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -250,7 +261,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --dev --extra browser
 
       - name: Start Kater
         run: |
@@ -280,7 +291,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -323,7 +334,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -333,7 +344,7 @@ jobs:
           enable-cache: true
 
       - name: Dependency review
-        if: github.event_name == 'pull_request'
+        if: github.event.repository.fork != true && github.event_name == 'pull_request'
         uses: actions/dependency-review-action@cc4f6536e38d1126c5e3b0683d469a14f23bfea4 # v3
         with:
           fail-on-severity: high
@@ -372,7 +383,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           persist-credentials: false
       - name: Install uv
@@ -380,7 +391,9 @@ jobs:
         with:
           enable-cache: true
       - name: Sync project
-        run: uv sync --extra dev || uv sync
+        run: uv sync --extra dev --extra browser || uv sync --extra browser
+      - name: Install Playwright Chromium
+        run: uv run playwright install chromium
       - name: Run full test suite with coverage gate
         run: |
           uv run pytest \

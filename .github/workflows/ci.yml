@@ -186,18 +186,18 @@ jobs:
           echo "Private UDO acceptance skipped for Dependabot because GitHub withholds repository secrets from Dependabot-triggered workflows." | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Explain skipped fork acceptance
-        if: github.repository != 'OnlineChefGroep/kater-dev-tools'
+        if: github.event.repository.fork == true
         run: |
           echo "Private UDO acceptance skipped outside the upstream repository; the public Kater gates remain required." | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout Kater
-        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Checkout pinned UDO runtime
-        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ github.repository_owner }}/utrecht-data-os
@@ -207,30 +207,30 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: "3.12"
           enable-cache: true
 
       - name: Sync Kater dependencies (frozen)
-        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         run: uv sync --frozen --dev
 
       - name: Install pinned controller dependencies
-        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         working-directory: utrecht-data-os/platform/agent-control-plane/apps/session-controller
         run: npm ci --ignore-scripts
 
       - name: Run Computer acceptance lane
-        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         env:
           COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
           KATER_UDO_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
 
       - name: Publish schema-validated acceptance evidence
-        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: computer-acceptance-evidence
@@ -338,7 +338,7 @@ jobs:
           enable-cache: true
 
       - name: Dependency review
-        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && github.event_name == 'pull_request'
+        if: github.event.repository.fork != true && github.event_name == 'pull_request'
         uses: actions/dependency-review-action@cc4f6536e38d1126c5e3b0683d469a14f23bfea4 # v3
         with:
           fail-on-severity: high

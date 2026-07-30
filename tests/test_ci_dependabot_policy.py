@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
 DEPENDABOT_SKIP = "if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'"
 TRUSTED_RUN_GUARD = (
-    "if: github.repository == 'OnlineChefGroep/kater-dev-tools' && "
+    "if: github.event.repository.fork != true && "
     "(github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')"
 )
 

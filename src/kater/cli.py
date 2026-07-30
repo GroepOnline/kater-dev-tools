@@ -1078,7 +1078,11 @@ def pr_gate_command(
     """Evaluate the deterministic merge gate for a PR."""
     from kater.pr_control import pr_gate_tool
 
-    result = pr_gate_tool(number, expected_head_sha=expected_head_sha)
+    try:
+        result = pr_gate_tool(number, expected_head_sha=expected_head_sha)
+    except RuntimeError as exc:
+        typer.echo(f"Gate failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     if json_output:
         _print_json(result)
         return

@@ -23,6 +23,7 @@ from kater.settings import load_settings
 _TOKEN_VERSION = 1
 _process_secret: bytes | None = None
 _derived_secret: bytes | None = None
+_derived_secret_src: str | None = None
 _secret_lock = threading.Lock()
 
 # Parameters for deriving the fallback signing key from a configured API key.
@@ -37,10 +38,11 @@ _CONTEXT_TOKEN_KDF_ITERATIONS = 200_000
 
 def reset_token_secret_cache() -> None:
     """Drop the cached fallback signing secrets (tests)."""
-    global _process_secret, _derived_secret
+    global _process_secret, _derived_secret, _derived_secret_src
     with _secret_lock:
         _process_secret = None
         _derived_secret = None
+        _derived_secret_src = None
 
 
 def _b64url_encode(raw: bytes) -> str:
@@ -72,7 +74,7 @@ def _token_secret() -> bytes:
     The key is selected from the configured environment secret, the first configured API key, or a
         random process-local secret.
     """
-    global _process_secret, _derived_secret
+    global _process_secret, _derived_secret, _derived_secret_src
     env = os.environ.get("KATER_CONTEXT_TOKEN_SECRET", "").strip()
     if env:
         return env.encode("utf-8")
@@ -81,8 +83,11 @@ def _token_secret() -> bytes:
     except Exception:  # pragma: no cover - settings should always load
         keys = []
     if keys:
+        # Fingerprint the source key so a rotated API key derives a fresh secret
+        # instead of silently reusing the one cached for the previous key.
+        fingerprint = hashlib.sha256(keys[0].encode("utf-8")).hexdigest()
         with _secret_lock:
-            if _derived_secret is None:
+            if _derived_secret is None or _derived_secret_src != fingerprint:
                 _derived_secret = hashlib.pbkdf2_hmac(
                     "sha256",
                     keys[0].encode("utf-8"),
@@ -90,6 +95,7 @@ def _token_secret() -> bytes:
                     _CONTEXT_TOKEN_KDF_ITERATIONS,
                     dklen=32,
                 )
+                _derived_secret_src = fingerprint
             return _derived_secret
     with _secret_lock:
         if _process_secret is None:

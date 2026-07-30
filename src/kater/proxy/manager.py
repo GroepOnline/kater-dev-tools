@@ -777,11 +777,12 @@ class ProxyManager:
         Reset circuit breakers for unhealthy backends when the proxy is running.
 
         Returns:
-            dict[str, Any]: A status dictionary containing the number of reset breakers and, when
-                started, the backend names that were unhealthy before healing.
+            dict[str, Any]: A status dictionary with a stable shape: the number of reset
+                breakers (``healed``), an outcome (``status``), and the backend names that were
+                unhealthy before healing (``unhealthy_before``).
         """
         if not self._started:
-            return {"healed": 0, "status": "skipped_not_started"}
+            return {"healed": 0, "status": "skipped_not_started", "unhealthy_before": []}
         unhealthy = [name for name, backend in self._backends.items() if not backend.is_healthy()]
         healed_count = 0
         for name in unhealthy:
@@ -789,7 +790,7 @@ class ProxyManager:
             if breaker:
                 breaker.reset()
                 healed_count += 1
-        return {"healed": healed_count, "unhealthy_before": unhealthy}
+        return {"healed": healed_count, "status": "healed", "unhealthy_before": unhealthy}
 
     def health_check(self) -> dict[str, bool]:
         """Return the health status of each registered backend.

@@ -42,9 +42,11 @@ def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
 
     assert report.profiles == ["core"]
     assert [source["name"] for source in report.sources] == ["kater"]
-    # Informational browser-lane probe is allowed; no warnings/errors on core.
-    assert all(f.severity == "info" for f in report.findings)
-    assert all(f.code.startswith("browser_lane_") for f in report.findings)
+    # Exactly one informational browser-lane probe is expected; no other findings on core.
+    lane = [f for f in report.findings if f.code.startswith("browser_lane_")]
+    assert len(lane) == 1, [f.code for f in report.findings]
+    assert lane[0].severity == "info"
+    assert len(report.findings) == 1
 
 
 def test_doctor_reports_context_bloat(tmp_path) -> None:

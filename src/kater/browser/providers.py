@@ -479,6 +479,8 @@ class SteelProvider(CdpProvider):
         safe = redact_endpoint(self.base_url)
         if self._browser is not None:
             return ProviderInfo(self.kind, True, f"steel session on {safe}")
+        if not self.base_url:
+            return ProviderInfo(self.kind, False, "no steel api url configured")
         return ProviderInfo(self.kind, True, f"steel api {safe} (not started)")
 
     def _connect(self, playwright: Any) -> Any:

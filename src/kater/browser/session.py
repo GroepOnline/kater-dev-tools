@@ -132,7 +132,7 @@ class BrowserSessionManager:
         store.upsert_session(session)
 
         try:
-            handle = provider.new_page(session)
+            handle = provider.new_page(session, self._policy)
         except Exception as exc:
             failed = session.with_state(SessionState.FAILED, error=_describe(exc))
             with self._lock:

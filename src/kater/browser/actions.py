@@ -123,7 +123,10 @@ def execute_action(
                 "evaluate is disabled; start the provider with allow_evaluate=True "
                 "(KATER_BROWSER_ALLOW_EVALUATE=1) to permit arbitrary page scripts"
             )
-        if action.kind is ActionKind.NAVIGATE and action.url:
+        if action.kind is ActionKind.NAVIGATE:
+            if not action.url:
+                # Fail closed: an unset url would reach page.goto() unchecked.
+                raise PolicyViolation("navigate requires a url")
             policy.check_url(action.url)
 
         result = _dispatch(page, action, policy, timeout=timeout, allow_evaluate=allow_evaluate)

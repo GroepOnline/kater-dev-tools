@@ -79,8 +79,8 @@ class BrowserProvider(ABC):
         """Tear the backend down (idempotent)."""
 
     @abstractmethod
-    def new_page(self, session: BrowserSession) -> Any:
-        """Return an opaque handle for a fresh isolated page."""
+    def new_page(self, session: BrowserSession, policy: BrowserPolicy | None = None) -> Any:
+        """Return an opaque handle for a fresh isolated page, guarded by ``policy``."""
 
     @abstractmethod
     def act(self, handle: Any, action: BrowserAction, policy: BrowserPolicy) -> ActionResult:
@@ -171,4 +171,8 @@ def redact_endpoint(url: str) -> str:
     netloc = host
     if port is not None:
         netloc = f"{host}:{port}"
-    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    path = parts.path
+    if parts.scheme in {"ws", "wss"} and path.strip("/"):
+        # CDP websocket endpoints carry the browser/session token in the path.
+        path = "/<redacted>"
+    return urlunsplit((parts.scheme, netloc, path, "", ""))

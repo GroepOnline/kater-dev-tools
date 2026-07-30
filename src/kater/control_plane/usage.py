@@ -45,6 +45,10 @@ _db_path_cache: str | None = None
 
 # Keep usage ledger bounded so summary queries stay predictable on long-lived hosts.
 MAX_USAGE_ROWS = 50_000
+# COUNT(*) on every insert is wasted work; check the bound every N inserts instead.
+# The periodic janitor sweep (prune_usage_events) enforces the hard ceiling.
+_TRIM_CHECK_EVERY = 256
+_inserts_since_trim = 0
 
 
 
@@ -101,29 +105,34 @@ def _get_db() -> sqlite3.Connection:
 
 def reset_cache() -> None:
     """Drop the cached connection (tests swap the working directory)."""
-    global _db_cache, _db_path_cache
+    global _db_cache, _db_path_cache, _inserts_since_trim
     with _lock:
         if _db_cache is not None:
             _quiet_close(_db_cache)
         _db_cache = None
         _db_path_cache = None
+        _inserts_since_trim = 0
 
 
-def _trim_usage_rows(db: sqlite3.Connection) -> int:
+def _trim_usage_rows(db: sqlite3.Connection, *, keep: int = MAX_USAGE_ROWS) -> int:
     """
-    Trim the usage-event ledger to the configured maximum row count.
+    Trim the usage-event ledger to at most ``keep`` rows.
 
     The oldest events are removed first, ordered by timestamp and then ID.
     Changes are not committed by this function.
+
+    Parameters:
+        db (sqlite3.Connection): Open ledger connection.
+        keep (int): Maximum number of rows to retain.
 
     Returns:
         int: The number of deleted events.
     """
     row = db.execute("SELECT COUNT(*) FROM usage_events").fetchone()
     count = int(row[0]) if row is not None else 0
-    if count <= MAX_USAGE_ROWS:
+    if count <= keep:
         return 0
-    excess = count - MAX_USAGE_ROWS
+    excess = count - keep
     db.execute(
         """DELETE FROM usage_events WHERE id IN (
                SELECT id FROM usage_events
@@ -146,23 +155,14 @@ def prune_usage_events(*, max_rows: int = MAX_USAGE_ROWS) -> int:
     Returns:
         int: Number of usage events deleted.
     """
+    global _inserts_since_trim
     keep = max(1, int(max_rows))
     with _lock:
         db = _get_db()
-        row = db.execute("SELECT COUNT(*) FROM usage_events").fetchone()
-        count = int(row[0]) if row is not None else 0
-        if count <= keep:
-            return 0
-        excess = count - keep
-        db.execute(
-            """DELETE FROM usage_events WHERE id IN (
-                   SELECT id FROM usage_events
-                   ORDER BY timestamp ASC, id ASC
-                   LIMIT ?
-               )""",
-            (excess,),
-        )
-        db.commit()
+        excess = _trim_usage_rows(db, keep=keep)
+        _inserts_since_trim = 0
+        if excess:
+            db.commit()
         return excess
 
 
@@ -241,6 +241,7 @@ def record_usage_event(
         ValueError: If `capability` is empty after trimming.
         RuntimeError: If the inserted event cannot be identified or retrieved.
     """
+    global _inserts_since_trim
     cap = str(capability or "").strip()
     if not cap:
         raise ValueError("capability is required")
@@ -271,7 +272,10 @@ def record_usage_event(
         if raw_id is None:
             raise RuntimeError("usage event insert returned no row id")
         row_id = int(raw_id)
-        _trim_usage_rows(db)
+        _inserts_since_trim += 1
+        if _inserts_since_trim >= _TRIM_CHECK_EVERY:
+            _inserts_since_trim = 0
+            _trim_usage_rows(db)
         db.commit()
         row = db.execute("SELECT * FROM usage_events WHERE id = ?", (row_id,)).fetchone()
     if row is None:

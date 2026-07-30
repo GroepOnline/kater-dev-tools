@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from kater.runtime import (
@@ -57,7 +58,9 @@ def test_maintenance_loop_runs_light_more_often_than_heavy(monkeypatch) -> None:
         "_run_heavy_janitor",
         lambda: heavy_calls.append(wakes["n"]),
     )
-    monkeypatch.setattr("kater.runtime.time.monotonic", lambda: 0.0)
+    # Patch the module reference only; setattr on kater.runtime.time.monotonic
+    # would mutate the shared stdlib module for every thread in the process.
+    monkeypatch.setattr("kater.runtime.time", SimpleNamespace(monotonic=lambda: 0.0))
 
     runtime._maintenance_loop()
 

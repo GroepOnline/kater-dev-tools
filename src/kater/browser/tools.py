@@ -141,7 +141,7 @@ def browser_open_tool(**kwargs: Any) -> dict[str, Any]:
             profile=str(kwargs.get("profile") or "core"),
             viewport=(width, height),
         )
-    except (SessionLimitError, BrowserUnavailableError, ValueError) as exc:
+    except (SessionLimitError, BrowserUnavailableError, TypeError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "session": session.to_dict()}
 

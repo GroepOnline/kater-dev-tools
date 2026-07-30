@@ -2352,8 +2352,6 @@ async function onServerMapClick(e) {
   openDetail(node);
 }
 
-function startAnimationLoop() {}
-
 
 // ── Detail Panel ───────────────────────
 function formatLaunch(node) {
@@ -3838,6 +3836,8 @@ async function onMergeClick(e) {
 let browserSessions = [];
 let browserSelectedId = null;
 let browserPollTimer = null;
+let browserPollFailures = 0;
+let browserPollTicks = 0;
 let browserShotSeq = 0;
 const browserActionLog = new Map(); // session_id -> [{kind, ok, detail, ts}]
 
@@ -3848,7 +3848,11 @@ function stopBrowserPoll() {
 function startBrowserPoll() {
   stopBrowserPoll();
   if (currentView !== 'browser' || !browserSelectedId) return;
+  browserPollFailures = 0;
   browserPollTimer = setInterval(() => {
+    // Skip hidden tabs and back off while the endpoint keeps failing.
+    if (document.hidden) return;
+    if (browserPollFailures && (browserPollTicks++ % (browserPollFailures + 1))) return;
     if (currentView === 'browser' && browserSelectedId) pollBrowserScreenshot();
   }, 2000);
 }
@@ -3956,10 +3960,8 @@ function selectBrowserSession(id) {
   const empty = document.getElementById('browser-empty');
   const img = document.getElementById('browser-shot');
   if (!id) {
-    if (empty) {
-      empty.hidden = false;
-      empty.textContent = 'Open a session via MCP (`kater_browser_open`) or click New session';
-    }
+    // Keep the server-rendered copy (with its <code> markup); just reveal it.
+    if (empty) empty.hidden = false;
     if (img) { img.hidden = true; img.removeAttribute('src'); }
     stopBrowserPoll();
     return;
@@ -4090,13 +4092,15 @@ async function pollBrowserScreenshot() {
       '/api/browser/sessions/' + encodeURIComponent(id) + '/screenshot', {}
     );
     if (seq !== browserShotSeq || id !== browserSelectedId) return;
+    browserPollFailures = 0;
     if (data.screenshot_b64) showBrowserShot(data.screenshot_b64);
     if (data.url) {
       const urlEl = document.getElementById('browser-url');
       if (urlEl && document.activeElement !== urlEl) urlEl.value = data.url;
     }
   } catch (e) {
-    /* polling is best-effort; keep last frame */
+    /* polling is best-effort; keep last frame and slow down */
+    if (browserPollFailures < 8) browserPollFailures += 1;
   }
 }
 

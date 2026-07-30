@@ -110,7 +110,12 @@ def validate_cdp_endpoint(endpoint: str, *, steel_base_url: str | None = None) -
     if host in _METADATA_HOSTS or host.endswith(".metadata.google.internal"):
         raise PolicyViolation(f"cdp host '{host}' is a metadata endpoint")
 
-    endpoint_kind = _host_network_kind(host, parts.port or _default_port(scheme))
+    try:
+        port = parts.port or _default_port(scheme)
+    except ValueError as exc:
+        raise BrowserUnavailableError(f"cdp endpoint has an invalid port: {raw!r}") from exc
+
+    endpoint_kind = _host_network_kind(host, port)
     allowed = _allowed_private_kind(steel_base_url)
 
     if endpoint_kind == "metadata":
@@ -167,7 +172,12 @@ def _allowed_private_kind(steel_base_url: str | None) -> str:
     host = (parts.hostname or "").strip().lower().rstrip(".")
     if not host:
         return "public"
-    kind = _host_network_kind(host, parts.port or _default_port(parts.scheme.lower() or "http"))
+    try:
+        port = parts.port or _default_port(parts.scheme.lower() or "http")
+    except ValueError:
+        # Malformed port — fail closed and treat the pairing as public.
+        return "public"
+    kind = _host_network_kind(host, port)
     if kind in {"loopback", "private"}:
         return "private"
     return "public"

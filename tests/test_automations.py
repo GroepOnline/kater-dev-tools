@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from kater import migrations
 from kater.automations import (
     DEFAULT_AUTOMATIONS,
     Automation,
@@ -22,10 +23,16 @@ from tests._rest import call
 
 
 @pytest.fixture(autouse=True)
-def _clean_automations():
+def _clean_automations(tmp_path, monkeypatch):
+    # Isolate the automations store: each test gets its own migrated .kater/kater.db
+    # under tmp_path instead of writing to the repository checkout.
+    monkeypatch.chdir(tmp_path)
+    automations_store.reset_cache()
+    migrations.ensure_migrated(tmp_path / ".kater" / "kater.db")
     reset_engine()
     yield
     reset_engine()
+    automations_store.reset_cache()
 
 
 def test_store_crud_round_trip():

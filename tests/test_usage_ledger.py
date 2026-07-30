@@ -9,9 +9,9 @@ from typing import Any
 import pytest
 
 from kater import migrations
-from kater.api import ROUTER, Request, Response
 from kater.control_plane import usage as usage_ledger
 from kater.telemetry import TelemetryEvent, record_event
+from tests._rest import call as _call
 
 
 @pytest.fixture(autouse=True)
@@ -31,39 +31,6 @@ def _isolated_db(tmp_path, monkeypatch):
     migrations.ensure_migrated(tmp_path / ".kater" / "kater.db")
     yield
     usage_ledger.reset_cache()
-
-
-def _call(
-    method: str,
-    path: str,
-    *,
-    query: dict[str, list[str]] | None = None,
-) -> Response:
-    """
-    Invoke the matching router handler with a constructed request.
-
-    Parameters:
-        method (str): HTTP method for the request.
-        path (str): Request path.
-        query (dict[str, list[str]] | None): Optional query parameters.
-
-    Returns:
-        Response: The handler's response.
-    """
-    matched = ROUTER.match(method, path)
-    assert matched is not None, f"{method} {path} has no route"
-    route, params = matched
-    req = Request(
-        method=method,
-        path=path,
-        query=query or {},
-        headers={},
-        raw_body=b"",
-        client_ip="127.0.0.1",
-        base_url="http://127.0.0.1",
-        params=params,
-    )
-    return route.handler(req)
 
 
 def test_migration_creates_usage_events_table(tmp_path: Path) -> None:

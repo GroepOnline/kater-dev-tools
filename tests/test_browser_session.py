@@ -51,6 +51,7 @@ class FakeProvider(BrowserProvider):
         self.result_url = "https://example.com/"
         self.result_title = "Example"
         self.actions: list[BrowserAction] = []
+        self.page_policies: list[BrowserPolicy | None] = []
 
     def start(self) -> None:
         """Mark the fake provider as started."""
@@ -60,18 +61,20 @@ class FakeProvider(BrowserProvider):
         """Mark the fake provider as stopped."""
         self.stopped = True
 
-    def new_page(self, session: BrowserSession) -> Any:
+    def new_page(self, session: BrowserSession, policy: BrowserPolicy | None = None) -> Any:
         """
         Create a page handle for a browser session.
 
         Parameters:
             session (BrowserSession): The session for which to create the page.
+            policy (BrowserPolicy | None): Policy the manager applies to the page.
 
         Returns:
             Any: A page handle containing the session identifier.
         """
         self.started = True
         self.pages.append(session.session_id)
+        self.page_policies.append(policy)
         return {"session_id": session.session_id}
 
     def act(self, handle: Any, action: BrowserAction, policy: BrowserPolicy) -> ActionResult:
@@ -209,7 +212,7 @@ def test_create_enforces_max_sessions():
 def test_create_marks_the_session_failed_when_the_provider_cannot_open_a_page(events):
     manager, provider = make_manager()
 
-    def boom(session):
+    def boom(session, policy=None):
         raise RuntimeError("no display")
 
     provider.new_page = boom  # type: ignore[method-assign]

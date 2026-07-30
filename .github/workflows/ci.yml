@@ -383,7 +383,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       - name: Install uv
@@ -391,7 +391,7 @@ jobs:
         with:
           enable-cache: true
       - name: Sync project
-        run: uv sync --extra dev --extra browser || uv sync --extra browser
+        run: uv sync --frozen --dev --extra browser
       - name: Install Playwright Chromium
         run: uv run playwright install chromium
       - name: Run full test suite with coverage gate

@@ -149,22 +149,25 @@ class AutomationEngine:
             raise ValueError(f"unknown automation kind: {kind}")
         now = float(self._clock())
         automation_id = id or new_automation_id()
-        existing = self._store.get(automation_id)
-        created_at = existing.created_at if existing is not None else now
-        record = Automation(
-            id=automation_id,
-            name=name,
-            kind=kind,
-            enabled=enabled,
-            schedule_seconds=int(schedule_seconds),
-            config=dict(config or {}),
-            last_run_at=existing.last_run_at if existing is not None else None,
-            last_status=existing.last_status if existing is not None else None,
-            last_error=existing.last_error if existing is not None else None,
-            created_at=created_at,
-            updated_at=now,
-        )
-        return self._store.upsert(record)
+        # Read-modify-write under the lock so a concurrent run's record_run
+        # (last_run_at / last_status) is never clobbered with a stale value.
+        with self._lock:
+            existing = self._store.get(automation_id)
+            created_at = existing.created_at if existing is not None else now
+            record = Automation(
+                id=automation_id,
+                name=name,
+                kind=kind,
+                enabled=enabled,
+                schedule_seconds=int(schedule_seconds),
+                config=dict(config or {}),
+                last_run_at=existing.last_run_at if existing is not None else None,
+                last_status=existing.last_status if existing is not None else None,
+                last_error=existing.last_error if existing is not None else None,
+                created_at=created_at,
+                updated_at=now,
+            )
+            return self._store.upsert(record)
 
     def delete(self, automation_id: str) -> bool:
         """Delete an automation by its identifier.
@@ -203,13 +206,19 @@ class AutomationEngine:
                 self._in_flight.add(automation.id)
                 due.append(automation)
         ran = 0
-        for automation in due:
-            try:
-                self._execute(automation, ran_at=now)
-                ran += 1
-            finally:
-                with self._lock:
-                    self._in_flight.discard(automation.id)
+        try:
+            for automation in due:
+                try:
+                    self._execute(automation, ran_at=now)
+                    ran += 1
+                finally:
+                    with self._lock:
+                        self._in_flight.discard(automation.id)
+        finally:
+            # A raising _execute must not leave the remaining batch marked
+            # in-flight forever; they would be skipped by every later tick.
+            with self._lock:
+                self._in_flight.difference_update(item.id for item in due)
         return ran
 
     def run_now(self, automation_id: str, *, force: bool = False) -> AutomationRunResult:

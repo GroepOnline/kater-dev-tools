@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from kater.api.models import Request, Response, route
+from kater.authgate import capability_allowed, resolve_request_identity
 from kater.control_plane import usage as usage_ledger
 
 # OpenAPI path fragments merged by ``openapi_spec._build_paths``.
@@ -97,6 +98,32 @@ def _parse_limit(req: Request, default: int = 100, maximum: int = 1000) -> int:
     return min(value, maximum)
 
 
+def _scoped_summary(summary: dict[str, Any], allowed: frozenset[str]) -> dict[str, Any]:
+    """Recompute a usage summary from the capabilities a scoped caller may see.
+
+    Parameters:
+        summary (dict[str, Any]): Full summary as returned by the ledger.
+        allowed (frozenset[str]): Capability allowlist of the calling context.
+
+    Returns:
+        dict[str, Any]: Summary restricted to the allowed capabilities, with totals recomputed.
+    """
+    rows = [
+        row
+        for row in summary.get("capabilities", [])
+        if capability_allowed(str(row.get("capability") or ""), allowed)
+    ]
+    total = sum(int(row.get("count") or 0) for row in rows)
+    success = sum(int(row.get("success") or 0) for row in rows)
+    cost = sum(float(row.get("total_cost_units") or 0) for row in rows)
+    return {
+        "total_events": total,
+        "overall_success_rate": round((success / total) * 100, 1) if total else 0.0,
+        "total_cost_units": round(cost, 4),
+        "capabilities": rows,
+    }
+
+
 @route("GET", "/api/usage")
 def _usage_list(req: Request) -> Response:
     """
@@ -115,7 +142,18 @@ def _usage_list(req: Request) -> Response:
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
     capability = (req.query1("capability") or "").strip() or None
+    identity = resolve_request_identity(req)
     events = usage_ledger.list_usage_events(limit=limit, capability=capability)
+    # A scoped context token only ever sees activity for capabilities on its
+    # allowlist; an absent allowlist (admin/local caller) is unrestricted.
+    if identity.allowed_capabilities is not None:
+        events = [
+            event
+            for event in events
+            if capability_allowed(
+                str(event.get("capability") or ""), identity.allowed_capabilities
+            )
+        ]
     return Response.json(
         200,
         {
@@ -136,4 +174,8 @@ def _usage_summary(req: Request) -> Response:
         Response: JSON response containing per-capability usage summary data.
     """
     capability = (req.query1("capability") or "").strip() or None
-    return Response.json(200, usage_ledger.usage_summary(capability=capability))
+    identity = resolve_request_identity(req)
+    summary = usage_ledger.usage_summary(capability=capability)
+    if identity.allowed_capabilities is not None:
+        summary = _scoped_summary(summary, identity.allowed_capabilities)
+    return Response.json(200, summary)

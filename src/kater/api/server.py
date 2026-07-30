@@ -231,7 +231,9 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
             if allow != "*":
                 self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers", "Authorization, Content-Type, X-Kater-Context"
+        )
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header(
             "Content-Security-Policy",

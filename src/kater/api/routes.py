@@ -180,6 +180,14 @@ def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
         pass
 
 
+def _broadcast_automation(automation: Any) -> None:
+    """Announce an automation create/update with one event name and payload shape."""
+    _ws_broadcast(
+        "automation_upsert",
+        {"id": automation.id, "kind": automation.kind, "enabled": automation.enabled},
+    )
+
+
 # ── Public endpoints (no auth) ─────────────────────────────────────
 
 
@@ -1119,6 +1127,8 @@ def _browser_create_session(req: Request) -> Response:
             profile=str(body.get("profile") or "core"),
             viewport=(width, height),
         )
+    except TypeError as exc:
+        return Response.json(400, {"error": f"invalid viewport: {exc}"})
     except _BROWSER_400_ERRORS as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, {"session": session.to_dict()})
@@ -1321,6 +1331,8 @@ def _automations_upsert(req: Request) -> Response:
         body = req.json
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be a JSON object"})
     name = str(body.get("name") or "").strip()
     kind = str(body.get("kind") or "").strip()
     if not name or not kind:
@@ -1339,10 +1351,7 @@ def _automations_upsert(req: Request) -> Response:
         )
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
-    _ws_broadcast(
-        "automation_upsert",
-        {"id": automation.id, "kind": automation.kind, "enabled": automation.enabled},
-    )
+    _broadcast_automation(automation)
     return Response.json(200, automation.to_dict())
 
 
@@ -1428,11 +1437,13 @@ def _automations_patch(req: Request) -> Response:
         body = req.json
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be a JSON object"})
     if "enabled" in body and len(body) == 1:
         automation = engine.set_enabled(automation_id, bool(body["enabled"]))
         if automation is None:
             return Response.json(404, {"error": "automation not found"})
-        _ws_broadcast("automation_upserted", {"automation": automation.to_dict()})
+        _broadcast_automation(automation)
         return Response.json(200, automation.to_dict())
     name = str(body["name"]).strip() if body.get("name") is not None else existing.name
     kind = str(body["kind"]).strip() if body.get("kind") is not None else existing.kind
@@ -1454,6 +1465,7 @@ def _automations_patch(req: Request) -> Response:
         )
     except (TypeError, ValueError) as exc:
         return Response.json(400, {"error": str(exc)})
+    _broadcast_automation(automation)
     return Response.json(200, automation.to_dict())
 
 
@@ -1553,14 +1565,7 @@ def _computer_invoke(req: Request) -> Response:
     # capabilities on its allowlist. An absent/empty allowlist is unrestricted.
     identity = resolve_request_identity(req)
     if not capability_allowed(capability_name, identity.allowed_capabilities):
-        return Response.json(
-            403,
-            {
-                "error": f"capability {capability_name!r} denied: not in context allowlist",
-                "code": "capability_denied",
-                "capability_id": capability_name,
-            },
-        )
+        return _capability_denied(capability_name)
     arguments = {key: value for key, value in body.items() if key != "capability_id"}
     result = connector.call(capability_name, arguments)
     return Response.json(200, result)

@@ -46,6 +46,15 @@ _db_cache: sqlite3.Connection | None = None
 _db_path_cache: str | None = None
 
 
+class ContextNotActiveError(ValueError):
+    """Raised when a context is missing, revoked, or expired.
+
+    A ``ValueError`` subclass so existing callers keep working, while handlers can
+    distinguish "no such active context" from other validation failures without
+    matching on the message text.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ContextRecord:
     """Stored remote context including fields beyond :class:`RemoteContext`."""
@@ -428,7 +437,7 @@ def mint_context_token(
         tuple[str, ContextRecord]: The signed token and its context record.
 
     Raises:
-        ValueError: If the context does not exist or is inactive.
+        ContextNotActiveError: If the context does not exist or is inactive.
     """
     from kater.control_plane.tokens import issue_token
 
@@ -443,7 +452,7 @@ def mint_context_token(
         )
         record = _row_to_record(row) if row else None
         if record is None or not record.is_active():
-            raise ValueError("context is not active")
+            raise ContextNotActiveError("context is not active")
         token = issue_token(record, ttl_seconds=ttl_seconds)
         return token, record
 

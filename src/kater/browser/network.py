@@ -57,6 +57,12 @@ def install_network_guard(page: Any, policy: PolicySource) -> None:
                 return
             return
         try:
+            # Known limitation: policy validation resolves the hostname, but Chromium
+            # resolves DNS again for the actual connection, so a rebinding answer can
+            # differ from the validated one (TOCTOU). route.continue_() cannot pin the
+            # connection to an address; closing this needs --host-resolver-rules at
+            # browser launch (or an egress proxy). check_request() still blocks literal
+            # non-public targets and hosts whose answers are non-public.
             route.continue_()
         except Exception:
             try:

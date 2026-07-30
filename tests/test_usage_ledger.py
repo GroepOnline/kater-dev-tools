@@ -157,6 +157,43 @@ def test_api_usage_list_and_summary() -> None:
     assert summary.payload["total_events"] >= 1
 
 
+def test_api_usage_is_scoped_to_the_callers_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A scoped context token only sees ledger activity for its own capabilities."""
+    from kater.control_plane import contexts
+    from kater.control_plane import tokens as context_tokens
+
+    monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "test-usage-secret")
+    context_tokens.reset_token_secret_cache()
+    contexts.reset_cache()
+    try:
+        for capability in ("mine.read", "theirs.read"):
+            usage_ledger.record_usage_event(capability=capability, success=True, cost_units=1.0)
+        record = contexts.create_context(
+            principal_id="agent-usage",
+            allowed_capabilities=["mine"],
+        )
+        headers = {"X-Kater-Context": context_tokens.issue_token(record, ttl_seconds=300)}
+
+        listed = _call("GET", "/api/usage", headers=headers)
+        assert listed.status == 200
+        assert listed.payload is not None
+        assert [event["capability"] for event in listed.payload["events"]] == ["mine.read"]
+
+        summary = _call("GET", "/api/usage/summary", headers=headers)
+        assert summary.status == 200
+        assert summary.payload is not None
+        assert [row["capability"] for row in summary.payload["capabilities"]] == ["mine.read"]
+        assert summary.payload["total_events"] == 1
+        assert summary.payload["total_cost_units"] == 1.0
+
+        unscoped = _call("GET", "/api/usage")
+        assert unscoped.payload is not None
+        assert unscoped.payload["total"] == 2
+    finally:
+        contexts.reset_cache()
+        context_tokens.reset_token_secret_cache()
+
+
 def test_route_decision_telemetry_emits_usage_event(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("kater.telemetry.insert_event", lambda _event: None)
     record_event(

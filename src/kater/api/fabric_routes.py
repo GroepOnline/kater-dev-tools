@@ -505,6 +505,11 @@ def _capabilities_get(req: Request) -> Response:
         Response: A capability manifest, or a 404 error if the capability is not found.
     """
     capability_id = req.params["capability_id"]
+    identity = resolve_request_identity(req)
+    # Mirror _capabilities_discover: a scoped context may not read manifests
+    # (schemas, required scopes, network targets) outside its allowlist.
+    if not capability_allowed(capability_id, identity.allowed_capabilities):
+        return Response.json(404, {"error": "capability not found"})
     manifest = get_default_registry().get(capability_id)
     if manifest is None:
         return Response.json(404, {"error": "capability not found"})
@@ -559,6 +564,8 @@ def _contexts_create(req: Request) -> Response:
         body = req.json
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be a JSON object"})
     principal_id = str(body.get("principal_id") or "").strip()
     if not principal_id:
         return Response.json(400, {"error": "principal_id is required"})
@@ -609,6 +616,7 @@ def _contexts_get(req: Request) -> Response:
 
 
 @route("POST", "/api/contexts/{context_id}/revoke")
+@route("DELETE", "/api/contexts/{context_id}")
 def _contexts_revoke(req: Request) -> Response:
     """Revoke a remote context owned by the requesting identity.
 
@@ -618,24 +626,6 @@ def _contexts_revoke(req: Request) -> Response:
     Returns:
         Response: The revoked context, or a 404 response when the context is missing, inaccessible,
             or cannot be revoked.
-    """
-    identity = resolve_request_identity(req)
-    record = remote_contexts.get_context(req.params["context_id"])
-    if record is None or not _identity_owns_context(identity, record):
-        return Response.json(404, {"error": "context not found"})
-    revoked = remote_contexts.revoke_context(req.params["context_id"])
-    if revoked is None:
-        return Response.json(404, {"error": "context not found"})
-    return Response.json(200, revoked.to_dict())
-
-
-@route("DELETE", "/api/contexts/{context_id}")
-def _contexts_delete(req: Request) -> Response:
-    """Revoke a remote context and return its updated record.
-
-    Returns:
-        The revoked context record, or a not-found error response when the
-        context does not exist, is not owned by the caller, or cannot be revoked.
     """
     identity = resolve_request_identity(req)
     record = remote_contexts.get_context(req.params["context_id"])
@@ -667,6 +657,8 @@ def _contexts_issue_token(req: Request) -> Response:
         body = req.json
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be a JSON object"})
     ttl_raw = body.get("ttl_seconds", 3600)
     try:
         ttl_seconds = int(ttl_raw)
@@ -677,9 +669,9 @@ def _contexts_issue_token(req: Request) -> Response:
             context_id,
             ttl_seconds=ttl_seconds,
         )
+    except remote_contexts.ContextNotActiveError:
+        return Response.json(404, {"error": "context not found"})
     except ValueError as exc:
-        if str(exc) == "context is not active":
-            return Response.json(404, {"error": "context not found"})
         return Response.json(400, {"error": str(exc)})
     expires_at = token_expires_at(token)
     return Response.json(
@@ -709,13 +701,25 @@ def _capability_audit_list(req: Request) -> Response:
         limit = int(limit_raw)
     except ValueError:
         return Response.json(400, {"error": "limit must be an integer"})
+    identity = resolve_request_identity(req)
     capability_id = req.query1("capability_id") or None
     context_id = req.query1("context_id") or None
+    # Scoped callers only ever see their own context's audit trail; ignore any
+    # context_id override for them. Absent context = admin/local caller.
+    if identity.context_id is not None:
+        context_id = identity.context_id
     rows = query_capability_audit(
         capability_id=capability_id,
         context_id=context_id,
         limit=limit,
     )
+    if identity.allowed_capabilities is not None:
+        allowed = identity.allowed_capabilities
+        rows = [
+            row
+            for row in rows
+            if capability_allowed(str(row.get("capability_id") or ""), allowed)
+        ]
     return Response.json(200, {"total": len(rows), "events": rows})
 
 

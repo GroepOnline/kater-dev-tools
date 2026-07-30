@@ -277,3 +277,56 @@ def test_unscoped_caller_still_creates_any_context(ctx_db) -> None:
         body={"principal_id": "agent-any", "allowed_capabilities": ["web.search"]},
     )
     assert created.status == 201
+
+
+def test_scoped_caller_cannot_read_a_manifest_outside_its_allowlist(ctx_db) -> None:
+    """Manifest reads honour the same allowlist discovery applies."""
+    record = contexts.create_context(
+        principal_id="agent-manifest",
+        allowed_capabilities=["web.search"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=300)
+    headers = {"X-Kater-Context": token}
+
+    denied = call("GET", "/api/capabilities/kater.profiles.list", headers=headers)
+    assert denied.status == 404
+
+    allowed_record = contexts.create_context(
+        principal_id="agent-manifest",
+        allowed_capabilities=["kater.profiles"],
+    )
+    allowed_token = context_tokens.issue_token(allowed_record, ttl_seconds=300)
+    permitted = call(
+        "GET",
+        "/api/capabilities/kater.profiles.list",
+        headers={"X-Kater-Context": allowed_token},
+    )
+    assert permitted.status == 200
+    assert permitted.payload is not None
+    assert permitted.payload["capability_id"] == "kater.profiles.list"
+
+    unscoped = call("GET", "/api/capabilities/kater.profiles.list")
+    assert unscoped.status == 200
+
+
+def test_delete_context_shares_the_revoke_handler(ctx_db) -> None:
+    """DELETE /api/contexts/{id} revokes just like the POST revoke route."""
+    record = contexts.create_context(principal_id="agent-delete")
+
+    deleted = call("DELETE", f"/api/contexts/{record.context_id}")
+    assert deleted.status == 200
+    assert deleted.payload is not None
+    assert deleted.payload["revoked_at"] is not None
+    assert deleted.payload["active"] is False
+
+    missing = call("DELETE", "/api/contexts/ctx_missing")
+    assert missing.status == 404
+
+
+def test_token_route_rejects_a_non_object_body(ctx_db) -> None:
+    """A JSON array body is a 400, not an unhandled AttributeError."""
+    record = contexts.create_context(principal_id="agent-body")
+    resp = call("POST", f"/api/contexts/{record.context_id}/token", body=["nope"])  # type: ignore[arg-type]
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "JSON object" in resp.payload["error"]

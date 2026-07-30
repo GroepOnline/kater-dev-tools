@@ -8,7 +8,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
@@ -25,8 +24,9 @@ def _need_yaml():
         return yaml
     except ImportError:
         sys.exit(
-            "PyYAML required: uv run python .agents/scripts/generate-taste.py "
-            "or pip install pyyaml"
+            "PyYAML required: install it with `uv sync --dev` (or "
+            "`pip install pyyaml`), then re-run "
+            "`uv run python .agents/scripts/generate-taste.py`"
         )
 
 
@@ -144,32 +144,20 @@ def main() -> int:
     )
 
     claude_rules = rules_for("claude_code", data)
-    section = render_claude_section(claude_rules)
     claude_path = ROOT / "CLAUDE.md"
-    if args.check:
-        if not claude_path.exists():
-            print("MISSING CLAUDE.md")
-            ok = False
-        else:
-            raw = claude_path.read_text(encoding="utf-8")
-            if "<!-- TASTE:START -->" not in raw or section.split("<!-- TASTE:START -->")[1].split("<!-- TASTE:END -->")[0] not in raw:
-                # softer check: markers present and HDR present
-                if "<!-- TASTE:START -->" not in raw or HDR not in raw:
-                    print("DRIFT   CLAUDE.md (taste markers)")
-                    ok = False
-                else:
-                    print("OK      CLAUDE.md (markers)")
-            else:
-                print("OK      CLAUDE.md")
-    else:
-        new = upsert_markers(
+    # CLAUDE.md is hand-written outside the taste markers, so the expected
+    # content is the current file with the marker section substituted. That
+    # keeps --check a full content comparison of the generated section.
+    ok &= write_or_check(
+        claude_path,
+        upsert_markers(
             claude_path,
-            section,
+            render_claude_section(claude_rules),
             "<!-- TASTE:START -->",
             "<!-- TASTE:END -->",
-        )
-        claude_path.write_text(new, encoding="utf-8")
-        print("WROTE   CLAUDE.md")
+        ),
+        args.check,
+    )
 
     if args.check and not ok:
         return 1

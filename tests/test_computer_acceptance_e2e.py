@@ -11,9 +11,11 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 from kater.capabilities.computer import (
@@ -36,7 +38,7 @@ def _invoke(
     ids: dict[str, object],
     arguments: dict[str, object],
 ) -> dict[str, object]:
-    body = {
+    body: dict[str, object] = {
         "name": capability_id,
         "arguments": {
             **ids,
@@ -55,10 +57,10 @@ def _invoke(
 
 def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
     """Exercise canonical controller, real guest, and production Kater routing together."""
-    checkout = Path(os.environ.get("KATER_ACCEPTANCE_CHECKOUT", "")).resolve()
-    assert os.environ.get("KATER_ACCEPTANCE_CHECKOUT"), (
-        "KATER_ACCEPTANCE_CHECKOUT is required"
-    )
+    checkout_value = os.environ.get("KATER_ACCEPTANCE_CHECKOUT")
+    if not checkout_value:
+        pytest.skip("KATER_ACCEPTANCE_CHECKOUT is required for cross-process computer acceptance")
+    checkout = Path(cast(str, checkout_value)).resolve()
     assert checkout.is_dir() and (checkout / ".git").exists(), (
         f"invalid contract checkout: {checkout}"
     )
@@ -189,7 +191,7 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
             {
                 **base_env,
                 "PYTHONPATH": str(Path.cwd() / "src") + os.pathsep + str(Path.cwd()),
-                "KATER_ACCEPTANCE_CHECKOUT": str(checkout),
+                "KATER_UDO_CHECKOUT": str(checkout),
                 "GUEST_ORIGIN": guest_url,
                 "GUEST_AGENT_TOKEN": guest_token,
                 "KATER_PORT": str(kater_port),
@@ -207,7 +209,7 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
             "workspace_generation": 1,
         }
         listed = json_request(f"{kater_url}/tools/list")
-        names = {item["name"] for item in listed["tools"]}  # type: ignore[index]
+        names = {str(item["name"]) for item in cast(list[dict[str, object]], listed["tools"])}
         assert {item.capability_id for item in manifests} <= names
 
         written = _invoke(
@@ -244,8 +246,9 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
                 ids,
                 {"terminal_id": terminal_id, "offset": offset},
             )
-            output += str(polled["result"].get("data", ""))  # type: ignore[index]
-            offset = int(polled["result"].get("offset", offset))  # type: ignore[index]
+            result = cast(dict[str, object], polled["result"])
+            output += str(result.get("data", ""))
+            offset = int(cast(str | int, result.get("offset", offset)))
             if "acceptance-terminal" in output:
                 break
             time.sleep(0.05)
@@ -350,9 +353,12 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
         )
         assert persisted_after_restart["lifecycle_state"] == "revoked"
         after_revoke = json_request(f"{kater_url}/tools/list")
-        assert "filesystem.read" not in {item["name"] for item in after_revoke["tools"]}  # type: ignore[index]
+        assert "filesystem.read" not in {
+            item["name"] for item in cast(list[dict[str, object]], after_revoke["tools"])
+        }
         denied = _invoke(kater_url, guest_token, "filesystem.read", ids, {"path": "acceptance.txt"})
-        assert denied["status"] == "denied" and denied["error"]["code"] == "capability_denied"  # type: ignore[index]
+        denied_error = cast(dict[str, object], denied["error"])
+        assert denied["status"] == "denied" and denied_error["code"] == "capability_denied"
 
         json_request(
             f"{controller_url}/v1/computer-sessions/{session_id}",
@@ -364,7 +370,8 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
         events = json_request(
             f"{controller_url}/v1/computer-sessions/{session_id}/events", token=controller_token
         )
-        assert [event["state"] for event in events["events"]] == [  # type: ignore[index]
+        event_items = cast(list[dict[str, object]], events["events"])
+        assert [event["state"] for event in event_items] == [
             "requested",
             "allocating",
             "guest_connecting",
@@ -381,7 +388,7 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
             "status": "passed",
             "session": {
                 "computer_session_id": session_id,
-                "lifecycle": [event["state"] for event in events["events"]],  # type: ignore[index]
+                "lifecycle": [event["state"] for event in event_items],
             },
             "calls": [
                 {"capability_id": capability_id, "status": "succeeded"}

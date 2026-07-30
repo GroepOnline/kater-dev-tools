@@ -12,6 +12,10 @@ All public symbols are re-exported here so existing imports like
 
 from __future__ import annotations
 
+# Fabric routes live in a separate module to avoid merge fights on routes.py.
+# Import here so registration survives if the routes.py side-effect line is lost.
+from kater.api import fabric_routes as _fabric_routes  # noqa: F401
+
 # Models — the data seam between stdlib HTTP and app logic.
 from kater.api.models import (
     ROUTER,

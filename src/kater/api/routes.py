@@ -16,6 +16,17 @@ from urllib.parse import quote, urlencode
 
 from kater.adapters.external import scan_adapters
 from kater.api.models import Request, Response, route
+from kater.authgate import capability_allowed, resolve_request_identity
+from kater.automations import get_engine
+from kater.browser.models import BrowserAction
+from kater.browser.policy import PolicyViolation
+from kater.browser.providers import BrowserUnavailableError, probe_providers
+from kater.browser.session import (
+    SessionLimitError,
+    UnknownSessionError,
+    get_manager,
+)
+from kater.capabilities.wiring import computer_status, get_computer_connector
 from kater.chains import list_chains
 
 if TYPE_CHECKING:
@@ -971,3 +982,387 @@ def _update_settings(req: Request) -> Response:
             )
     save_settings(settings)
     return Response.json(200, settings.to_safe_dict())
+
+
+# ── Native browser lane ────────────────────────────────────────────
+
+
+def _truthy_query(req: Request, key: str) -> bool:
+    raw = (req.query1(key) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _capability_denied(capability_id: str) -> Response:
+    return Response.json(
+        403,
+        {
+            "error": f"capability {capability_id!r} denied: not in context allowlist",
+            "code": "capability_denied",
+            "capability_id": capability_id,
+        },
+    )
+
+
+def _require_capability(req: Request, capability_id: str) -> Response | None:
+    identity = resolve_request_identity(req)
+    if not capability_allowed(capability_id, identity.allowed_capabilities):
+        return _capability_denied(capability_id)
+    return None
+
+
+# Errors from the browser lane that map to a 400 Bad Request response.
+_BROWSER_400_ERRORS = (SessionLimitError, BrowserUnavailableError, PolicyViolation, ValueError)
+
+
+@route("GET", "/api/browser/providers")
+def _browser_providers(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_providers"):
+        return denied
+    return Response.json(200, {"providers": [info.to_dict() for info in probe_providers()]})
+
+
+@route("GET", "/api/browser/sessions")
+def _browser_list_sessions(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_sessions"):
+        return denied
+    manager = get_manager()
+    live_only = _truthy_query(req, "live_only")
+    return Response.json(
+        200,
+        {
+            "sessions": [s.to_dict() for s in manager.list_sessions(live_only=live_only)],
+            "stats": manager.stats(),
+        },
+    )
+
+
+@route("POST", "/api/browser/sessions")
+def _browser_create_session(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_open"):
+        return denied
+    try:
+        body = req.json
+    except ValueError:
+        return Response.json(400, {"error": "malformed JSON body"})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "JSON body must be an object"})
+    try:
+        width = int(body.get("width") or 1280)
+        height = int(body.get("height") or 800)
+        session = get_manager().create(
+            label=body.get("label"),
+            profile=str(body.get("profile") or "core"),
+            viewport=(width, height),
+        )
+    except _BROWSER_400_ERRORS as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, {"session": session.to_dict()})
+
+
+@route("GET", "/api/browser/sessions/{session_id}")
+def _browser_get_session(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_sessions"):
+        return denied
+    session_id = req.params["session_id"]
+    session = get_manager().get(session_id)
+    if session is None:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    return Response.json(200, session.to_dict())
+
+
+@route("DELETE", "/api/browser/sessions/{session_id}")
+def _browser_close_session(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_close"):
+        return denied
+    session_id = req.params["session_id"]
+    try:
+        session = get_manager().close(session_id)
+    except UnknownSessionError:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    except _BROWSER_400_ERRORS as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, {"session": session.to_dict()})
+
+
+@route("POST", "/api/browser/sessions/{session_id}/act")
+def _browser_act(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_act"):
+        return denied
+    session_id = req.params["session_id"]
+    try:
+        body = req.json
+    except ValueError:
+        return Response.json(400, {"error": "malformed JSON body"})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "JSON body must be an object"})
+    payload = {k: v for k, v in body.items() if k != "session_id"}
+    manager = get_manager()
+    if manager.get(session_id) is None:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    try:
+        action = BrowserAction.from_dict(payload)
+        result = manager.act(session_id, action)
+    except UnknownSessionError:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    except _BROWSER_400_ERRORS as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, result.to_dict())
+
+
+@route("POST", "/api/browser/sessions/{session_id}/screenshot")
+def _browser_screenshot(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_screenshot"):
+        return denied
+    session_id = req.params["session_id"]
+    try:
+        body = req.json
+    except ValueError:
+        return Response.json(400, {"error": "malformed JSON body"})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "JSON body must be an object"})
+    manager = get_manager()
+    if manager.get(session_id) is None:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    try:
+        result = manager.screenshot(session_id, full_page=bool(body.get("full_page", False)))
+    except UnknownSessionError:
+        return Response.json(404, {"error": f"unknown session: {session_id}"})
+    except _BROWSER_400_ERRORS as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, result.to_dict())
+
+
+@route("GET", "/api/browser/stats")
+def _browser_stats(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_sessions"):
+        return denied
+    return Response.json(200, get_manager().stats())
+
+
+@route("DELETE", "/api/browser/sessions")
+def _browser_close_all(req: Request) -> Response:
+    if denied := _require_capability(req, "kater_browser_close"):
+        return denied
+    try:
+        closed = get_manager().close_all()
+    except _BROWSER_400_ERRORS as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, {"closed": closed})
+
+
+# ── Automations ────────────────────────────────────────────────────
+
+
+@route("GET", "/api/automations")
+def _automations_list(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.list"):
+        return denied
+    engine = get_engine()
+    engine.ensure_defaults()
+    items = [item.to_dict() for item in engine.list()]
+    return Response.json(200, {"automations": items, "total": len(items)})
+
+
+@route("GET", "/api/automations/{id}")
+def _automations_get(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.get"):
+        return denied
+    automation = get_engine().get(req.params["id"])
+    if automation is None:
+        return Response.json(404, {"error": "automation not found"})
+    return Response.json(200, automation.to_dict())
+
+
+@route("POST", "/api/automations")
+def _automations_upsert(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.upsert"):
+        return denied
+    try:
+        body = req.json
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    name = str(body.get("name") or "").strip()
+    kind = str(body.get("kind") or "").strip()
+    if not name or not kind:
+        return Response.json(400, {"error": "name and kind are required"})
+    config = body.get("config")
+    if config is not None and not isinstance(config, dict):
+        return Response.json(400, {"error": "config must be an object"})
+    try:
+        automation = get_engine().upsert(
+            id=str(body["id"]) if body.get("id") else None,
+            name=name,
+            kind=kind,
+            enabled=bool(body.get("enabled", True)),
+            schedule_seconds=int(body.get("schedule_seconds") or 0),
+            config=config if isinstance(config, dict) else None,
+        )
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    _ws_broadcast(
+        "automation_upsert",
+        {"id": automation.id, "kind": automation.kind, "enabled": automation.enabled},
+    )
+    return Response.json(200, automation.to_dict())
+
+
+@route("POST", "/api/automations/{id}/run")
+def _automations_run(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.run"):
+        return denied
+    automation_id = req.params["id"]
+    try:
+        result = get_engine().run_now(automation_id)
+    except KeyError:
+        return Response.json(404, {"error": "automation not found"})
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, result.to_dict())
+
+
+@route("POST", "/api/automations/{id}/enable")
+def _automations_enable(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.enable"):
+        return denied
+    automation = get_engine().set_enabled(req.params["id"], True)
+    if automation is None:
+        return Response.json(404, {"error": "automation not found"})
+    _ws_broadcast("automation_enabled", {"id": automation.id})
+    return Response.json(200, automation.to_dict())
+
+
+@route("POST", "/api/automations/{id}/disable")
+def _automations_disable(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.disable"):
+        return denied
+    automation = get_engine().set_enabled(req.params["id"], False)
+    if automation is None:
+        return Response.json(404, {"error": "automation not found"})
+    _ws_broadcast("automation_disabled", {"id": automation.id})
+    return Response.json(200, automation.to_dict())
+
+
+@route("PATCH", "/api/automations/{id}")
+def _automations_patch(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.update"):
+        return denied
+    automation_id = req.params["id"]
+    engine = get_engine()
+    existing = engine.get(automation_id)
+    if existing is None:
+        return Response.json(404, {"error": "automation not found"})
+    try:
+        body = req.json
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    if "enabled" in body and len(body) == 1:
+        automation = engine.set_enabled(automation_id, bool(body["enabled"]))
+        if automation is None:
+            return Response.json(404, {"error": "automation not found"})
+        _ws_broadcast("automation_upserted", {"automation": automation.to_dict()})
+        return Response.json(200, automation.to_dict())
+    name = str(body["name"]).strip() if body.get("name") is not None else existing.name
+    kind = str(body["kind"]).strip() if body.get("kind") is not None else existing.kind
+    config = body.get("config", existing.config)
+    if config is not None and not isinstance(config, dict):
+        return Response.json(400, {"error": "config must be an object"})
+    try:
+        automation = engine.upsert(
+            id=automation_id,
+            name=name,
+            kind=kind,
+            enabled=bool(body.get("enabled", existing.enabled)),
+            schedule_seconds=(
+                existing.schedule_seconds
+                if body.get("schedule_seconds") is None
+                else int(body["schedule_seconds"])
+            ),
+            config=config if isinstance(config, dict) else existing.config,
+        )
+    except (TypeError, ValueError) as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, automation.to_dict())
+
+
+@route("DELETE", "/api/automations/{id}")
+def _automations_delete(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.delete"):
+        return denied
+    automation_id = req.params["id"]
+    if not get_engine().delete(automation_id):
+        return Response.json(404, {"error": "automation not found"})
+    _ws_broadcast("automation_deleted", {"id": automation_id})
+    return Response.json(200, {"deleted": True, "id": automation_id})
+
+
+# ── Computer lane (guest HTTP connector) ───────────────────────────
+
+
+@route("GET", "/api/computer")
+def _computer_status(req: Request) -> Response:
+    payload = computer_status()
+    identity = resolve_request_identity(req)
+    if identity.allowed_capabilities is not None:
+        allowed_ids = [
+            cap_id
+            for cap_id in payload["capability_ids"]
+            if capability_allowed(cap_id, identity.allowed_capabilities)
+        ]
+        payload = {
+            **payload,
+            "capability_ids": allowed_ids,
+            "capability_count": len(allowed_ids),
+        }
+    return Response.json(200, payload)
+
+
+@route("GET", "/api/computer/capabilities")
+def _computer_capabilities(req: Request) -> Response:
+    connector = get_computer_connector()
+    if connector is None:
+        return Response.json(200, {"tools": [], "total": 0})
+    tools = connector.list_tools()
+    identity = resolve_request_identity(req)
+    if identity.allowed_capabilities is not None:
+        tools = [
+            tool
+            for tool in tools
+            if capability_allowed(str(tool["name"]), identity.allowed_capabilities)
+        ]
+    return Response.json(200, {"tools": tools, "total": len(tools)})
+
+
+@route("POST", "/api/computer/invoke")
+def _computer_invoke(req: Request) -> Response:
+    connector = get_computer_connector()
+    if connector is None:
+        return Response.json(503, {"error": "computer connector is not configured"})
+    try:
+        body = req.json
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be a JSON object"})
+    capability_id = body.get("capability_id")
+    if not isinstance(capability_id, str) or not capability_id.strip():
+        return Response.json(400, {"error": "capability_id is required"})
+    capability_name = capability_id.strip()
+    # Mirror ProxyManager.call_tool: a scoped context token may only invoke
+    # capabilities on its allowlist. An absent/empty allowlist is unrestricted.
+    identity = resolve_request_identity(req)
+    if not capability_allowed(capability_name, identity.allowed_capabilities):
+        return Response.json(
+            403,
+            {
+                "error": f"capability {capability_name!r} denied: not in context allowlist",
+                "code": "capability_denied",
+                "capability_id": capability_name,
+            },
+        )
+    arguments = {key: value for key, value in body.items() if key != "capability_id"}
+    result = connector.call(capability_name, arguments)
+    return Response.json(200, result)
+
+
+# Fabric lane (capability discovery + remote contexts). Side-effect import.
+from kater.api import fabric_routes as _fabric_routes  # noqa: E402, F401

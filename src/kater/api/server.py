@@ -89,6 +89,7 @@ def handle(request: Request) -> Response:
                 authorization_header=request.header("authorization"),
                 query_api_key=request.query1("api_key"),
                 path=request.path,
+                context_header=request.header("x-kater-context"),
             )
         )
         if not decision.allowed:

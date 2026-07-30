@@ -265,12 +265,49 @@ _REMOTE_CONTEXTS_V4 = (
     "CREATE INDEX IF NOT EXISTS idx_remote_contexts_principal ON remote_contexts(principal_id)",
 )
 
+_USAGE_EVENTS_V5 = (
+    """CREATE TABLE IF NOT EXISTS usage_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp REAL NOT NULL,
+        capability TEXT NOT NULL,
+        backend TEXT,
+        tool_name TEXT,
+        account_id TEXT,
+        context_id TEXT,
+        principal_id TEXT,
+        success INTEGER NOT NULL DEFAULT 1,
+        duration_ms REAL NOT NULL DEFAULT 0,
+        cost_units REAL NOT NULL DEFAULT 0,
+        metadata TEXT NOT NULL DEFAULT '{}'
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_usage_events_ts ON usage_events(timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_usage_events_cap ON usage_events(capability)",
+)
+
+_CAPABILITY_AUDIT_V6 = (
+    """CREATE TABLE IF NOT EXISTS capability_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp REAL NOT NULL,
+        capability_id TEXT NOT NULL,
+        principal_id TEXT,
+        context_id TEXT,
+        outcome TEXT NOT NULL,
+        reason TEXT,
+        duration_ms REAL,
+        profile TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_capability_audit_ts ON capability_audit(timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_capability_audit_cap ON capability_audit(capability_id)",
+)
+
 #: Ordered, append-only. Add new versions at the end; never edit a released one.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="baseline", statements=_BASELINE),
     Migration(version=2, name="browser_lane", statements=_BROWSER_V2),
     Migration(version=3, name="automations", statements=_AUTOMATIONS_V3),
     Migration(version=4, name="remote_contexts", statements=_REMOTE_CONTEXTS_V4),
+    Migration(version=5, name="usage_events", statements=_USAGE_EVENTS_V5),
+    Migration(version=6, name="capability_audit", statements=_CAPABILITY_AUDIT_V6),
 )
 
 _CREATE_SCHEMA_TABLE = f"""CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (
@@ -388,6 +425,18 @@ def _apply(conn: sqlite3.Connection, migration: Migration) -> None:
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # BEGIN IMMEDIATE serialises writers, so re-check under the write
+            # lock: another process may have applied this version between our
+            # snapshot of the recorded versions and acquiring the lock. If so,
+            # commit the empty transaction and treat it as already applied
+            # instead of hitting a primary-key conflict on the insert.
+            already = conn.execute(
+                f"SELECT 1 FROM {SCHEMA_TABLE} WHERE version = ?",  # noqa: S608
+                (migration.version,),
+            ).fetchone()
+            if already is not None:
+                conn.execute("COMMIT")
+                return
             for statement in migration.statements:
                 conn.execute(statement)
             conn.execute(

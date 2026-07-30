@@ -195,8 +195,12 @@ class KaterRuntime:
             _log.warning("janitor: telemetry prune failed: %s", exc)
         try:
             from kater.control_plane import prune_control_plane_state
+            from kater.control_plane.usage import prune_usage_events
 
             prune_control_plane_state()
+            removed = prune_usage_events()
+            if removed:
+                _log.info("janitor: pruned %d usage ledger rows", removed)
         except Exception as exc:
             _log.warning("janitor: control-plane prune failed: %s", exc)
 

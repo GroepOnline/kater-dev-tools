@@ -27,7 +27,17 @@ Each agent prompt must be self-contained: focused scope, clear goal, constraints
 code"), and expected output (summary of root cause + changes). After return: review summaries, check
 for cross-agent conflicts, run the full test suite, then integrate.
 
-## Cursor Cloud specific instructions
+## Agent taste (shared)
+
+Canonieke agent-gedrag-taste leeft in `.agents/registry/taste.yaml` (niet in
+consuming apps zoals `design-system`). Genereer tool-artefacts met:
+
+```bash
+uv run python .agents/scripts/generate-taste.py
+uv run python .agents/scripts/generate-taste.py --check
+```
+
+Zie `.agents/README.md`. UI-taste blijft in `design-system/taste/`.
 
 Kater is a single Python package (`uv`-managed, Python 3.11–3.14; VM ships 3.12). The startup update
 script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile`) and runs

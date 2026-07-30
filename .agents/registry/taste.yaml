@@ -1,0 +1,59 @@
+version: 1
+# Canonieke agent-gedrag-taste. Inhoud hier; overlays alleen syntax.
+# applies_to: all | lijst van tools: claude_code, cursor, cmd, droid, pi, agy
+rules:
+  - id: dutch-communication
+    scope: [voice]
+    text: "Communiceer in het Nederlands tenzij de gebruiker expliciet Engels vraagt."
+    applies_to: all
+    evidence: "design-system .commandcode/taste confidence 0.9"
+
+  - id: plan-then-implement
+    scope: [workflow]
+    text: "Bij multi-stap of onduidelijke scope: eerst verkennen, dan plan, dan implementeren. Geen stille big-bang."
+    applies_to: all
+    evidence: "design-system .commandcode/taste confidence 0.6"
+
+  - id: strict-critical-eval
+    scope: [workflow]
+    text: "Beoordeel streng: relevantie en kwaliteit van bestanden/assets eerst inspecteren, niet blind accepteren of alleen opsommen."
+    applies_to: all
+    evidence: "design-system .commandcode/taste confidence 0.7"
+
+  - id: comprehensive-git-status
+    scope: [workflow]
+    text: "Bij git status: geef een volledig overzicht (local status, branches local+remote, recente commits, remotes, open PRs via gh)."
+    applies_to: all
+    evidence: "design-system .commandcode/taste confidence 0.6"
+
+  - id: cross-session-continuity
+    scope: [workflow]
+    text: "Herstel context uit eerdere sessies en tools (Cursor, Pi, cmd) wanneer relevant; herhaal geen afgerond werk."
+    applies_to: all
+    evidence: "design-system .commandcode/taste confidence 0.5"
+
+  - id: accept-peer-agent-artifacts
+    scope: [workflow]
+    text: "Accepteer en integreer artefacts van peer-agents (docs, files) zonder het werk over te doen; pak zelf git/PR op wanneer dat de taak is."
+    applies_to: all
+    evidence: "design-system .commandcode/taste confidence 0.7"
+
+  - id: no-inline-comments-unless-asked
+    scope: [style]
+    text: "Geen inline comments tenzij expliciet gevraagd of de logica niet-triviaal is."
+    applies_to: all
+
+  - id: conventional-commits
+    scope: [workflow]
+    text: "Conventional commits; geen AI-signatuur of co-authored bot-regels tenzij de repo dat eist."
+    applies_to: all
+
+  - id: brutalist-minimal
+    scope: [output]
+    text: "Zero-bloat: geen boilerplate, geen overbodige abstractielaag, geen marketing-copy."
+    applies_to: all
+
+  - id: no-secrets-in-output
+    scope: [safety]
+    text: "Nooit secrets, tokens of DSNs in chat/PR/commits; rapporteer hoogstens korte fingerprints."
+    applies_to: all

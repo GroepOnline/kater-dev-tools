@@ -11,8 +11,13 @@ htmlcov/
 .env.local
 .env.kater.example
 *.pyc
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/taste.mdc
 .opencode/
 
 # Runtime state — never commit (db + sqlite sidecars + oauth)
 .kater/
+
+# Advisory lock sidecars for the agent-taste signals registry
+.agents/registry/*.lock

@@ -93,6 +93,9 @@ jobs:
           uv run python .agents/scripts/generate-taste.py --check
           uv run python .agents/scripts/eval-score.py --gate
 
+      - name: Cursor artifact guard
+        run: bash scripts/check_cursor_artifacts.sh
+
   # ── lint-type: ruff, format, mypy on the 3.11 syntax baseline ──────────
   lint-type:
     runs-on: ubuntu-latest

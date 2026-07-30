@@ -17,6 +17,8 @@ from pathlib import Path
 
 # Files where the org handle / domain are legitimately expected (attribution,
 # split audit, license, code-owner routing, changelog). Anything outside these is a leak.
+# `.cursor/` is never allowlisted — org-pinned skills/agents belong in the private
+# deployment overlay (see docs/ops/private-cursor-overlay.md).
 ALLOWED_ORG_HANDLE = frozenset(
     {
         "README.md",

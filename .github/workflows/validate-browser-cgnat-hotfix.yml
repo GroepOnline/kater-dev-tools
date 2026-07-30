@@ -1,0 +1,23 @@
+name: Validate browser CGNAT hotfix
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    if: github.head_ref == 'fix/browser-cgnat-egress'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --dev --extra browser
+      - run: uv run ruff check src/kater/browser/policy.py tests/test_browser_cgnat_policy.py
+      - run: uv run pytest -q tests/test_browser_policy.py tests/test_browser_cgnat_policy.py

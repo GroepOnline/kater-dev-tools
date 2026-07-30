@@ -2162,6 +2162,14 @@ function closeDetail() {
 // ── Credentials modal ──────────────────
 let credServer = null;
 
+function credInputId(envName, index) {
+  const slug = String(envName).replace(/[^a-z0-9]/gi, '-').toLowerCase()
+    .replace(/^-+|-+$/g, '');
+  // Sanitization is lossy (FOO_BAR vs FOO-BAR); index keeps ids unique.
+  const base = slug || 'field';
+  return 'cred-input-' + base + '-' + index;
+}
+
 function connectSelected() {
   if (selectedNode && selectedNode.name) promptCredentials(selectedNode.name);
 }
@@ -2189,13 +2197,16 @@ function openCredentialsModal(server) {
   } else {
     sub.textContent = 'Paste ' + (reqs.length > 1 ? 'these tokens' : 'a token')
       + ' to connect ' + server.name + ', or open the provider to create one.';
-    for (const v of reqs) {
+    reqs.forEach((v, i) => {
       const wrap = document.createElement('div');
       wrap.className = 'form-field';
+      const inputId = credInputId(v, i);
       const label = document.createElement('label');
       label.className = 'form-label';
       label.textContent = v;
+      label.setAttribute('for', inputId);
       const input = document.createElement('input');
+      input.id = inputId;
       input.className = 'form-input';
       input.type = 'password';
       input.autocomplete = 'off';
@@ -2210,7 +2221,7 @@ function openCredentialsModal(server) {
       wrap.appendChild(label);
       wrap.appendChild(input);
       fields.appendChild(wrap);
-    }
+    });
   }
   const prov = document.getElementById('cred-provider');
   if (server.homepage) { prov.href = server.homepage; prov.style.display = ''; }

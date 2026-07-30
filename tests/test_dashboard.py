@@ -9,6 +9,10 @@ These tests guard two things the design review flagged:
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+
 import pytest
 
 from kater.api import ROUTER
@@ -218,6 +222,170 @@ def test_pr_view_has_accessible_refresh_button_and_status_region():
     assert 'onclick="loadPRView(this)"' in _VIEW_PR
     assert 'id="pr-count" role="status"' in _VIEW_PR
     assert 'id="btn-pr-refresh"' in html
+
+
+def _extract_js_function(source: str, name: str) -> str:
+    """Slice a whole `function name(...) {...}` declaration out of the JS."""
+    start = source.index(f"function {name}(")
+    depth = 0
+    for pos in range(source.index("{", start), len(source)):
+        if source[pos] == "{":
+            depth += 1
+        elif source[pos] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start : pos + 1]
+    raise AssertionError(f"unbalanced braces in function {name}")
+
+
+# Minimal DOM shim: enough of document/Element for the credentials modal to
+# build its fields, so the test exercises the shipped JS instead of matching
+# source strings. `id` registrations are tracked so a label's `for` can be
+# resolved the way a browser (and a screen reader) would.
+_DOM_HARNESS = r"""
+const byId = new Map();
+
+class El {
+  constructor(tag) {
+    this.tagName = String(tag).toUpperCase();
+    this.children = [];
+    this.attributes = {};
+    this.dataset = {};
+    this.style = {};
+    this.textContent = '';
+    this.focused = false;
+    this._id = '';
+    const classes = new Set();
+    this.classList = {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    };
+  }
+  get id() { return this._id; }
+  set id(value) {
+    this._id = String(value);
+    if (!byId.has(this._id)) byId.set(this._id, []);
+    byId.get(this._id).push(this);
+  }
+  get innerHTML() { return ''; }
+  set innerHTML(value) {
+    if (value !== '') throw new Error('harness only supports clearing innerHTML');
+    this.children = [];
+  }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return name in this.attributes ? this.attributes[name] : null; }
+  appendChild(child) { this.children.push(child); return child; }
+  addEventListener() {}
+  focus() { this.focused = true; }
+  querySelector(sel) {
+    for (const child of this.children) {
+      if (child.tagName === String(sel).toUpperCase()) return child;
+      const hit = child.querySelector(sel);
+      if (hit) return hit;
+    }
+    return null;
+  }
+}
+
+const shell = {};
+for (const id of ['cred-title', 'cred-sub', 'cred-fields', 'cred-provider', 'cred-modal']) {
+  const el = new El('div');
+  el.id = id;
+  shell[id] = el;
+}
+const document = {
+  createElement: (tag) => new El(tag),
+  getElementById: (id) => shell[id] || null,
+};
+let credServer = null;
+
+/*__DASHBOARD_JS__*/
+
+openCredentialsModal(/*__SERVER__*/);
+
+const fields = document.getElementById('cred-fields');
+const rendered = fields.children.map((wrap) => {
+  const label = wrap.children.find((c) => c.tagName === 'LABEL') || null;
+  const input = wrap.children.find((c) => c.tagName === 'INPUT') || null;
+  const target = label ? label.getAttribute('for') : null;
+  const matches = target ? (byId.get(target) || []) : [];
+  return {
+    labelText: label ? label.textContent : null,
+    labelFor: target,
+    inputId: input ? input.id : null,
+    inputType: input ? input.type : null,
+    envData: input ? input.dataset.env : null,
+    focused: input ? input.focused : null,
+    // How many elements in the document answer to the label's `for`, and
+    // whether the one it resolves to is this field's own input.
+    idMatchCount: matches.length,
+    resolvesToOwnInput: matches.length === 1 && matches[0] === input,
+  };
+});
+process.stdout.write(JSON.stringify({
+  fields: rendered,
+  modalOpen: document.getElementById('cred-modal').classList.contains('show'),
+}));
+"""
+
+
+def _open_credentials_modal(env_required: list[str], tmp_path) -> dict:
+    """Run the dashboard's real credentials-modal JS and report the DOM built."""
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:  # pragma: no cover - depends on the host toolchain
+        pytest.skip("node is required to execute the dashboard JS")
+    html = render_dashboard()
+    dashboard_js = "\n".join(
+        _extract_js_function(html, name) for name in ("credInputId", "openCredentialsModal")
+    )
+    server = {"name": "demo", "env_required": env_required, "env_configured": False}
+    script = tmp_path / "cred_modal.cjs"
+    script.write_text(
+        _DOM_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js).replace(
+            "/*__SERVER__*/", json.dumps(server)
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_credential_inputs_are_explicitly_associated_with_labels(tmp_path):
+    # Behavioural check: run the modal's JS and assert every rendered input is
+    # reachable from its own label via for/id, which is what a screen reader
+    # uses to announce the credential name.
+    names = ["GITHUB_TOKEN", "OPENAI_API_KEY"]
+    result = _open_credentials_modal(names, tmp_path)
+    assert result["modalOpen"] is True
+    assert [f["labelText"] for f in result["fields"]] == names
+    for name, field in zip(names, result["fields"], strict=True):
+        assert field["inputId"], "input needs an id for its label to target it"
+        assert field["labelFor"] == field["inputId"]
+        assert field["resolvesToOwnInput"] is True
+        assert field["envData"] == name
+        assert field["inputType"] == "password"
+    # Focus lands on the first credential field when the modal opens.
+    assert result["fields"][0]["focused"] is True
+
+
+def test_credential_input_ids_stay_unique_when_env_names_collide_after_sanitize(tmp_path):
+    # Sanitization is lossy (FOO_BAR and FOO-BAR normalize alike, and some
+    # names sanitize to nothing), so each label must still resolve to exactly
+    # one input rather than stealing focus from an earlier field.
+    names = ["FOO_BAR", "FOO-BAR", "API_KEY", "API-KEY", "___", "---", ""]
+    result = _open_credentials_modal(names, tmp_path)
+    ids = [f["inputId"] for f in result["fields"]]
+    assert len(ids) == len(set(ids))
+    for name, field in zip(names, result["fields"], strict=True):
+        assert field["labelText"] == name
+        assert field["labelFor"] == field["inputId"]
+        assert field["idMatchCount"] == 1
+        assert field["resolvesToOwnInput"] is True
+        assert " " not in field["inputId"]
 
 
 def test_pr_view_reload_is_race_safe_and_dom_safe():

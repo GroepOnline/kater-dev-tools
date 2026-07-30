@@ -12,7 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- _Nothing yet._
+- Shared agent-taste registry: `.agents/registry/taste.yaml` + overlays +
+  `generate-taste.py` (cmd / Cursor / Claude Code artefacts)
+- Decision boundary: UI-taste stays in design-system; agent-taste lives here
+- Signals + eval gate: `signals.yaml`, `taste-signal.py`, `eval-score.py --gate`,
+  thresholds/scorecard, CI job + nightly `agent-taste-eval.yml` (artefact only)
+- Fleet runner `scripts/run-taste-brain-eval.sh` + systemd timer templates under
+  `infra/` (not for laptop)
 
 ### Changed
 

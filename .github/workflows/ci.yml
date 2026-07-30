@@ -171,7 +171,7 @@ jobs:
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_api.py tests/test_oauth.py tests/test_authgate.py tests/test_storage.py tests/test_proxy.py
 
   # The Computer lane is a cross-repository contract gate. Keep it out of the
-  # Python-version matrix and run it once against the exact UDO contract/runtime
+  # Python-version matrix and run it once against the exact private contract/runtime
   # commit that Kater's generated package was synchronized from. Dependabot
   # cannot receive the private deploy key, so only that actor gets an explicit,
   # auditable skip while the public unit/integration/e2e gates remain required.
@@ -183,7 +183,7 @@ jobs:
       - name: Explain skipped private acceptance
         if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
         run: |
-          echo "Private UDO acceptance skipped for Dependabot because GitHub withholds repository secrets from Dependabot-triggered workflows." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Private computer-acceptance skipped for Dependabot because GitHub withholds repository secrets from Dependabot-triggered workflows." | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout Kater
         if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
@@ -191,7 +191,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout pinned UDO runtime
+      - name: Checkout pinned private contract runtime
         if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -221,7 +221,7 @@ jobs:
         if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
         env:
           COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
-          KATER_UDO_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
+          KATER_ACCEPTANCE_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
 
       - name: Publish schema-validated acceptance evidence

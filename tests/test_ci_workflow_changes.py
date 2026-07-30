@@ -32,8 +32,15 @@ def test_automerge_uses_github_script_v9() -> None:
 
 def test_ci_jobs_install_the_browser_extra() -> None:
     text = CI.read_text(encoding="utf-8")
-    # lint-type, unit, integration, computer-acceptance, package: 5 occurrences.
-    assert text.count("uv sync --frozen --dev --extra browser") == 5
+    required = (
+        ("lint-type", "unit"),
+        ("unit", "integration"),
+        ("integration", "computer-acceptance"),
+        ("e2e", "package"),
+    )
+    for job, next_job in required:
+        block = _job_block(text, job, next_job)
+        assert "uv sync --frozen --dev --extra browser" in block
 
 
 def test_unit_matrix_job_uses_kater_checkout_sha_and_longer_timeout() -> None:

@@ -338,7 +338,7 @@ jobs:
           enable-cache: true
 
       - name: Dependency review
-        if: github.event_name == 'pull_request'
+        if: github.repository == 'OnlineChefGroep/kater-dev-tools' && github.event_name == 'pull_request'
         uses: actions/dependency-review-action@cc4f6536e38d1126c5e3b0683d469a14f23bfea4 # v3
         with:
           fail-on-severity: high

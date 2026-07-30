@@ -74,6 +74,22 @@ class TestBuildPaths:
                 if method in ("get", "post", "put", "delete", "patch", "head"):
                     assert "responses" in spec, f"{method.upper()} {path} missing responses"
 
+    def test_browser_paths_exist(self):
+        paths = _build_paths()
+        assert "get" in paths["/api/browser/providers"]
+        assert {"get", "post", "delete"} <= set(paths["/api/browser/sessions"])
+        assert {"get", "delete"} <= set(paths["/api/browser/sessions/{session_id}"])
+        assert "post" in paths["/api/browser/sessions/{session_id}/act"]
+        assert "post" in paths["/api/browser/sessions/{session_id}/screenshot"]
+        assert "get" in paths["/api/browser/stats"]
+
+    def test_automations_paths_exist(self):
+        paths = _build_paths()
+        assert {"get", "post"} <= set(paths["/api/automations"])
+        assert {"get", "delete"} <= set(paths["/api/automations/{id}"])
+        for suffix in ("run", "enable", "disable"):
+            assert "post" in paths[f"/api/automations/{{id}}/{suffix}"]
+
 
 class TestBuildSchemas:
     def test_has_schemas(self):

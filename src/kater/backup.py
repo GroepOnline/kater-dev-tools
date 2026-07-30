@@ -538,6 +538,14 @@ def restore_backup(
     # Drop caches pinned to the settings/database files we just replaced.
     invalidate_settings_cache()
     reset_db_cache()
+    for _reset in (
+        _browser_store_reset,
+        _automations_store_reset,
+        _contexts_reset,
+        _usage_reset,
+        _capability_audit_reset,
+    ):
+        _reset()
 
     applied: tuple[int, ...] = ()
     if DB_NAME in restored:

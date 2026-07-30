@@ -72,7 +72,7 @@ def _emit_usage_from_route(event: TelemetryEvent) -> None:
             timestamp=event.timestamp,
         )
     except Exception as exc:
-        _log.debug("usage event record failed: %s", exc)
+        _log.warning("usage event record failed for %s: %s", event.name, exc)
 
 
 def record_tool_call(

@@ -39,21 +39,23 @@ def test_mcp_registers_core_tools() -> None:
 def test_create_server_allowlists_tunnel_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_server = Mock()
     fake_server.tool.return_value = lambda handler: handler
-    security_ctor = Mock(side_effect=lambda **kw: ("security", kw))
     fake_module = Mock(
         FastMCP=Mock(return_value=fake_server),
-        TransportSecuritySettings=security_ctor,
     )
     monkeypatch.setenv("KATER_DOMAIN", "kater.example.com")
     monkeypatch.setenv("KATER_HTTPS_HOSTS", "kater.example.com,alt.example.com")
 
     with patch("kater.mcp_server.import_module", return_value=fake_module):
-        mcp_server.create_server(profile="core")
+        server = mcp_server.create_server(profile="core")
 
-    assert fake_module.FastMCP.call_args.kwargs["transport_security"][0] == "security"
-    settings = fake_module.FastMCP.call_args.kwargs["transport_security"][1]
-    assert settings["enable_dns_rebinding_protection"] is True
-    assert settings["allowed_hosts"] == [
+    # mcp 1.x passes transport_security to FastMCP(); mcp 2.x stores it for sse_app().
+    if fake_module.FastMCP.called:
+        settings = fake_module.FastMCP.call_args.kwargs["transport_security"]
+    else:
+        settings = server._kater_sse_transport_security
+
+    assert settings.enable_dns_rebinding_protection is True
+    assert settings.allowed_hosts == [
         "127.0.0.1:*",
         "localhost:*",
         "[::1]:*",
@@ -62,7 +64,7 @@ def test_create_server_allowlists_tunnel_hosts(monkeypatch: pytest.MonkeyPatch) 
         "alt.example.com",
         "alt.example.com:*",
     ]
-    assert settings["allowed_origins"] == [
+    assert settings.allowed_origins == [
         "http://127.0.0.1:*",
         "http://localhost:*",
         "http://[::1]:*",

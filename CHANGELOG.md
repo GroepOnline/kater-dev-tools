@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAPI paths for the native browser lane (`/api/browser/*`) and automations (`/api/automations/*`).
 - `.env.example` knobs for optional browser providers, domain policy, and session limits.
 - Deploy docs cover three-port layout (9090/9091/9092), `kater migrate apply` / `kater backup create`, and optional Playwright browser install.
+- Shared agent-taste registry: `.agents/registry/taste.yaml` + overlays +
+  `generate-taste.py` (cmd / Cursor / Claude Code artefacts)
+- Decision boundary: UI-taste stays in design-system; agent-taste lives here
+- Signals + eval gate: `signals.yaml`, `taste-signal.py`, `eval-score.py --gate`,
+  thresholds/scorecard, CI job + nightly `agent-taste-eval.yml` (artefact only)
+- Fleet runner `scripts/run-taste-brain-eval.sh` + systemd timer templates under
+  `infra/` (not for laptop)
 
 ### Changed
 

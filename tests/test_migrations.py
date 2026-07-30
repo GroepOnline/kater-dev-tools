@@ -273,6 +273,7 @@ def test_baseline_matches_the_ad_hoc_ddl_of_every_owning_module() -> None:
     fresh = sqlite3.connect(":memory:")
     try:
         for schema in legacy_schemas:
+            assert isinstance(schema, str)
             legacy.executescript(schema)
         migrations.run_migrations(fresh)
 

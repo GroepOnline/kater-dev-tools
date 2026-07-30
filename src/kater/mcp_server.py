@@ -6,7 +6,7 @@ import logging
 import os
 import re
 from importlib import import_module
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs
 
 from kater.registry import tools_for_profile
@@ -110,19 +110,34 @@ def _public_tunnel_hosts() -> list[str]:
     return hosts
 
 
-def _transport_security_settings(fastmcp_module: Any) -> Any | None:
+def _load_mcp_server_class() -> tuple[Any, bool]:
+    """Return ``(ServerClass, pass_transport_security_to_sse_app)``.
+
+    mcp 2.0 renamed ``FastMCP`` to ``MCPServer`` (``mcp.server.mcpserver``) and
+    moved ``transport_security`` from the constructor to ``sse_app()``. Keep both
+    import paths so Dependabot bumps and older installs keep working.
+    """
+    try:
+        mcpserver = import_module("mcp.server.mcpserver")
+        mcpserver_cls = getattr(mcpserver, "MCPServer", None)
+        if isinstance(mcpserver_cls, type):
+            return mcpserver_cls, True
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        fastmcp = import_module("mcp.server.fastmcp")
+    except ModuleNotFoundError as exc:
+        raise McpUnavailableError(MCP_INSTALL_MESSAGE) from exc
+    return fastmcp.FastMCP, False
+
+
+def _transport_security_settings() -> Any | None:
     """Build TransportSecuritySettings that keep loopback defaults plus tunnel hosts."""
-    TransportSecuritySettings = getattr(
-        fastmcp_module, "TransportSecuritySettings", None
-    )
-    if TransportSecuritySettings is None:
-        try:
-            from mcp.server.transport_security import (
-                TransportSecuritySettings as _Settings,
-            )
-        except Exception:
-            return None
-        TransportSecuritySettings = _Settings
+    try:
+        from mcp.server.transport_security import TransportSecuritySettings
+    except Exception:
+        return None
 
     allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
     allowed_origins = [
@@ -147,18 +162,17 @@ def _transport_security_settings(fastmcp_module: Any) -> Any | None:
 
 
 def create_server(*, profile: str = "core") -> Any:
-    try:
-        fastmcp_module = import_module("mcp.server.fastmcp")
-    except ModuleNotFoundError as exc:
-        raise McpUnavailableError(MCP_INSTALL_MESSAGE) from exc
-
-    security = _transport_security_settings(fastmcp_module)
-    if security is not None:
-        server = fastmcp_module.FastMCP(
-            "kater-dev-tools", transport_security=security
-        )
+    ServerClass, pass_security_to_sse = _load_mcp_server_class()
+    security = _transport_security_settings()
+    if pass_security_to_sse:
+        server = ServerClass("kater-dev-tools")
+        if security is not None:
+            # Dynamic attr for mcp 2.x sse_app(transport_security=...); not on typed API.
+            cast(Any, server)._kater_sse_transport_security = security
+    elif security is not None:
+        server = ServerClass("kater-dev-tools", transport_security=security)
     else:
-        server = fastmcp_module.FastMCP("kater-dev-tools")
+        server = ServerClass("kater-dev-tools")
 
     for tool in tools_for_profile(profile):
         server.tool(name=tool.name)(tool.handler)
@@ -372,7 +386,11 @@ def build_sse_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
             _register_proxy_status_tool(server)
     from kater.gateway import ApiProxyMiddleware
 
-    inner = AuthASGIMiddleware(server.sse_app())
+    security = getattr(server, "_kater_sse_transport_security", None)
+    if security is not None:
+        inner = AuthASGIMiddleware(server.sse_app(transport_security=security))
+    else:
+        inner = AuthASGIMiddleware(server.sse_app())
     return ApiProxyMiddleware(inner)
 
 

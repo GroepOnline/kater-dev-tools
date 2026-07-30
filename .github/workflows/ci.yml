@@ -87,6 +87,12 @@ jobs:
           print("metadata ok:", meta["name"], meta["version"])
           PY
 
+      - name: Agent-taste eval gate
+        run: |
+          uv sync --frozen --dev
+          uv run python .agents/scripts/generate-taste.py --check
+          uv run python .agents/scripts/eval-score.py --gate
+
   # ── lint-type: ruff, format, mypy on the 3.11 syntax baseline ──────────
   lint-type:
     runs-on: ubuntu-latest
@@ -171,7 +177,7 @@ jobs:
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_api.py tests/test_oauth.py tests/test_authgate.py tests/test_storage.py tests/test_proxy.py
 
   # The Computer lane is a cross-repository contract gate. Keep it out of the
-  # Python-version matrix and run it once against the exact UDO contract/runtime
+  # Python-version matrix and run it once against the exact private contract/runtime
   # commit that Kater's generated package was synchronized from. Dependabot
   # cannot receive the private deploy key, so only that actor gets an explicit,
   # auditable skip while the public unit/integration/e2e gates remain required.
@@ -183,7 +189,7 @@ jobs:
       - name: Explain skipped private acceptance
         if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
         run: |
-          echo "Private UDO acceptance skipped for Dependabot because GitHub withholds repository secrets from Dependabot-triggered workflows." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Private computer-acceptance skipped for Dependabot because GitHub withholds repository secrets from Dependabot-triggered workflows." | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Explain skipped fork acceptance
         if: github.event.repository.fork == true
@@ -196,9 +202,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout pinned UDO runtime
+      - name: Checkout pinned private contract runtime
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ github.repository_owner }}/utrecht-data-os
           ref: 4fc8217eb90d1a6024030620e35f84369bb5c805
@@ -226,7 +232,7 @@ jobs:
         if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         env:
           COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
-          KATER_UDO_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
+          KATER_ACCEPTANCE_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
 
       - name: Publish schema-validated acceptance evidence

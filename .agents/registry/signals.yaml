@@ -1,0 +1,11 @@
+version: 1
+entries:
+- id: 2026-07-30T10-44-12Z-score-refresh
+  ts: '2026-07-30T10:44:12Z'
+  plane: agent-taste
+  kind: score_refresh
+  source: schedule
+  signal: eval-score pass
+  refs: []
+  score_hint: 1.0
+  status: acked

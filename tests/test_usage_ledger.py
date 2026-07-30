@@ -228,3 +228,86 @@ def test_openapi_includes_usage_paths() -> None:
     spec = generate_spec()
     assert "/api/usage" in spec["paths"]
     assert "/api/usage/summary" in spec["paths"]
+
+
+class TestParseLimit:
+    def test_default_when_absent(self) -> None:
+        from kater.api.usage_routes import _parse_limit
+
+        req = Request(
+            method="GET",
+            path="/api/usage",
+            query={},
+            headers={},
+            raw_body=b"",
+            client_ip="127.0.0.1",
+            base_url="http://127.0.0.1",
+        )
+        assert _parse_limit(req) == 100
+
+    def test_clamps_below_minimum_to_one(self) -> None:
+        from kater.api.usage_routes import _parse_limit
+
+        req = Request(
+            method="GET",
+            path="/api/usage",
+            query={"limit": ["0"]},
+            headers={},
+            raw_body=b"",
+            client_ip="127.0.0.1",
+            base_url="http://127.0.0.1",
+        )
+        assert _parse_limit(req) == 1
+
+        req.query = {"limit": ["-5"]}
+        assert _parse_limit(req) == 1
+
+    def test_clamps_above_maximum(self) -> None:
+        from kater.api.usage_routes import _parse_limit
+
+        req = Request(
+            method="GET",
+            path="/api/usage",
+            query={"limit": ["5000"]},
+            headers={},
+            raw_body=b"",
+            client_ip="127.0.0.1",
+            base_url="http://127.0.0.1",
+        )
+        assert _parse_limit(req) == 1000
+
+    def test_non_integer_raises_value_error(self) -> None:
+        from kater.api.usage_routes import _parse_limit
+
+        req = Request(
+            method="GET",
+            path="/api/usage",
+            query={"limit": ["not-an-int"]},
+            headers={},
+            raw_body=b"",
+            client_ip="127.0.0.1",
+            base_url="http://127.0.0.1",
+        )
+        with pytest.raises(ValueError):
+            _parse_limit(req)
+
+
+def test_api_usage_list_rejects_non_integer_limit() -> None:
+    resp = _call("GET", "/api/usage", query={"limit": ["not-an-int"]})
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "limit" in resp.payload["error"].lower()
+
+
+def test_api_usage_list_clamps_out_of_range_limit() -> None:
+    usage_ledger.record_usage_event(
+        capability="clamp.cap",
+        success=True,
+        duration_ms=1.0,
+        cost_units=1.0,
+    )
+    # A limit of 0 is clamped up to 1 rather than rejected.
+    resp = _call("GET", "/api/usage", query={"limit": ["0"]})
+    assert resp.status == 200
+    assert resp.payload is not None
+    assert len(resp.payload["events"]) <= 1

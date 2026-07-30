@@ -239,6 +239,27 @@ def test_auth_health_always_open(api_server) -> None:
     assert data["auth_mode"] == "apikey"
 
 
+def test_invalid_context_header_denied_through_full_pipeline(api_server) -> None:
+    # Regression: handle() must wire request.header("x-kater-context") into
+    # AuthContext.context_header. Only exercising authenticate() directly (as
+    # tests/test_authgate.py does) would miss a regression in that wiring.
+    err = _get_err(9912, "/api/profiles", headers={"X-Kater-Context": "garbage"})
+    assert err.code == 401
+    body = json.loads(err.read().decode())
+    assert body["error"] == "Invalid context token."
+
+
+def test_invalid_context_header_denied_on_public_path_through_full_pipeline(
+    api_server,
+) -> None:
+    # A public path (auth mode "none") must still fail closed on an explicit
+    # but invalid context token, all the way through the real HTTP handler.
+    err = _get_err(9912, "/health", headers={"X-Kater-Context": "garbage"})
+    assert err.code == 401
+    body = json.loads(err.read().decode())
+    assert body["error"] == "Invalid context token."
+
+
 # ── Catalog ────────────────────────────────────────────────────────
 
 

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kater.api import ROUTER
+from kater.api import ROUTER, Request, Response
 from kater.browser.models import (
     ActionKind,
     ActionResult,
@@ -15,7 +15,26 @@ from kater.browser.models import (
     SessionState,
 )
 from kater.browser.providers import BrowserUnavailableError
+from kater.browser.session import SessionLimitError, UnknownSessionError
 from tests._rest import call
+
+
+def _call_raw_body(method: str, path: str, raw_body: bytes) -> Response:
+    """Dispatch a request with a raw (possibly malformed) body, bypassing json.dumps."""
+    matched = ROUTER.match(method, path)
+    assert matched is not None, f"{method} {path} has no route"
+    route, params = matched
+    req = Request(
+        method=method,
+        path=path,
+        query={},
+        headers={"content-type": "application/json"},
+        raw_body=raw_body,
+        client_ip="127.0.0.1",
+        base_url="http://127.0.0.1",
+        params=params,
+    )
+    return route.handler(req)
 
 BROWSER_ROUTES = [
     ("GET", "/api/browser/providers"),
@@ -242,3 +261,97 @@ def test_browser_stats() -> None:
         resp = call("GET", "/api/browser/stats")
     assert resp.status == 200
     assert resp.payload == manager.stats.return_value
+
+
+def test_browser_create_session_limit_reached() -> None:
+    manager = _fake_manager()
+    manager.create.side_effect = SessionLimitError(
+        "browser session limit reached (4); close a session first"
+    )
+    with patch("kater.api.routes.get_manager", return_value=manager):
+        resp = call("POST", "/api/browser/sessions", body={})
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "limit reached" in resp.payload["error"]
+
+
+def test_browser_close_session_unknown_returns_404() -> None:
+    manager = _fake_manager()
+    sid = "bsess_missingmissingmissingmissingmi"
+    manager.close.side_effect = UnknownSessionError(sid)
+    with patch("kater.api.routes.get_manager", return_value=manager):
+        resp = call("DELETE", f"/api/browser/sessions/{sid}")
+    assert resp.status == 404
+    assert resp.payload is not None
+    assert sid in resp.payload["error"]
+
+
+def test_browser_act_unknown_session_returns_404() -> None:
+    manager = _fake_manager()
+    manager.get.return_value = None
+    sid = "bsess_missingmissingmissingmissingmi"
+    with patch("kater.api.routes.get_manager", return_value=manager):
+        resp = call(
+            "POST",
+            f"/api/browser/sessions/{sid}/act",
+            body={"kind": "reload"},
+        )
+    assert resp.status == 404
+    manager.act.assert_not_called()
+
+
+def test_browser_screenshot_unknown_session_returns_404() -> None:
+    manager = _fake_manager()
+    manager.get.return_value = None
+    sid = "bsess_missingmissingmissingmissingmi"
+    with patch("kater.api.routes.get_manager", return_value=manager):
+        resp = call(
+            "POST",
+            f"/api/browser/sessions/{sid}/screenshot",
+            body={},
+        )
+    assert resp.status == 404
+    manager.screenshot.assert_not_called()
+
+
+def test_browser_create_session_malformed_json_body() -> None:
+    manager = _fake_manager()
+    with patch("kater.api.routes.get_manager", return_value=manager):
+        resp = _call_raw_body("POST", "/api/browser/sessions", b"{not valid json")
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "malformed" in resp.payload["error"].lower()
+    manager.create.assert_not_called()
+
+
+def test_browser_act_malformed_json_body() -> None:
+    manager = _fake_manager()
+    sid = "bsess_deadbeefdeadbeefdeadbeefdeadbeef"
+    with patch("kater.api.routes.get_manager", return_value=manager):
+        resp = _call_raw_body(
+            "POST", f"/api/browser/sessions/{sid}/act", b"{not valid json"
+        )
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "malformed" in resp.payload["error"].lower()
+
+
+def test_browser_screenshot_malformed_json_body() -> None:
+    manager = _fake_manager()
+    sid = "bsess_deadbeefdeadbeefdeadbeefdeadbeef"
+    with patch("kater.api.routes.get_manager", return_value=manager):
+        resp = _call_raw_body(
+            "POST", f"/api/browser/sessions/{sid}/screenshot", b"{not valid json"
+        )
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert "malformed" in resp.payload["error"].lower()
+
+
+def test_browser_close_all_reports_error() -> None:
+    manager = _fake_manager()
+    manager.close_all.side_effect = BrowserUnavailableError("provider crashed")
+    with patch("kater.api.routes.get_manager", return_value=manager):
+        resp = call("DELETE", "/api/browser/sessions")
+    assert resp.status == 400
+    assert resp.payload == {"error": "provider crashed"}

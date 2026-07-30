@@ -71,9 +71,10 @@ def _is_public_path(path: str) -> bool:
 def should_proxy_to_api(path: str) -> bool:
     """
     Determine whether a request path should be forwarded to the REST API.
-    
+
     Returns:
-        bool: `true` if the path is a dashboard public path, starts with `/api/`, or is a public API path; `false` otherwise.
+        bool: `true` if the path is a dashboard public path, starts with `/api/`, or is a public API
+            path; `false` otherwise.
     """
     normalized = path.rstrip("/") or "/"
     if normalized in DASHBOARD_PUBLIC_PATHS:
@@ -86,12 +87,13 @@ def should_proxy_to_api(path: str) -> bool:
 def _extract_bearer(authorization_header: str | None) -> str | None:
     """
     Extracts a bearer token from an HTTP Authorization header.
-    
+
     Parameters:
         authorization_header (str | None): The Authorization header value.
-    
+
     Returns:
-        str | None: The bearer token, or None if the header does not contain a valid bearer credential.
+        str | None: The bearer token, or None if the header does not contain a valid bearer
+            credential.
     """
     if not authorization_header:
         return None
@@ -120,13 +122,14 @@ def identity_from_record(record: ContextRecord) -> RequestIdentity:
 def capability_allowed(name: str, allowed: frozenset[str] | None) -> bool:
     """
     Determine whether a capability is permitted by an optional allowlist.
-    
+
     Parameters:
-    	name (str): Capability name to check.
-    	allowed (frozenset[str] | None): Capability allowlist, or `None` for unrestricted access.
-    
+        name (str): Capability name to check.
+        allowed (frozenset[str] | None): Capability allowlist, or `None` for unrestricted access.
+
     Returns:
-    	bool: `True` if the capability matches an allowlist entry or access is unrestricted, `False` otherwise.
+        bool: `True` if the capability matches an allowlist entry or access is unrestricted, `False`
+            otherwise.
     """
     if allowed is None:
         return True
@@ -148,13 +151,13 @@ def resolve_identity_from_headers(
 ) -> tuple[RequestIdentity, str | None]:
     """
     Resolve a context token from request headers into a request identity.
-    
+
     Parameters:
         context_header (str | None): Optional explicit context token from the
             ``X-Kater-Context`` header.
         authorization_header (str | None): Optional HTTP ``Authorization`` header
             containing a Bearer token.
-    
+
     Returns:
         tuple[RequestIdentity, str | None]: The resolved identity and an error
             message. Returns an invalid-token error when the explicit context token
@@ -178,10 +181,10 @@ def resolve_identity_from_headers(
 def resolve_request_identity(req: Any) -> RequestIdentity:
     """
     Resolve request identity from context and authorization headers.
-    
+
     Parameters:
         req (Any): Request-like object that provides a ``header`` method.
-    
+
     Returns:
         RequestIdentity: The resolved identity, or an empty identity when none is available.
     """
@@ -204,12 +207,13 @@ def set_request_identity(identity: RequestIdentity | None) -> None:
 def authenticate(ctx: AuthContext) -> AuthDecision:
     """
     Determine whether a request may proceed and bind its resolved identity to the request context.
-    
-    Public paths bypass credential verification, while other requests require valid credentials. An explicit invalid context token denies the request.
-    
+
+    Public paths bypass credential verification, while other requests require valid credentials. An
+        explicit invalid context token denies the request.
+
     Parameters:
         ctx (AuthContext): Authentication inputs and optional request path.
-    
+
     Returns:
         AuthDecision: The authorization result, including the resolved identity when available.
     """

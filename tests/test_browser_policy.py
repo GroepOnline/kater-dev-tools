@@ -22,9 +22,9 @@ def resolver_for(*addresses: str):
     def _resolve(host: str, port: int):
         """
         Resolve a host to the predefined socket addresses for deterministic tests.
-        
+
         Returns:
-        	list[tuple]: Socket address records for each configured address.
+            list[tuple]: Socket address records for each configured address.
         """
         del host, port
         return [
@@ -44,10 +44,10 @@ def resolver_for(*addresses: str):
 def failing_resolver(host: str, port: int):
     """
     Raise a DNS resolution error for any host.
-    
+
     Parameters:
-    	host (str): The hostname to include in the error message.
-    	port (int): The ignored service port.
+        host (str): The hostname to include in the error message.
+        port (int): The ignored service port.
     """
     del port
     raise socket.gaierror(f"cannot resolve {host}")

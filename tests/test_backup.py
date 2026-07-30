@@ -23,8 +23,9 @@ BACKEND_TOKEN = "ghp_backendsecret"
 
 def _seed_project(root: Path, *, migrate: bool = True) -> None:
     """
-    Create a representative `.kater` state directory under `root`, including settings, credentials, configuration, and an events database.
-    
+    Create a representative `.kater` state directory under `root`, including settings, credentials,
+        configuration, and an events database.
+
     Parameters:
         root (Path): Project root in which to create the `.kater` directory.
         migrate (bool): Whether to initialize the database with the latest schema migrations.
@@ -74,12 +75,12 @@ def _seed_project(root: Path, *, migrate: bool = True) -> None:
 
 def _events(root: Path) -> list[tuple[str, str]]:
     """Retrieve event types and names from the project's Kater database.
-    
+
     Parameters:
-    	root (Path): Project root containing the `.kater/kater.db` database.
-    
+        root (Path): Project root containing the `.kater/kater.db` database.
+
     Returns:
-    	list[tuple[str, str]]: Event type and name pairs."""
+        list[tuple[str, str]]: Event type and name pairs."""
     conn = sqlite3.connect(root / ".kater" / "kater.db")
     try:
         return [tuple(row) for row in conn.execute("SELECT type, name FROM events")]
@@ -90,13 +91,13 @@ def _events(root: Path) -> list[tuple[str, str]]:
 def _member_bytes(path: Path, name: str) -> bytes:
     """
     Read the contents of a named file from a gzip-compressed tar archive.
-    
+
     Parameters:
-    	path (Path): Path to the tar archive.
-    	name (str): Name of the archive member to read.
-    
+        path (Path): Path to the tar archive.
+        name (str): Name of the archive member to read.
+
     Returns:
-    	bytes: Contents of the specified archive member.
+        bytes: Contents of the specified archive member.
     """
     with tarfile.open(path, "r:gz") as tar:
         handle = tar.extractfile(name)
@@ -107,11 +108,11 @@ def _member_bytes(path: Path, name: str) -> bytes:
 def _rewrite_tar(source: Path, dest: Path, *, mutate: dict[str, bytes]) -> None:
     """
     Rewrite a gzip-compressed tar archive, optionally replacing selected member contents.
-    
+
     Parameters:
-    	source (Path): Path to the source archive.
-    	dest (Path): Path where the rewritten archive is created.
-    	mutate (dict[str, bytes]): Mapping of member names to replacement contents.
+        source (Path): Path to the source archive.
+        dest (Path): Path where the rewritten archive is created.
+        mutate (dict[str, bytes]): Mapping of member names to replacement contents.
     """
     with tarfile.open(source, "r:gz") as src, tarfile.open(dest, "w:gz") as out:
         for member in src.getmembers():
@@ -130,11 +131,11 @@ def _write_tar(
 ) -> None:
     """
     Create a gzip-compressed tar archive containing regular files and optional symbolic links.
-    
+
     Parameters:
-    	path (Path): Destination archive path.
-    	entries (list[tuple[str, bytes]]): File names and contents to add.
-    	symlinks (tuple[tuple[str, str], ...]): Link names and their targets to add.
+        path (Path): Destination archive path.
+        entries (list[tuple[str, bytes]]): File names and contents to add.
+        symlinks (tuple[tuple[str, str], ...]): Link names and their targets to add.
     """
     with tarfile.open(path, "w:gz") as tar:
         for name, data in entries:
@@ -373,10 +374,10 @@ def test_create_backup_without_state_is_an_error(tmp_path) -> None:
 def _minimal_bundle(path: Path, members: dict[str, bytes]) -> None:
     """
     Create a minimal backup archive containing a manifest and the specified members.
-    
+
     Parameters:
-    	path (Path): Destination path for the gzip-compressed tar archive.
-    	members (dict[str, bytes]): Archive member names mapped to their contents.
+        path (Path): Destination path for the gzip-compressed tar archive.
+        members (dict[str, bytes]): Archive member names mapped to their contents.
     """
     files = [
         {

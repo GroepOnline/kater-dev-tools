@@ -16,13 +16,13 @@ from kater import interactive
 def _run_loop(monkeypatch: pytest.MonkeyPatch, lines: list[str]) -> str:
     """
     Run the interactive loop with canned input and capture its output.
-    
+
     Parameters:
-    	monkeypatch (pytest.MonkeyPatch): Fixture used to replace the loop's standard streams.
-    	lines (list[str]): Input commands to provide to the interactive loop.
-    
+        monkeypatch (pytest.MonkeyPatch): Fixture used to replace the loop's standard streams.
+        lines (list[str]): Input commands to provide to the interactive loop.
+
     Returns:
-    	str: Text written to standard output.
+        str: Text written to standard output.
     """
     out = io.StringIO()
     monkeypatch.setattr(interactive.sys, "stdout", out)

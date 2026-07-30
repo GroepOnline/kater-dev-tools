@@ -18,11 +18,11 @@ from kater.telemetry import TelemetryEvent, record_event
 def _isolated_db(tmp_path, monkeypatch):
     """
     Provide an isolated working directory and migrated usage ledger database for a test.
-    
+
     Parameters:
         tmp_path: Temporary directory used as the test's working directory.
         monkeypatch: Pytest fixture used to change the working directory.
-    
+
     Yields:
         None
     """
@@ -41,14 +41,14 @@ def _call(
 ) -> Response:
     """
     Invoke the matching router handler with a constructed request.
-    
+
     Parameters:
-    	method (str): HTTP method for the request.
-    	path (str): Request path.
-    	query (dict[str, list[str]] | None): Optional query parameters.
-    
+        method (str): HTTP method for the request.
+        path (str): Request path.
+        query (dict[str, list[str]] | None): Optional query parameters.
+
     Returns:
-    	Response: The handler's response.
+        Response: The handler's response.
     """
     matched = ROUTER.match(method, path)
     assert matched is not None, f"{method} {path} has no route"

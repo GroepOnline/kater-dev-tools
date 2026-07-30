@@ -37,6 +37,11 @@ from urllib.parse import quote
 
 from kater import __version__ as kater_version
 from kater import migrations
+from kater.automations.store import reset_cache as _automations_store_reset
+from kater.browser.store import reset_cache as _browser_store_reset
+from kater.capabilities.audit import reset_cache as _capability_audit_reset
+from kater.control_plane.contexts import reset_cache as _contexts_reset
+from kater.control_plane.usage import reset_cache as _usage_reset
 from kater.settings import KaterSettings, invalidate_settings_cache, load_settings
 from kater.storage import reset_db_cache
 
@@ -102,24 +107,26 @@ class RestoreResult:
 
 def _root(project_dir: Path | None) -> Path:
     """Resolve the project directory, defaulting to the current working directory.
-    
+
     Parameters:
-    	project_dir (Path | None): Project directory to resolve, or `None` to use the current working directory.
-    
+        project_dir (Path | None): Project directory to resolve, or `None` to use the current
+            working directory.
+
     Returns:
-    	Path: The resolved project directory path.
+        Path: The resolved project directory path.
     """
     return (project_dir or Path.cwd()).resolve()
 
 
 def state_dir(project_dir: Path | None = None) -> Path:
     """Return the path to the project's `.kater` state directory.
-    
+
     Parameters:
-    	project_dir (Path | None): Project root directory, or `None` to use the current working directory.
-    
+        project_dir (Path | None): Project root directory, or `None` to use the current working
+            directory.
+
     Returns:
-    	Path: The project's `.kater` directory.
+        Path: The project's `.kater` directory.
     """
     return _root(project_dir) / ".kater"
 
@@ -131,12 +138,12 @@ def default_backup_dir(project_dir: Path | None = None) -> Path:
 
 def _db_source(project_dir: Path | None) -> Path:
     """Resolve the configured database path for a project.
-    
+
     Parameters:
-    	project_dir (Path | None): Project directory used to resolve relative database paths.
-    
+        project_dir (Path | None): Project directory used to resolve relative database paths.
+
     Returns:
-    	Path: The configured absolute database path.
+        Path: The configured absolute database path.
     """
     root = _root(project_dir)
     configured = Path(load_settings(project_dir).db_path).expanduser()
@@ -177,10 +184,10 @@ def _digest_stream(
 
 def _sha256(path: Path) -> str:
     """Compute the SHA-256 digest of a file.
-    
+
     Parameters:
         path (Path): File whose contents should be hashed.
-    
+
     Returns:
         str: Lowercase hexadecimal SHA-256 digest.
     """
@@ -198,14 +205,14 @@ def _timestamp() -> str:
 
 def _snapshot_db(source: Path, target: Path) -> int:
     """Create a consistent SQLite database snapshot and return its schema version.
-    
+
     Parameters:
         source (Path): Path to the source database.
         target (Path): Path where the snapshot is written.
-    
+
     Returns:
         int: Current schema version of the snapshot.
-    
+
     Raises:
         BackupError: If the source cannot be opened or the snapshot fails.
     """
@@ -235,14 +242,14 @@ def _snapshot_db(source: Path, target: Path) -> int:
 def _stage_settings(source: Path, target: Path, *, include_secrets: bool) -> None:
     """
     Prepare a settings file for inclusion in a backup, optionally excluding secrets.
-    
+
     Parameters:
-    	source (Path): Path to the source settings file.
-    	target (Path): Path where the staged settings file is written.
-    	include_secrets (bool): Whether to preserve secret values in the staged file.
-    
+        source (Path): Path to the source settings file.
+        target (Path): Path where the staged settings file is written.
+        include_secrets (bool): Whether to preserve secret values in the staged file.
+
     Raises:
-    	BackupError: If settings cannot be read or converted to a secret-free representation.
+        BackupError: If settings cannot be read or converted to a secret-free representation.
     """
     if include_secrets:
         shutil.copy2(source, target)
@@ -263,14 +270,16 @@ def create_backup(
 ) -> BackupResult:
     """
     Create a verifiable tar.gz bundle containing the available Kater state.
-    
+
     Parameters:
-    	dest (Path | None): Destination file or directory. Defaults to the project's backup directory.
-    	project_dir (Path | None): Project root containing the Kater state.
-    	include_secrets (bool): Whether to include secret configuration files and unmasked settings.
-    
+        dest (Path | None): Destination file or directory. Defaults to the project's backup
+            directory.
+        project_dir (Path | None): Project root containing the Kater state.
+        include_secrets (bool): Whether to include secret configuration files and unmasked settings.
+
     Returns:
-    	BackupResult: Details of the created bundle, including its path, size, files, schema version, and secret inclusion status.
+        BackupResult: Details of the created bundle, including its path, size, files, schema
+            version, and secret inclusion status.
     """
     kater_dir = state_dir(project_dir)
     db_path = _db_source(project_dir)
@@ -354,12 +363,13 @@ def create_backup(
 def _safe_member_name(name: str) -> bool:
     """
     Determine whether an archive member name is allowed for extraction.
-    
+
     Parameters:
-    	name (str): Archive member name to validate.
-    
+        name (str): Archive member name to validate.
+
     Returns:
-    	bool: `true` if the name is an allowed state file or manifest name without path separators, `false` otherwise.
+        bool: `true` if the name is an allowed state file or manifest name without path separators,
+            `false` otherwise.
     """
     if not name or name in {".", ".."}:
         return False
@@ -373,15 +383,16 @@ def _safe_member_name(name: str) -> bool:
 def _read_manifest(archive: tarfile.TarFile) -> dict[str, Any]:
     """
     Validate and parse the bundle manifest from an archive.
-    
+
     Parameters:
-    	archive (tarfile.TarFile): Archive containing the manifest.
-    
+        archive (tarfile.TarFile): Archive containing the manifest.
+
     Returns:
-    	dict[str, Any]: Parsed manifest metadata and file declarations.
-    
+        dict[str, Any]: Parsed manifest metadata and file declarations.
+
     Raises:
-    	BackupError: If the manifest is missing, malformed, oversized, unsupported, or declares an unsafe file name.
+        BackupError: If the manifest is missing, malformed, oversized, unsupported, or declares an
+            unsafe file name.
     """
     try:
         member = archive.getmember(MANIFEST_NAME)
@@ -424,16 +435,16 @@ def _read_manifest(archive: tarfile.TarFile) -> dict[str, Any]:
 
 def _open_member(archive: tarfile.TarFile, member: tarfile.TarInfo) -> IO[bytes]:
     """Open a bundle member for reading.
-    
+
     Parameters:
-    	archive (tarfile.TarFile): The archive containing the member.
-    	member (tarfile.TarInfo): The archive member to open.
-    
+        archive (tarfile.TarFile): The archive containing the member.
+        member (tarfile.TarInfo): The archive member to open.
+
     Returns:
-    	IO[bytes]: A readable binary stream for the member.
-    
+        IO[bytes]: A readable binary stream for the member.
+
     Raises:
-    	BackupError: If the member cannot be read.
+        BackupError: If the member cannot be read.
     """
     handle = archive.extractfile(member)
     if handle is None:
@@ -443,13 +454,15 @@ def _open_member(archive: tarfile.TarFile, member: tarfile.TarInfo) -> IO[bytes]
 
 def inspect_backup(path: Path) -> dict[str, Any]:
     """
-    Validate a backup bundle and report missing, unexpected, or corrupted members without extracting it.
-    
+    Validate a backup bundle and report missing, unexpected, or corrupted members without extracting
+        it.
+
     Parameters:
-    	path (Path): Path to the backup bundle.
-    
+        path (Path): Path to the backup bundle.
+
     Returns:
-    	dict[str, Any]: Bundle metadata, declared file information, validation issues, and an `ok` flag indicating whether the bundle is complete and consistent.
+        dict[str, Any]: Bundle metadata, declared file information, validation issues, and an `ok`
+            flag indicating whether the bundle is complete and consistent.
     """
     path = Path(path)
     if not path.is_file():
@@ -514,20 +527,22 @@ def _extract_verified(
     max_total_bytes: int = MAX_TOTAL_BYTES,
 ) -> list[str]:
     """
-    Extract all manifest-declared files into the target directory after verifying their safety, size, and SHA-256 digest.
-    
+    Extract all manifest-declared files into the target directory after verifying their safety,
+        size, and SHA-256 digest.
+
     Parameters:
-    	archive (tarfile.TarFile): Archive containing the files to extract.
-    	manifest (dict[str, Any]): Manifest declaring expected file names, sizes, and digests.
-    	target (Path): Directory where verified files are written.
-    	max_member_bytes (int): Maximum permitted size for an individual file.
-    	max_total_bytes (int): Maximum permitted combined size of extracted files.
-    
+        archive (tarfile.TarFile): Archive containing the files to extract.
+        manifest (dict[str, Any]): Manifest declaring expected file names, sizes, and digests.
+        target (Path): Directory where verified files are written.
+        max_member_bytes (int): Maximum permitted size for an individual file.
+        max_total_bytes (int): Maximum permitted combined size of extracted files.
+
     Returns:
-    	list[str]: Sorted names of the extracted files.
-    
+        list[str]: Sorted names of the extracted files.
+
     Raises:
-    	BackupError: If the archive contains unsafe, unsupported, duplicate, unexpected, missing, oversized, or corrupted files.
+        BackupError: If the archive contains unsafe, unsupported, duplicate, unexpected, missing,
+            oversized, or corrupted files.
     """
     declared = {str(entry["name"]): entry for entry in manifest["files"]}
     seen: set[str] = set()
@@ -570,10 +585,10 @@ def _extract_verified(
 def _rollback_restore(kater_dir: Path, retired: Path) -> None:
     """
     Restore the previous state directory after a failed restore swap.
-    
+
     Parameters:
-    	kater_dir (Path): Path to the partially restored state directory.
-    	retired (Path): Path containing the previous state directory.
+        kater_dir (Path): Path to the partially restored state directory.
+        retired (Path): Path containing the previous state directory.
     """
     if not retired.exists():
         return
@@ -587,12 +602,12 @@ def _rollback_restore(kater_dir: Path, retired: Path) -> None:
 
 def _has_state(kater_dir: Path) -> bool:
     """Determine whether the state directory exists and contains at least one entry.
-    
+
     Parameters:
-    	kater_dir (Path): Directory to check.
-    
+        kater_dir (Path): Directory to check.
+
     Returns:
-    	bool: `True` if the directory exists and is non-empty, `False` otherwise.
+        bool: `True` if the directory exists and is non-empty, `False` otherwise.
     """
     return kater_dir.is_dir() and any(kater_dir.iterdir())
 
@@ -605,17 +620,20 @@ def restore_backup(
 ) -> RestoreResult:
     """
     Replace the local ``.kater/`` state with the contents of a verified backup bundle.
-    
+
     Parameters:
-    	path (Path): Path to the backup bundle.
-    	project_dir (Path | None): Project root containing the ``.kater/`` directory. Uses the current directory when omitted.
-    	force (bool): Whether to replace existing state and create a safety backup first.
-    
+        path (Path): Path to the backup bundle.
+        project_dir (Path | None): Project root containing the ``.kater/`` directory. Uses the
+            current directory when omitted.
+        force (bool): Whether to replace existing state and create a safety backup first.
+
     Returns:
-    	RestoreResult: Details of the restored files, bundle schema version, safety backup, and applied migrations.
-    
+        RestoreResult: Details of the restored files, bundle schema version, safety backup, and
+            applied migrations.
+
     Raises:
-    	BackupError: If the bundle is invalid, existing state cannot be safely replaced, or restoration fails.
+        BackupError: If the bundle is invalid, existing state cannot be safely replaced, or
+            restoration fails.
     """
     path = Path(path)
     kater_dir = state_dir(project_dir)

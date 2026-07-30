@@ -63,13 +63,14 @@ class BrowserPolicy:
     def check_url(self, url: str, *, resolver: Resolver | None = None) -> None:
         """
         Validate that a URL is permitted for browser navigation.
-        
+
         Parameters:
             url (str): The URL to validate.
             resolver (Resolver | None): Optional resolver used for hostname address checks.
-        
+
         Raises:
-            PolicyViolation: If the URL is empty, uses a disallowed scheme, has no host, violates domain restrictions, has an invalid port, or resolves to a disallowed address.
+            PolicyViolation: If the URL is empty, uses a disallowed scheme, has no host, violates
+                domain restrictions, has an invalid port, or resolves to a disallowed address.
         """
         if not url or not url.strip():
             raise PolicyViolation("empty url")
@@ -104,14 +105,14 @@ class BrowserPolicy:
     def check_request(self, url: str, *, resource_type: str = "") -> None:
         """
         Validate a browser navigation or network request against the active policy.
-        
+
         Document requests use navigation scheme rules; other requests also permit
         `data:` and `blob:` while still enforcing blocked-scheme, domain, and
         private-network restrictions.
-        
+
         Parameters:
-        	resource_type (str): Resource classification used to distinguish document
-        		navigations from subresource requests.
+            resource_type (str): Resource classification used to distinguish document
+                navigations from subresource requests.
         """
         if not url or not url.strip():
             raise PolicyViolation("empty url")
@@ -161,14 +162,15 @@ class BrowserPolicy:
 
     def _check_addresses(self, host: str, port: int, resolver: Resolver | None) -> None:
         """Validate that a host resolves only to publicly routable addresses.
-        
+
         Parameters:
             host (str): Hostname or literal IP address to validate.
             port (int): Port used for hostname resolution.
             resolver (Resolver | None): Optional resolver to use for hostname lookup.
-        
+
         Raises:
-            PolicyViolation: If the host is internal, cannot be resolved, or resolves to no usable address.
+            PolicyViolation: If the host is internal, cannot be resolved, or resolves to no usable
+                address.
         """
         literal = _literal_ip(host)
         if literal is not None:
@@ -188,9 +190,10 @@ class BrowserPolicy:
     def to_dict(self) -> dict[str, Any]:
         """
         Convert the browser policy configuration to a serializable dictionary.
-        
+
         Returns:
-        	dict[str, Any]: A dictionary containing the domain rules, network access setting, allowed schemes, and runtime limits.
+            dict[str, Any]: A dictionary containing the domain rules, network access setting,
+                allowed schemes, and runtime limits.
         """
         return {
             "allow_domains": list(self.allow_domains),
@@ -228,16 +231,16 @@ def load_policy(settings: KaterSettings | None = None) -> BrowserPolicy:
 def _port_or_default(parts: SplitResult, default: int) -> int:
     """
     Return the URL port or a specified default when no port is present.
-    
+
     Parameters:
-    	parts (SplitResult): Parsed URL components containing the port.
-    	default (int): Port to use when the URL does not specify one.
-    
+        parts (SplitResult): Parsed URL components containing the port.
+        default (int): Port to use when the URL does not specify one.
+
     Returns:
-    	int: The parsed URL port or the default port.
-    
+        int: The parsed URL port or the default port.
+
     Raises:
-    	PolicyViolation: If the URL contains an invalid port.
+        PolicyViolation: If the URL contains an invalid port.
     """
     try:
         port = parts.port
@@ -260,12 +263,13 @@ def _matches_domain(host: str, patterns: tuple[str, ...]) -> bool:
 def _literal_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """
     Parse a host string as an IP address.
-    
+
     Parameters:
-    	host (str): The host string to parse.
-    
+        host (str): The host string to parse.
+
     Returns:
-    	ipaddress.IPv4Address | ipaddress.IPv6Address | None: The parsed IP address, or `None` if the host is not a valid IP address.
+        ipaddress.IPv4Address | ipaddress.IPv6Address | None: The parsed IP address, or `None` if
+            the host is not a valid IP address.
     """
     try:
         return ipaddress.ip_address(host)
@@ -278,12 +282,13 @@ def _addresses_from_getaddrinfo(
 ) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     """
     Extract usable IP addresses from getaddrinfo-style resolver results.
-    
+
     Parameters:
-    	infos (Sequence[Any]): Resolver results containing socket address data.
-    
+        infos (Sequence[Any]): Resolver results containing socket address data.
+
     Returns:
-    	list[ipaddress.IPv4Address | ipaddress.IPv6Address]: Parsed IP addresses found in the results.
+        list[ipaddress.IPv4Address | ipaddress.IPv6Address]: Parsed IP addresses found in the
+            results.
     """
     addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     for info in infos:
@@ -302,13 +307,13 @@ def _reject_internal(
 ) -> None:
     """
     Reject an address that is not publicly routable.
-    
+
     Parameters:
-    	host (str): Hostname associated with the address.
-    	address (ipaddress.IPv4Address | ipaddress.IPv6Address): Resolved IP address to check.
-    
+        host (str): Hostname associated with the address.
+        address (ipaddress.IPv4Address | ipaddress.IPv6Address): Resolved IP address to check.
+
     Raises:
-    	PolicyViolation: If the address is internal or otherwise non-public.
+        PolicyViolation: If the address is internal or otherwise non-public.
     """
     if _is_internal(address):
         raise PolicyViolation(
@@ -320,12 +325,13 @@ def _reject_internal(
 def _is_internal(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """
     Determine whether an IP address belongs to a non-public address range.
-    
+
     Parameters:
-    	address (IPv4Address | IPv6Address): The IP address to classify.
-    
+        address (IPv4Address | IPv6Address): The IP address to classify.
+
     Returns:
-    	bool: `true` if the address is private, loopback, link-local, reserved, multicast, or unspecified, `false` otherwise.
+        bool: `true` if the address is private, loopback, link-local, reserved, multicast, or
+            unspecified, `false` otherwise.
     """
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
         address = address.ipv4_mapped
@@ -341,24 +347,24 @@ def _is_internal(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool
 
 def _env(name: str) -> str:
     """Read and trim a browser policy environment variable.
-    
+
     Parameters:
-    	name (str): The environment variable suffix.
-    
+        name (str): The environment variable suffix.
+
     Returns:
-    	str: The trimmed value, or an empty string if the variable is unset.
+        str: The trimmed value, or an empty string if the variable is unset.
     """
     return os.environ.get(f"{ENV_PREFIX}{name}", "").strip()
 
 
 def _env_truthy(name: str) -> bool:
     """Determine whether an environment variable contains a recognized truthy value.
-    
+
     Parameters:
-    	name (str): The environment variable name without the configured prefix.
-    
+        name (str): The environment variable name without the configured prefix.
+
     Returns:
-    	bool: `True` if the value is one of the recognized truthy strings, `False` otherwise.
+        bool: `True` if the value is one of the recognized truthy strings, `False` otherwise.
     """
     return _env(name).lower() in _TRUTHY
 
@@ -374,14 +380,14 @@ def _env_domains(name: str) -> tuple[str, ...]:
 def _env_int(name: str, default: int, *, minimum: int) -> int:
     """
     Parse an environment variable as an integer subject to a minimum value.
-    
+
     Parameters:
-    	name (str): Environment variable name without the configured prefix.
-    	default (int): Value returned when the variable is missing, invalid, or below the minimum.
-    	minimum (int): Smallest accepted integer value.
-    
+        name (str): Environment variable name without the configured prefix.
+        default (int): Value returned when the variable is missing, invalid, or below the minimum.
+        minimum (int): Smallest accepted integer value.
+
     Returns:
-    	int: The parsed value when it meets the minimum; otherwise, the default value.
+        int: The parsed value when it meets the minimum; otherwise, the default value.
     """
     raw = _env(name)
     if not raw:

@@ -52,12 +52,13 @@ def reset_computer_connector() -> None:
 def _redacted_host(url: str) -> str:
     """
     Extract a sanitized hostname from a URL.
-    
+
     Parameters:
         url (str): URL from which to extract the hostname.
-    
+
     Returns:
-        str: Lowercase hostname without a trailing period, or an empty string if the URL is blank, invalid, or has no hostname.
+        str: Lowercase hostname without a trailing period, or an empty string if the URL is blank,
+            invalid, or has no hostname.
     """
     raw = (url or "").strip()
     if not raw:
@@ -72,12 +73,13 @@ def _redacted_host(url: str) -> str:
 def build_computer_connector(profile: str = "core") -> ComputerConnector | None:
     """
     Build a computer connector from the configured environment variables.
-    
+
     Parameters:
         profile (str): Fallback profile used when no profile is configured in the environment.
-    
+
     Returns:
-        ComputerConnector | None: A configured connector, or `None` when the required computer URL or token is missing.
+        ComputerConnector | None: A configured connector, or `None` when the required computer URL
+            or token is missing.
     """
     if not computer_configured():
         return None
@@ -109,9 +111,10 @@ def ensure_computer_connector(profile: str = "core") -> ComputerConnector | None
 
 def computer_status() -> dict[str, Any]:
     """Build a REST- and CLI-friendly status payload for the computer connector.
-    
+
     Returns:
-    	dict[str, Any]: Status fields describing configuration, activation, redacted host, profile, and available capability identifiers.
+        dict[str, Any]: Status fields describing configuration, activation, redacted host, profile,
+            and available capability identifiers.
     """
     configured = computer_configured()
     url = os.environ.get(_ENV_URL, "").strip()

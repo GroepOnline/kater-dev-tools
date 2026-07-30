@@ -77,12 +77,13 @@ def config_render_tool(profile: str = "core") -> dict[str, Any]:
     # ${VAR} placeholders instead of the server's live environment values.
     """
     Render the configuration for a profile with secrets excluded.
-    
+
     Parameters:
-    	profile (str): Name of the profile whose configuration should be rendered.
-    
+        profile (str): Name of the profile whose configuration should be rendered.
+
     Returns:
-    	dict[str, Any]: The rendered profile configuration with secret values represented as `${VAR}` placeholders.
+        dict[str, Any]: The rendered profile configuration with secret values represented as
+            `${VAR}` placeholders.
     """
     return render_profile_config(profile, include_secrets=False)
 
@@ -98,15 +99,15 @@ def kater_browser_open(
     height: int = 800,
 ) -> dict[str, Any]:
     """Open a browser session with the specified profile and viewport dimensions.
-    
+
     Parameters:
-    	label (str | None): Optional label for the browser session.
-    	profile (str): Profile used to configure the browser session.
-    	width (int): Viewport width in pixels.
-    	height (int): Viewport height in pixels.
-    
+        label (str | None): Optional label for the browser session.
+        profile (str): Profile used to configure the browser session.
+        width (int): Viewport width in pixels.
+        height (int): Viewport height in pixels.
+
     Returns:
-    	dict[str, Any]: Details of the opened browser session.
+        dict[str, Any]: Details of the opened browser session.
     """
     return browser_open_tool(label=label, profile=profile, width=width, height=height)
 
@@ -126,10 +127,10 @@ def kater_browser_act(
 ) -> dict[str, Any]:
     """
     Perform an action in an active browser session.
-    
+
     Parameters:
-    	session_id (str): Identifier of the browser session.
-    	kind (str): Action to perform.
+        session_id (str): Identifier of the browser session.
+        kind (str): Action to perform.
     """
     return browser_act_tool(
         session_id=session_id,
@@ -152,25 +153,25 @@ def kater_browser_screenshot(
 ) -> dict[str, Any]:
     """
     Capture a screenshot from a browser session.
-    
+
     Parameters:
-    	session_id (str): Identifier of the browser session.
-    	full_page (bool): Whether to capture the entire page.
-    
+        session_id (str): Identifier of the browser session.
+        full_page (bool): Whether to capture the entire page.
+
     Returns:
-    	dict[str, Any]: Screenshot data for the browser session.
+        dict[str, Any]: Screenshot data for the browser session.
     """
     return browser_screenshot_tool(session_id=session_id, full_page=full_page)
 
 
 def kater_browser_sessions(live_only: bool = False) -> dict[str, Any]:
     """List browser sessions, optionally restricting the results to currently live sessions.
-    
+
     Parameters:
-    	live_only (bool): Whether to include only live sessions.
-    
+        live_only (bool): Whether to include only live sessions.
+
     Returns:
-    	dict[str, Any]: The browser session data.
+        dict[str, Any]: The browser session data.
     """
     return browser_sessions_tool(live_only=live_only)
 
@@ -180,22 +181,22 @@ def kater_browser_close(
     all: bool = False,
 ) -> dict[str, Any]:
     """Close a browser session or all browser sessions.
-    
+
     Parameters:
-    	session_id (str | None): Identifier of the session to close.
-    	all (bool): Whether to close every browser session.
-    
+        session_id (str | None): Identifier of the session to close.
+        all (bool): Whether to close every browser session.
+
     Returns:
-    	dict[str, Any]: Result of the close operation.
+        dict[str, Any]: Result of the close operation.
     """
     return browser_close_tool(session_id=session_id, all=all)
 
 
 def kater_browser_providers() -> dict[str, Any]:
     """List the available browser providers.
-    
+
     Returns:
-    	dict[str, Any]: The available browser provider information.
+        dict[str, Any]: The available browser provider information.
     """
     return browser_providers_tool()
 
@@ -231,9 +232,10 @@ def _browser_lane_enabled() -> bool:
 def _browser_native_tools() -> list[NativeTool]:
     """
     Build the native browser tools when browser exposure is enabled.
-    
+
     Returns:
-    	list[NativeTool]: Browser tool definitions, or an empty list when browser exposure is disabled.
+        list[NativeTool]: Browser tool definitions, or an empty list when browser exposure is
+            disabled.
     """
     if not _browser_lane_enabled():
         return []
@@ -251,9 +253,10 @@ def _browser_native_tools() -> list[NativeTool]:
 
 def _extension_native_tools() -> list[NativeTool]:
     """Collect native tools contributed by extensions.
-    
+
     Returns:
-        list[NativeTool]: Extension-provided native tools, or an empty list when none are registered.
+        list[NativeTool]: Extension-provided native tools, or an empty list when none are
+            registered.
     """
     from kater.extensions import extension_attr
 
@@ -263,9 +266,9 @@ def _extension_native_tools() -> list[NativeTool]:
 def build_native_tools() -> list[NativeTool]:
     """
     Build the complete registry of native tools available to Kater.
-    
+
     Returns:
-    	list[NativeTool]: Core, enabled browser, and extension-provided native tools.
+        list[NativeTool]: Core, enabled browser, and extension-provided native tools.
     """
     tools = [
         NativeTool(

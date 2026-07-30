@@ -59,12 +59,12 @@ def _quiet_close(conn: sqlite3.Connection) -> None:
 def _is_usable(conn: sqlite3.Connection) -> bool:
     """
     Check whether a SQLite connection can execute a query.
-    
+
     Parameters:
-    	conn (sqlite3.Connection): The connection to test.
-    
+        conn (sqlite3.Connection): The connection to test.
+
     Returns:
-    	bool: `True` if the connection executes successfully, `False` otherwise.
+        bool: `True` if the connection executes successfully, `False` otherwise.
     """
     try:
         conn.execute("SELECT 1")
@@ -76,9 +76,9 @@ def _is_usable(conn: sqlite3.Connection) -> bool:
 def _get_db() -> sqlite3.Connection:
     """
     Get a usable SQLite connection for the configured usage database.
-    
+
     Returns:
-    	sqlite3.Connection: The cached or newly initialized database connection.
+        sqlite3.Connection: The cached or newly initialized database connection.
     """
     global _db_cache, _db_path_cache
     db_path = str(load_settings().resolved_db_path)
@@ -112,12 +112,12 @@ def reset_cache() -> None:
 def _trim_usage_rows(db: sqlite3.Connection) -> int:
     """
     Trim the usage-event ledger to the configured maximum row count.
-    
+
     The oldest events are removed first, ordered by timestamp and then ID.
     Changes are not committed by this function.
-    
+
     Returns:
-    	int: The number of deleted events.
+        int: The number of deleted events.
     """
     row = db.execute("SELECT COUNT(*) FROM usage_events").fetchone()
     count = int(row[0]) if row is not None else 0
@@ -137,13 +137,14 @@ def _trim_usage_rows(db: sqlite3.Connection) -> int:
 
 def prune_usage_events(*, max_rows: int = MAX_USAGE_ROWS) -> int:
     """
-    Reduce the usage-event ledger to the specified maximum number of rows by removing the oldest events.
-    
+    Reduce the usage-event ledger to the specified maximum number of rows by removing the oldest
+        events.
+
     Parameters:
-    	max_rows (int): Maximum number of rows to retain; values below 1 retain one row.
-    
+        max_rows (int): Maximum number of rows to retain; values below 1 retain one row.
+
     Returns:
-    	int: Number of usage events deleted.
+        int: Number of usage events deleted.
     """
     keep = max(1, int(max_rows))
     with _lock:
@@ -168,12 +169,13 @@ def prune_usage_events(*, max_rows: int = MAX_USAGE_ROWS) -> int:
 def _parse_metadata(raw: str | None) -> dict[str, Any]:
     """
     Parse JSON metadata into a dictionary.
-    
+
     Parameters:
-    	raw (str | None): JSON-encoded metadata, if available.
-    
+        raw (str | None): JSON-encoded metadata, if available.
+
     Returns:
-    	dict[str, Any]: The parsed metadata dictionary, or an empty dictionary when the input is missing, invalid, or not an object.
+        dict[str, Any]: The parsed metadata dictionary, or an empty dictionary when the input is
+            missing, invalid, or not an object.
     """
     if not raw:
         return {}
@@ -187,12 +189,12 @@ def _parse_metadata(raw: str | None) -> dict[str, Any]:
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     """
     Convert a usage event database row into a typed dictionary.
-    
+
     Parameters:
-    	row (sqlite3.Row): The database row containing usage event fields.
-    
+        row (sqlite3.Row): The database row containing usage event fields.
+
     Returns:
-    	dict[str, Any]: The usage event with normalized numeric, boolean, and metadata values.
+        dict[str, Any]: The usage event with normalized numeric, boolean, and metadata values.
     """
     return {
         "id": int(row["id"]),
@@ -226,18 +228,18 @@ def record_usage_event(
 ) -> dict[str, Any]:
     """
     Record a usage event and return its stored representation.
-    
+
     Parameters:
-    	capability (str): Capability associated with the event.
-    	metadata (dict[str, Any] | None): Optional metadata to store with the event.
-    	timestamp (float | None): Event timestamp; defaults to the current time when omitted.
-    
+        capability (str): Capability associated with the event.
+        metadata (dict[str, Any] | None): Optional metadata to store with the event.
+        timestamp (float | None): Event timestamp; defaults to the current time when omitted.
+
     Returns:
-    	dict[str, Any]: The stored usage event.
-    
+        dict[str, Any]: The stored usage event.
+
     Raises:
-    	ValueError: If `capability` is empty after trimming.
-    	RuntimeError: If the inserted event cannot be identified or retrieved.
+        ValueError: If `capability` is empty after trimming.
+        RuntimeError: If the inserted event cannot be identified or retrieved.
     """
     cap = str(capability or "").strip()
     if not cap:
@@ -308,13 +310,14 @@ def list_usage_events(
 def _percentile(sorted_values: list[float], pct: float) -> float:
     """
     Calculate a percentile using linear interpolation over ascending values.
-    
+
     Parameters:
-    	sorted_values (list[float]): Values sorted in ascending order.
-    	pct (float): Percentile position expressed as a fraction between 0 and 1.
-    
+        sorted_values (list[float]): Values sorted in ascending order.
+        pct (float): Percentile position expressed as a fraction between 0 and 1.
+
     Returns:
-    	float: The interpolated percentile rounded to two decimal places, or 0.0 when no values are provided.
+        float: The interpolated percentile rounded to two decimal places, or 0.0 when no values are
+            provided.
     """
     if not sorted_values:
         return 0.0
@@ -331,10 +334,10 @@ def _percentile(sorted_values: list[float], pct: float) -> float:
 def usage_summary(*, capability: str | None = None) -> dict[str, Any]:
     """
     Aggregate usage metrics by capability, optionally restricting results to one capability.
-    
+
     Parameters:
         capability (str | None): Capability name to include, or all capabilities when omitted.
-    
+
     Returns:
         dict[str, Any]: Summary containing total events, overall success rate, total cost
         units, and per-capability counts, success rates, failure counts, costs, and

@@ -81,9 +81,9 @@ def reset_cache() -> None:
 
 def count() -> int:
     """Count the persisted automation records.
-    
+
     Returns:
-    	int: The number of automation records.
+        int: The number of automation records.
     """
     with _lock:
         row = _get_db().execute("SELECT COUNT(*) AS c FROM automations").fetchone()
@@ -93,7 +93,7 @@ def count() -> int:
 def list_automations() -> list[Automation]:
     """
     List all automations in creation order.
-    
+
     Returns:
         list[Automation]: The stored automations ordered by creation time and ID.
     """
@@ -108,10 +108,10 @@ def list_automations() -> list[Automation]:
 
 def get_automation(automation_id: str) -> Automation | None:
     """Retrieve an automation by its identifier.
-    
+
     Parameters:
         automation_id (str): Identifier of the automation to retrieve.
-    
+
     Returns:
         Automation | None: The matching automation, or `None` if no record exists.
     """
@@ -127,12 +127,12 @@ def get_automation(automation_id: str) -> Automation | None:
 def upsert(automation: Automation) -> Automation:
     """
     Insert or update an automation and return the persisted record.
-    
+
     Parameters:
-    	automation (Automation): The automation record to persist.
-    
+        automation (Automation): The automation record to persist.
+
     Returns:
-    	Automation: The persisted automation record.
+        Automation: The persisted automation record.
     """
     with _lock:
         db = _get_db()
@@ -175,13 +175,13 @@ def upsert(automation: Automation) -> Automation:
 def set_enabled(automation_id: str, enabled: bool) -> Automation | None:
     """
     Update an automation's enabled state.
-    
+
     Parameters:
-    	automation_id (str): Identifier of the automation to update.
-    	enabled (bool): Whether the automation should be enabled.
-    
+        automation_id (str): Identifier of the automation to update.
+        enabled (bool): Whether the automation should be enabled.
+
     Returns:
-    	Automation | None: The updated automation, or `None` if no matching automation exists.
+        Automation | None: The updated automation, or `None` if no matching automation exists.
     """
     now = time.time()
     with _lock:
@@ -207,15 +207,15 @@ def record_run(
 ) -> Automation | None:
     """
     Record the outcome of an automation run.
-    
+
     Parameters:
-    	automation_id (str): Identifier of the automation to update.
-    	ran_at (float): Timestamp when the run occurred.
-    	status (str): Status of the run.
-    	error (str | None): Error details, or None when the run completed without an error.
-    
+        automation_id (str): Identifier of the automation to update.
+        ran_at (float): Timestamp when the run occurred.
+        status (str): Status of the run.
+        error (str | None): Error details, or None when the run completed without an error.
+
     Returns:
-    	Automation | None: The updated automation, or None if the identifier does not exist.
+        Automation | None: The updated automation, or None if the identifier does not exist.
     """
     with _lock:
         db = _get_db()
@@ -234,12 +234,12 @@ def record_run(
 def delete(automation_id: str) -> bool:
     """
     Delete an automation by its identifier.
-    
+
     Parameters:
-    	automation_id (str): Identifier of the automation to delete.
-    
+        automation_id (str): Identifier of the automation to delete.
+
     Returns:
-    	bool: `True` if an automation was deleted, `False` if no matching automation was found.
+        bool: `True` if an automation was deleted, `False` if no matching automation was found.
     """
     with _lock:
         db = _get_db()
@@ -250,12 +250,12 @@ def delete(automation_id: str) -> bool:
 
 def _row_to_automation(row: sqlite3.Row) -> Automation:
     """Convert a database row into an Automation instance.
-    
+
     Parameters:
-    	row (sqlite3.Row): Database row containing automation fields.
-    
+        row (sqlite3.Row): Database row containing automation fields.
+
     Returns:
-    	Automation: The reconstructed automation record.
+        Automation: The reconstructed automation record.
     """
     raw_config = row["config"] or "{}"
     try:
@@ -280,12 +280,12 @@ def _row_to_automation(row: sqlite3.Row) -> Automation:
 
 def _is_usable(conn: sqlite3.Connection) -> bool:
     """Determine whether a SQLite connection can execute queries.
-    
+
     Parameters:
-    	conn (sqlite3.Connection): The connection to check.
-    
+        conn (sqlite3.Connection): The connection to check.
+
     Returns:
-    	bool: `True` if the connection executes a test query successfully, `False` otherwise.
+        bool: `True` if the connection executes a test query successfully, `False` otherwise.
     """
     try:
         conn.execute("SELECT 1")
@@ -308,9 +308,9 @@ class AutomationStore:
 
     def count(self) -> int:
         """Count the stored automation records.
-        
+
         Returns:
-        	int: The number of stored automations.
+            int: The number of stored automations.
         """
         return count()
 
@@ -320,10 +320,10 @@ class AutomationStore:
 
     def get(self, automation_id: str) -> Automation | None:
         """Retrieve an automation by its identifier.
-        
+
         Parameters:
             automation_id (str): Identifier of the automation to retrieve.
-        
+
         Returns:
             Automation | None: The matching automation, or `None` if it does not exist.
         """
@@ -331,10 +331,10 @@ class AutomationStore:
 
     def upsert(self, automation: Automation) -> Automation:
         """Persist an automation record and return its stored representation.
-        
+
         Parameters:
             automation (Automation): The automation record to create or update.
-        
+
         Returns:
             Automation: The persisted automation record.
         """
@@ -342,11 +342,11 @@ class AutomationStore:
 
     def set_enabled(self, automation_id: str, enabled: bool) -> Automation | None:
         """Set whether an automation is enabled.
-        
+
         Parameters:
             automation_id (str): Identifier of the automation to update.
             enabled (bool): Whether the automation should be enabled.
-        
+
         Returns:
             Automation | None: The updated automation, or `None` if no matching automation exists.
         """
@@ -361,13 +361,13 @@ class AutomationStore:
         error: str | None,
     ) -> Automation | None:
         """Record the outcome of an automation run.
-        
+
         Parameters:
             automation_id (str): Identifier of the automation.
             ran_at (float): Timestamp when the run occurred.
             status (str): Result status of the run.
             error (str | None): Error message, if the run failed.
-        
+
         Returns:
             Automation | None: The updated automation, or `None` if it does not exist.
         """
@@ -375,10 +375,10 @@ class AutomationStore:
 
     def delete(self, automation_id: str) -> bool:
         """Delete an automation record by its identifier.
-        
+
         Parameters:
             automation_id (str): Identifier of the automation to delete.
-        
+
         Returns:
             bool: `True` if a record was deleted, `False` if no matching record was found.
         """

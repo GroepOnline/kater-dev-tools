@@ -1194,10 +1194,12 @@ def backup_create_command(
 ) -> None:
     """
     Create a verifiable `.tar.gz` backup of the `.kater` state.
-    
+
     Parameters:
-    	output (Path | None): Destination archive path or directory; uses the default destination when omitted.
-    	no_secrets (bool): Exclude OAuth and environment files and redact settings secrets when true.
+        output (Path | None): Destination archive path or directory; uses the default destination
+            when omitted.
+        no_secrets (bool): Exclude OAuth and environment files and redact settings secrets when
+            true.
     """
     from kater.backup import BackupError, create_backup
 
@@ -1226,10 +1228,10 @@ def backup_inspect_command(
 ) -> None:
     """
     Validate a backup archive and display its manifest or inspection report.
-    
+
     Parameters:
-    	path (Path): Backup archive to inspect.
-    	json_output (bool): Whether to output the inspection report as JSON.
+        path (Path): Backup archive to inspect.
+        json_output (bool): Whether to output the inspection report as JSON.
     """
     from kater.backup import BackupError, inspect_backup
 
@@ -1265,7 +1267,7 @@ def backup_restore_command(
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
     """Restore `.kater` state from a backup bundle.
-    
+
     Parameters:
         path (Path): Backup bundle to restore.
         force (bool): Whether to replace the existing `.kater` directory.
@@ -1349,14 +1351,14 @@ def browser_open_command(
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
     """Open a browser session and optionally navigate it to a URL.
-    
+
     Parameters:
-    	label (str): Human-readable label for the session.
-    	url (str): URL to navigate to after opening the session.
-    	profile (str): Kater profile that owns the session.
-    	width (int): Browser viewport width in pixels.
-    	height (int): Browser viewport height in pixels.
-    	json_output (bool): Whether to output the result as JSON.
+        label (str): Human-readable label for the session.
+        url (str): URL to navigate to after opening the session.
+        profile (str): Kater profile that owns the session.
+        width (int): Browser viewport width in pixels.
+        height (int): Browser viewport height in pixels.
+        json_output (bool): Whether to output the result as JSON.
     """
     from kater.browser.tools import browser_act_tool, browser_open_tool
 
@@ -1404,23 +1406,23 @@ def browser_act_command(
 ) -> None:
     """
     Run a browser action in an open session.
-    
+
     Parameters:
-    	session_id (str): Identifier of the browser session.
-    	kind (str): Action to perform.
-    	url (str): Target URL for navigation actions.
-    	selector (str): CSS selector for element actions.
-    	text (str): Text to enter.
-    	key (str): Key to press.
-    	value (str): Option value for selection actions.
-    	expression (str): JavaScript expression to evaluate.
-    	delta_y (int | None): Vertical scroll distance in pixels.
-    	timeout_ms (int | None): Action timeout in milliseconds.
-    	full_page (bool): Whether screenshot actions should capture the full page.
-    	json_output (bool): Whether to output the result as JSON.
-    
+        session_id (str): Identifier of the browser session.
+        kind (str): Action to perform.
+        url (str): Target URL for navigation actions.
+        selector (str): CSS selector for element actions.
+        text (str): Text to enter.
+        key (str): Key to press.
+        value (str): Option value for selection actions.
+        expression (str): JavaScript expression to evaluate.
+        delta_y (int | None): Vertical scroll distance in pixels.
+        timeout_ms (int | None): Action timeout in milliseconds.
+        full_page (bool): Whether screenshot actions should capture the full page.
+        json_output (bool): Whether to output the result as JSON.
+
     Returns:
-    	None
+        None
     """
     from kater.browser.tools import browser_act_tool
 
@@ -1461,14 +1463,14 @@ def browser_screenshot_command(
 ) -> None:
     """
     Capture a screenshot of the current browser page.
-    
+
     Parameters:
-    	session_id (str): Identifier of the browser session.
-    	full_page (bool): Whether to capture the entire page.
-    	json_output (bool): Whether to output the result as JSON.
-    
+        session_id (str): Identifier of the browser session.
+        full_page (bool): Whether to capture the entire page.
+        json_output (bool): Whether to output the result as JSON.
+
     Returns:
-    	None
+        None
     """
     from kater.browser.tools import browser_screenshot_tool
 
@@ -1574,11 +1576,11 @@ def automations_enable_command(
 ) -> None:
     """
     Enable the specified automation.
-    
+
     Parameters:
         automation_id (str): Identifier of the automation to enable.
         json_output (bool): Whether to output the enabled automation as JSON.
-    
+
     Raises:
         typer.Exit: If the automation does not exist.
     """
@@ -1678,16 +1680,16 @@ def computer_invoke_command(
 ) -> None:
     """
     Invoke a Computer capability with the provided arguments.
-    
+
     Parameters:
-    	capability_id (str): Identifier of the capability to invoke.
-    	arg (list[str] | None): Additional arguments in `key=value` format.
-    	args_json (str): Invocation arguments as a JSON object.
-    	args_file (Path | None): Path to a file containing invocation arguments as a JSON object.
-    	json_output (bool): Whether to output the result as JSON.
-    
+        capability_id (str): Identifier of the capability to invoke.
+        arg (list[str] | None): Additional arguments in `key=value` format.
+        args_json (str): Invocation arguments as a JSON object.
+        args_file (Path | None): Path to a file containing invocation arguments as a JSON object.
+        json_output (bool): Whether to output the result as JSON.
+
     Returns:
-    	None
+        None
     """
     from kater.capabilities.wiring import ensure_computer_connector
 

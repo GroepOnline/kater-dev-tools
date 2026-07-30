@@ -48,8 +48,9 @@ def record_event(event: TelemetryEvent) -> None:
 
 def _emit_usage_from_route(event: TelemetryEvent) -> None:
     """Mirror a control-plane route decision into the usage ledger.
-    
-    The derived usage record includes routing metadata, outcome information, duration, and estimated units. Failures while recording the usage entry are logged and do not propagate.
+
+    The derived usage record includes routing metadata, outcome information, duration, and estimated
+        units. Failures while recording the usage entry are logged and do not propagate.
     """
     meta = event.metadata or {}
     try:
@@ -88,7 +89,7 @@ def record_tool_call(
 ) -> None:
     """
     Record telemetry for a tool invocation.
-    
+
     Parameters:
         tool (str): Name of the tool being invoked.
         profile (str | None): Optional profile associated with the invocation.

@@ -24,12 +24,13 @@ requires_chromium = pytest.mark.skipif(
 def resolver_for(*addresses: str):
     """
     Create a resolver that returns the specified IP addresses for any host and port.
-    
+
     Parameters:
-    	addresses (str): IP addresses to return from the resolver.
-    
+        addresses (str): IP addresses to return from the resolver.
+
     Returns:
-    	Callable: A resolver callback accepting a host and port and returning socket address records.
+        Callable: A resolver callback accepting a host and port and returning socket address
+            records.
     """
     def _resolve(host: str, port: int):
         del host, port
@@ -50,10 +51,11 @@ def resolver_for(*addresses: str):
 def public_policy(**kwargs) -> BrowserPolicy:
     """
     Create a browser policy configured to resolve hosts to a public IP address by default.
-    
+
     Parameters:
-        **kwargs: Additional arguments passed to `BrowserPolicy`. A supplied `resolver` takes precedence over the default.
-    
+        **kwargs: Additional arguments passed to `BrowserPolicy`. A supplied `resolver` takes
+            precedence over the default.
+
     Returns:
         BrowserPolicy: The configured browser policy.
     """
@@ -200,10 +202,10 @@ def test_validate_cdp_allows_unresolved_same_host_as_steel():
 class _FakeRequest:
     def __init__(self, url: str, resource_type: str = "xhr") -> None:
         """Initialize a fake request with its URL and resource type.
-        
+
         Parameters:
-        	url (str): The requested URL.
-        	resource_type (str): The type of resource being requested.
+            url (str): The requested URL.
+            resource_type (str): The type of resource being requested.
         """
         self.url = url
         self.resource_type = resource_type
@@ -212,10 +214,10 @@ class _FakeRequest:
 class _FakeRoute:
     def __init__(self, url: str, resource_type: str = "xhr") -> None:
         """Create a fake route for a request URL and resource type.
-        
+
         Parameters:
-        	url (str): The request URL.
-        	resource_type (str): The request's resource type.
+            url (str): The request URL.
+            resource_type (str): The request's resource type.
         """
         self.request = _FakeRequest(url, resource_type)
         self.aborted: str | None = None
@@ -224,9 +226,9 @@ class _FakeRoute:
     def abort(self, reason: str = "") -> None:
         """
         Record the reason that the route was aborted.
-        
+
         Parameters:
-        	reason (str): The reason for aborting the route.
+            reason (str): The reason for aborting the route.
         """
         self.aborted = reason
 
@@ -243,10 +245,10 @@ class _FakePage:
     def route(self, pattern: str, handler: Any) -> None:
         """
         Register a route handler for the fake page.
-        
+
         Parameters:
-        	pattern (str): Route pattern accepted for API compatibility.
-        	handler (Any): Handler to store for later invocation.
+            pattern (str): Route pattern accepted for API compatibility.
+            handler (Any): Handler to store for later invocation.
         """
         del pattern
         self.route_handler = handler

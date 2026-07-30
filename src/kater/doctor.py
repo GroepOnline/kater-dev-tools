@@ -115,12 +115,12 @@ def run_doctor(
 ) -> DoctorReport:
     """
     Run diagnostics for the selected profiles and Cursor MCP configuration.
-    
+
     Parameters:
         profiles (set[str] | None): Profiles to inspect. Defaults to the default profile.
         cursor_mcp_path (Path | None): Optional path to the Cursor MCP configuration file.
         include_fix_plan (bool): Whether to include suggested fix actions in the report.
-    
+
     Returns:
         DoctorReport: Diagnostic findings, selected source details, and optional fix actions.
     """
@@ -199,13 +199,14 @@ def _find_context_bloat(
 ) -> list[Finding]:
     """
     Identify MCP servers that may expose excessive context or bypass active Kater profiles.
-    
+
     Parameters:
-    	cursor_mcp_path (Path | None): Path to the Cursor MCP configuration file.
-    	selected (list[ToolSource]): Tool sources selected by the active profiles.
-    
+        cursor_mcp_path (Path | None): Path to the Cursor MCP configuration file.
+        selected (list[ToolSource]): Tool sources selected by the active profiles.
+
     Returns:
-    	list[Finding]: Findings for excessive server exposure, direct servers outside the catalog, or high-risk servers configured directly.
+        list[Finding]: Findings for excessive server exposure, direct servers outside the catalog,
+            or high-risk servers configured directly.
     """
     config = load_cursor_mcp(cursor_mcp_path)
     entries = _mcp_server_entries(config)
@@ -331,9 +332,10 @@ def _browser_lane_check() -> list[Finding]:
 def _security_check() -> list[Finding]:
     """
     Check public deployment settings and report security-related findings.
-    
+
     Returns:
-    	list[Finding]: Security findings for public deployments, or an empty list when the deployment is not public.
+        list[Finding]: Security findings for public deployments, or an empty list when the
+            deployment is not public.
     """
     from kater.settings import _is_public_deploy, load_settings
 

@@ -49,7 +49,7 @@ def _show_cursor() -> None:
 def browser_stats() -> dict[str, Any] | None:
     """
     Retrieve browser session statistics when the browser subsystem is available.
-    
+
     Returns:
         dict[str, Any] | None: Browser statistics, or `None` when unavailable.
     """
@@ -66,12 +66,13 @@ def browser_stats() -> dict[str, Any] | None:
 def browser_sessions(*, live_only: bool = False) -> list[dict[str, Any]] | None:
     """
     List available browser sessions in dictionary form.
-    
+
     Parameters:
-    	live_only (bool): Whether to include only live sessions.
-    
+        live_only (bool): Whether to include only live sessions.
+
     Returns:
-    	list[dict[str, Any]] | None: The session dictionaries, or `None` when the browser session service is unavailable.
+        list[dict[str, Any]] | None: The session dictionaries, or `None` when the browser session
+            service is unavailable.
     """
     try:
         from kater.browser.session import get_manager
@@ -87,9 +88,10 @@ def browser_sessions(*, live_only: bool = False) -> list[dict[str, Any]] | None:
 def automation_count() -> int | None:
     """
     Determine the number of available automations.
-    
+
     Returns:
-        int | None: The automation count, or `None` when the automation engine is unavailable or cannot be queried.
+        int | None: The automation count, or `None` when the automation engine is unavailable or
+            cannot be queried.
     """
     engine = _automation_engine()
     if engine is None:
@@ -104,9 +106,10 @@ def automation_count() -> int | None:
 def automation_list() -> list[dict[str, Any]] | None:
     """
     List available automations in dictionary form.
-    
+
     Returns:
-        list[dict[str, Any]]: The normalized automation records, or None when the automation engine is unavailable or cannot be queried.
+        list[dict[str, Any]]: The normalized automation records, or None when the automation engine
+            is unavailable or cannot be queried.
     """
     engine = _automation_engine()
     if engine is None:
@@ -119,9 +122,10 @@ def automation_list() -> list[dict[str, Any]] | None:
 
 def _automation_engine() -> Any | None:
     """Retrieve the available automation engine.
-    
+
     Returns:
-        Any | None: The automation engine, or `None` when it is unavailable or cannot be initialized.
+        Any | None: The automation engine, or `None` when it is unavailable or cannot be
+            initialized.
     """
     getter: Any | None = None
     try:
@@ -143,10 +147,10 @@ def _automation_engine() -> Any | None:
 def _automation_items(engine: Any) -> list[dict[str, Any]]:
     """
     Normalize automation entries from an engine into dictionaries.
-    
+
     Parameters:
         engine (Any): Automation engine providing an available listing method.
-    
+
     Returns:
         list[dict[str, Any]]: Normalized automation entries.
     """
@@ -198,7 +202,7 @@ def format_status_lines(
 ) -> list[str]:
     """
     Build the header and summary lines for the status panel.
-    
+
     Parameters:
         version (str): Kater version displayed in the header.
         profile (str): Active profile name.
@@ -213,7 +217,7 @@ def format_status_lines(
         tool_calls (int): Number of tool calls.
         errors (int): Number of errors.
         success_rate (float): Tool-call success rate as a percentage.
-    
+
     Returns:
         list[str]: Formatted status panel lines.
     """
@@ -248,13 +252,14 @@ def format_status_lines(
 def format_server_mark(enabled: bool, env_ok: bool) -> str:
     """
     Format a colored status mark for a server.
-    
+
     Parameters:
         enabled (bool): Whether the server is enabled.
         env_ok (bool): Whether the server's required environment is configured.
-    
+
     Returns:
-        str: A colored `*` for enabled servers with valid configuration, `o` for enabled servers with missing configuration, or `-` for disabled servers.
+        str: A colored `*` for enabled servers with valid configuration, `o` for enabled servers
+            with missing configuration, or `-` for disabled servers.
     """
     if enabled and env_ok:
         return f"{GREEN}*{RESET}"
@@ -266,12 +271,13 @@ def format_server_mark(enabled: bool, env_ok: bool) -> str:
 def format_session_row(session: dict[str, Any]) -> str:
     """
     Format a browser session as a fixed-width display row.
-    
+
     Parameters:
-    	session (dict[str, Any]): Session data containing its identifier, state, and optional label or URL.
-    
+        session (dict[str, Any]): Session data containing its identifier, state, and optional label
+            or URL.
+
     Returns:
-    	str: A formatted session row with truncated identifier and detail fields.
+        str: A formatted session row with truncated identifier and detail fields.
     """
     sid = str(session.get("session_id", "?"))
     short = sid if len(sid) <= 20 else sid[:20]
@@ -290,12 +296,13 @@ def format_session_row(session: dict[str, Any]) -> str:
 def format_automation_row(item: dict[str, Any]) -> str:
     """
     Format an automation item as an aligned display row.
-    
+
     Parameters:
-    	item (dict[str, Any]): Automation data containing its name or identifier, enabled state, kind, and latest status.
-    
+        item (dict[str, Any]): Automation data containing its name or identifier, enabled state,
+            kind, and latest status.
+
     Returns:
-    	str: A fixed-width formatted row for the automation item.
+        str: A fixed-width formatted row for the automation item.
     """
     name = str(item.get("name") or item.get("id") or "?")
     if len(name) > 24:
@@ -316,7 +323,7 @@ def interactive_loop(
 ) -> None:
     """
     Run the interactive terminal dashboard and process user commands.
-    
+
     Parameters:
         profile (str): Initial configuration profile.
         refresh_interval (float): Minimum number of seconds between automatic dashboard refreshes.
@@ -390,7 +397,7 @@ def interactive_loop(
 def _render(profile: str) -> None:
     """
     Render the current dashboard state for the selected profile.
-    
+
     Parameters:
         profile (str): Profile whose applicable tool sources should be displayed.
     """
@@ -479,7 +486,8 @@ def _print_browser() -> None:
 
 def _print_automations() -> None:
     """
-    Print the available automations and their status, or an error when the automations engine is unavailable.
+    Print the available automations and their status, or an error when the automations engine is
+        unavailable.
     """
     items = automation_list()
     if items is None:
@@ -496,10 +504,10 @@ def _print_automations() -> None:
 
 def _handle_toggle(action: str, server_name: str) -> None:
     """Update and persist a server's enabled state, then record the change.
-    
+
     Parameters:
-    	action (str): The requested action: ``"enable"``, ``"disable"``, or ``"toggle"``.
-    	server_name (str): The name of the server to update.
+        action (str): The requested action: ``"enable"``, ``"disable"``, or ``"toggle"``.
+        server_name (str): The name of the server to update.
     """
     source = get_source(server_name)
     if not source:

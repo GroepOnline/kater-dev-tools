@@ -35,7 +35,7 @@ PolicySource = BrowserPolicy | Callable[[], BrowserPolicy]
 
 def install_network_guard(page: Any, policy: PolicySource) -> None:
     """Install a request guard that applies the current browser policy to every routed request.
-    
+
     Parameters:
         page (Any): Playwright page on which to install the guard.
         policy (PolicySource): Static browser policy or callable that provides the current policy.
@@ -70,16 +70,19 @@ def install_network_guard(page: Any, policy: PolicySource) -> None:
 def validate_cdp_endpoint(endpoint: str, *, steel_base_url: str | None = None) -> str:
     """
     Validate a CDP endpoint and enforce network access restrictions.
-    
+
     Parameters:
-    	steel_base_url (str | None): Base URL used to determine whether loopback or private endpoints are permitted.
-    
+        steel_base_url (str | None): Base URL used to determine whether loopback or private
+            endpoints are permitted.
+
     Returns:
-    	str: The stripped endpoint URL.
-    
+        str: The stripped endpoint URL.
+
     Raises:
-    	BrowserUnavailableError: If the endpoint is empty, malformed, lacks a host or scheme, or uses an unsupported scheme.
-    	PolicyViolation: If the endpoint targets a blocked scheme, metadata address, or disallowed network.
+        BrowserUnavailableError: If the endpoint is empty, malformed, lacks a host or scheme, or
+            uses an unsupported scheme.
+        PolicyViolation: If the endpoint targets a blocked scheme, metadata address, or disallowed
+            network.
     """
     raw = (endpoint or "").strip()
     if not raw:
@@ -138,12 +141,12 @@ def validate_cdp_endpoint(endpoint: str, *, steel_base_url: str | None = None) -
 
 def _default_port(scheme: str) -> int:
     """Return the default port for a URL scheme.
-    
+
     Parameters:
-    	scheme (str): URL scheme to classify.
-    
+        scheme (str): URL scheme to classify.
+
     Returns:
-    	int: 443 for HTTPS or WSS schemes; 80 for all other schemes.
+        int: 443 for HTTPS or WSS schemes; 80 for all other schemes.
     """
     return 443 if scheme in {"https", "wss"} else 80
 
@@ -173,13 +176,13 @@ def _allowed_private_kind(steel_base_url: str | None) -> str:
 def _hosts_match(endpoint_host: str, steel_base_url: str) -> bool:
     """
     Determine whether an endpoint hostname matches the hostname in a Steel base URL.
-    
+
     Parameters:
-    	endpoint_host (str): Normalized hostname to compare.
-    	steel_base_url (str): Steel base URL whose hostname is compared.
-    
+        endpoint_host (str): Normalized hostname to compare.
+        steel_base_url (str): Steel base URL whose hostname is compared.
+
     Returns:
-    	bool: `true` if the hostnames match, `false` otherwise.
+        bool: `true` if the hostnames match, `false` otherwise.
     """
     try:
         parts = urlsplit(steel_base_url.strip())
@@ -192,13 +195,13 @@ def _hosts_match(endpoint_host: str, steel_base_url: str) -> bool:
 def _host_network_kind(host: str, port: int) -> str:
     """
     Classify a hostname or IP address by its network accessibility.
-    
+
     Parameters:
-    	host (str): Hostname or IP address to classify.
-    	port (int): Port used for hostname resolution.
-    
+        host (str): Hostname or IP address to classify.
+        port (int): Port used for hostname resolution.
+
     Returns:
-    	str: One of `"metadata"`, `"loopback"`, `"private"`, `"public"`, or `"unresolved"`.
+        str: One of `"metadata"`, `"loopback"`, `"private"`, `"public"`, or `"unresolved"`.
     """
     if host in _METADATA_HOSTS:
         return "metadata"
@@ -229,12 +232,12 @@ def _host_network_kind(host: str, port: int) -> str:
 def _address_kind(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
     """
     Classify an IP address by its network accessibility.
-    
+
     Parameters:
-    	address (ipaddress.IPv4Address | ipaddress.IPv6Address): The IP address to classify.
-    
+        address (ipaddress.IPv4Address | ipaddress.IPv6Address): The IP address to classify.
+
     Returns:
-    	str: One of "metadata", "loopback", "private", or "public".
+        str: One of "metadata", "loopback", "private", or "public".
     """
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
         address = address.ipv4_mapped

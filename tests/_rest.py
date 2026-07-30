@@ -25,16 +25,16 @@ def call(
 ) -> Response:
     """
     Dispatch an in-process request to the handler matching the given method and path.
-    
+
     Parameters:
-    	method (str): HTTP method to match.
-    	path (str): Request path to match.
-    	query (dict[str, list[str]] | None): Query parameters for the request.
-    	body (dict[str, Any] | None): Request body to encode as JSON.
-    	headers (dict[str, str] | None): Request headers.
-    
+        method (str): HTTP method to match.
+        path (str): Request path to match.
+        query (dict[str, list[str]] | None): Query parameters for the request.
+        body (dict[str, Any] | None): Request body to encode as JSON.
+        headers (dict[str, str] | None): Request headers.
+
     Returns:
-    	Response: The matched route handler's response.
+        Response: The matched route handler's response.
     """
     matched = ROUTER.match(method, path)
     assert matched is not None, f"{method} {path} has no route"

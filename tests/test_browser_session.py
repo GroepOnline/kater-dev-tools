@@ -63,12 +63,12 @@ class FakeProvider(BrowserProvider):
     def new_page(self, session: BrowserSession) -> Any:
         """
         Create a page handle for a browser session.
-        
+
         Parameters:
-        	session (BrowserSession): The session for which to create the page.
-        
+            session (BrowserSession): The session for which to create the page.
+
         Returns:
-        	Any: A page handle containing the session identifier.
+            Any: A page handle containing the session identifier.
         """
         self.started = True
         self.pages.append(session.session_id)
@@ -77,15 +77,16 @@ class FakeProvider(BrowserProvider):
     def act(self, handle: Any, action: BrowserAction, policy: BrowserPolicy) -> ActionResult:
         """
         Execute an action for a test session and return a successful fixed result.
-        
+
         Parameters:
             handle (Any): Session handle containing the session identifier.
             action (BrowserAction): Action to record and execute.
             policy (BrowserPolicy): Browser policy supplied for interface compatibility.
-        
+
         Returns:
-            ActionResult: A successful result containing the session identifier, action kind, and fixed page metadata.
-        
+            ActionResult: A successful result containing the session identifier, action kind, and
+                fixed page metadata.
+
         Raises:
             Exception: The configured action exception, when one is set.
         """
@@ -108,9 +109,9 @@ class FakeProvider(BrowserProvider):
 
     def info(self) -> ProviderInfo:
         """Return information about the fake browser provider.
-        
+
         Returns:
-        	ProviderInfo: Provider metadata indicating that the provider is available.
+            ProviderInfo: Provider metadata indicating that the provider is available.
         """
         return ProviderInfo(self.kind, True, "fake provider")
 
@@ -126,9 +127,9 @@ class FakeClock:
 
     def advance(self, seconds: float) -> None:
         """Advance the clock by the specified number of seconds.
-        
+
         Parameters:
-        	seconds (float): The amount of time to add to the current clock value.
+            seconds (float): The amount of time to add to the current clock value.
         """
         self.now += seconds
 
@@ -137,10 +138,10 @@ class FakeClock:
 def _clean_browser_state(tmp_path, monkeypatch):
     """
     Reset browser state before and after each test.
-    
+
     Parameters:
-    	tmp_path: Temporary directory to use as the working directory.
-    	monkeypatch: Pytest fixture used to change the working directory.
+        tmp_path: Temporary directory to use as the working directory.
+        monkeypatch: Pytest fixture used to change the working directory.
     """
     monkeypatch.chdir(tmp_path)
     store.reset_cache()
@@ -153,12 +154,12 @@ def _clean_browser_state(tmp_path, monkeypatch):
 @pytest.fixture
 def events(monkeypatch):
     """Capture browser session events emitted during a test.
-    
+
     Parameters:
-    	monkeypatch: Pytest monkeypatch fixture used to replace the event broadcaster.
-    
+        monkeypatch: Pytest monkeypatch fixture used to replace the event broadcaster.
+
     Returns:
-    	list[dict[str, Any]]: Captured browser session events.
+        list[dict[str, Any]]: Captured browser session events.
     """
     captured: list[dict[str, Any]] = []
     monkeypatch.setattr("kater.browser.session.broadcast_event", captured.append)
@@ -168,11 +169,11 @@ def events(monkeypatch):
 def make_manager(**kwargs) -> tuple[BrowserSessionManager, FakeProvider]:
     """
     Create a browser session manager with a fake provider for testing.
-    
+
     Parameters:
         policy (BrowserPolicy): Optional policy to apply to the manager.
         **kwargs: Additional arguments passed to `BrowserSessionManager`.
-    
+
     Returns:
         tuple[BrowserSessionManager, FakeProvider]: The configured manager and its fake provider.
     """
@@ -576,7 +577,7 @@ class _PageHandler(BaseHTTPRequestHandler):
 @pytest.fixture
 def local_site():
     """Provide a temporary local HTTP server URL for browser tests.
-    
+
     Yields:
         str: The base URL of the running local HTTP server.
     """

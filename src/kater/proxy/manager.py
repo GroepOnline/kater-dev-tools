@@ -291,9 +291,9 @@ class ProxyManager:
     def list_tools(self) -> list[dict[str, Any]]:
         """
         List available backend, connector, and compatible route-pool tools.
-        
+
         Returns:
-        	list[dict[str, Any]]: Tool definitions discoverable through the proxy.
+            list[dict[str, Any]]: Tool definitions discoverable through the proxy.
         """
         tools = self._aggregator.for_mcp()
         if self._computer_connector is not None:
@@ -373,15 +373,18 @@ class ProxyManager:
         identity: RequestIdentity | None = None,
     ) -> dict[str, Any]:
         """
-        Invoke a capability through the appropriate connector or backend route with authorization and audit handling.
-        
+        Invoke a capability through the appropriate connector or backend route with authorization
+            and audit handling.
+
         Parameters:
             name (str): Capability identifier to invoke.
             arguments (dict[str, Any]): Arguments passed to the capability.
-            identity (RequestIdentity | None): Request identity used for authorization and auditing; derived from the current request when omitted.
-        
+            identity (RequestIdentity | None): Request identity used for authorization and auditing;
+                derived from the current request when omitted.
+
         Returns:
-            dict[str, Any]: Capability response, including structured denial or error details when applicable.
+            dict[str, Any]: Capability response, including structured denial or error details when
+                applicable.
         """
         started = time.perf_counter()
         ident = identity if identity is not None else get_request_identity()
@@ -469,12 +472,12 @@ class ProxyManager:
         # was never dispatched (safe to try another account).
         """
         Invoke a backend tool with circuit-breaker and fallback handling.
-        
+
         Parameters:
             backend_name (str): Name of the backend to invoke.
             original_name (str): Tool name passed to the backend.
             arguments (dict[str, Any]): Tool arguments.
-        
+
         Returns:
             tuple[dict[str, Any], bool]: The backend response and whether the request
             is safe to retry on another backend. The second value is true when the
@@ -755,10 +758,11 @@ class ProxyManager:
         )
 
     def statuses(self) -> list[BackendStatus]:
-        """Return the current status of each registered backend, including its circuit-breaker state.
-        
+        """Return the current status of each registered backend, including its circuit-breaker
+            state.
+
         Returns:
-        	list[BackendStatus]: Backend statuses with the associated circuit-breaker state.
+            list[BackendStatus]: Backend statuses with the associated circuit-breaker state.
         """
         result = []
         for name, backend in self._backends.items():
@@ -771,9 +775,10 @@ class ProxyManager:
     def heal(self) -> dict[str, Any]:
         """
         Reset circuit breakers for unhealthy backends when the proxy is running.
-        
+
         Returns:
-        	dict[str, Any]: A status dictionary containing the number of reset breakers and, when started, the backend names that were unhealthy before healing.
+            dict[str, Any]: A status dictionary containing the number of reset breakers and, when
+                started, the backend names that were unhealthy before healing.
         """
         if not self._started:
             return {"healed": 0, "status": "skipped_not_started"}
@@ -788,9 +793,9 @@ class ProxyManager:
 
     def health_check(self) -> dict[str, bool]:
         """Return the health status of each registered backend.
-        
+
         Returns:
-        	dict[str, bool]: A mapping of backend names to their health status.
+            dict[str, bool]: A mapping of backend names to their health status.
         """
         return {name: backend.is_healthy() for name, backend in self._backends.items()}
 

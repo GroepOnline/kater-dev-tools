@@ -25,9 +25,10 @@ from kater.browser.models import ProviderKind
 def probe_providers() -> list[ProviderInfo]:
     """
     Report backend availability without launching browsers or making network calls.
-    
+
     Returns:
-        list[ProviderInfo]: Availability results for the local, CDP, and Steel backends, in that order.
+        list[ProviderInfo]: Availability results for the local, CDP, and Steel backends, in that
+            order.
     """
     return [probe_local(), probe_cdp(), probe_steel()]
 
@@ -35,9 +36,10 @@ def probe_providers() -> list[ProviderInfo]:
 def probe_local() -> ProviderInfo:
     """
     Determine whether the local Playwright backend has an installed Chromium build.
-    
+
     Returns:
-    	ProviderInfo: Local backend availability, including the installed Playwright version when available and a status message.
+        ProviderInfo: Local backend availability, including the installed Playwright version when
+            available and a status message.
     """
     if importlib.util.find_spec("playwright") is None:
         return ProviderInfo(ProviderKind.LOCAL, False, "playwright is not installed")
@@ -56,7 +58,7 @@ def probe_local() -> ProviderInfo:
 def probe_cdp() -> ProviderInfo:
     """
     Check whether a CDP endpoint is configured.
-    
+
     Returns:
         ProviderInfo: CDP availability status with a redacted endpoint when configured.
     """
@@ -69,10 +71,10 @@ def probe_cdp() -> ProviderInfo:
 def probe_steel() -> ProviderInfo:
     """
     Determine whether the Steel remote backend is configured.
-    
+
     Returns:
-    	ProviderInfo: Availability status for the Steel backend, including a redacted
-    	base URL and whether an API key is configured.
+        ProviderInfo: Availability status for the Steel backend, including a redacted
+        base URL and whether an API key is configured.
     """
     base_url = os.environ.get(ENV_STEEL_URL, "").strip()
     if not base_url:
@@ -89,12 +91,12 @@ def probe_steel() -> ProviderInfo:
 
 def _has_chromium_build(root: Path) -> bool:
     """Determine whether the directory contains a Chromium build.
-    
+
     Parameters:
-    	root (Path): Directory to scan for a Chromium build.
-    
+        root (Path): Directory to scan for a Chromium build.
+
     Returns:
-    	bool: `true` if a child name starts with "chromium", `false` otherwise.
+        bool: `true` if a child name starts with "chromium", `false` otherwise.
     """
     try:
         return any(child.name.startswith("chromium") for child in root.iterdir())
@@ -104,9 +106,9 @@ def _has_chromium_build(root: Path) -> bool:
 
 def _playwright_version() -> str | None:
     """Return the installed Playwright package version, if available.
-    
+
     Returns:
-    	str | None: The installed Playwright version, or `None` if the package is not installed.
+        str | None: The installed Playwright version, or `None` if the package is not installed.
     """
     from importlib.metadata import PackageNotFoundError, version
 

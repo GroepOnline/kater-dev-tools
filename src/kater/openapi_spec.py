@@ -51,9 +51,9 @@ def _error_ref() -> dict[str, Any]:
 def _build_paths() -> dict[str, Any]:
     """
     Build the OpenAPI path definitions for the gateway API.
-    
+
     Returns:
-    	dict[str, Any]: Mapping of URL paths to their HTTP operation definitions.
+        dict[str, Any]: Mapping of URL paths to their HTTP operation definitions.
     """
     paths: dict[str, Any] = {}
 
@@ -979,9 +979,9 @@ def _provider_param() -> dict[str, Any]:
 def _pr_number_param() -> dict[str, Any]:
     """
     Create the OpenAPI path parameter definition for a pull request number.
-    
+
     Returns:
-    	dict[str, Any]: The required integer `number` path parameter.
+        dict[str, Any]: The required integer `number` path parameter.
     """
     return {
         "name": "number",
@@ -994,9 +994,9 @@ def _pr_number_param() -> dict[str, Any]:
 
 def _session_id_param() -> dict[str, Any]:
     """Describe the required browser session identifier path parameter.
-    
+
     Returns:
-    	dict[str, Any]: An OpenAPI parameter definition for a browser session ID.
+        dict[str, Any]: An OpenAPI parameter definition for a browser session ID.
     """
     return {
         "name": "session_id",
@@ -1021,9 +1021,9 @@ def _automation_id_param() -> dict[str, Any]:
 def _build_schemas() -> dict[str, Any]:
     """
     Build the OpenAPI component schemas for the gateway API.
-    
+
     Returns:
-    	dict[str, Any]: A mapping of schema names to their OpenAPI schema definitions.
+        dict[str, Any]: A mapping of schema names to their OpenAPI schema definitions.
     """
     return {
         "Health": {
@@ -1263,9 +1263,10 @@ def _build_schemas() -> dict[str, Any]:
 def generate_spec() -> dict[str, Any]:
     """
     Build the complete OpenAPI specification for the Kater MCP Gateway.
-    
+
     Returns:
-    	dict[str, Any]: The OpenAPI specification, including metadata, server information, endpoint paths, and component schemas.
+        dict[str, Any]: The OpenAPI specification, including metadata, server information, endpoint
+            paths, and component schemas.
     """
     try:
         from kater import __version__ as api_version

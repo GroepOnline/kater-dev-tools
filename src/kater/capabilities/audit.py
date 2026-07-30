@@ -53,10 +53,10 @@ def _quiet_close(conn: sqlite3.Connection) -> None:
 
 def _is_usable(conn: sqlite3.Connection) -> bool:
     """Check whether a SQLite connection responds successfully to a simple query.
-    
+
     Parameters:
         conn (sqlite3.Connection): The connection to check.
-    
+
     Returns:
         bool: `True` if the connection responds successfully, `False` otherwise.
     """
@@ -70,9 +70,9 @@ def _is_usable(conn: sqlite3.Connection) -> bool:
 def _get_db() -> sqlite3.Connection:
     """
     Get the configured SQLite database connection, creating and initializing it when necessary.
-    
+
     Returns:
-    	sqlite3.Connection: The cached or newly initialized database connection.
+        sqlite3.Connection: The cached or newly initialized database connection.
     """
     global _db_cache, _db_path_cache
     db_path = str(load_settings().resolved_db_path)
@@ -116,16 +116,16 @@ def record_capability_audit(
 ) -> int:
     """
     Record an audit entry for a capability invocation.
-    
+
     Parameters:
         capability_id (str): Identifier of the invoked capability.
         outcome (str): Invocation outcome: ``"allowed"``, ``"denied"``, or
             ``"error"``.
         timestamp (float | None): Event timestamp, or the current time when omitted.
-    
+
     Returns:
         int: ID of the newly inserted audit entry.
-    
+
     Raises:
         ValueError: If ``capability_id`` is empty or ``outcome`` is invalid.
     """
@@ -166,14 +166,14 @@ def query_capability_audit(
 ) -> list[dict[str, Any]]:
     """
     Retrieve audit records in newest-first order, optionally filtered by capability or context.
-    
+
     Parameters:
-    	capability_id (str | None): Restrict results to a capability identifier.
-    	context_id (str | None): Restrict results to a context identifier.
-    	limit (int): Maximum number of records to return, clamped to the range 1–1000.
-    
+        capability_id (str | None): Restrict results to a capability identifier.
+        context_id (str | None): Restrict results to a context identifier.
+        limit (int): Maximum number of records to return, clamped to the range 1-1000.
+
     Returns:
-    	list[dict[str, Any]]: Matching audit records represented as dictionaries.
+        list[dict[str, Any]]: Matching audit records represented as dictionaries.
     """
     lim = max(1, min(int(limit), 1000))
     clauses: list[str] = []
@@ -197,7 +197,7 @@ def query_capability_audit(
 def clear_capability_audit() -> None:
     """
     Delete all capability audit records.
-    
+
     Intended for use in tests.
     """
     with _lock:

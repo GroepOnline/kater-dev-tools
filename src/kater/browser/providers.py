@@ -102,10 +102,10 @@ class PlaywrightProvider(BrowserProvider):
 
     def __init__(self, *, headless: bool = True, allow_evaluate: bool = False) -> None:
         """Initialize a local browser provider with the specified launch and evaluation settings.
-        
+
         Parameters:
-        	headless (bool): Whether to launch the browser in headless mode.
-        	allow_evaluate (bool): Whether browser actions may evaluate page scripts.
+            headless (bool): Whether to launch the browser in headless mode.
+            allow_evaluate (bool): Whether browser actions may evaluate page scripts.
         """
         self.headless = headless
         self.allow_evaluate = allow_evaluate
@@ -149,12 +149,12 @@ class PlaywrightProvider(BrowserProvider):
 
     def _connect(self, playwright: Any) -> Any:
         """Launch a Chromium browser with the configured headless mode and launch arguments.
-        
+
         Parameters:
-        	playwright (Any): Playwright instance used to launch Chromium.
-        
+            playwright (Any): Playwright instance used to launch Chromium.
+
         Returns:
-        	Any: The launched Chromium browser instance.
+            Any: The launched Chromium browser instance.
         """
         return playwright.chromium.launch(headless=self.headless, args=launch_args())
 
@@ -196,16 +196,16 @@ class PlaywrightProvider(BrowserProvider):
     def _submit(self, fn: Any, *, timeout: float | None = None) -> Any:
         """
         Submit a browser operation to the worker thread.
-        
+
         Parameters:
-        	fn (Any): The operation to execute.
-        	timeout (float | None): Maximum time to wait for completion.
-        
+            fn (Any): The operation to execute.
+            timeout (float | None): Maximum time to wait for completion.
+
         Returns:
-        	Any: The operation's result.
-        
+            Any: The operation's result.
+
         Raises:
-        	TimeoutError: If the operation exceeds the specified timeout.
+            TimeoutError: If the operation exceeds the specified timeout.
         """
         try:
             return self._runner.submit(fn, timeout=timeout)
@@ -221,13 +221,13 @@ class PlaywrightProvider(BrowserProvider):
     ) -> PageHandle:
         """
         Create a browser page for a session and optionally apply its browser policy.
-        
+
         Parameters:
-        	session (BrowserSession): Session whose viewport dimensions configure the page context.
-        	policy (BrowserPolicy | None): Policy to apply to the page and its popups.
-        
+            session (BrowserSession): Session whose viewport dimensions configure the page context.
+            policy (BrowserPolicy | None): Policy to apply to the page and its popups.
+
         Returns:
-        	PageHandle: Handle for the newly created page and its browser context.
+            PageHandle: Handle for the newly created page and its browser context.
         """
         if policy is not None:
             self._guard_policy = policy
@@ -240,16 +240,16 @@ class PlaywrightProvider(BrowserProvider):
         self, session: BrowserSession, policy: BrowserPolicy | None = None
     ) -> PageHandle:
         """Create a browser page configured for the session viewport and network policy.
-        
+
         Parameters:
-        	session (BrowserSession): Session containing the page dimensions and identifier.
-        	policy (BrowserPolicy | None): Optional policy to apply to the page.
-        
+            session (BrowserSession): Session containing the page dimensions and identifier.
+            policy (BrowserPolicy | None): Optional policy to apply to the page.
+
         Returns:
-        	PageHandle: Handle containing the session identifier, browser context, and page.
-        
+            PageHandle: Handle containing the session identifier, browser context, and page.
+
         Raises:
-        	BrowserUnavailableError: If the browser is not running.
+            BrowserUnavailableError: If the browser is not running.
         """
         if self._browser is None:
             raise BrowserUnavailableError("browser is not running")
@@ -264,7 +264,7 @@ class PlaywrightProvider(BrowserProvider):
     def _attach_guard(self, page: Any, policy: BrowserPolicy | None = None) -> None:
         """
         Attach network policy enforcement to a page and propagate its active policy to popups.
-        
+
         Parameters:
             page (Any): The page to guard.
             policy (BrowserPolicy | None): The policy associated with the page, if specified.
@@ -280,12 +280,13 @@ class PlaywrightProvider(BrowserProvider):
 
     def _policy_for(self, page: Any) -> BrowserPolicy:
         """Return the policy configured for a page.
-        
+
         Parameters:
-        	page (Any): The page whose policy should be retrieved.
-        
+            page (Any): The page whose policy should be retrieved.
+
         Returns:
-        	BrowserPolicy: The page-specific policy, or the current default policy when no page-specific policy is configured.
+            BrowserPolicy: The page-specific policy, or the current default policy when no
+                page-specific policy is configured.
         """
         policy = self._page_policies.get(id(page))
         if policy is not None:
@@ -310,17 +311,17 @@ class PlaywrightProvider(BrowserProvider):
 
     def act(self, handle: Any, action: BrowserAction, policy: BrowserPolicy) -> ActionResult:
         """Execute a browser action on a page using the specified policy.
-        
+
         Parameters:
-        	handle (Any): Page handle on which to perform the action.
-        	action (BrowserAction): Action to execute.
-        	policy (BrowserPolicy): Policy governing action execution.
-        
+            handle (Any): Page handle on which to perform the action.
+            action (BrowserAction): Action to execute.
+            policy (BrowserPolicy): Policy governing action execution.
+
         Returns:
-        	ActionResult: Result of the executed action.
-        
+            ActionResult: Result of the executed action.
+
         Raises:
-        	TypeError: If handle is not a PageHandle.
+            TypeError: If handle is not a PageHandle.
         """
         if not isinstance(handle, PageHandle):
             raise TypeError(f"expected a PageHandle, got {type(handle).__name__}")
@@ -345,9 +346,10 @@ class PlaywrightProvider(BrowserProvider):
     def info(self) -> ProviderInfo:
         """
         Describe the local Chromium provider's current availability and version.
-        
+
         Returns:
-            ProviderInfo: Provider status and version when Chromium is running; otherwise, local browser probe results.
+            ProviderInfo: Provider status and version when Chromium is running; otherwise, local
+                browser probe results.
         """
         if self._browser is not None:
             version = _quiet_value(lambda: str(self._browser.version))
@@ -367,25 +369,25 @@ class CdpProvider(PlaywrightProvider):
 
     def __init__(self, endpoint: str, *, allow_evaluate: bool = False) -> None:
         """Initialize a provider that connects to the specified Chrome DevTools Protocol endpoint.
-        
+
         Parameters:
-        	endpoint (str): WebSocket endpoint of the browser to connect to
-        	allow_evaluate (bool): Whether browser evaluation actions are permitted
+            endpoint (str): WebSocket endpoint of the browser to connect to
+            allow_evaluate (bool): Whether browser evaluation actions are permitted
         """
         super().__init__(headless=True, allow_evaluate=allow_evaluate)
         self.endpoint = endpoint
 
     def _connect(self, playwright: Any) -> Any:
         """Connect to the configured browser through its Chrome DevTools Protocol endpoint.
-        
+
         Parameters:
-        	playwright (Any): Playwright instance used to establish the connection.
-        
+            playwright (Any): Playwright instance used to establish the connection.
+
         Returns:
-        	Any: Connected browser instance.
-        
+            Any: Connected browser instance.
+
         Raises:
-        	BrowserUnavailableError: If no CDP endpoint is configured.
+            BrowserUnavailableError: If no CDP endpoint is configured.
         """
         if not self.endpoint:
             raise BrowserUnavailableError(
@@ -409,7 +411,7 @@ class CdpProvider(PlaywrightProvider):
 
     def info(self) -> ProviderInfo:
         """Describe the configured CDP endpoint and whether the provider is connected.
-        
+
         Returns:
             ProviderInfo: Provider status with a redacted endpoint description.
         """
@@ -434,7 +436,7 @@ class SteelProvider(CdpProvider):
         timeout: float = STEEL_HTTP_TIMEOUT,
     ) -> None:
         """Initialize a provider that creates browser sessions through the Steel API.
-        
+
         Parameters:
             base_url (str): Base URL of the Steel API.
             api_key (str | None): Optional API key for Steel requests.
@@ -469,7 +471,7 @@ class SteelProvider(CdpProvider):
     def info(self) -> ProviderInfo:
         """
         Describe the Steel provider's current connection status.
-        
+
         Returns:
             ProviderInfo: Provider information indicating whether a Steel browser
                 session is attached and identifying the configured Steel API endpoint.
@@ -481,15 +483,15 @@ class SteelProvider(CdpProvider):
 
     def _connect(self, playwright: Any) -> Any:
         """Connect to the Steel Browser session through its validated CDP endpoint.
-        
+
         Parameters:
-        	playwright (Any): Playwright instance used to establish the connection.
-        
+            playwright (Any): Playwright instance used to establish the connection.
+
         Returns:
-        	Any: Connected browser instance.
-        
+            Any: Connected browser instance.
+
         Raises:
-        	BrowserUnavailableError: If no CDP endpoint is configured.
+            BrowserUnavailableError: If no CDP endpoint is configured.
         """
         if not self.endpoint:
             raise BrowserUnavailableError(
@@ -501,12 +503,12 @@ class SteelProvider(CdpProvider):
     def _create_steel_session(self) -> tuple[str, str | None]:
         """
         Create a Steel Browser session and extract its validated CDP endpoint.
-        
+
         Returns:
-        	tuple[str, str | None]: The CDP endpoint and the session identifier, if provided.
-        
+            tuple[str, str | None]: The CDP endpoint and the session identifier, if provided.
+
         Raises:
-        	BrowserUnavailableError: If the session response does not contain a CDP endpoint.
+            BrowserUnavailableError: If the session response does not contain a CDP endpoint.
         """
         payload = self._steel_request("POST", "/v1/sessions", body={})
         endpoint = _first_url(payload)
@@ -521,9 +523,9 @@ class SteelProvider(CdpProvider):
 
     def _release_steel_session(self, session_id: str) -> None:
         """Release a Steel Browser session identified by its session ID.
-        
+
         Parameters:
-        	session_id (str): The Steel session identifier to release.
+            session_id (str): The Steel session identifier to release.
         """
         self._steel_request("DELETE", f"/v1/sessions/{quote(session_id, safe='')}")
 
@@ -532,17 +534,19 @@ class SteelProvider(CdpProvider):
     ) -> dict[str, Any]:
         """
         Send an HTTP request to the Steel Browser API and parse its JSON object response.
-        
+
         Parameters:
-        	method (str): HTTP method to use.
-        	path (str): API path appended to the configured base URL.
-        	body (dict[str, Any] | None): Optional JSON request body.
-        
+            method (str): HTTP method to use.
+            path (str): API path appended to the configured base URL.
+            body (dict[str, Any] | None): Optional JSON request body.
+
         Returns:
-        	dict[str, Any]: Parsed response object, or an empty dictionary for an empty or non-object response.
-        
+            dict[str, Any]: Parsed response object, or an empty dictionary for an empty or
+                non-object response.
+
         Raises:
-        	BrowserUnavailableError: If the base URL is invalid, the request cannot reach the Steel Browser API, or the response is not valid JSON.
+            BrowserUnavailableError: If the base URL is invalid, the request cannot reach the Steel
+                Browser API, or the response is not valid JSON.
         """
         url = f"{self.base_url}{path}"
         if not url.startswith(("http://", "https://")):
@@ -580,14 +584,15 @@ def resolve_provider(
 ) -> BrowserProvider:
     """
     Selects a browser provider based on the requested kind and environment configuration.
-    
+
     Parameters:
-        kind (ProviderKind | str | None): Provider kind to instantiate. When omitted, uses the configured environment value or defaults to a local provider.
+        kind (ProviderKind | str | None): Provider kind to instantiate. When omitted, uses the
+            configured environment value or defaults to a local provider.
         settings (KaterSettings | None): Ignored; environment variables provide the configuration.
-    
+
     Returns:
         BrowserProvider: The configured local, CDP, or Steel browser provider.
-    
+
     Raises:
         BrowserUnavailableError: If the CDP provider is selected without a configured endpoint.
         ValueError: If the provider kind is unsupported.
@@ -616,12 +621,12 @@ def resolve_provider(
 def _first_url(payload: dict[str, Any]) -> str:
     """
     Find the first non-empty CDP URL in a session payload.
-    
+
     Parameters:
-    	payload (dict[str, Any]): Session data to inspect.
-    
+        payload (dict[str, Any]): Session data to inspect.
+
     Returns:
-    	str: The first non-empty CDP URL, or an empty string if none is present.
+        str: The first non-empty CDP URL, or an empty string if none is present.
     """
     for key in _CDP_URL_KEYS:
         value = payload.get(key)
@@ -640,12 +645,12 @@ def _quiet(fn: Any) -> None:
 
 def _quiet_value(fn: Any) -> str | None:
     """Return the string representation of a callable's result.
-    
+
     Parameters:
-    	fn (Any): Callable to invoke.
-    
+        fn (Any): Callable to invoke.
+
     Returns:
-    	str | None: The stringified result, or `None` if invocation or conversion fails.
+        str | None: The stringified result, or `None` if invocation or conversion fails.
     """
     try:
         return str(fn())

@@ -53,10 +53,11 @@ class BrowserSessionManager:
     ) -> None:
         """
         Initialize a browser session manager with the specified provider, policy, and clock.
-        
+
         Parameters:
             provider (BrowserProvider | None): Provider used to create and manage browser pages.
-            policy (BrowserPolicy | None): Session policy; the configured policy is loaded when omitted.
+            policy (BrowserPolicy | None): Session policy; the configured policy is loaded when
+                omitted.
             clock (Callable[[], float]): Function used to obtain the current time.
         """
         self._provider = provider
@@ -93,17 +94,17 @@ class BrowserSessionManager:
     ) -> BrowserSession:
         """
         Create and register a browser session with an isolated page.
-        
+
         Parameters:
-        	label (str | None): Optional label for the session.
-        	profile (str): Browser profile to use.
-        	viewport (tuple[int, int]): Requested viewport width and height.
-        
+            label (str | None): Optional label for the session.
+            profile (str): Browser profile to use.
+            viewport (tuple[int, int]): Requested viewport width and height.
+
         Returns:
-        	BrowserSession: The created session in the ready state.
-        
+            BrowserSession: The created session in the ready state.
+
         Raises:
-        	SessionLimitError: If the configured maximum number of live sessions has been reached.
+            SessionLimitError: If the configured maximum number of live sessions has been reached.
         """
         now = self._clock()
         width, height = _clamp_viewport(viewport)
@@ -151,12 +152,12 @@ class BrowserSessionManager:
 
     def get(self, session_id: str) -> BrowserSession | None:
         """Retrieve a session by ID from memory or persistent storage.
-        
+
         Parameters:
-        	session_id (str): The session identifier to look up.
-        
+            session_id (str): The session identifier to look up.
+
         Returns:
-        	BrowserSession | None: The matching session, or `None` if it cannot be found.
+            BrowserSession | None: The matching session, or `None` if it cannot be found.
         """
         with self._lock:
             session = self._sessions.get(session_id)
@@ -165,12 +166,12 @@ class BrowserSessionManager:
     def list_sessions(self, *, live_only: bool = False) -> list[BrowserSession]:
         """
         List managed browser sessions in creation order.
-        
+
         Parameters:
-        	live_only (bool): Whether to include only sessions in a live state.
-        
+            live_only (bool): Whether to include only sessions in a live state.
+
         Returns:
-        	list[BrowserSession]: Sessions sorted by creation time.
+            list[BrowserSession]: Sessions sorted by creation time.
         """
         with self._lock:
             sessions = list(self._sessions.values())
@@ -180,15 +181,15 @@ class BrowserSessionManager:
 
     def close(self, session_id: str) -> BrowserSession:
         """Close a session and mark it as closed.
-        
+
         Parameters:
-        	session_id (str): Identifier of the session to close.
-        
+            session_id (str): Identifier of the session to close.
+
         Returns:
-        	BrowserSession: The closed session.
-        
+            BrowserSession: The closed session.
+
         Raises:
-        	UnknownSessionError: If the session cannot be found in memory or persistent storage.
+            UnknownSessionError: If the session cannot be found in memory or persistent storage.
         """
         with self._lock:
             session = self._sessions.get(session_id)
@@ -233,9 +234,9 @@ class BrowserSessionManager:
 
     def reap_expired(self) -> int:
         """Close live sessions whose time-to-live has expired.
-        
+
         Returns:
-        	int: The number of sessions successfully closed.
+            int: The number of sessions successfully closed.
         """
         now = self._clock()
         with self._lock:
@@ -258,13 +259,14 @@ class BrowserSessionManager:
     def act(self, session_id: str, action: BrowserAction) -> ActionResult:
         """
         Run an action for a live browser session.
-        
+
         Parameters:
-        	session_id (str): Identifier of the session on which to run the action.
-        	action (BrowserAction): Action to execute.
-        
+            session_id (str): Identifier of the session on which to run the action.
+            action (BrowserAction): Action to execute.
+
         Returns:
-        	ActionResult: The action outcome, including an error result when the session is invalid or execution fails.
+            ActionResult: The action outcome, including an error result when the session is invalid
+                or execution fails.
         """
         started = self._clock()
         with self._lock:
@@ -303,13 +305,13 @@ class BrowserSessionManager:
 
     def screenshot(self, session_id: str, full_page: bool = False) -> ActionResult:
         """Capture a screenshot of the specified browser session.
-        
+
         Parameters:
-        	session_id (str): Identifier of the browser session.
-        	full_page (bool): Whether to capture the full page.
-        
+            session_id (str): Identifier of the browser session.
+            full_page (bool): Whether to capture the full page.
+
         Returns:
-        	ActionResult: The screenshot action result.
+            ActionResult: The screenshot action result.
         """
         return self.act(session_id, BrowserAction(kind=ActionKind.SCREENSHOT, full_page=full_page))
 
@@ -317,12 +319,13 @@ class BrowserSessionManager:
         self, session: BrowserSession, result: ActionResult, next_state: SessionState
     ) -> None:
         """
-        Finalize an action by updating the session state, persisting its results, and emitting telemetry.
-        
+        Finalize an action by updating the session state, persisting its results, and emitting
+            telemetry.
+
         Parameters:
-        	session (BrowserSession): Session state before the action completes.
-        	result (ActionResult): Outcome and metadata produced by the action.
-        	next_state (SessionState): State to assign to the session after the action.
+            session (BrowserSession): Session state before the action completes.
+            result (ActionResult): Outcome and metadata produced by the action.
+            next_state (SessionState): State to assign to the session after the action.
         """
         now = self._clock()
         updated = session.with_state(
@@ -372,7 +375,7 @@ class BrowserSessionManager:
     def stats(self) -> dict[str, Any]:
         """
         Summarize session states, provider status, action counts, and configured limits.
-        
+
         Returns:
             dict[str, Any]: Dashboard statistics, including session totals, counts by
                 state, provider details, action counts, maximum sessions, and the last
@@ -413,13 +416,13 @@ class BrowserSessionManager:
     ) -> ActionResult:
         """
         Create a failed action result with the provided error message.
-        
+
         Parameters:
             action (BrowserAction): The action associated with the result.
             session_id (str): The session identifier.
             started (float): The action start time.
             message (str): The error message.
-        
+
         Returns:
             ActionResult: A failed result containing the action, session, timing, and error details.
         """
@@ -435,10 +438,10 @@ class BrowserSessionManager:
     def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
         """
         Broadcasts a browser telemetry event without propagating broadcast failures.
-        
+
         Parameters:
-        	event_type (str): The telemetry event type.
-        	payload (dict[str, Any]): Event data to include in the broadcast.
+            event_type (str): The telemetry event type.
+            payload (dict[str, Any]): Event data to include in the broadcast.
         """
         try:
             broadcast_event({"type": event_type, "timestamp": self._clock(), **payload})
@@ -450,12 +453,12 @@ class BrowserSessionManager:
 def _describe(exc: BaseException) -> str:
     """
     Format an exception as a compact single-line description.
-    
+
     Parameters:
-    	exc (BaseException): The exception to describe.
-    
+        exc (BaseException): The exception to describe.
+
     Returns:
-    	str: The exception class name followed by the first line of its message, when available.
+        str: The exception class name followed by the first line of its message, when available.
     """
     message = str(exc).strip()
     first = message.splitlines()[0] if message else ""
@@ -467,12 +470,12 @@ MAX_VIEWPORT = (2560, 1440)
 def _clamp_viewport(viewport: tuple[int, int]) -> tuple[int, int]:
     """
     Clamp viewport dimensions to the supported minimum and maximum bounds.
-    
+
     Parameters:
-    	viewport (tuple[int, int]): The requested width and height.
-    
+        viewport (tuple[int, int]): The requested width and height.
+
     Returns:
-    	tuple[int, int]: The clamped width and height.
+        tuple[int, int]: The clamped width and height.
     """
     width = max(MIN_VIEWPORT[0], min(MAX_VIEWPORT[0], int(viewport[0])))
     height = max(MIN_VIEWPORT[1], min(MAX_VIEWPORT[1], int(viewport[1])))
@@ -480,9 +483,9 @@ def _clamp_viewport(viewport: tuple[int, int]) -> tuple[int, int]:
 
 def _safe_count() -> int:
     """Return the number of persisted actions, or zero if the count cannot be retrieved.
-    
+
     Returns:
-    	int: The persisted action count.
+        int: The persisted action count.
     """
     try:
         return store.count_actions()
@@ -503,10 +506,10 @@ def get_manager() -> BrowserSessionManager:
 def set_manager(manager: BrowserSessionManager | None) -> None:
     """
     Replace the process-wide browser session manager.
-    
+
     Parameters:
         manager: The manager to install, or `None` to clear the current manager.
-    
+
     The previously installed manager is closed after replacement.
     """
     global _manager

@@ -927,13 +927,15 @@ def _tunnel_stop(req: Request) -> Response:
 @route("POST", "/api/settings")
 def _update_settings(req: Request) -> Response:
     """
-    Update server settings after validating administrator authorization and public-mode safety constraints.
-    
+    Update server settings after validating administrator authorization and public-mode safety
+        constraints.
+
     Parameters:
-    	req (Request): Request containing the settings updates in its JSON body.
-    
+        req (Request): Request containing the settings updates in its JSON body.
+
     Returns:
-    	Response: The updated safe settings on success, or an error response when authorization, validation, or public-mode safety checks fail.
+        Response: The updated safe settings on success, or an error response when authorization,
+            validation, or public-mode safety checks fail.
     """
     from kater.api.server import _reset_rate_limiter
     from kater.settings import check_admin
@@ -999,13 +1001,13 @@ def _update_settings(req: Request) -> Response:
 def _truthy_query(req: Request, key: str) -> bool:
     """
     Determine whether a query parameter represents a truthy value.
-    
+
     Parameters:
-    	req (Request): The request containing the query parameter.
-    	key (str): The query parameter name.
-    
+        req (Request): The request containing the query parameter.
+        key (str): The query parameter name.
+
     Returns:
-    	bool: `true` if the parameter is `1`, `true`, `yes`, or `on`, `false` otherwise.
+        bool: `true` if the parameter is `1`, `true`, `yes`, or `on`, `false` otherwise.
     """
     raw = (req.query1(key) or "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
@@ -1014,12 +1016,13 @@ def _truthy_query(req: Request, key: str) -> bool:
 def _capability_denied(capability_id: str) -> Response:
     """
     Create a forbidden response indicating that a capability is excluded by the context allowlist.
-    
+
     Parameters:
         capability_id (str): Identifier of the denied capability.
-    
+
     Returns:
-        Response: A 403 response containing the denial message, error code, and capability identifier.
+        Response: A 403 response containing the denial message, error code, and capability
+            identifier.
     """
     return Response.json(
         403,
@@ -1034,13 +1037,13 @@ def _capability_denied(capability_id: str) -> Response:
 def _require_capability(req: Request, capability_id: str) -> Response | None:
     """
     Check whether the request identity is allowed to use a capability.
-    
+
     Parameters:
-    	req (Request): The incoming request.
-    	capability_id (str): The capability identifier to check.
-    
+        req (Request): The incoming request.
+        capability_id (str): The capability identifier to check.
+
     Returns:
-    	Response | None: A capability-denied response when access is denied; otherwise, None.
+        Response | None: A capability-denied response when access is denied; otherwise, None.
     """
     identity = resolve_request_identity(req)
     if not capability_allowed(capability_id, identity.allowed_capabilities):
@@ -1056,9 +1059,9 @@ _BROWSER_400_ERRORS = (SessionLimitError, BrowserUnavailableError, PolicyViolati
 def _browser_providers(req: Request) -> Response:
     """
     List available browser providers for authorized requests.
-    
+
     Returns:
-    	dict: A JSON response containing the available browser provider details.
+        dict: A JSON response containing the available browser provider details.
     """
     if denied := _require_capability(req, "kater_browser_providers"):
         return denied
@@ -1068,12 +1071,12 @@ def _browser_providers(req: Request) -> Response:
 @route("GET", "/api/browser/sessions")
 def _browser_list_sessions(req: Request) -> Response:
     """List browser sessions and their manager statistics.
-    
+
     Parameters:
-    	req (Request): The request containing the optional `live_only` query parameter.
-    
+        req (Request): The request containing the optional `live_only` query parameter.
+
     Returns:
-    	Response: A JSON response containing the matching sessions and session statistics.
+        Response: A JSON response containing the matching sessions and session statistics.
     """
     if denied := _require_capability(req, "kater_browser_sessions"):
         return denied
@@ -1092,12 +1095,13 @@ def _browser_list_sessions(req: Request) -> Response:
 def _browser_create_session(req: Request) -> Response:
     """
     Create a browser session with the requested label, profile, and viewport.
-    
+
     Parameters:
-    	req (Request): Request containing optional session configuration in its JSON body.
-    
+        req (Request): Request containing optional session configuration in its JSON body.
+
     Returns:
-    	Response: A JSON response containing the created session, or an error response for malformed input, denied access, or unavailable browser resources.
+        Response: A JSON response containing the created session, or an error response for malformed
+            input, denied access, or unavailable browser resources.
     """
     if denied := _require_capability(req, "kater_browser_open"):
         return denied
@@ -1123,12 +1127,13 @@ def _browser_create_session(req: Request) -> Response:
 @route("GET", "/api/browser/sessions/{session_id}")
 def _browser_get_session(req: Request) -> Response:
     """Retrieve a browser session by its identifier.
-    
+
     Parameters:
-    	req (Request): The request containing the session identifier and capability credentials.
-    
+        req (Request): The request containing the session identifier and capability credentials.
+
     Returns:
-    	Response: The session data, or an error response if access is denied or the session is unknown.
+        Response: The session data, or an error response if access is denied or the session is
+            unknown.
     """
     if denied := _require_capability(req, "kater_browser_sessions"):
         return denied
@@ -1143,12 +1148,13 @@ def _browser_get_session(req: Request) -> Response:
 def _browser_close_session(req: Request) -> Response:
     """
     Close a browser session.
-    
+
     Parameters:
-    	req (Request): Request containing the target session identifier.
-    
+        req (Request): Request containing the target session identifier.
+
     Returns:
-    	Response: The closed session, or an error response if access is denied, the session is unknown, or the request is invalid.
+        Response: The closed session, or an error response if access is denied, the session is
+            unknown, or the request is invalid.
     """
     if denied := _require_capability(req, "kater_browser_close"):
         return denied
@@ -1166,12 +1172,13 @@ def _browser_close_session(req: Request) -> Response:
 def _browser_act(req: Request) -> Response:
     """
     Perform a browser action in the specified session.
-    
+
     Parameters:
-    	req (Request): Request containing the session ID and browser action payload.
-    
+        req (Request): Request containing the session ID and browser action payload.
+
     Returns:
-    	Response: The action result, or an error response for malformed input, an unknown session, denied capability, or an invalid browser action.
+        Response: The action result, or an error response for malformed input, an unknown session,
+            denied capability, or an invalid browser action.
     """
     if denied := _require_capability(req, "kater_browser_act"):
         return denied
@@ -1200,12 +1207,13 @@ def _browser_act(req: Request) -> Response:
 def _browser_screenshot(req: Request) -> Response:
     """
     Captures a screenshot for a browser session.
-    
+
     Parameters:
-    	req (Request): Request containing the session identifier and optional `full_page` setting.
-    
+        req (Request): Request containing the session identifier and optional `full_page` setting.
+
     Returns:
-    	Response: JSON response containing the screenshot result, or an error response if the request is invalid, the session is unknown, or the operation is unavailable.
+        Response: JSON response containing the screenshot result, or an error response if the
+            request is invalid, the session is unknown, or the operation is unavailable.
     """
     if denied := _require_capability(req, "kater_browser_screenshot"):
         return denied
@@ -1231,12 +1239,13 @@ def _browser_screenshot(req: Request) -> Response:
 @route("GET", "/api/browser/stats")
 def _browser_stats(req: Request) -> Response:
     """Return browser session manager statistics for authorized requests.
-    
+
     Parameters:
-    	req (Request): The incoming request.
-    
+        req (Request): The incoming request.
+
     Returns:
-    	Response: A JSON response containing browser session statistics, or a capability-denied response.
+        Response: A JSON response containing browser session statistics, or a capability-denied
+            response.
     """
     if denied := _require_capability(req, "kater_browser_sessions"):
         return denied
@@ -1246,7 +1255,7 @@ def _browser_stats(req: Request) -> Response:
 @route("DELETE", "/api/browser/sessions")
 def _browser_close_all(req: Request) -> Response:
     """Close all active browser sessions.
-    
+
     Returns:
         dict: The number of sessions closed.
     """
@@ -1265,9 +1274,9 @@ def _browser_close_all(req: Request) -> Response:
 @route("GET", "/api/automations")
 def _automations_list(req: Request) -> Response:
     """List configured automations and their total count.
-    
+
     Returns:
-    	dict: A response containing the serialized automations and their total count.
+        dict: A response containing the serialized automations and their total count.
     """
     if denied := _require_capability(req, "kater.automations.list"):
         return denied
@@ -1280,12 +1289,12 @@ def _automations_list(req: Request) -> Response:
 @route("GET", "/api/automations/{id}")
 def _automations_get(req: Request) -> Response:
     """Retrieve an automation by its identifier.
-    
+
     Parameters:
-    	req (Request): The request containing the automation identifier and access credentials.
-    
+        req (Request): The request containing the automation identifier and access credentials.
+
     Returns:
-    	Response: The automation details, or a 404 response if it does not exist.
+        Response: The automation details, or a 404 response if it does not exist.
     """
     if denied := _require_capability(req, "kater.automations.get"):
         return denied
@@ -1299,12 +1308,12 @@ def _automations_get(req: Request) -> Response:
 def _automations_upsert(req: Request) -> Response:
     """
     Create or update an automation from the request payload.
-    
+
     Parameters:
-    	req (Request): Request containing the automation name, kind, and optional configuration.
-    
+        req (Request): Request containing the automation name, kind, and optional configuration.
+
     Returns:
-    	Response: The automation data, or an error response for invalid input or denied capability.
+        Response: The automation data, or an error response for invalid input or denied capability.
     """
     if denied := _require_capability(req, "kater.automations.upsert"):
         return denied
@@ -1340,12 +1349,13 @@ def _automations_upsert(req: Request) -> Response:
 @route("POST", "/api/automations/{id}/run")
 def _automations_run(req: Request) -> Response:
     """Run an automation immediately.
-    
+
     Parameters:
-    	req (Request): Request containing the automation identifier and authorization context.
-    
+        req (Request): Request containing the automation identifier and authorization context.
+
     Returns:
-    	Response: The automation run result, a 404 response if the automation is not found, a 400 response for invalid input, or a 403 response when the required capability is denied.
+        Response: The automation run result, a 404 response if the automation is not found, a 400
+            response for invalid input, or a 403 response when the required capability is denied.
     """
     if denied := _require_capability(req, "kater.automations.run"):
         return denied
@@ -1362,12 +1372,13 @@ def _automations_run(req: Request) -> Response:
 @route("POST", "/api/automations/{id}/enable")
 def _automations_enable(req: Request) -> Response:
     """Enable an automation.
-    
+
     Parameters:
         req (Request): Request containing the automation identifier.
-    
+
     Returns:
-        Response: The enabled automation, or an error response if access is denied or the automation is not found.
+        Response: The enabled automation, or an error response if access is denied or the automation
+            is not found.
     """
     if denied := _require_capability(req, "kater.automations.enable"):
         return denied
@@ -1381,9 +1392,9 @@ def _automations_enable(req: Request) -> Response:
 @route("POST", "/api/automations/{id}/disable")
 def _automations_disable(req: Request) -> Response:
     """Disable an automation.
-    
+
     Returns:
-    	(dict): The disabled automation details.
+        (dict): The disabled automation details.
     """
     if denied := _require_capability(req, "kater.automations.disable"):
         return denied
@@ -1398,12 +1409,13 @@ def _automations_disable(req: Request) -> Response:
 def _automations_patch(req: Request) -> Response:
     """
     Update an existing automation with the supplied fields.
-    
+
     Parameters:
-    	req (Request): Request containing the automation ID and partial update payload.
-    
+        req (Request): Request containing the automation ID and partial update payload.
+
     Returns:
-    	Response: The updated automation, or an error response if the automation is missing, the request is invalid, or the update is rejected.
+        Response: The updated automation, or an error response if the automation is missing, the
+            request is invalid, or the update is rejected.
     """
     if denied := _require_capability(req, "kater.automations.update"):
         return denied
@@ -1448,12 +1460,13 @@ def _automations_patch(req: Request) -> Response:
 @route("DELETE", "/api/automations/{id}")
 def _automations_delete(req: Request) -> Response:
     """Delete an automation by identifier.
-    
+
     Parameters:
         req (Request): The request containing the automation identifier.
-    
+
     Returns:
-        Response: A success response with the deleted identifier, or an error response if access is denied or the automation does not exist.
+        Response: A success response with the deleted identifier, or an error response if access is
+            denied or the automation does not exist.
     """
     if denied := _require_capability(req, "kater.automations.delete"):
         return denied
@@ -1490,12 +1503,12 @@ def _computer_status(req: Request) -> Response:
 def _computer_capabilities(req: Request) -> Response:
     """
     List the computer capabilities available to the requesting identity.
-    
+
     Parameters:
-    	req (Request): The incoming request used to resolve capability access.
-    
+        req (Request): The incoming request used to resolve capability access.
+
     Returns:
-    	Response: A JSON response containing the available tools and their total count.
+        Response: A JSON response containing the available tools and their total count.
     """
     connector = get_computer_connector()
     if connector is None:
@@ -1515,12 +1528,13 @@ def _computer_capabilities(req: Request) -> Response:
 def _computer_invoke(req: Request) -> Response:
     """
     Invoke a computer capability with the supplied arguments.
-    
+
     Parameters:
-    	req (Request): Request containing the capability identifier and invocation arguments.
-    
+        req (Request): Request containing the capability identifier and invocation arguments.
+
     Returns:
-    	Response: The capability result, or an error response if the connector is unavailable, the request body is invalid, or the capability is not allowed.
+        Response: The capability result, or an error response if the connector is unavailable, the
+            request body is invalid, or the capability is not allowed.
     """
     connector = get_computer_connector()
     if connector is None:

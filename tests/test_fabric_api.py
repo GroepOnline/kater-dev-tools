@@ -65,10 +65,10 @@ def _call(
 def ctx_db(tmp_path, monkeypatch):
     """
     Provide an isolated temporary working directory for context-related tests.
-    
+
     Parameters:
         tmp_path: Temporary directory used as the test working directory.
-    
+
     Yields:
         pathlib.Path: The temporary working directory.
     """

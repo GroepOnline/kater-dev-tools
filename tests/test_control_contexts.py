@@ -13,12 +13,13 @@ from kater.control_plane.models import RemoteContext
 @pytest.fixture
 def ctx_db(tmp_path, monkeypatch):
     """
-    Provide an isolated temporary working directory and reset the contexts cache before and after a test.
-    
+    Provide an isolated temporary working directory and reset the contexts cache before and after a
+        test.
+
     Parameters:
         tmp_path: Temporary directory used as the test working directory.
         monkeypatch: Pytest fixture used to change the working directory.
-    
+
     Yields:
         The temporary working directory.
     """

@@ -69,10 +69,10 @@ def _resolve_client_ip(forwarded_for: str | None, client_address_ip: str) -> str
 def handle(request: Request) -> Response:
     """
     Process an incoming request and produce the corresponding response.
-    
+
     Parameters:
         request (Request): The request to route, rate-limit, authenticate, and handle.
-    
+
     Returns:
         Response: The handler response, or an error response for unsupported routes,
             rejected requests, invalid input, or internal failures.

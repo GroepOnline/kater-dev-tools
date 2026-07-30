@@ -31,10 +31,10 @@ def run_doctor_watch(config: dict[str, Any]) -> dict[str, Any]:
     Run the doctor check for a profile and summarize its findings.
     
     Parameters:
-    	config (dict[str, Any]): Configuration containing an optional profile name.
+        config (dict[str, Any]): Configuration containing an optional profile name.
     
     Returns:
-    	dict[str, Any]: The profile name and counts of total findings, warnings, and errors.
+        dict[str, Any]: The profile name and counts of total findings, warnings, and errors.
     """
     profile = str(config.get("profile") or "core")
     started = time.perf_counter()
@@ -70,7 +70,8 @@ def run_browser_reap(config: dict[str, Any]) -> dict[str, Any]:
     Reap expired browser resources.
     
     Returns:
-    	dict[str, Any]: A result containing the number of closed resources under the ``"closed"`` key.
+        dict[str, Any]: A result containing the number of closed resources under the ``"closed"``
+            key.
     """
     del config
     closed = get_manager().reap_expired()
@@ -162,14 +163,14 @@ def run_kind(kind: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
     Execute a supported automation kind with the provided configuration.
     
     Parameters:
-    	kind (str): Name of the automation kind to execute.
-    	config (dict[str, Any] | None): Optional configuration passed to the handler.
+        kind (str): Name of the automation kind to execute.
+        config (dict[str, Any] | None): Optional configuration passed to the handler.
     
     Returns:
-    	dict[str, Any]: The handler's execution result.
+        dict[str, Any]: The handler's execution result.
     
     Raises:
-    	ValueError: If `kind` is not a supported automation kind.
+        ValueError: If `kind` is not a supported automation kind.
     """
     handler = HANDLERS.get(kind)
     if handler is None:

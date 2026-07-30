@@ -37,9 +37,9 @@ class CallRunner:
     @property
     def running(self) -> bool:
         """Indicates whether the worker thread is currently active.
-        
+
         Returns:
-        	bool: `True` if the worker thread exists and is alive, `False` otherwise.
+            bool: `True` if the worker thread exists and is alive, `False` otherwise.
         """
         thread = self._thread
         return thread is not None and thread.is_alive()
@@ -65,14 +65,14 @@ class CallRunner:
 
     def submit(self, fn: Callable[[], T], *, timeout: float | None = None) -> T:
         """Execute ``fn`` on the worker thread and return its result.
-        
+
         If ``timeout`` expires before completion, the worker is abandoned and replaced
         so subsequent submissions can proceed.
-        
+
         Args:
             fn: Zero-argument callable to execute.
             timeout: Maximum time to wait for the result, in seconds.
-        
+
         Returns:
             The value returned by ``fn``.
         """
@@ -96,7 +96,7 @@ class CallRunner:
 
     def stop(self, *, timeout: float = 10.0) -> None:
         """Stop the current worker thread and wait up to the specified timeout for it to exit.
-        
+
         Parameters:
             timeout (float): Maximum number of seconds to wait for the worker thread to stop.
         """
@@ -127,7 +127,7 @@ class CallRunner:
         # Daemon threads are abandoned; Playwright objects bound to them must
         # be dropped by the provider (see PlaywrightProvider._invalidate_after_timeout).
         """Abandon the current worker and start a replacement worker.
-        
+
         The abandoned worker may remain blocked while executing its current call.
         """
         self._generation += 1
@@ -138,7 +138,8 @@ class CallRunner:
         # Bind the queue at thread start so a later replace_worker() cannot
         # make this abandoned worker drain the new queue.
         """
-        Execute queued jobs on the worker thread and deliver their results or exceptions to their futures.
+        Execute queued jobs on the worker thread and deliver their results or exceptions to their
+            futures.
         """
         while True:
             job = q.get()

@@ -66,7 +66,7 @@ def render_docker_config(
 ) -> dict[str, Any]:
     """
     Generate a Docker Compose configuration for self-hosted Kater deployment.
-    
+
     Parameters:
         profile (str): Kater profile to activate.
         image (str): Container image to use.
@@ -74,7 +74,7 @@ def render_docker_config(
         mcp_port (int): Host port for the MCP SSE listener.
         ws_port (int): Host port for the WebSocket listener.
         cors_origins (str): Allowed CORS origins.
-    
+
     Returns:
         dict[str, Any]: Docker Compose configuration with listener mappings, persistent
         state storage, environment settings, and health check.
@@ -225,12 +225,12 @@ def render_k8s_config(
     domain: str = "kater.example.com",
 ) -> dict[str, Any]:
     """Build Kubernetes deployment and service manifests for Kater.
-    
+
     Parameters:
         profile (str): Kater profile to configure.
         image (str): Container image for the deployment.
         domain (str): Domain associated with the deployment configuration.
-    
+
     Returns:
         dict[str, Any]: Kubernetes manifest data for the deployment and service.
     """

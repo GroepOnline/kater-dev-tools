@@ -73,17 +73,17 @@ USAGE_OPENAPI_PATHS: dict[str, Any] = {
 def _parse_limit(req: Request, default: int = 100, maximum: int = 1000) -> int:
     """
     Parse and constrain the requested usage event limit.
-    
+
     Parameters:
-    	req (Request): Request containing the optional `limit` query parameter
-    	default (int): Value to use when `limit` is absent
-    	maximum (int): Upper bound for the parsed limit
-    
+        req (Request): Request containing the optional `limit` query parameter
+        default (int): Value to use when `limit` is absent
+        maximum (int): Upper bound for the parsed limit
+
     Returns:
-    	int: The limit clamped to the range from 1 through `maximum`
-    
+        int: The limit clamped to the range from 1 through `maximum`
+
     Raises:
-    	ValueError: If the `limit` query parameter cannot be converted to an integer
+        ValueError: If the `limit` query parameter cannot be converted to an integer
     """
     raw = req.query1("limit")
     if raw is None:
@@ -101,12 +101,14 @@ def _parse_limit(req: Request, default: int = 100, maximum: int = 1000) -> int:
 def _usage_list(req: Request) -> Response:
     """
     List usage events with optional capability filtering.
-    
+
     Parameters:
-    	req (Request): The request containing the `limit` and optional `capability` query parameters.
-    
+        req (Request): The request containing the `limit` and optional `capability` query
+            parameters.
+
     Returns:
-    	Response: A JSON response containing the event count and events, or a 400 error when `limit` is invalid.
+        Response: A JSON response containing the event count and events, or a 400 error when `limit`
+            is invalid.
     """
     try:
         limit = _parse_limit(req)
@@ -126,10 +128,10 @@ def _usage_list(req: Request) -> Response:
 @route("GET", "/api/usage/summary")
 def _usage_summary(req: Request) -> Response:
     """Return the usage summary, optionally filtered by capability.
-    
+
     Parameters:
         req (Request): HTTP request containing the optional capability query parameter.
-    
+
     Returns:
         Response: JSON response containing per-capability usage summary data.
     """

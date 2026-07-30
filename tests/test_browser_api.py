@@ -51,12 +51,12 @@ BROWSER_ROUTES = [
 
 def _session(session_id: str = "bsess_deadbeefdeadbeefdeadbeefdeadbeef") -> BrowserSession:
     """Create a ready local browser session with fixed test metadata.
-    
+
     Parameters:
-    	session_id (str): Identifier for the browser session.
-    
+        session_id (str): Identifier for the browser session.
+
     Returns:
-    	BrowserSession: A browser session configured with deterministic test values.
+        BrowserSession: A browser session configured with deterministic test values.
     """
     return BrowserSession(
         session_id=session_id,
@@ -73,13 +73,13 @@ def _session(session_id: str = "bsess_deadbeefdeadbeefdeadbeefdeadbeef") -> Brow
 def _result(session_id: str, kind: ActionKind = ActionKind.RELOAD) -> ActionResult:
     """
     Create a successful browser action result with fixed timing and page metadata.
-    
+
     Parameters:
-    	session_id (str): Identifier of the browser session.
-    	kind (ActionKind): Type of action represented by the result.
-    
+        session_id (str): Identifier of the browser session.
+        kind (ActionKind): Type of action represented by the result.
+
     Returns:
-    	ActionResult: A successful action result for the specified session and action type.
+        ActionResult: A successful action result for the specified session and action type.
     """
     return ActionResult(
         ok=True,
@@ -95,9 +95,10 @@ def _result(session_id: str, kind: ActionKind = ActionKind.RELOAD) -> ActionResu
 def _fake_manager() -> MagicMock:
     """
     Create a mock browser session manager with predefined responses for API tests.
-    
+
     Returns:
-    	MagicMock: A configured manager mock with session lifecycle, action, screenshot, and statistics responses.
+        MagicMock: A configured manager mock with session lifecycle, action, screenshot, and
+            statistics responses.
     """
     session = _session()
     manager = MagicMock()
@@ -126,16 +127,17 @@ def _fake_manager() -> MagicMock:
 @pytest.mark.parametrize("method,path", BROWSER_ROUTES)
 def test_browser_routes_registered(method: str, path: str) -> None:
     """Verify that a browser API route is registered in the router.
-    
+
     Parameters:
-    	method (str): HTTP method to match.
-    	path (str): Route path to match.
+        method (str): HTTP method to match.
+        path (str): Route path to match.
     """
     assert ROUTER.match(method, path) is not None, f"{method} {path} missing from ROUTER"
 
 
 def test_browser_providers_returns_list() -> None:
-    """Validate that the browser providers endpoint returns a non-empty provider list with the expected fields."""
+    """Validate that the browser providers endpoint returns a non-empty provider list with the
+        expected fields."""
     resp = call("GET", "/api/browser/providers")
     assert resp.status == 200
     assert isinstance(resp.payload, dict)
@@ -146,7 +148,8 @@ def test_browser_providers_returns_list() -> None:
 
 
 def test_browser_sessions_list_empty() -> None:
-    """Verify that the browser sessions endpoint returns an empty session list and manager statistics."""
+    """Verify that the browser sessions endpoint returns an empty session list and manager
+        statistics."""
     manager = _fake_manager()
     with patch("kater.api.routes.get_manager", return_value=manager):
         resp = call("GET", "/api/browser/sessions")
@@ -159,7 +162,8 @@ def test_browser_sessions_list_empty() -> None:
 
 
 def test_browser_sessions_list_live_only() -> None:
-    """Verify that the browser sessions endpoint requests only live sessions when filtering is enabled."""
+    """Verify that the browser sessions endpoint requests only live sessions when filtering is
+        enabled."""
     manager = _fake_manager()
     with patch("kater.api.routes.get_manager", return_value=manager):
         resp = call(

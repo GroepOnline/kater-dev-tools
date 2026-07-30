@@ -27,12 +27,13 @@ def new_session_id() -> str:
 
 def is_session_id(value: str) -> bool:
     """Validate the format of a browser session ID.
-    
+
     Parameters:
-    	value (str): Candidate session ID.
-    
+        value (str): Candidate session ID.
+
     Returns:
-    	bool: `true` if the value has the required prefix and lowercase hexadecimal suffix, `false` otherwise.
+        bool: `true` if the value has the required prefix and lowercase hexadecimal suffix, `false`
+            otherwise.
     """
     if not value.startswith(SESSION_ID_PREFIX):
         return False
@@ -142,31 +143,32 @@ class BrowserSession:
 
     def is_expired(self, now: float) -> bool:
         """Determine whether the browser session has expired.
-        
+
         Parameters:
-        	now (float): The current timestamp.
-        
+            now (float): The current timestamp.
+
         Returns:
-        	bool: `True` if the session has an expiration time and the timestamp has reached it, `False` otherwise.
+            bool: `True` if the session has an expiration time and the timestamp has reached it,
+                `False` otherwise.
         """
         return self.expires_at > 0 and now >= self.expires_at
 
     def with_state(self, state: SessionState, **changes: Any) -> BrowserSession:
         """Create a new session record with an updated state and optional field changes.
-        
+
         Parameters:
-        	state (SessionState): The session lifecycle state to assign.
-        	**changes (Any): Field values to update in the new session record.
-        
+            state (SessionState): The session lifecycle state to assign.
+            **changes (Any): Field values to update in the new session record.
+
         Returns:
-        	BrowserSession: A new session record containing the requested updates.
+            BrowserSession: A new session record containing the requested updates.
         """
         return replace(self, state=state, **changes)
 
     def to_dict(self) -> dict[str, Any]:
         """
         Serialize the browser session as a JSON-compatible dictionary.
-        
+
         Returns:
             dict[str, Any]: A dictionary containing the session fields, enum values as
                 strings, and viewport dimensions nested under ``viewport``.
@@ -206,15 +208,16 @@ class BrowserAction:
     def from_dict(cls, data: dict[str, Any]) -> BrowserAction:
         """
         Create a validated browser action from an untrusted dictionary.
-        
+
         Parameters:
-        	data (dict[str, Any]): Action fields to validate and convert.
-        
+            data (dict[str, Any]): Action fields to validate and convert.
+
         Returns:
-        	BrowserAction: The validated browser action.
-        
+            BrowserAction: The validated browser action.
+
         Raises:
-        	ValueError: If the input is not a dictionary, contains unknown fields, omits required fields, uses an unsupported action kind, or contains invalid field values.
+            ValueError: If the input is not a dictionary, contains unknown fields, omits required
+                fields, uses an unsupported action kind, or contains invalid field values.
         """
         if not isinstance(data, dict):
             raise ValueError("action must be an object")
@@ -261,9 +264,9 @@ class BrowserAction:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the browser action into a dictionary containing its defined fields.
-        
+
         Returns:
-        	dict[str, Any]: The action kind and any configured action parameters.
+            dict[str, Any]: The action kind and any configured action parameters.
         """
         out: dict[str, Any] = {"kind": self.kind.value}
         names = ("url", "selector", "text", "key", "timeout_ms", "expression", "delta_y", "value")
@@ -295,7 +298,7 @@ class ActionResult:
     def to_dict(self) -> dict[str, Any]:
         """
         Serialize the action outcome into a JSON-compatible dictionary.
-        
+
         Returns:
             dict[str, Any]: The result fields, including optional output fields when available.
         """
@@ -322,15 +325,15 @@ class ActionResult:
 
 def _opt_str(value: Any, name: str, *, strip: bool = True) -> str | None:
     """Parse an optional string value with optional whitespace removal.
-    
+
     Parameters:
         value (Any): The value to parse.
         name (str): Field name used in validation errors.
         strip (bool): Whether to remove leading and trailing whitespace.
-    
+
     Returns:
         str | None: The processed string, or None when value is None.
-    
+
     Raises:
         ValueError: If value is not a string or None.
     """
@@ -344,15 +347,15 @@ def _opt_str(value: Any, name: str, *, strip: bool = True) -> str | None:
 def _opt_int(value: Any, name: str, *, minimum: int | None = None) -> int | None:
     """
     Convert an optional numeric value to an integer and enforce a minimum when specified.
-    
+
     Parameters:
         value (Any): The value to convert.
         name (str): The field name used in validation errors.
         minimum (int | None): The lowest permitted converted value.
-    
+
     Returns:
         int | None: The converted integer, or None when value is None.
-    
+
     Raises:
         ValueError: If value is not numeric or the converted value is below minimum.
     """

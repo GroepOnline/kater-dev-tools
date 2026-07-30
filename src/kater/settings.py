@@ -47,6 +47,11 @@ class KaterSettings(BaseModel):
     proxy_failure_threshold: int = 5
     proxy_recovery_timeout: float = 30.0
 
+    @property
+    def resolved_db_path(self) -> Path:
+        path = Path(self.db_path).expanduser()
+        return path if path.is_absolute() else Path.cwd() / path
+
     def is_server_enabled(self, name: str, default: bool = True) -> bool:
         override = self.server_overrides.get(name)
         if override and override.enabled is not None:

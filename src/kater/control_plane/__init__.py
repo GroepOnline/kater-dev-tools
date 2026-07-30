@@ -34,6 +34,11 @@ from kater.control_plane.store import (
     set_route_candidate_state,
     upsert_route_candidate,
 )
+from kater.control_plane.usage import (
+    list_usage_events,
+    record_usage_event,
+    usage_summary,
+)
 
 __all__ = [
     "AGENT_STATE_MACHINE",
@@ -60,12 +65,15 @@ __all__ = [
     "consume_quota",
     "get_route_affinity",
     "list_route_candidates",
+    "list_usage_events",
     "prune_control_plane_state",
     "query_routing_decisions",
     "record_routing_decision",
+    "record_usage_event",
     "remove_route_candidate",
     "route_overview",
     "set_route_affinity",
     "set_route_candidate_state",
     "upsert_route_candidate",
+    "usage_summary",
 ]

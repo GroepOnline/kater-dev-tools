@@ -61,13 +61,6 @@ _db_path_cache: str | None = None
 _insert_counter = 0
 
 
-def _resolve_db_path() -> Path:
-    settings = load_settings()
-    p = settings.db_path
-    if "/" in p:
-        return Path(p).expanduser()
-    return Path.cwd() / p
-
 
 def _get_backend() -> str:
     return load_settings().storage_backend
@@ -78,7 +71,7 @@ def _get_backend() -> str:
 
 def _get_db() -> sqlite3.Connection:
     global _db_cache, _db_path_cache
-    db_path = str(_resolve_db_path())
+    db_path = str(load_settings().resolved_db_path)
     if _db_cache is not None and _db_path_cache == db_path:
         try:
             _db_cache.execute("SELECT 1")

@@ -1,0 +1,15 @@
+{
+  "ts": "2026-07-30T10:44:12Z",
+  "pass": true,
+  "plane": "agent-taste",
+  "metrics": {
+    "taste_drift": 0,
+    "rule_count": 10,
+    "open_critical_signals": 0,
+    "open_signals": 0,
+    "days_since_score_refresh": 0.0,
+    "taste_log_entries": 0
+  },
+  "failures": [],
+  "warnings": []
+}

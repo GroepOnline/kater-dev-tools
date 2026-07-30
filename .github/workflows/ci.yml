@@ -87,6 +87,12 @@ jobs:
           print("metadata ok:", meta["name"], meta["version"])
           PY
 
+      - name: Agent-taste eval gate
+        run: |
+          uv sync --frozen --dev
+          uv run python .agents/scripts/generate-taste.py --check
+          uv run python .agents/scripts/eval-score.py --gate
+
   # ── lint-type: ruff, format, mypy on the 3.11 syntax baseline ──────────
   lint-type:
     runs-on: ubuntu-latest

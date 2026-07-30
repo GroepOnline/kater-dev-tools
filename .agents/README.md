@@ -16,7 +16,12 @@ Niet te verwarren met UI-taste in `design-system/taste/`.
 | `registry/taste.yaml` | canonieke regels |
 | `registry/taste.log.yaml` | ruwe observaties (nog niet gepromoveerd) |
 | `registry/taste.overlay.*.yaml` | dunne tool-wrappers |
+| `registry/signals.yaml` | expliciete signal-log (append-only) |
+| `eval/thresholds.yaml` | harde drempels voor `--gate` |
+| `eval/scorecard.json` | gegenereerde scorecard |
 | `scripts/generate-taste.py` | schrijft per-tool artefacts |
+| `scripts/taste-signal.py` | append signal |
+| `scripts/eval-score.py` | scorecard + optional `--gate` |
 
 ## Precedence
 
@@ -47,6 +52,24 @@ Pi en Agy: targets nog niet aangesloten tot hun configformaat is geverifieerd.
 ```
 observatie → taste.log.yaml → review → promote naar taste.yaml → generate-taste.py → commit artefacts
 ```
+
+## Signals + eval
+
+Capture is **expliciet alleen** (geen auto-write op elke edit):
+
+```bash
+uv run python .agents/scripts/taste-signal.py add --signal "…" --plane agent-taste
+uv run python .agents/scripts/eval-score.py
+uv run python .agents/scripts/eval-score.py --gate
+```
+
+Thresholds: `taste_drift=0`, `open_critical_signals=0`, `rule_count_min>=1`,
+score-freshness warn/fail alleen met `--enforce-freshness` of scheduled gate.
+
+Dual scheduler: GHA `agent-taste-eval.yml` + fleet
+`scripts/run-taste-brain-eval.sh` / `infra/taste-brain-eval.timer`
+(zie `infra/README-taste-brain-eval.md`). Scorecards in CI = artefact, geen
+auto-commit naar main.
 
 ## Relatie met design-system
 

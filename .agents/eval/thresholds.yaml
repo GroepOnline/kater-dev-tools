@@ -1,0 +1,10 @@
+version: 1
+# Hard thresholds for eval-score.py --gate
+taste_drift_max: 0
+open_critical_signals_max: 0
+rule_count_min: 1
+# Soft warn after N days without a successful score_refresh; hard fail after fail_after
+days_since_score_refresh_warn: 2
+days_since_score_refresh_fail: 7
+# When true, days_since_score_refresh_fail applies (scheduled/full gate)
+enforce_score_freshness: false

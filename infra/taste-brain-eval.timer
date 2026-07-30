@@ -1,0 +1,14 @@
+# taste-brain-eval.timer — nightly fleet eval (offset from GHA cron 04:27 UTC)
+
+[Unit]
+Description=Nightly agent-taste + design-system brain eval
+Requires=taste-brain-eval.service
+
+[Timer]
+OnCalendar=*-*-* 04:40:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+Unit=taste-brain-eval.service
+
+[Install]
+WantedBy=timers.target

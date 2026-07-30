@@ -84,6 +84,22 @@ def test_ensure_defaults_seeds_four_rows():
     assert automations_store.count() == len(DEFAULT_AUTOMATIONS)
 
 
+def test_ensure_defaults_does_not_resurrect_deleted_builtins():
+    engine = get_engine()
+    seeded = engine.ensure_defaults()
+    assert len(seeded) == len(DEFAULT_AUTOMATIONS)
+
+    for item in seeded:
+        assert automations_store.delete(item.id) is True
+    assert automations_store.count() == 0
+
+    # A fresh engine (as after a restart) must respect the deletions instead of
+    # re-seeding just because the table happens to be empty.
+    reset_engine()
+    assert get_engine().ensure_defaults() == []
+    assert automations_store.count() == 0
+
+
 def test_tick_respects_schedule():
     clock = {"now": 1000.0}
 

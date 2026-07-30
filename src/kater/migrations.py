@@ -300,6 +300,14 @@ _CAPABILITY_AUDIT_V6 = (
     "CREATE INDEX IF NOT EXISTS idx_capability_audit_cap ON capability_audit(capability_id)",
 )
 
+_AUTOMATION_META_V7 = (
+    """CREATE TABLE IF NOT EXISTS automation_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at REAL NOT NULL
+    )""",
+)
+
 #: Ordered, append-only. Add new versions at the end; never edit a released one.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="baseline", statements=_BASELINE),
@@ -308,6 +316,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=4, name="remote_contexts", statements=_REMOTE_CONTEXTS_V4),
     Migration(version=5, name="usage_events", statements=_USAGE_EVENTS_V5),
     Migration(version=6, name="capability_audit", statements=_CAPABILITY_AUDIT_V6),
+    Migration(version=7, name="automation_meta", statements=_AUTOMATION_META_V7),
 )
 
 _CREATE_SCHEMA_TABLE = f"""CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (

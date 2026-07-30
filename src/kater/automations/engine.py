@@ -62,14 +62,18 @@ class AutomationEngine:
         self._defaults_ensured = False
 
     def ensure_defaults(self) -> list[Automation]:
-        """Ensure the built-in automations exist when the store is empty.
+        """Seed the built-in automations once, on first use of an unseeded store.
+
+        Seeding is gated on a persisted marker rather than an empty store, so
+        deleting every built-in is respected instead of being undone on the next
+        list call.
 
         Returns:
             list[Automation]: The automations currently stored."""
         with self._lock:
-            if self._defaults_ensured and self._store.count() > 0:
+            if self._defaults_ensured:
                 return self._store.list()
-            if self._store.count() == 0:
+            if not self._store.defaults_seeded():
                 now = float(self._clock())
                 for spec in DEFAULT_AUTOMATIONS:
                     self._store.upsert(
@@ -84,6 +88,7 @@ class AutomationEngine:
                             updated_at=now,
                         )
                     )
+                self._store.mark_defaults_seeded()
                 _log.info("seeded %d default automations", len(DEFAULT_AUTOMATIONS))
             self._defaults_ensured = True
             return self._store.list()

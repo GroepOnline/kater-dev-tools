@@ -36,7 +36,16 @@ CREATE TABLE IF NOT EXISTS automations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_automations_enabled ON automations(enabled);
+
+CREATE TABLE IF NOT EXISTS automation_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
+
+#: Marker recording that the built-in automations were seeded once.
+DEFAULTS_SEEDED_KEY = "defaults_seeded"
 
 _lock = threading.RLock()
 _db_cache: sqlite3.Connection | None = None
@@ -88,6 +97,40 @@ def count() -> int:
     with _lock:
         row = _get_db().execute("SELECT COUNT(*) AS c FROM automations").fetchone()
     return int(row["c"]) if row else 0
+
+
+def get_meta(key: str) -> str | None:
+    """Read a persisted store marker.
+
+    Parameters:
+        key (str): Marker name.
+
+    Returns:
+        str | None: The stored value, or `None` when the marker was never set.
+    """
+    with _lock:
+        row = _get_db().execute(
+            "SELECT value FROM automation_meta WHERE key = ?", (key,)
+        ).fetchone()
+    return str(row["value"]) if row else None
+
+
+def set_meta(key: str, value: str = "1") -> None:
+    """Persist a store marker.
+
+    Parameters:
+        key (str): Marker name.
+        value (str): Marker value.
+    """
+    with _lock:
+        db = _get_db()
+        db.execute(
+            """INSERT INTO automation_meta (key, value, updated_at) VALUES (?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                              updated_at = excluded.updated_at""",
+            (key, value, time.time()),
+        )
+        db.commit()
 
 
 def list_automations() -> list[Automation]:
@@ -317,6 +360,14 @@ class AutomationStore:
     def list(self) -> list[Automation]:
         """List all persisted automations in creation order."""
         return list_automations()
+
+    def defaults_seeded(self) -> bool:
+        """Report whether the built-in automations were already seeded once."""
+        return get_meta(DEFAULTS_SEEDED_KEY) is not None
+
+    def mark_defaults_seeded(self) -> None:
+        """Persist the marker that stops the built-ins from being re-seeded."""
+        set_meta(DEFAULTS_SEEDED_KEY)
 
     def get(self, automation_id: str) -> Automation | None:
         """Retrieve an automation by its identifier.

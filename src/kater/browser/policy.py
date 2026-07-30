@@ -35,12 +35,15 @@ BLOCKED_SCHEMES = frozenset(
 
 # Subresources may use data:/blob: (images, workers); still never file:/js:/chrome:.
 _SUBRESOURCE_OK_SCHEMES = frozenset({"data", "blob"})
-_SUBRESOURCE_BLOCKED_SCHEMES = frozenset({"file", "javascript", "chrome", "view-source", "about"})
+_SUBRESOURCE_BLOCKED_SCHEMES = frozenset(
+    {"file", "javascript", "chrome", "view-source", "about"}
+)
 
 # Playwright resource types treated as top-level navigations for domain policy.
 _DOCUMENT_RESOURCE_TYPES = frozenset({"document", "nav", "navigation"})
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 
 class PolicyViolation(Exception):
@@ -118,18 +121,26 @@ class BrowserPolicy:
 
         if is_document:
             if scheme in BLOCKED_SCHEMES:
-                raise PolicyViolation(f"scheme '{scheme}:' is never allowed in the browser lane")
+                raise PolicyViolation(
+                    f"scheme '{scheme}:' is never allowed in the browser lane"
+                )
             if scheme not in self.allowed_schemes:
                 allowed = ", ".join(sorted(self.allowed_schemes))
-                raise PolicyViolation(f"scheme '{scheme}:' is not allowed (allowed: {allowed})")
+                raise PolicyViolation(
+                    f"scheme '{scheme}:' is not allowed (allowed: {allowed})"
+                )
         else:
             if scheme in _SUBRESOURCE_BLOCKED_SCHEMES:
-                raise PolicyViolation(f"scheme '{scheme}:' is never allowed in the browser lane")
+                raise PolicyViolation(
+                    f"scheme '{scheme}:' is never allowed in the browser lane"
+                )
             if scheme in _SUBRESOURCE_OK_SCHEMES:
                 return
             if scheme not in self.allowed_schemes and scheme not in {"ws", "wss"}:
                 allowed = ", ".join(sorted(self.allowed_schemes | {"ws", "wss"}))
-                raise PolicyViolation(f"scheme '{scheme}:' is not allowed (allowed: {allowed})")
+                raise PolicyViolation(
+                    f"scheme '{scheme}:' is not allowed (allowed: {allowed})"
+                )
 
         host = (parts.hostname or "").strip().lower().rstrip(".")
         if not host:
@@ -191,7 +202,9 @@ def load_policy(settings: KaterSettings | None = None) -> BrowserPolicy:
         allow_private_networks=_env_truthy("ALLOW_PRIVATE"),
         max_sessions=_env_int("MAX_SESSIONS", DEFAULT_MAX_SESSIONS, minimum=1),
         session_ttl_seconds=_env_int("SESSION_TTL", DEFAULT_SESSION_TTL, minimum=1),
-        action_timeout_ms=_env_int("ACTION_TIMEOUT_MS", DEFAULT_ACTION_TIMEOUT_MS, minimum=100),
+        action_timeout_ms=_env_int(
+            "ACTION_TIMEOUT_MS", DEFAULT_ACTION_TIMEOUT_MS, minimum=100
+        ),
         max_screenshot_bytes=_env_int(
             "MAX_SCREENSHOT_BYTES", DEFAULT_MAX_SCREENSHOT_BYTES, minimum=1024
         ),
@@ -252,6 +265,8 @@ def _reject_internal(
 def _is_internal(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
         address = address.ipv4_mapped
+    if isinstance(address, ipaddress.IPv4Address) and address in _CGNAT_NETWORK:
+        return True
     return bool(
         address.is_private
         or address.is_loopback

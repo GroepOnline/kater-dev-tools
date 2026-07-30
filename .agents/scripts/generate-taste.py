@@ -3,7 +3,8 @@
 
 Usage:
   python3 .agents/scripts/generate-taste.py
-  python3 .agents/scripts/generate-taste.py --check
+  python3 .agents/scripts/generate-taste.py --target /path/to/consumer-repo
+  python3 .agents/scripts/generate-taste.py --target /path/to/consumer-repo --check
 """
 from __future__ import annotations
 
@@ -12,8 +13,8 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-REG = ROOT / ".agents" / "registry"
+SOURCE_ROOT = Path(__file__).resolve().parents[2]
+REG = SOURCE_ROOT / ".agents" / "registry"
 TASTE = REG / "taste.yaml"
 HDR = "GENERATED from .agents/registry/taste.yaml - do not edit by hand"
 
@@ -30,7 +31,7 @@ def _need_yaml():
         )
 
 
-def load_overlays() -> list[dict]:
+def load_overlays(target_root: Path) -> list[dict]:
     """Load the per-tool overlays that declare output path, format and markers."""
     yaml = _need_yaml()
     paths = sorted(REG.glob("taste.overlay.*.yaml"))
@@ -48,8 +49,8 @@ def load_overlays() -> list[dict]:
             sys.exit(f"overlay missing tool/output_path: {path}")
         if fmt not in SUPPORTED_FORMATS:
             sys.exit(f"overlay {path}: unsupported format {fmt!r}")
-        target = (ROOT / out).resolve()
-        if not target.is_relative_to(ROOT):
+        target = (target_root / out).resolve()
+        if not target.is_relative_to(target_root):
             sys.exit(f"overlay {path}: output_path escapes repo root: {out}")
         if fmt == MARKER_FORMAT and not (
             ov.get("marker_start") and ov.get("marker_end")
@@ -144,32 +145,48 @@ def upsert_markers(path: Path, section: str, start: str, end: str) -> str:
     return raw + ("\n" if raw else "") + section
 
 
-def write_or_check(path: Path, content: str, check: bool) -> bool:
+def display_path(path: Path, target_root: Path) -> str:
+    try:
+        return str(path.relative_to(target_root))
+    except ValueError:
+        return str(path)
+
+
+def write_or_check(path: Path, content: str, check: bool, target_root: Path) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     if check:
         if not path.exists():
-            print(f"MISSING {path.relative_to(ROOT)}")
+            print(f"MISSING {display_path(path, target_root)}")
             return False
         cur = path.read_text(encoding="utf-8")
         if cur != content:
-            print(f"DRIFT   {path.relative_to(ROOT)}")
+            print(f"DRIFT   {display_path(path, target_root)}")
             return False
-        print(f"OK      {path.relative_to(ROOT)}")
+        print(f"OK      {display_path(path, target_root)}")
         return True
     path.write_text(content, encoding="utf-8")
-    print(f"WROTE   {path.relative_to(ROOT)}")
+    print(f"WROTE   {display_path(path, target_root)}")
     return True
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="fail if artefacts drift")
+    ap.add_argument(
+        "--target",
+        type=Path,
+        default=SOURCE_ROOT,
+        help="consumer repo root (default: kater-dev-tools)",
+    )
     args = ap.parse_args()
+    target_root = args.target.expanduser().resolve()
+    if not target_root.is_dir():
+        sys.exit(f"target repo does not exist: {target_root}")
     data = load_taste()
     ok = True
 
-    for ov in load_overlays():
-        path = ROOT / ov["output_path"]
+    for ov in load_overlays(target_root):
+        path = target_root / ov["output_path"]
         rules = rules_for(ov["tool"], data)
         fmt = ov["format"]
         if fmt == MARKER_FORMAT:
@@ -185,7 +202,7 @@ def main() -> int:
             )
         else:
             content = RENDERERS[fmt](rules)
-        ok &= write_or_check(path, content, args.check)
+        ok &= write_or_check(path, content, args.check, target_root)
 
     if args.check and not ok:
         return 1

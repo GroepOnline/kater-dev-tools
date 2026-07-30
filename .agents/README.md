@@ -30,6 +30,8 @@ Niet te verwarren met UI-taste in `design-system/taste/`.
 ```bash
 python3 .agents/scripts/generate-taste.py
 python3 .agents/scripts/generate-taste.py --check   # drift: exit 1 als artefacts stale
+python3 .agents/scripts/generate-taste.py --target /pad/naar/consumer-repo
+python3 .agents/scripts/generate-taste.py --target /pad/naar/consumer-repo --check
 ```
 
 Targets (v1):
@@ -48,5 +50,7 @@ observatie → taste.log.yaml → review → promote naar taste.yaml → generat
 
 ## Relatie met design-system
 
-`design-system` besloot 2026-07-30 dat agent-taste hier hoort, niet in dat repo.
+`design-system` besloot 2026-07-30 dat de canonieke agent-taste hier hoort.
+Het repo consumeert gegenereerde Command Code, Cursor en Claude Code
+artefacts via `--target`; het bevat geen tweede `taste.yaml`.
 Zie daar: `brain/Decisions/2026-07-30 Agent-taste buiten dit repo.md`.

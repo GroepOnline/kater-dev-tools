@@ -23,6 +23,15 @@ from tests._rest import call
 
 @pytest.fixture
 def ctx_db(tmp_path, monkeypatch):
+    """Configure an isolated test database and reset context-related caches before and after the test.
+    
+    Parameters:
+    	tmp_path: Temporary directory used as the test working directory.
+    	monkeypatch: Pytest fixture for temporarily changing the environment and working directory.
+    
+    Yields:
+    	The temporary test directory.
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "test-context-secret")
     context_tokens.reset_token_secret_cache()

@@ -68,6 +68,12 @@ _insert_counter = 0
 
 
 def _get_db() -> sqlite3.Connection:
+    """
+    Get a usable SQLite connection for the configured database path.
+    
+    Returns:
+    	sqlite3.Connection: The cached or newly initialized database connection.
+    """
     global _db_cache, _db_path_cache
     db_path = str(load_settings().resolved_db_path)
     if _db_cache is not None:
@@ -90,7 +96,10 @@ def _get_db() -> sqlite3.Connection:
 
 
 def reset_cache() -> None:
-    """Drop the cached connection (tests swap the working directory)."""
+    """Clear the cached database connection and reset the action insert counter.
+    
+    This is intended for test scenarios that change the database location.
+    """
     global _db_cache, _db_path_cache, _insert_counter
     with _lock:
         if _db_cache is not None:
@@ -101,7 +110,11 @@ def reset_cache() -> None:
 
 
 def upsert_session(session: BrowserSession) -> None:
-    """Insert or update one session row."""
+    """Insert a new browser session or update the existing record with the same session ID.
+    
+    Parameters:
+    	session (BrowserSession): Session data to persist.
+    """
     with _lock:
         db = _get_db()
         db.execute(
@@ -141,6 +154,15 @@ def upsert_session(session: BrowserSession) -> None:
 
 
 def get_session(session_id: str) -> BrowserSession | None:
+    """
+    Retrieve a stored browser session by its identifier.
+    
+    Parameters:
+    	session_id (str): Identifier of the session to retrieve.
+    
+    Returns:
+    	BrowserSession | None: The matching session, or `None` if no session exists.
+    """
     with _lock:
         row = (
             _get_db()
@@ -151,7 +173,15 @@ def get_session(session_id: str) -> BrowserSession | None:
 
 
 def list_sessions(limit: int = 100) -> list[BrowserSession]:
-    """Return sessions newest-first, bounded by ``limit``."""
+    """
+    List stored browser sessions in newest-first order.
+    
+    Parameters:
+        limit (int): Maximum number of sessions to return, capped between 1 and 1000.
+    
+    Returns:
+        list[BrowserSession]: The matching sessions.
+    """
     capped = max(1, min(int(limit), 1000))
     with _lock:
         rows = (
@@ -176,7 +206,16 @@ def delete_session(session_id: str) -> bool:
 
 
 def record_action(result: ActionResult, *, detail: dict[str, Any] | None = None) -> int:
-    """Append one action to the audit trail; returns the new row id."""
+    """
+    Append an action result to the browser action audit trail.
+    
+    Parameters:
+        result (ActionResult): Action result to record.
+        detail (dict[str, Any] | None): Optional additional action metadata.
+    
+    Returns:
+        int: ID of the newly recorded audit row, or 0 if no row ID is available.
+    """
     global _insert_counter
     with _lock:
         db = _get_db()
@@ -203,7 +242,15 @@ def record_action(result: ActionResult, *, detail: dict[str, Any] | None = None)
 
 
 def list_actions(session_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-    """Return audit rows newest-first, optionally for one session."""
+    """List browser action audit records in newest-first order.
+    
+    Parameters:
+    	session_id (str | None): Restrict results to a specific session when provided.
+    	limit (int): Maximum number of records to return, capped at 5,000.
+    
+    Returns:
+    	list[dict[str, Any]]: Audit records ordered from newest to oldest.
+    """
     capped = max(1, min(int(limit), 5000))
     with _lock:
         db = _get_db()
@@ -221,6 +268,14 @@ def list_actions(session_id: str | None = None, limit: int = 100) -> list[dict[s
 
 
 def count_actions(session_id: str | None = None) -> int:
+    """Count recorded browser actions, optionally restricted to a session.
+    
+    Parameters:
+    	session_id (str | None): Session identifier used to filter the count.
+    
+    Returns:
+    	int: The number of matching browser actions.
+    """
     with _lock:
         db = _get_db()
         if session_id is not None:
@@ -234,7 +289,15 @@ def count_actions(session_id: str | None = None) -> int:
 
 
 def prune_actions(max_rows: int = MAX_ACTION_ROWS) -> int:
-    """Drop the oldest rows beyond ``max_rows``; returns how many were removed."""
+    """
+    Remove the oldest browser action records until at most the specified number remain.
+    
+    Parameters:
+        max_rows (int): Maximum number of action records to retain.
+    
+    Returns:
+        int: Number of action records removed.
+    """
     with _lock:
         db = _get_db()
         removed = _prune_locked(db, max_rows)
@@ -243,6 +306,16 @@ def prune_actions(max_rows: int = MAX_ACTION_ROWS) -> int:
 
 
 def _prune_locked(db: sqlite3.Connection, max_rows: int) -> int:
+    """
+    Remove the oldest browser action records until the table contains at most the specified number of rows.
+    
+    Parameters:
+    	db (sqlite3.Connection): Database connection containing the browser action records.
+    	max_rows (int): Maximum number of action records to retain.
+    
+    Returns:
+    	int: Number of records removed.
+    """
     keep = max(0, int(max_rows))
     row = db.execute("SELECT COUNT(*) AS c FROM browser_actions").fetchone()
     count = int(row["c"]) if row else 0
@@ -259,6 +332,9 @@ def _prune_locked(db: sqlite3.Connection, max_rows: int) -> int:
 
 
 def _row_to_session(row: sqlite3.Row) -> BrowserSession:
+    """
+    Convert a database row into a browser session.
+    """
     return BrowserSession(
         session_id=row["session_id"],
         provider=_enum(ProviderKind, row["provider"], ProviderKind.LOCAL),
@@ -277,6 +353,16 @@ def _row_to_session(row: sqlite3.Row) -> BrowserSession:
 
 
 def _row_to_action(row: sqlite3.Row) -> dict[str, Any]:
+    """
+    Convert an action database row into a typed action dictionary.
+    
+    Parameters:
+        row (sqlite3.Row): Database row containing an action record.
+    
+    Returns:
+        dict[str, Any]: Action fields with numeric values normalized and JSON
+        details parsed into a dictionary when valid.
+    """
     detail_raw = row["detail"]
     detail: dict[str, Any] | None = None
     if detail_raw:
@@ -299,6 +385,17 @@ def _row_to_action(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _enum(enum_cls: Any, raw: Any, fallback: Any) -> Any:
+    """
+    Convert a raw value to an enum member, using a fallback for invalid values.
+    
+    Parameters:
+        enum_cls (Any): Enum class used for conversion.
+        raw (Any): Value to convert.
+        fallback (Any): Value returned when conversion fails.
+    
+    Returns:
+        Any: The converted enum member or fallback value.
+    """
     try:
         return enum_cls(raw)
     except ValueError:
@@ -306,6 +403,14 @@ def _enum(enum_cls: Any, raw: Any, fallback: Any) -> Any:
 
 
 def _is_usable(conn: sqlite3.Connection) -> bool:
+    """Determine whether a SQLite connection can execute a query.
+    
+    Parameters:
+    	conn (sqlite3.Connection): The connection to check.
+    
+    Returns:
+    	bool: `true` if the connection is usable, `false` otherwise.
+    """
     try:
         conn.execute("SELECT 1")
     except sqlite3.Error:
@@ -314,6 +419,7 @@ def _is_usable(conn: sqlite3.Connection) -> bool:
 
 
 def _quiet_close(conn: sqlite3.Connection) -> None:
+    """Close a SQLite connection while suppressing SQLite errors."""
     try:
         conn.close()
     except sqlite3.Error:

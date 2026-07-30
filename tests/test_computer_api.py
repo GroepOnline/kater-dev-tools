@@ -28,6 +28,17 @@ def _call(
     *,
     body: dict[str, Any] | None = None,
 ) -> Response:
+    """
+    Dispatch a test request to a registered API route.
+    
+    Parameters:
+    	method (str): HTTP method for the request.
+    	path (str): Request path to match against the router.
+    	body (dict[str, Any] | None): Optional JSON request body.
+    
+    Returns:
+    	Response: The route handler's response.
+    """
     matched = ROUTER.match(method, path)
     assert matched is not None, f"{method} {path} has no route"
     route, params = matched
@@ -48,6 +59,7 @@ def _call(
 
 @pytest.fixture(autouse=True)
 def _reset_computer_connector() -> Any:
+    """Reset the computer connector before and after each test."""
     from kater.capabilities.wiring import reset_computer_connector
 
     reset_computer_connector()
@@ -146,6 +158,9 @@ def test_computer_invoke_calls_connector(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_computer_status_redacts_to_host_only(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
+    """
+    Verify that the computer status response exposes only the configured host and redacts sensitive URL details.
+    """
     import kater.api.routes as routes
     import kater.capabilities.wiring as wiring
 

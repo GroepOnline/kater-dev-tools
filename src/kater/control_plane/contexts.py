@@ -64,6 +64,13 @@ class ContextRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_remote_context(self) -> RemoteContext:
+        """
+        Convert the stored record to a remote execution context.
+        
+        Returns:
+            RemoteContext: A remote context containing the record's identity, scopes,
+                timestamps, repository, and environment.
+        """
         return RemoteContext(
             context_id=self.context_id,
             principal_id=self.principal_id,
@@ -75,11 +82,27 @@ class ContextRecord:
         )
 
     def is_active(self, now: datetime | None = None) -> bool:
+        """
+        Determine whether the context is currently active.
+        
+        Parameters:
+        	now (datetime | None): The time at which to evaluate the context. Defaults to the current time.
+        
+        Returns:
+        	bool: `true` if the context is not revoked and has not expired, `false` otherwise.
+        """
         if self.revoked_at is not None:
             return False
         return self.as_remote_context().is_active(now)
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Serialize the context record into a dictionary suitable for external use.
+        
+        Returns:
+        	dict[str, Any]: A dictionary containing the context fields, epoch timestamps,
+        	sorted scopes and capabilities, copied metadata, and current active status.
+        """
         return {
             "context_id": self.context_id,
             "principal_id": self.principal_id,
@@ -99,6 +122,9 @@ class ContextRecord:
 
 
 def _quiet_close(conn: sqlite3.Connection) -> None:
+    """
+    Close a SQLite connection while suppressing SQLite errors.
+    """
     try:
         conn.close()
     except sqlite3.Error:
@@ -106,6 +132,14 @@ def _quiet_close(conn: sqlite3.Connection) -> None:
 
 
 def _is_usable(conn: sqlite3.Connection) -> bool:
+    """Determine whether a SQLite connection can execute a query.
+    
+    Parameters:
+        conn (sqlite3.Connection): The connection to check.
+    
+    Returns:
+        bool: `True` if the connection executes successfully, `False` otherwise.
+    """
     try:
         conn.execute("SELECT 1")
         return True
@@ -114,6 +148,7 @@ def _is_usable(conn: sqlite3.Connection) -> bool:
 
 
 def _get_db() -> sqlite3.Connection:
+    """Return a cached SQLite connection for the configured database, initializing the database when necessary."""
     global _db_cache, _db_path_cache
     db_path = str(load_settings().resolved_db_path)
     if _db_cache is not None:
@@ -134,7 +169,7 @@ def _get_db() -> sqlite3.Connection:
 
 
 def reset_cache() -> None:
-    """Drop the cached connection (tests swap the working directory)."""
+    """Close and clear the cached database connection and its associated path."""
     global _db_cache, _db_path_cache
     with _lock:
         if _db_cache is not None:
@@ -144,22 +179,53 @@ def reset_cache() -> None:
 
 
 def _new_context_id() -> str:
+    """Generate a unique identifier for a remote execution context.
+    
+    Returns:
+    	str: An identifier prefixed with ``"rctx_"`` and followed by 32 hexadecimal characters.
+    """
     return "rctx_" + secrets.token_hex(16)
 
 
 def _ts(value: datetime | None) -> float | None:
+    """Convert a datetime to epoch seconds, preserving None values.
+    
+    Parameters:
+    	value (datetime | None): The datetime to convert.
+    
+    Returns:
+    	float | None: The datetime as epoch seconds, or None if no datetime is provided.
+    """
     return value.timestamp() if value is not None else None
 
 
 def _dt(value: float | None) -> datetime | None:
+    """
+    Convert an epoch timestamp to a timezone-aware UTC datetime.
+    
+    Parameters:
+    	value (float | None): The epoch timestamp, or `None`.
+    
+    Returns:
+    	datetime | None: The corresponding UTC datetime, or `None` when no timestamp is provided.
+    """
     return datetime.fromtimestamp(value, tz=UTC) if value is not None else None
 
 
 def _json_list(values: frozenset[str] | list[str] | tuple[str, ...]) -> str:
+    """Serialize string values as a sorted JSON array."""
     return json.dumps(sorted(values))
 
 
 def _parse_str_set(raw: str | None) -> frozenset[str]:
+    """Parse a JSON-encoded list into a frozen set of strings.
+    
+    Parameters:
+    	raw (str | None): The JSON-encoded list to parse.
+    
+    Returns:
+    	frozenset[str]: The parsed string values, or an empty set for missing, invalid, or non-list input.
+    """
     if not raw:
         return frozenset()
     try:
@@ -172,6 +238,15 @@ def _parse_str_set(raw: str | None) -> frozenset[str]:
 
 
 def _parse_metadata(raw: str | None) -> dict[str, Any]:
+    """
+    Parse JSON-encoded metadata into a dictionary.
+    
+    Parameters:
+        raw (str | None): JSON text representing metadata.
+    
+    Returns:
+        dict[str, Any]: The parsed metadata dictionary, or an empty dictionary when the input is empty, invalid JSON, or not a JSON object.
+    """
     if not raw:
         return {}
     try:
@@ -182,6 +257,14 @@ def _parse_metadata(raw: str | None) -> dict[str, Any]:
 
 
 def _row_to_record(row: sqlite3.Row) -> ContextRecord:
+    """Convert a SQLite row into a normalized context record.
+    
+    Parameters:
+    	row (sqlite3.Row): Database row containing the stored context fields.
+    
+    Returns:
+    	ContextRecord: The materialized context record.
+    """
     return ContextRecord(
         context_id=str(row["context_id"]),
         principal_id=str(row["principal_id"]),
@@ -199,6 +282,18 @@ def _row_to_record(row: sqlite3.Row) -> ContextRecord:
 
 
 def _as_str_set(value: Any) -> frozenset[str]:
+    """
+    Convert a supported value into a frozenset of strings.
+    
+    Parameters:
+        value (Any): A comma-separated string, collection, or None.
+    
+    Returns:
+        frozenset[str]: The normalized string values.
+    
+    Raises:
+        ValueError: If value is not None, a string, or a supported collection.
+    """
     if value is None:
         return frozenset()
     if isinstance(value, str):
@@ -221,7 +316,19 @@ def create_context(
     ttl_seconds: float | int | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> ContextRecord:
-    """Insert a new remote context and return the stored record."""
+    """
+    Create and persist a remote execution context.
+    
+    Parameters:
+        principal_id (str): Identifier of the principal associated with the context.
+        ttl_seconds (float | int | None): Optional lifetime in seconds; must be positive when provided.
+    
+    Returns:
+        ContextRecord: The newly created context record.
+    
+    Raises:
+        ValueError: If `principal_id` is empty or `ttl_seconds` is not positive.
+    """
     principal = str(principal_id or "").strip()
     if not principal:
         raise ValueError("principal_id is required")
@@ -280,6 +387,14 @@ def create_context(
 
 
 def get_context(context_id: str) -> ContextRecord | None:
+    """Retrieve a stored remote execution context by its identifier.
+    
+    Parameters:
+    	context_id (str): Identifier of the context to retrieve.
+    
+    Returns:
+    	ContextRecord | None: The matching context record, or None if no context has that identifier.
+    """
     with _lock:
         row = (
             _get_db()
@@ -297,7 +412,18 @@ def mint_context_token(
     *,
     ttl_seconds: int = 3600,
 ) -> tuple[str, ContextRecord]:
-    """Fetch an active context and mint a signed token under the store lock."""
+    """Fetch an active context and mint a signed token for it.
+    
+    Parameters:
+    	context_id (str): Identifier of the context whose token should be minted.
+    	ttl_seconds (int): Token lifetime in seconds.
+    
+    Returns:
+    	tuple[str, ContextRecord]: The signed token and its context record.
+    
+    Raises:
+    	ValueError: If the context does not exist or is inactive.
+    """
     from kater.control_plane.tokens import issue_token
 
     with _lock:
@@ -321,6 +447,17 @@ def list_contexts(
     principal_id: str | None = None,
     include_revoked: bool = False,
 ) -> list[ContextRecord]:
+    """
+    List stored remote execution contexts, optionally filtered by principal.
+    
+    Parameters:
+        principal_id (str | None): Restrict results to contexts belonging to this principal.
+        include_revoked (bool): Include revoked contexts when true; revoked contexts are
+            excluded by default.
+    
+    Returns:
+        list[ContextRecord]: Contexts ordered from newest to oldest creation time.
+    """
     clauses: list[str] = []
     params: list[Any] = []
     if principal_id:
@@ -336,7 +473,16 @@ def list_contexts(
 
 
 def revoke_context(context_id: str, *, now: datetime | None = None) -> ContextRecord | None:
-    """Soft-revoke a context. Returns the updated record, or None if missing."""
+    """
+    Mark a context as revoked.
+    
+    Parameters:
+        context_id (str): Identifier of the context to revoke.
+        now (datetime | None): Timestamp to record as the revocation time. Defaults to the current UTC time.
+    
+    Returns:
+        ContextRecord | None: The revoked context record, or None if no matching context exists.
+    """
     stamp = (now or datetime.now(UTC)).timestamp()
     with _lock:
         db = _get_db()
@@ -360,7 +506,14 @@ def revoke_context(context_id: str, *, now: datetime | None = None) -> ContextRe
 
 
 def purge_expired(*, now: datetime | None = None) -> int:
-    """Hard-delete contexts past ``expires_at``. Returns the number removed."""
+    """Delete contexts whose expiration time has passed.
+    
+    Parameters:
+    	now (datetime | None): Timestamp used to determine expiration; defaults to the current UTC time.
+    
+    Returns:
+    	int: Number of deleted contexts.
+    """
     stamp = (now or datetime.now(UTC)).timestamp()
     with _lock:
         db = _get_db()

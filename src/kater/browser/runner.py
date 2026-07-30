@@ -26,6 +26,7 @@ class CallRunner:
     """Run submitted callables on one long-lived worker thread, in order."""
 
     def __init__(self, name: str = "kater-browser") -> None:
+        """Initialize a runner with the specified worker thread name."""
         self._name = name
         self._queue: queue.Queue[_Job | None] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -35,18 +36,28 @@ class CallRunner:
 
     @property
     def running(self) -> bool:
+        """Indicates whether the worker thread is currently active.
+        
+        Returns:
+        	bool: `True` if the worker thread exists and is alive, `False` otherwise.
+        """
         thread = self._thread
         return thread is not None and thread.is_alive()
 
     @property
     def restarts(self) -> int:
+        """Return the number of worker replacements performed by the runner."""
         return self._restarts
 
     @property
     def generation(self) -> int:
+        """Return the current worker generation number."""
         return self._generation
 
     def start(self) -> None:
+        """
+        Start the worker thread if it is not already running.
+        """
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return
@@ -54,10 +65,16 @@ class CallRunner:
 
     def submit(self, fn: Callable[[], T], *, timeout: float | None = None) -> T:
         """Execute ``fn`` on the worker thread and return its result.
-
-        Raises ``TimeoutError`` when the call does not finish in ``timeout``
-        seconds. The wedged worker is abandoned and replaced so later submits
-        are not stuck behind it.
+        
+        If ``timeout`` expires before completion, the worker is abandoned and replaced
+        so subsequent submissions can proceed.
+        
+        Args:
+            fn: Zero-argument callable to execute.
+            timeout: Maximum time to wait for the result, in seconds.
+        
+        Returns:
+            The value returned by ``fn``.
         """
         self.start()
         future: Future[T] = Future()
@@ -78,6 +95,11 @@ class CallRunner:
             self._replace_worker_unlocked()
 
     def stop(self, *, timeout: float = 10.0) -> None:
+        """Stop the current worker thread and wait up to the specified timeout for it to exit.
+        
+        Parameters:
+            timeout (float): Maximum number of seconds to wait for the worker thread to stop.
+        """
         with self._lock:
             thread = self._thread
             q = self._queue
@@ -104,6 +126,10 @@ class CallRunner:
         # putting None on its queue would not run until the call returns.
         # Daemon threads are abandoned; Playwright objects bound to them must
         # be dropped by the provider (see PlaywrightProvider._invalidate_after_timeout).
+        """Abandon the current worker and start a replacement worker.
+        
+        The abandoned worker may remain blocked while executing its current call.
+        """
         self._generation += 1
         self._restarts += 1
         self._spawn_worker_unlocked()
@@ -111,6 +137,9 @@ class CallRunner:
     def _loop(self, q: queue.Queue[_Job | None]) -> None:
         # Bind the queue at thread start so a later replace_worker() cannot
         # make this abandoned worker drain the new queue.
+        """
+        Execute queued jobs on the worker thread and deliver their results or exceptions to their futures.
+        """
         while True:
             job = q.get()
             if job is None:

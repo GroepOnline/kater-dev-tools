@@ -11,6 +11,12 @@ runner = CliRunner()
 
 
 def _seed_kater(root: Path) -> None:
+    """
+    Create the minimal `.kater` project state required by CLI tests.
+    
+    Parameters:
+        root (Path): Project directory in which to create the `.kater` directory.
+    """
     kater = root / ".kater"
     kater.mkdir(parents=True, exist_ok=True)
     (kater / "config.json").write_text(

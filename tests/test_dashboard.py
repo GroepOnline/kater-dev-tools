@@ -355,7 +355,16 @@ process.stdout.write(JSON.stringify({
 
 
 def _open_credentials_modal(env_required: list[str], tmp_path) -> dict:
-    """Run the dashboard's real credentials-modal JS and report the DOM built."""
+    """
+    Run the dashboard credentials-modal JavaScript and report the resulting DOM data.
+    
+    Parameters:
+    	env_required (list[str]): Environment variable names to include in the credentials form.
+    	tmp_path: Temporary directory used to create the Node.js harness script.
+    
+    Returns:
+    	dict: JSON data describing the generated credential fields and modal state.
+    """
     node = shutil.which("node") or shutil.which("nodejs")
     if node is None:  # pragma: no cover - depends on the host toolchain
         pytest.skip("node is required to execute the dashboard JS")

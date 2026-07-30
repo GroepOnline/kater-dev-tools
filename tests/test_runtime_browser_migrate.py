@@ -67,6 +67,7 @@ def test_runtime_start_calls_ensure_migrated(monkeypatch, tmp_path) -> None:
             self.should_exit = False
 
         def run(self) -> None:
+            """Provide a no-op server run operation."""
             return None
 
     monkeypatch.setattr("uvicorn.Server", _FakeUvicornServer)
@@ -106,6 +107,7 @@ def test_runtime_stop_resets_browser_manager(monkeypatch, tmp_path) -> None:
             self.should_exit = False
 
         def run(self) -> None:
+            """Provide a no-op server run operation."""
             return None
 
     monkeypatch.setattr("uvicorn.Server", _FakeUvicornServer)

@@ -27,6 +27,7 @@ _CMD_HINT = (
 
 
 def _clear() -> None:
+    """Clear the terminal screen and move the cursor to the home position."""
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
 
@@ -37,6 +38,7 @@ def _hide_cursor() -> None:
 
 
 def _show_cursor() -> None:
+    """Show the terminal cursor."""
     sys.stdout.write("\033[?25h")
     sys.stdout.flush()
 
@@ -45,7 +47,12 @@ def _show_cursor() -> None:
 
 
 def browser_stats() -> dict[str, Any] | None:
-    """Return ``get_manager().stats()`` or None if the lane is unavailable."""
+    """
+    Retrieve browser session statistics when the browser subsystem is available.
+    
+    Returns:
+        dict[str, Any] | None: Browser statistics, or `None` when unavailable.
+    """
     try:
         from kater.browser.session import get_manager
     except ImportError:
@@ -57,7 +64,15 @@ def browser_stats() -> dict[str, Any] | None:
 
 
 def browser_sessions(*, live_only: bool = False) -> list[dict[str, Any]] | None:
-    """List browser sessions as dicts, or None if the lane is unavailable."""
+    """
+    List available browser sessions in dictionary form.
+    
+    Parameters:
+    	live_only (bool): Whether to include only live sessions.
+    
+    Returns:
+    	list[dict[str, Any]] | None: The session dictionaries, or `None` when the browser session service is unavailable.
+    """
     try:
         from kater.browser.session import get_manager
     except ImportError:
@@ -70,7 +85,12 @@ def browser_sessions(*, live_only: bool = False) -> list[dict[str, Any]] | None:
 
 
 def automation_count() -> int | None:
-    """Return automation count when an engine is importable; else None."""
+    """
+    Determine the number of available automations.
+    
+    Returns:
+        int | None: The automation count, or `None` when the automation engine is unavailable or cannot be queried.
+    """
     engine = _automation_engine()
     if engine is None:
         return None
@@ -82,7 +102,12 @@ def automation_count() -> int | None:
 
 
 def automation_list() -> list[dict[str, Any]] | None:
-    """List automations as dicts, or None if no engine is available."""
+    """
+    List available automations in dictionary form.
+    
+    Returns:
+        list[dict[str, Any]]: The normalized automation records, or None when the automation engine is unavailable or cannot be queried.
+    """
     engine = _automation_engine()
     if engine is None:
         return None
@@ -93,6 +118,11 @@ def automation_list() -> list[dict[str, Any]] | None:
 
 
 def _automation_engine() -> Any | None:
+    """Retrieve the available automation engine.
+    
+    Returns:
+        Any | None: The automation engine, or `None` when it is unavailable or cannot be initialized.
+    """
     getter: Any | None = None
     try:
         from kater.automations import get_engine as getter
@@ -111,6 +141,15 @@ def _automation_engine() -> Any | None:
 
 
 def _automation_items(engine: Any) -> list[dict[str, Any]]:
+    """
+    Normalize automation entries from an engine into dictionaries.
+    
+    Parameters:
+        engine (Any): Automation engine providing an available listing method.
+    
+    Returns:
+        list[dict[str, Any]]: Normalized automation entries.
+    """
     if hasattr(engine, "list_automations"):
         raw = engine.list_automations()
     elif hasattr(engine, "list"):
@@ -157,7 +196,27 @@ def format_status_lines(
     errors: int,
     success_rate: float,
 ) -> list[str]:
-    """Build the header / summary lines for the status panel."""
+    """
+    Build the header and summary lines for the status panel.
+    
+    Parameters:
+        version (str): Kater version displayed in the header.
+        profile (str): Active profile name.
+        auth_mode (str): Authentication mode.
+        servers_enabled (int): Number of enabled servers.
+        servers_total (int): Total number of servers.
+        servers_configured (int): Number of configured servers.
+        servers_missing (int): Number of servers missing required environment variables.
+        browser_sessions (int | None): Browser session count, or `None` when unavailable.
+        automations (int | None): Automation count, or `None` when unavailable.
+        events_total (int): Total number of recorded events.
+        tool_calls (int): Number of tool calls.
+        errors (int): Number of errors.
+        success_rate (float): Tool-call success rate as a percentage.
+    
+    Returns:
+        list[str]: Formatted status panel lines.
+    """
     browser = "-" if browser_sessions is None else str(browser_sessions)
     autos = "-" if automations is None else str(automations)
     en_color = GREEN if servers_enabled == servers_total else YELLOW
@@ -187,7 +246,16 @@ def format_status_lines(
 
 
 def format_server_mark(enabled: bool, env_ok: bool) -> str:
-    """ASCII status mark: on+env, on+missing, or off."""
+    """
+    Format a colored status mark for a server.
+    
+    Parameters:
+        enabled (bool): Whether the server is enabled.
+        env_ok (bool): Whether the server's required environment is configured.
+    
+    Returns:
+        str: A colored `*` for enabled servers with valid configuration, `o` for enabled servers with missing configuration, or `-` for disabled servers.
+    """
     if enabled and env_ok:
         return f"{GREEN}*{RESET}"
     if enabled:
@@ -196,6 +264,15 @@ def format_server_mark(enabled: bool, env_ok: bool) -> str:
 
 
 def format_session_row(session: dict[str, Any]) -> str:
+    """
+    Format a browser session as a fixed-width display row.
+    
+    Parameters:
+    	session (dict[str, Any]): Session data containing its identifier, state, and optional label or URL.
+    
+    Returns:
+    	str: A formatted session row with truncated identifier and detail fields.
+    """
     sid = str(session.get("session_id", "?"))
     short = sid if len(sid) <= 20 else sid[:20]
     state = str(session.get("state", "?"))
@@ -211,6 +288,15 @@ def format_session_row(session: dict[str, Any]) -> str:
 
 
 def format_automation_row(item: dict[str, Any]) -> str:
+    """
+    Format an automation item as an aligned display row.
+    
+    Parameters:
+    	item (dict[str, Any]): Automation data containing its name or identifier, enabled state, kind, and latest status.
+    
+    Returns:
+    	str: A fixed-width formatted row for the automation item.
+    """
     name = str(item.get("name") or item.get("id") or "?")
     if len(name) > 24:
         name = name[:23] + "~"
@@ -228,6 +314,13 @@ def interactive_loop(
     profile: str = "core",
     refresh_interval: float = 3.0,
 ) -> None:
+    """
+    Run the interactive terminal dashboard and process user commands.
+    
+    Parameters:
+        profile (str): Initial configuration profile.
+        refresh_interval (float): Minimum number of seconds between automatic dashboard refreshes.
+    """
     current_profile = profile
     running = True
     refresh_needed = True
@@ -295,6 +388,12 @@ def interactive_loop(
 
 
 def _render(profile: str) -> None:
+    """
+    Render the current dashboard state for the selected profile.
+    
+    Parameters:
+        profile (str): Profile whose applicable tool sources should be displayed.
+    """
     _clear()
     data = status_overview()
     s = data["servers"]
@@ -360,6 +459,9 @@ def _render(profile: str) -> None:
 
 
 def _print_browser() -> None:
+    """
+    Print the browser session panel, including session counts and details when available.
+    """
     sessions = browser_sessions()
     if sessions is None:
         _print_err("browser lane unavailable")
@@ -376,6 +478,9 @@ def _print_browser() -> None:
 
 
 def _print_automations() -> None:
+    """
+    Print the available automations and their status, or an error when the automations engine is unavailable.
+    """
     items = automation_list()
     if items is None:
         _print_err("automations engine unavailable")
@@ -390,6 +495,12 @@ def _print_automations() -> None:
 
 
 def _handle_toggle(action: str, server_name: str) -> None:
+    """Update and persist a server's enabled state, then record the change.
+    
+    Parameters:
+    	action (str): The requested action: ``"enable"``, ``"disable"``, or ``"toggle"``.
+    	server_name (str): The name of the server to update.
+    """
     source = get_source(server_name)
     if not source:
         _print_err(f"unknown server: {server_name}")
@@ -409,14 +520,17 @@ def _handle_toggle(action: str, server_name: str) -> None:
 
 
 def _print_ok(msg: str) -> None:
+    """Print a success message with a colored status label."""
     print(f"  {GREEN}ok{RESET} {msg}")
 
 
 def _print_err(msg: str) -> None:
+    """Print an error message with terminal formatting."""
     print(f"  {RED}err{RESET} {msg}")
 
 
 def _print_help() -> None:
+    """Print the available interactive commands and their descriptions."""
     print(f"  {BOLD}commands{RESET}")
     rows = (
         ("toggle <server>", "Toggle a server on/off"),

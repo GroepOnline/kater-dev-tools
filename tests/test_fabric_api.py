@@ -18,6 +18,21 @@ def _call(
     query: dict[str, list[str]] | None = None,
     body: dict[str, Any] | None = None,
 ) -> Response:
+    """
+    Invoke a registered API route with a constructed request.
+    
+    Parameters:
+        method: HTTP method for the request.
+        path: Request path.
+        query: Optional query parameters.
+        body: Optional JSON request body.
+    
+    Returns:
+        The response produced by the matched route handler.
+    
+    Raises:
+        AssertionError: If no route matches the method and path.
+    """
     matched = ROUTER.match(method, path)
     assert matched is not None, f"{method} {path} has no route"
     route, params = matched
@@ -38,6 +53,15 @@ def _call(
 
 @pytest.fixture
 def ctx_db(tmp_path, monkeypatch):
+    """
+    Provide an isolated temporary working directory for context-related tests.
+    
+    Parameters:
+        tmp_path: Temporary directory used as the test working directory.
+    
+    Yields:
+        pathlib.Path: The temporary working directory.
+    """
     monkeypatch.chdir(tmp_path)
     contexts.reset_cache()
     yield tmp_path

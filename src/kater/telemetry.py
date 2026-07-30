@@ -34,6 +34,7 @@ class TelemetryEvent:
 
 
 def record_event(event: TelemetryEvent) -> None:
+    """Persist a telemetry event and mirror route decisions to the usage ledger."""
     insert_event(event.to_dict())
     if event.type == "route_decision":
         _emit_usage_from_route(event)
@@ -46,7 +47,10 @@ def record_event(event: TelemetryEvent) -> None:
 
 
 def _emit_usage_from_route(event: TelemetryEvent) -> None:
-    """Mirror control-plane route outcomes into the usage ledger."""
+    """Mirror a control-plane route decision into the usage ledger.
+    
+    The derived usage record includes routing metadata, outcome information, duration, and estimated units. Failures while recording the usage entry are logged and do not propagate.
+    """
     meta = event.metadata or {}
     try:
         cost_raw = meta.get("estimated_units", 0)
@@ -82,6 +86,14 @@ def record_tool_call(
     profile: str | None = None,
     **metadata: Any,
 ) -> None:
+    """
+    Record telemetry for a tool invocation.
+    
+    Parameters:
+        tool (str): Name of the tool being invoked.
+        profile (str | None): Optional profile associated with the invocation.
+        metadata (Any): Additional metadata associated with the event.
+    """
     record_event(
         TelemetryEvent(
             type="tool_call",

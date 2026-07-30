@@ -27,6 +27,15 @@ KNOWN_KINDS = frozenset(
 
 
 def run_doctor_watch(config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Run the doctor check for a profile and summarize its findings.
+    
+    Parameters:
+    	config (dict[str, Any]): Configuration containing an optional profile name.
+    
+    Returns:
+    	dict[str, Any]: The profile name and counts of total findings, warnings, and errors.
+    """
     profile = str(config.get("profile") or "core")
     started = time.perf_counter()
     report = run_doctor(profiles={profile})
@@ -57,12 +66,27 @@ def run_doctor_watch(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_browser_reap(config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Reap expired browser resources.
+    
+    Returns:
+    	dict[str, Any]: A result containing the number of closed resources under the ``"closed"`` key.
+    """
     del config
     closed = get_manager().reap_expired()
     return {"closed": int(closed)}
 
 
 def run_proxy_heal(config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Heal the configured proxy when it is running.
+    
+    Parameters:
+        config (dict[str, Any]): Automation configuration, unused by this handler.
+    
+    Returns:
+        dict[str, Any]: The proxy healing result, or a skipped status when the proxy is not started.
+    """
     del config
     proxy = get_proxy()
     if not proxy.started:
@@ -75,12 +99,29 @@ def run_proxy_heal(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_telemetry_prune(config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Remove retained telemetry records and report the number removed.
+    
+    Returns:
+        dict[str, Any]: A result containing the number of removed records under
+            the ``"removed"`` key.
+    """
     del config
     removed = prune_all()
     return {"removed": int(removed)}
 
 
 def run_credential_nudge(config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Identify servers with missing credential environment variables for a profile.
+    
+    Parameters:
+        config (dict[str, Any]): Configuration containing an optional "profile" value.
+    
+    Returns:
+        dict[str, Any]: The selected profile, the number of affected servers, and
+            details of each server's missing environment variables.
+    """
     profile = str(config.get("profile") or "core")
     inventory = scan_adapters(profiles={profile})
     missing: list[dict[str, Any]] = []
@@ -117,6 +158,19 @@ HANDLERS: dict[str, KindHandler] = {
 
 
 def run_kind(kind: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Execute a supported automation kind with the provided configuration.
+    
+    Parameters:
+    	kind (str): Name of the automation kind to execute.
+    	config (dict[str, Any] | None): Optional configuration passed to the handler.
+    
+    Returns:
+    	dict[str, Any]: The handler's execution result.
+    
+    Raises:
+    	ValueError: If `kind` is not a supported automation kind.
+    """
     handler = HANDLERS.get(kind)
     if handler is None:
         raise ValueError(f"unknown automation kind: {kind}")

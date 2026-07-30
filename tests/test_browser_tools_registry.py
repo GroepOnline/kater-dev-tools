@@ -26,6 +26,7 @@ _EXPECTED_BROWSER_NAMES = {
 
 @pytest.fixture(autouse=True)
 def _isolate_browser_manager() -> Iterator[None]:
+    """Reset the browser manager before and after each test."""
     reset_manager()
     yield
     reset_manager()

@@ -419,7 +419,13 @@ def latest_version() -> int:
 
 
 def _apply(conn: sqlite3.Connection, migration: Migration) -> None:
-    """Run one migration and record it, all inside a single transaction."""
+    """
+    Apply a migration and record its successful application atomically.
+    
+    Parameters:
+    	conn (sqlite3.Connection): The database connection used for the migration.
+    	migration (Migration): The migration to apply.
+    """
     previous_isolation = conn.isolation_level
     conn.isolation_level = None
     try:

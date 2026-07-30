@@ -41,6 +41,13 @@ class ProviderInfo:
     version: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Convert provider information to a dictionary.
+        
+        Returns:
+            dict[str, Any]: A dictionary containing the provider kind, availability,
+                detail, and version.
+        """
         return {
             "kind": self.kind.value,
             "available": self.available,
@@ -89,7 +96,11 @@ class BrowserProvider(ABC):
 
 
 def launch_args() -> list[str]:
-    """Chromium flags. ``--no-sandbox`` stays opt-in: it is only safe in a container."""
+    """Build Chromium launch flags, enabling no-sandbox mode only when explicitly configured.
+    
+    Returns:
+        list[str]: Chromium flags, including ``--no-sandbox`` when the corresponding environment variable is truthy.
+    """
     args = ["--disable-dev-shm-usage"]
     if env_truthy(ENV_NO_SANDBOX):
         args.append("--no-sandbox")
@@ -97,7 +108,12 @@ def launch_args() -> list[str]:
 
 
 def browsers_root() -> Path:
-    """Where Playwright keeps its downloaded browser builds."""
+    """
+    Determine the directory where Playwright stores downloaded browser builds.
+    
+    Returns:
+    	Path: The configured browser storage directory.
+    """
     override = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
     if override and override != "0":
         return Path(override).expanduser()
@@ -111,11 +127,27 @@ def browsers_root() -> Path:
 
 
 def env_truthy(name: str) -> bool:
+    """Determine whether an environment variable contains a recognized truthy value.
+    
+    Parameters:
+    	name (str): The environment variable name.
+    
+    Returns:
+    	bool: `True` if the value is `1`, `true`, `yes`, or `on`, ignoring case and surrounding whitespace; `False` otherwise.
+    """
     return os.environ.get(name, "").strip().lower() in _TRUTHY
 
 
 def redact_endpoint(url: str) -> str:
-    """Strip credentials, query string and fragment from a CDP/API endpoint URL."""
+    """
+    Sanitize a CDP or API endpoint URL by removing credentials, query parameters, and fragments.
+    
+    Parameters:
+        url (str): Endpoint URL to sanitize.
+    
+    Returns:
+        str: Sanitized endpoint URL, an empty string for blank input, or ``"<redacted>"`` for invalid or opaque values.
+    """
     raw = (url or "").strip()
     if not raw:
         return ""

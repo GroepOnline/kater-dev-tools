@@ -95,7 +95,19 @@ def execute_action(
     allow_evaluate: bool = False,
     clock: Any = time.time,
 ) -> ActionResult:
-    """Run one action, enforcing the navigation policy before and after it."""
+    """
+    Execute a browser action while enforcing navigation and evaluation policies.
+    
+    Parameters:
+        session_id (str): Identifier associated with the browser session.
+        allow_evaluate (bool): Whether page script evaluation is permitted.
+        clock (Any): Callable used to measure action timing.
+    
+    Returns:
+        ActionResult: The action outcome, including page state and any extracted
+            text, screenshot, or snapshot. Execution failures are represented in
+            the result.
+    """
     started = clock()
     timeout = min(
         float(action.timeout_ms or policy.action_timeout_ms),
@@ -146,6 +158,19 @@ def _dispatch(
     timeout: float,
     allow_evaluate: bool,
 ) -> tuple[str | None, str | None, tuple[dict[str, Any], ...] | None]:
+    """
+    Execute a browser action and return any resulting text, screenshot, or element snapshot.
+    
+    Parameters:
+        page (Any): Playwright-like page object on which to perform the action.
+        action (BrowserAction): Action to execute.
+        policy (BrowserPolicy): Policy used for operations requiring enforcement.
+        timeout (float): Maximum duration for supported page operations.
+        allow_evaluate (bool): Whether expression evaluation is permitted.
+    
+    Returns:
+        tuple[str | None, str | None, tuple[dict[str, Any], ...] | None]: Text, base64-encoded screenshot, and element snapshot produced by the action, respectively.
+    """
     kind = action.kind
     if kind is ActionKind.NAVIGATE:
         page.goto(action.url, timeout=timeout, wait_until="domcontentloaded")
@@ -186,6 +211,19 @@ def _dispatch(
 
 
 def _screenshot(page: Any, full_page: bool, policy: BrowserPolicy) -> str:
+    """
+    Capture a JPEG screenshot and encode it as an ASCII base64 string.
+    
+    Parameters:
+        full_page (bool): Whether to capture the full page before falling back to the viewport.
+        policy (BrowserPolicy): Policy defining the maximum permitted screenshot size.
+    
+    Returns:
+        str: The base64-encoded screenshot.
+    
+    Raises:
+        PolicyViolation: If the screenshot exceeds the configured size limit.
+    """
     raw = page.screenshot(type="jpeg", quality=SCREENSHOT_QUALITY, full_page=full_page)
     if len(raw) > policy.max_screenshot_bytes:
         if not full_page:
@@ -205,6 +243,15 @@ def _screenshot(page: Any, full_page: bool, policy: BrowserPolicy) -> str:
 
 
 def _snapshot(page: Any) -> tuple[dict[str, Any], ...]:
+    """
+    Collect a bounded snapshot of interactive page elements.
+    
+    Parameters:
+        page (Any): Playwright-compatible page object used to evaluate the snapshot script.
+    
+    Returns:
+        tuple[dict[str, Any], ...]: Snapshot entries represented as dictionaries.
+    """
     raw = page.evaluate(_SNAPSHOT_JS, SNAPSHOT_LIMIT)
     if not isinstance(raw, list):
         return ()
@@ -212,12 +259,31 @@ def _snapshot(page: Any) -> tuple[dict[str, Any], ...]:
 
 
 def _extract_text(page: Any, selector: str | None, timeout: float) -> str:
+    """Extracts text from the selected page element or the document body.
+    
+    Parameters:
+    	page (Any): Page object providing text extraction.
+    	selector (str | None): Selector identifying the element to extract from; uses the document body when omitted.
+    	timeout (float): Maximum time to wait for the text extraction.
+    
+    Returns:
+    	str: Extracted text, truncated when it exceeds the configured character limit.
+    """
     target = selector or "body"
     text = page.inner_text(target, timeout=timeout)
     return _stringify(text)
 
 
 def _stringify(value: Any) -> str:
+    """
+    Convert a value to text and truncate it when it exceeds the maximum text length.
+    
+    Parameters:
+        value (Any): The value to convert.
+    
+    Returns:
+        str: The original string or a representation of the value, truncated with an indicator when it exceeds the maximum length.
+    """
     text = value if isinstance(value, str) else repr(value)
     if len(text) > MAX_TEXT_CHARS:
         return text[:MAX_TEXT_CHARS] + f"\n… truncated at {MAX_TEXT_CHARS} chars"
@@ -237,6 +303,7 @@ def _enforce_landing_url(page: Any, policy: BrowserPolicy) -> None:
 
 
 def _blank(page: Any) -> None:
+    """Best-effort navigation of the page to a blank document."""
     try:
         page.goto("about:blank", timeout=5000)
     except Exception:  # noqa: S110 — best-effort containment, error already fatal
@@ -244,6 +311,7 @@ def _blank(page: Any) -> None:
 
 
 def _safe_url(page: Any) -> str | None:
+    """Return the page URL when it is available, or ``None`` if it cannot be read."""
     try:
         url = page.url
     except Exception:
@@ -252,6 +320,14 @@ def _safe_url(page: Any) -> str | None:
 
 
 def _safe_title(page: Any) -> str | None:
+    """Read the page title, returning ``None`` when it is unavailable or empty.
+    
+    Parameters:
+        page (Any): Page object from which to retrieve the title.
+    
+    Returns:
+        str | None: The page title, or ``None`` if retrieval fails or the title is empty.
+    """
     try:
         title = page.title()
     except Exception:
@@ -260,6 +336,15 @@ def _safe_title(page: Any) -> str | None:
 
 
 def _describe(exc: Exception) -> str:
+    """
+    Format an exception as a concise single-line description.
+    
+    Parameters:
+        exc (Exception): The exception to describe.
+    
+    Returns:
+        str: The exception class name followed by its first message line.
+    """
     message = str(exc).strip() or exc.__class__.__name__
     first = message.splitlines()[0]
     return f"{exc.__class__.__name__}: {first}" if first else exc.__class__.__name__
@@ -273,6 +358,20 @@ def _failure(
     message: str,
     page: Any,
 ) -> ActionResult:
+    """
+    Create a failed action result with timing, session, page metadata, and an error message.
+    
+    Parameters:
+        action (BrowserAction): The action that failed.
+        session_id (str): Identifier of the browser session.
+        started (float): Start time used to calculate the action duration.
+        clock (Any): Callable that provides the current time.
+        message (str): Description of the failure.
+        page (Any): Page object from which to read the current URL and title.
+    
+    Returns:
+        ActionResult: A failed result containing the action details and error information.
+    """
     return ActionResult(
         ok=False,
         kind=action.kind,

@@ -98,12 +98,16 @@ class CircuitBreaker:
             return False
 
     def record_success(self) -> None:
+        """Reset the circuit breaker after a successful call."""
         with self._lock:
             self._failures = 0
             self._state = "closed"
             self._probe_in_flight = False
 
     def reset(self) -> None:
+        """
+        Reset the circuit breaker to its initial closed state.
+        """
         with self._lock:
             self._failures = 0
             self._state = "closed"
@@ -111,6 +115,7 @@ class CircuitBreaker:
             self._probe_in_flight = False
 
     def record_failure(self) -> None:
+        """Record a failed call and open the circuit when the failure threshold is reached."""
         with self._lock:
             self._failures += 1
             if self._state == "half_open":
@@ -284,6 +289,12 @@ class ProxyManager:
         return compatible
 
     def list_tools(self) -> list[dict[str, Any]]:
+        """
+        List available backend, connector, and compatible route-pool tools.
+        
+        Returns:
+        	list[dict[str, Any]]: Tool definitions discoverable through the proxy.
+        """
         tools = self._aggregator.for_mcp()
         if self._computer_connector is not None:
             tools = self._computer_connector.list_tools() + tools
@@ -361,6 +372,17 @@ class ProxyManager:
         *,
         identity: RequestIdentity | None = None,
     ) -> dict[str, Any]:
+        """
+        Invoke a capability through the appropriate connector or backend route with authorization and audit handling.
+        
+        Parameters:
+            name (str): Capability identifier to invoke.
+            arguments (dict[str, Any]): Arguments passed to the capability.
+            identity (RequestIdentity | None): Request identity used for authorization and auditing; derived from the current request when omitted.
+        
+        Returns:
+            dict[str, Any]: Capability response, including structured denial or error details when applicable.
+        """
         started = time.perf_counter()
         ident = identity if identity is not None else get_request_identity()
         profile = load_settings().default_profile
@@ -445,6 +467,20 @@ class ProxyManager:
     ) -> tuple[dict[str, Any], bool]:
         # Second tuple element is fallback_safe: True only when the request
         # was never dispatched (safe to try another account).
+        """
+        Invoke a backend tool with circuit-breaker and fallback handling.
+        
+        Parameters:
+            backend_name (str): Name of the backend to invoke.
+            original_name (str): Tool name passed to the backend.
+            arguments (dict[str, Any]): Tool arguments.
+        
+        Returns:
+            tuple[dict[str, Any], bool]: The backend response and whether the request
+            is safe to retry on another backend. The second value is true when the
+            request was not dispatched or failed with a fallback-safe operational
+            error.
+        """
         _ = record_tool_errors
         breaker = self._breakers.get(backend_name)
         if breaker is not None and not breaker.can_call():
@@ -719,6 +755,11 @@ class ProxyManager:
         )
 
     def statuses(self) -> list[BackendStatus]:
+        """Return the current status of each registered backend, including its circuit-breaker state.
+        
+        Returns:
+        	list[BackendStatus]: Backend statuses with the associated circuit-breaker state.
+        """
         result = []
         for name, backend in self._backends.items():
             status = backend.status
@@ -728,6 +769,12 @@ class ProxyManager:
         return result
 
     def heal(self) -> dict[str, Any]:
+        """
+        Reset circuit breakers for unhealthy backends when the proxy is running.
+        
+        Returns:
+        	dict[str, Any]: A status dictionary containing the number of reset breakers and, when started, the backend names that were unhealthy before healing.
+        """
         if not self._started:
             return {"healed": 0, "status": "skipped_not_started"}
         unhealthy = [name for name, backend in self._backends.items() if not backend.is_healthy()]
@@ -740,6 +787,11 @@ class ProxyManager:
         return {"healed": healed_count, "unhealthy_before": unhealthy}
 
     def health_check(self) -> dict[str, bool]:
+        """Return the health status of each registered backend.
+        
+        Returns:
+        	dict[str, bool]: A mapping of backend names to their health status.
+        """
         return {name: backend.is_healthy() for name, backend in self._backends.items()}
 
     def tool_count(self) -> int:

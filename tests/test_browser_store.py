@@ -25,6 +25,15 @@ def _clean_browser_store(tmp_path, monkeypatch):
 
 
 def make_session(**overrides) -> BrowserSession:
+    """
+    Create a browser session with standard test values and optional overrides.
+    
+    Parameters:
+        overrides: Field values that replace the standard session defaults.
+    
+    Returns:
+        BrowserSession: The constructed browser session.
+    """
     defaults = dict(
         session_id=new_session_id(),
         provider=ProviderKind.LOCAL,
@@ -40,6 +49,15 @@ def make_session(**overrides) -> BrowserSession:
 
 
 def make_result(session_id: str, **overrides) -> ActionResult:
+    """Build an action result with standard test values and optional overrides.
+    
+    Parameters:
+        session_id (str): Identifier of the session associated with the action.
+        overrides: Field values that replace the defaults.
+    
+    Returns:
+        ActionResult: The configured action result.
+    """
     defaults = dict(
         ok=True,
         kind=ActionKind.NAVIGATE,
@@ -143,7 +161,9 @@ def test_prune_actions_to_zero_empties_the_log():
 
 
 def test_store_recovers_when_the_kater_dir_is_removed():
-    """The test-suite (and operators) wipe .kater/; the cached handle must not linger."""
+    """
+    KEEP_EXISTING
+    """
     store.upsert_session(make_session())
     shutil.rmtree(Path.cwd() / ".kater")
     session = make_session()

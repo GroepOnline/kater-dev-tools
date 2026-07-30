@@ -9,6 +9,11 @@ from typing import Any
 
 
 def new_automation_id() -> str:
+    """Generate a unique identifier for an automation.
+    
+    Returns:
+    	str: An identifier prefixed with ``auto_``.
+    """
     return f"auto_{uuid.uuid4().hex}"
 
 
@@ -27,6 +32,12 @@ class Automation:
     updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Serialize the automation's metadata, configuration, scheduling, and execution history.
+        
+        Returns:
+        	dict[str, Any]: A dictionary containing the automation fields, with a copied configuration mapping.
+        """
         return {
             "id": self.id,
             "name": self.name,
@@ -53,6 +64,12 @@ class AutomationRunResult:
     ran_at: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Serialize the automation run result as a dictionary.
+        
+        Returns:
+        	dict[str, Any]: A dictionary containing the run identifier, kind, status, error, copied detail, rounded duration, and timestamp.
+        """
         return {
             "id": self.id,
             "kind": self.kind,

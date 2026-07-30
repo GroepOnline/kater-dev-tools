@@ -49,10 +49,25 @@ class KaterSettings(BaseModel):
 
     @property
     def resolved_db_path(self) -> Path:
+        """
+        Resolve the configured database path to an absolute path.
+        
+        Returns:
+        	Path: The expanded database path, resolved relative to the current working directory when necessary.
+        """
         path = Path(self.db_path).expanduser()
         return path if path.is_absolute() else Path.cwd() / path
 
     def is_server_enabled(self, name: str, default: bool = True) -> bool:
+        """Determine whether a server is enabled, applying its configured override when present.
+        
+        Parameters:
+        	name (str): The server name.
+        	default (bool): The enabled state to use when no explicit override is configured.
+        
+        Returns:
+        	bool: The configured enabled state, or default when no explicit override exists.
+        """
         override = self.server_overrides.get(name)
         if override and override.enabled is not None:
             return override.enabled

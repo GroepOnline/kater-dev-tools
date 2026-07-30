@@ -63,6 +63,7 @@ _insert_counter = 0
 
 
 def _get_backend() -> str:
+    """Return the configured telemetry storage backend."""
     return load_settings().storage_backend
 
 
@@ -70,6 +71,12 @@ def _get_backend() -> str:
 
 
 def _get_db() -> sqlite3.Connection:
+    """
+    Get the cached SQLite connection or create one for the configured database path.
+    
+    Returns:
+    	sqlite3.Connection: An initialized SQLite connection.
+    """
     global _db_cache, _db_path_cache
     db_path = str(load_settings().resolved_db_path)
     if _db_cache is not None and _db_path_cache == db_path:

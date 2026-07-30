@@ -42,6 +42,11 @@ def _clean_browser_env(monkeypatch):
 
 
 def free_port() -> int:
+    """Return an available TCP port number on the local host.
+    
+    Returns:
+    	int: An ephemeral port number bound to `127.0.0.1`.
+    """
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
@@ -228,6 +233,13 @@ class FakePage:
     """Just enough of the Playwright page surface to drive execute_action."""
 
     def __init__(self, *, redirect_to: str | None = None, screenshots: list[bytes] | None = None):
+        """
+        Initialize a fake page with optional redirect and screenshot behavior.
+        
+        Parameters:
+        	redirect_to (str | None): URL to assign after navigation-triggering actions.
+        	screenshots (list[bytes] | None): Screenshot payloads returned by the fake page.
+        """
         self.url = "about:blank"
         self.redirect_to = redirect_to
         self.screenshots = screenshots or [b"\xff\xd8" + b"jpeg" * 8]
@@ -254,6 +266,16 @@ class FakePage:
             self.url = self.redirect_to
 
     def screenshot(self, type=None, quality=None, full_page=False):
+        """Capture and return a screenshot for the requested page mode.
+        
+        Parameters:
+        	type: Optional screenshot format.
+        	quality: Optional screenshot quality setting.
+        	full_page (bool): Whether to capture the full page.
+        
+        Returns:
+        	bytes: The screenshot data.
+        """
         self.calls.append(("screenshot", full_page))
         index = 0 if full_page or len(self.screenshots) == 1 else 1
         return self.screenshots[index]
@@ -272,11 +294,32 @@ class FakePage:
 
 
 def public_policy(**kwargs) -> BrowserPolicy:
+    """
+    Create a browser policy with a resolver that maps hosts to a public IP address.
+    
+    Parameters:
+    	**kwargs: Policy options passed to `BrowserPolicy`.
+    
+    Returns:
+    	BrowserPolicy: The configured browser policy.
+    """
     kwargs.setdefault("resolver", lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 80))])
     return BrowserPolicy(**kwargs)
 
 
 def run_action(page: FakePage, payload: dict[str, Any], policy: BrowserPolicy, **kwargs):
+    """
+    Execute a browser action using a synthetic session identifier.
+    
+    Parameters:
+    	page (FakePage): Page on which to execute the action.
+    	payload (dict[str, Any]): Serialized browser action data.
+    	policy (BrowserPolicy): Policy governing action execution.
+    	**kwargs: Additional arguments forwarded to the action executor.
+    
+    Returns:
+    	The result produced by the action executor.
+    """
     return execute_action(
         page, BrowserAction.from_dict(payload), policy, session_id="bsess_" + "f" * 32, **kwargs
     )
@@ -410,6 +453,7 @@ def test_cdp_stop_does_not_close_remote_browser():
 
     class _Browser:
         def close(self) -> None:
+            """Record that the browser was closed."""
             closed.append("browser")
 
     class _Playwright:
@@ -430,6 +474,7 @@ def test_local_stop_closes_browser():
 
     class _Browser:
         def close(self) -> None:
+            """Record that the browser was closed."""
             closed.append("browser")
 
     class _Playwright:

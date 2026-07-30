@@ -275,21 +275,42 @@ FABRIC_OPENAPI_PATHS: dict[str, Any] = {
 
 
 def _csv_set(raw: str | None) -> frozenset[str]:
+    """
+    Convert a comma-separated string into a set of trimmed, non-empty values.
+    
+    Parameters:
+    	raw (str | None): The comma-separated input string.
+    
+    Returns:
+    	frozenset[str]: The unique, trimmed values, or an empty set when the input is empty.
+    """
     if not raw:
         return frozenset()
     return frozenset(part.strip() for part in raw.split(",") if part.strip())
 
 
 def _truthy(raw: str | None) -> bool:
+    """Determine whether a string represents a true value.
+    
+    Parameters:
+    	raw (str | None): The value to interpret.
+    
+    Returns:
+    	bool: `true` if the trimmed, case-insensitive value is "1", "true", "yes", or "on"; `false` otherwise.
+    """
     return (raw or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _identity_owns_context(identity: RequestIdentity, record: Any) -> bool:
-    """Ownership gate for remote-context records.
-
-    An absent principal (no scoped context token: a trusted/admin API-key or
-    ``auth=none`` caller) is unrestricted. A scoped caller may only touch
-    records whose ``principal_id`` matches its own.
+    """
+    Determine whether an identity may access a remote-context record.
+    
+    Parameters:
+        identity (RequestIdentity): Identity requesting access.
+        record (Any): Remote-context record to check.
+    
+    Returns:
+        bool: `true` if the identity is unrestricted or owns the record, `false` otherwise.
     """
     if identity.principal_id is None:
         return True
@@ -297,6 +318,15 @@ def _identity_owns_context(identity: RequestIdentity, record: Any) -> bool:
 
 
 def _discovered_payload(item: Any) -> dict[str, Any]:
+    """
+    Builds the serialized payload for a discovered capability.
+    
+    Parameters:
+    	item (Any): Discovered capability data to serialize.
+    
+    Returns:
+    	dict[str, Any]: Capability identifiers, metadata, schemas, required scopes, approval status, and health status.
+    """
     return {
         "capability_id": item.capability_id,
         "version": item.version,
@@ -312,6 +342,15 @@ def _discovered_payload(item: Any) -> dict[str, Any]:
 
 
 def _manifest_payload(manifest: CapabilityManifest) -> dict[str, Any]:
+    """
+    Build the API payload for a capability manifest.
+    
+    Parameters:
+        manifest (CapabilityManifest): Capability manifest to serialize.
+    
+    Returns:
+        dict[str, Any]: Manifest fields formatted for an API response.
+    """
     return {
         "capability_id": manifest.capability_id,
         "package_id": manifest.package_id,
@@ -336,6 +375,15 @@ def _manifest_payload(manifest: CapabilityManifest) -> dict[str, Any]:
 
 @route("GET", "/api/capabilities")
 def _capabilities_discover(req: Request) -> Response:
+    """
+    Discover capabilities matching the requested profiles, intent, and risk limit.
+    
+    Parameters:
+    	req (Request): HTTP request containing discovery filters and caller identity.
+    
+    Returns:
+    	Response: JSON response containing the effective discovery context and matching capabilities, or an error when `max_risk` is invalid.
+    """
     profile = req.query1("profile", "core") or "core"
     intent = req.query1("intent", "") or ""
     max_risk_raw = req.query1("max_risk", RiskClass.EXTERNAL_WRITE.value) or (
@@ -391,6 +439,14 @@ def _capabilities_discover(req: Request) -> Response:
 
 @route("GET", "/api/capabilities/{capability_id}")
 def _capabilities_get(req: Request) -> Response:
+    """Retrieve the manifest for a capability.
+    
+    Parameters:
+    	req (Request): Request containing the capability identifier in its path parameters.
+    
+    Returns:
+    	Response: A capability manifest, or a 404 error if the capability is not found.
+    """
     capability_id = req.params["capability_id"]
     manifest = get_default_registry().get(capability_id)
     if manifest is None:
@@ -400,6 +456,15 @@ def _capabilities_get(req: Request) -> Response:
 
 @route("GET", "/api/contexts")
 def _contexts_list(req: Request) -> Response:
+    """
+    List remote contexts visible to the requesting identity.
+    
+    Parameters:
+    	req (Request): The HTTP request containing optional principal and revoked-context filters.
+    
+    Returns:
+    	Response: A JSON response containing the total number of matching contexts and their serialized records.
+    """
     identity = resolve_request_identity(req)
     principal_id = req.query1("principal_id") or None
     # Scoped callers may only ever see their own principal's contexts; ignore
@@ -422,6 +487,14 @@ def _contexts_list(req: Request) -> Response:
 
 @route("POST", "/api/contexts")
 def _contexts_create(req: Request) -> Response:
+    """Create a remote context from the request body.
+    
+    Parameters:
+    	req (Request): Request containing the context configuration.
+    
+    Returns:
+    	Response: A 201 response with the created context, or a 400 response when the request body or context configuration is invalid.
+    """
     try:
         body = req.json
     except ValueError as exc:
@@ -456,6 +529,14 @@ def _contexts_create(req: Request) -> Response:
 
 @route("GET", "/api/contexts/{context_id}")
 def _contexts_get(req: Request) -> Response:
+    """Retrieve a remote context when it exists and is accessible to the requesting identity.
+    
+    Parameters:
+    	req (Request): Request containing the context identifier and caller identity.
+    
+    Returns:
+    	Response: A JSON response containing the context, or a 404 error when the context is missing or inaccessible.
+    """
     identity = resolve_request_identity(req)
     record = remote_contexts.get_context(req.params["context_id"])
     if record is None or not _identity_owns_context(identity, record):
@@ -465,6 +546,14 @@ def _contexts_get(req: Request) -> Response:
 
 @route("POST", "/api/contexts/{context_id}/revoke")
 def _contexts_revoke(req: Request) -> Response:
+    """Revoke a remote context owned by the requesting identity.
+    
+    Parameters:
+    	req (Request): The request containing the context identifier and caller identity.
+    
+    Returns:
+    	Response: The revoked context, or a 404 response when the context is missing, inaccessible, or cannot be revoked.
+    """
     identity = resolve_request_identity(req)
     record = remote_contexts.get_context(req.params["context_id"])
     if record is None or not _identity_owns_context(identity, record):
@@ -477,6 +566,12 @@ def _contexts_revoke(req: Request) -> Response:
 
 @route("DELETE", "/api/contexts/{context_id}")
 def _contexts_delete(req: Request) -> Response:
+    """Revoke a remote context and return its updated record.
+    
+    Returns:
+        The revoked context record, or a not-found error response when the
+        context does not exist, is not owned by the caller, or cannot be revoked.
+    """
     identity = resolve_request_identity(req)
     record = remote_contexts.get_context(req.params["context_id"])
     if record is None or not _identity_owns_context(identity, record):
@@ -489,6 +584,14 @@ def _contexts_delete(req: Request) -> Response:
 
 @route("POST", "/api/contexts/{context_id}/token")
 def _contexts_issue_token(req: Request) -> Response:
+    """Issue a signed token for an active remote context.
+    
+    Parameters:
+    	req (Request): Request containing the context identifier and optional token lifetime.
+    
+    Returns:
+    	Response: A JSON response containing the token, expiration time, and context identifier, or an error response if the context is unavailable or the request is invalid.
+    """
     identity = resolve_request_identity(req)
     context_id = req.params["context_id"]
     record = remote_contexts.get_context(context_id)
@@ -525,6 +628,15 @@ def _contexts_issue_token(req: Request) -> Response:
 
 @route("GET", "/api/audit/capabilities")
 def _capability_audit_list(req: Request) -> Response:
+    """
+    List capability audit events with optional capability and context filters.
+    
+    Parameters:
+    	req (Request): The HTTP request containing query parameters.
+    
+    Returns:
+    	Response: A JSON response containing the matching audit events, or a 400 response if `limit` is not an integer.
+    """
     limit_raw = req.query1("limit", "100") or "100"
     try:
         limit = int(limit_raw)

@@ -38,6 +38,19 @@ def _invoke(
     ids: dict[str, object],
     arguments: dict[str, object],
 ) -> dict[str, object]:
+    """
+    Invoke a capability through the Kater tools API.
+    
+    Parameters:
+        kater_url (str): Base URL of the Kater service.
+        token (str): Bearer token for authorization.
+        capability_id (str): Identifier of the capability to invoke.
+        ids (dict[str, object]): Session and resource identifiers for the request.
+        arguments (dict[str, object]): Capability-specific arguments.
+    
+    Returns:
+        dict[str, object]: Decoded capability invocation response.
+    """
     body: dict[str, object] = {
         "name": capability_id,
         "arguments": {

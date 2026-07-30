@@ -1153,7 +1153,9 @@ def migrate_apply_command(
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Apply pending schema migrations (or report them with --dry-run)."""
+    """
+    Apply pending SQLite schema migrations, or report them without applying when using --dry-run.
+    """
     from kater.migrations import MigrationError, run_migrations
 
     try:
@@ -1190,7 +1192,13 @@ def backup_create_command(
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Bundle .kater state into a verifiable .tar.gz backup."""
+    """
+    Create a verifiable `.tar.gz` backup of the `.kater` state.
+    
+    Parameters:
+    	output (Path | None): Destination archive path or directory; uses the default destination when omitted.
+    	no_secrets (bool): Exclude OAuth and environment files and redact settings secrets when true.
+    """
     from kater.backup import BackupError, create_backup
 
     try:
@@ -1216,7 +1224,13 @@ def backup_inspect_command(
     path: Annotated[Path, typer.Argument(help="Backup .tar.gz to inspect.")],
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Validate a backup bundle and print its manifest."""
+    """
+    Validate a backup archive and display its manifest or inspection report.
+    
+    Parameters:
+    	path (Path): Backup archive to inspect.
+    	json_output (bool): Whether to output the inspection report as JSON.
+    """
     from kater.backup import BackupError, inspect_backup
 
     try:
@@ -1250,7 +1264,13 @@ def backup_restore_command(
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Restore .kater state from a backup bundle."""
+    """Restore `.kater` state from a backup bundle.
+    
+    Parameters:
+        path (Path): Backup bundle to restore.
+        force (bool): Whether to replace the existing `.kater` directory.
+        json_output (bool): Whether to output the result as JSON.
+    """
     from kater.backup import BackupError, restore_backup
 
     try:
@@ -1328,7 +1348,16 @@ def browser_open_command(
     height: Annotated[int, typer.Option("--height", help="Viewport height.")] = 800,
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Open a browser session; optionally navigate to --url."""
+    """Open a browser session and optionally navigate it to a URL.
+    
+    Parameters:
+    	label (str): Human-readable label for the session.
+    	url (str): URL to navigate to after opening the session.
+    	profile (str): Kater profile that owns the session.
+    	width (int): Browser viewport width in pixels.
+    	height (int): Browser viewport height in pixels.
+    	json_output (bool): Whether to output the result as JSON.
+    """
     from kater.browser.tools import browser_act_tool, browser_open_tool
 
     kwargs: dict[str, Any] = {"profile": profile, "width": width, "height": height}
@@ -1373,7 +1402,26 @@ def browser_act_command(
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Run one browser action in an open session."""
+    """
+    Run a browser action in an open session.
+    
+    Parameters:
+    	session_id (str): Identifier of the browser session.
+    	kind (str): Action to perform.
+    	url (str): Target URL for navigation actions.
+    	selector (str): CSS selector for element actions.
+    	text (str): Text to enter.
+    	key (str): Key to press.
+    	value (str): Option value for selection actions.
+    	expression (str): JavaScript expression to evaluate.
+    	delta_y (int | None): Vertical scroll distance in pixels.
+    	timeout_ms (int | None): Action timeout in milliseconds.
+    	full_page (bool): Whether screenshot actions should capture the full page.
+    	json_output (bool): Whether to output the result as JSON.
+    
+    Returns:
+    	None
+    """
     from kater.browser.tools import browser_act_tool
 
     kwargs: dict[str, Any] = {"session_id": session_id, "kind": kind}
@@ -1411,7 +1459,17 @@ def browser_screenshot_command(
     full_page: Annotated[bool, typer.Option("--full-page", help="Capture the full page.")] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Capture the current page as a JPEG (base64 in --json)."""
+    """
+    Capture a screenshot of the current browser page.
+    
+    Parameters:
+    	session_id (str): Identifier of the browser session.
+    	full_page (bool): Whether to capture the entire page.
+    	json_output (bool): Whether to output the result as JSON.
+    
+    Returns:
+    	None
+    """
     from kater.browser.tools import browser_screenshot_tool
 
     result = browser_screenshot_tool(session_id=session_id, full_page=full_page)
@@ -1514,7 +1572,16 @@ def automations_enable_command(
     automation_id: Annotated[str, typer.Argument(help="Automation id to enable.")],
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Enable an automation."""
+    """
+    Enable the specified automation.
+    
+    Parameters:
+        automation_id (str): Identifier of the automation to enable.
+        json_output (bool): Whether to output the enabled automation as JSON.
+    
+    Raises:
+        typer.Exit: If the automation does not exist.
+    """
     from kater.automations import get_engine
 
     automation = get_engine().set_enabled(automation_id, True)
@@ -1609,7 +1676,19 @@ def computer_invoke_command(
     ] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
-    """Invoke a Computer capability through the configured connector."""
+    """
+    Invoke a Computer capability with the provided arguments.
+    
+    Parameters:
+    	capability_id (str): Identifier of the capability to invoke.
+    	arg (list[str] | None): Additional arguments in `key=value` format.
+    	args_json (str): Invocation arguments as a JSON object.
+    	args_file (Path | None): Path to a file containing invocation arguments as a JSON object.
+    	json_output (bool): Whether to output the result as JSON.
+    
+    Returns:
+    	None
+    """
     from kater.capabilities.wiring import ensure_computer_connector
 
     connector = ensure_computer_connector()

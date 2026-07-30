@@ -15,6 +15,16 @@ from tests._rest import call
 
 @pytest.fixture
 def audit_db(tmp_path, monkeypatch):
+    """
+    Provide an isolated working directory for capability audit tests and reset the audit cache before and after each test.
+    
+    Parameters:
+        tmp_path: Temporary directory used as the working directory.
+        monkeypatch: Pytest monkeypatch fixture used to change the working directory.
+    
+    Yields:
+        The temporary working directory.
+    """
     monkeypatch.chdir(tmp_path)
     capability_audit.reset_cache()
     yield tmp_path
@@ -95,6 +105,16 @@ def test_proxy_allow_writes_audit_row(audit_db, monkeypatch) -> None:
     manager._aggregator.resolve.return_value = None
 
     def _logical(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """
+        Build a successful logical tool result.
+        
+        Parameters:
+        	name (str): The logical tool name.
+        	arguments (dict[str, Any]): Arguments supplied to the tool.
+        
+        Returns:
+        	dict[str, Any]: A result containing the success status, tool name, and arguments.
+        """
         return {"ok": True, "name": name, "arguments": arguments}
 
     monkeypatch.setattr(manager, "_call_logical_tool", _logical)
@@ -140,6 +160,16 @@ def test_unrestricted_identity_skips_allowlist(audit_db, monkeypatch) -> None:
 
 @pytest.fixture
 def ctx_db(tmp_path, monkeypatch):
+    """
+    Prepare an isolated database environment for context token tests.
+    
+    Parameters:
+        tmp_path: Temporary directory used as the working directory.
+        monkeypatch: Pytest fixture used to configure the working directory and token secret.
+    
+    Yields:
+        The temporary directory configured for the test.
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "test-context-secret")
     from kater.control_plane import contexts

@@ -178,7 +178,11 @@ class KaterRuntime:
             _log.warning("janitor: automations tick failed: %s", exc)
 
     def _run_heavy_janitor(self) -> None:
-        """OAuth cleanup + telemetry / control-plane prune — sparse wakes."""
+        """
+        Run infrequent maintenance for expired OAuth records, telemetry storage, and control-plane state.
+        
+        Each maintenance category is handled independently so a failure in one does not prevent the others from running.
+        """
         try:
             from kater.oauth import cleanup_expired
 

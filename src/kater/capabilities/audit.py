@@ -44,6 +44,7 @@ VALID_OUTCOMES = frozenset({"allowed", "denied", "error"})
 
 
 def _quiet_close(conn: sqlite3.Connection) -> None:
+    """Close a SQLite connection while suppressing SQLite errors."""
     try:
         conn.close()
     except sqlite3.Error:
@@ -51,6 +52,14 @@ def _quiet_close(conn: sqlite3.Connection) -> None:
 
 
 def _is_usable(conn: sqlite3.Connection) -> bool:
+    """Check whether a SQLite connection responds successfully to a simple query.
+    
+    Parameters:
+        conn (sqlite3.Connection): The connection to check.
+    
+    Returns:
+        bool: `True` if the connection responds successfully, `False` otherwise.
+    """
     try:
         conn.execute("SELECT 1")
         return True
@@ -59,6 +68,12 @@ def _is_usable(conn: sqlite3.Connection) -> bool:
 
 
 def _get_db() -> sqlite3.Connection:
+    """
+    Get the configured SQLite database connection, creating and initializing it when necessary.
+    
+    Returns:
+    	sqlite3.Connection: The cached or newly initialized database connection.
+    """
     global _db_cache, _db_path_cache
     db_path = str(load_settings().resolved_db_path)
     if _db_cache is not None:
@@ -79,7 +94,7 @@ def _get_db() -> sqlite3.Connection:
 
 
 def reset_cache() -> None:
-    """Drop the cached connection (tests swap the working directory)."""
+    """Clear the cached database connection and its associated path."""
     global _db_cache, _db_path_cache
     with _lock:
         if _db_cache is not None:
@@ -99,7 +114,21 @@ def record_capability_audit(
     profile: str | None = None,
     timestamp: float | None = None,
 ) -> int:
-    """Append one capability-invoke audit row; returns the new row id."""
+    """
+    Record an audit entry for a capability invocation.
+    
+    Parameters:
+        capability_id (str): Identifier of the invoked capability.
+        outcome (str): Invocation outcome: ``"allowed"``, ``"denied"``, or
+            ``"error"``.
+        timestamp (float | None): Event timestamp, or the current time when omitted.
+    
+    Returns:
+        int: ID of the newly inserted audit entry.
+    
+    Raises:
+        ValueError: If ``capability_id`` is empty or ``outcome`` is invalid.
+    """
     cap = str(capability_id or "").strip()
     if not cap:
         raise ValueError("capability_id is required")
@@ -135,7 +164,17 @@ def query_capability_audit(
     context_id: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """Return audit rows newest-first."""
+    """
+    Retrieve audit records in newest-first order, optionally filtered by capability or context.
+    
+    Parameters:
+    	capability_id (str | None): Restrict results to a capability identifier.
+    	context_id (str | None): Restrict results to a context identifier.
+    	limit (int): Maximum number of records to return, clamped to the range 1–1000.
+    
+    Returns:
+    	list[dict[str, Any]]: Matching audit records represented as dictionaries.
+    """
     lim = max(1, min(int(limit), 1000))
     clauses: list[str] = []
     params: list[Any] = []
@@ -156,7 +195,11 @@ def query_capability_audit(
 
 
 def clear_capability_audit() -> None:
-    """Delete all capability audit rows (tests)."""
+    """
+    Delete all capability audit records.
+    
+    Intended for use in tests.
+    """
     with _lock:
         db = _get_db()
         db.execute("DELETE FROM capability_audit")

@@ -289,6 +289,47 @@ def test_restore_rejects_path_traversal_and_link_members(tmp_path) -> None:
     assert list(root.iterdir()) == []
 
 
+def test_restore_force_leaves_state_unchanged_when_staged_db_fails_migration(
+    project, tmp_path
+) -> None:
+    """Migration runs on staging before the swap; a failure must not touch live .kater."""
+    drifted_db = tmp_path / "drifted.db"
+    migrations.run_migrations(drifted_db)
+    conn = sqlite3.connect(drifted_db)
+    try:
+        conn.execute(
+            f"UPDATE {migrations.SCHEMA_TABLE} SET checksum = ? WHERE version = 1",  # noqa: S608
+            ("0" * 64,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    bundle = tmp_path / "drifted-bundle.tar.gz"
+    _minimal_bundle(
+        bundle,
+        {
+            "kater.db": drifted_db.read_bytes(),
+            "settings.json": b'{"version": 2, "auth": {"mode": "apikey", "api_keys": ["x"]}}\n',
+            "config.json": b'{"version": 1}\n',
+        },
+    )
+
+    marker = project / ".kater" / "marker.txt"
+    marker.write_text("local-only", encoding="utf-8")
+    before_settings = (project / ".kater" / "settings.json").read_text(encoding="utf-8")
+    before_events = _events(project)
+
+    with pytest.raises(BackupError, match="failed migration before install"):
+        backup.restore_backup(bundle, project_dir=project, force=True)
+
+    assert marker.is_file()
+    assert marker.read_text(encoding="utf-8") == "local-only"
+    assert (project / ".kater" / "settings.json").read_text(encoding="utf-8") == before_settings
+    assert _events(project) == before_events
+    assert list((project / ".kater" / "backups").glob("kater-safety-*.tar.gz")) == []
+
+
 def test_restore_migrates_a_bundle_from_an_older_schema(tmp_path) -> None:
     root = tmp_path / "legacy"
     root.mkdir()

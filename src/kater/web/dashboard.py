@@ -2189,10 +2189,13 @@ function openCredentialsModal(server) {
   } else {
     sub.textContent = 'Paste ' + (reqs.length > 1 ? 'these tokens' : 'a token')
       + ' to connect ' + server.name + ', or open the provider to create one.';
-    for (const v of reqs) {
+    for (const [idx, v] of reqs.entries()) {
       const wrap = document.createElement('div');
       wrap.className = 'form-field';
-      const id = 'cred-input-' + v.replace(/[^a-z0-9]/gi, '-');
+      // Include the field index so names that sanitize identically
+      // (e.g. "A_B" and "A-B") never collide into the same id and break
+      // the label/input pairing.
+      const id = 'cred-input-' + idx + '-' + v.replace(/[^a-z0-9]/gi, '-');
       const label = document.createElement('label');
       label.className = 'form-label';
       label.textContent = v;

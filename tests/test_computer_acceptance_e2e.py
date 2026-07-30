@@ -55,8 +55,10 @@ def _invoke(
 
 def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
     """Exercise canonical controller, real guest, and production Kater routing together."""
-    checkout = Path(os.environ.get("KATER_UDO_CHECKOUT", "")).resolve()
-    assert os.environ.get("KATER_UDO_CHECKOUT"), "KATER_UDO_CHECKOUT is required"
+    checkout = Path(os.environ.get("KATER_ACCEPTANCE_CHECKOUT", "")).resolve()
+    assert os.environ.get("KATER_ACCEPTANCE_CHECKOUT"), (
+        "KATER_ACCEPTANCE_CHECKOUT is required"
+    )
     assert checkout.is_dir() and (checkout / ".git").exists(), (
         f"invalid contract checkout: {checkout}"
     )
@@ -187,7 +189,7 @@ def test_computer_acceptance_cross_process(tmp_path: Path) -> None:
             {
                 **base_env,
                 "PYTHONPATH": str(Path.cwd() / "src") + os.pathsep + str(Path.cwd()),
-                "KATER_UDO_CHECKOUT": str(checkout),
+                "KATER_ACCEPTANCE_CHECKOUT": str(checkout),
                 "GUEST_ORIGIN": guest_url,
                 "GUEST_AGENT_TOKEN": guest_token,
                 "KATER_PORT": str(kater_port),

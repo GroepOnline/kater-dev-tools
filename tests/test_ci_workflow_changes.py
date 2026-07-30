@@ -16,7 +16,7 @@ NO_ORG_LEAK = ROOT / ".github/workflows/no-org-leak.yml"
 PYPROJECT = ROOT / "pyproject.toml"
 
 KATER_CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-UDO_CHECKOUT_SHA = "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"
+GITHUB_SCRIPT_SHA = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3"
 
 
 def _job_block(text: str, job: str, next_job: str) -> str:
@@ -25,9 +25,9 @@ def _job_block(text: str, job: str, next_job: str) -> str:
 
 def test_automerge_uses_github_script_v9() -> None:
     text = AUTOMERGE.read_text(encoding="utf-8")
-    assert text.count("actions/github-script@v9") == 2
-    # Guard against a partial/accidental downgrade back to v7.
-    assert "actions/github-script@v7" not in text
+    # v9, pinned by commit SHA rather than by mutable tag.
+    assert text.count(f"{GITHUB_SCRIPT_SHA} # v9") == 2
+    assert "actions/github-script@v" not in text
 
 
 def test_ci_jobs_install_the_browser_extra() -> None:
@@ -43,13 +43,16 @@ def test_unit_matrix_job_uses_kater_checkout_sha_and_longer_timeout() -> None:
     assert "timeout 180s" not in block
 
 
-def test_computer_acceptance_pins_kater_and_udo_checkouts_separately() -> None:
-    """Kater's own checkout tracks the shared pinned SHA, but the private
-    contract-runtime checkout intentionally stays on its own (different
-    repository's) pin and must not be bumped in lockstep."""
+def test_computer_acceptance_checks_out_kater_and_the_private_runtime() -> None:
+    """Both checkouts use the same pinned ``actions/checkout`` SHA -- the pin
+    identifies the action, not the repository being cloned -- and the private
+    contract runtime is selected via its own ``repository:`` input."""
     block = _job_block(CI.read_text(encoding="utf-8"), "computer-acceptance", "package")
-    assert KATER_CHECKOUT_SHA in block
-    assert UDO_CHECKOUT_SHA in block
+    assert "- name: Checkout Kater" in block
+    assert "- name: Checkout pinned private contract runtime" in block
+    # Both steps share the action pin; the private runtime is selected by input.
+    assert block.count(KATER_CHECKOUT_SHA) >= 2
+    assert "repository: ${{ github.repository_owner }}/utrecht-data-os" in block
 
 
 def test_computer_acceptance_explains_skipped_fork_runs() -> None:
@@ -70,7 +73,7 @@ def test_security_pr_dependency_review_is_fork_guarded() -> None:
 
 def test_coverage_job_installs_playwright_chromium() -> None:
     block = _job_block(CI.read_text(encoding="utf-8"), "coverage", "gate")
-    assert "uv sync --extra dev --extra browser || uv sync --extra browser" in block
+    assert "uv sync --frozen --dev --extra browser" in block
     assert "uv run playwright install chromium" in block
 
 

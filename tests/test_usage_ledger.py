@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from kater import migrations
+from kater.api import Request
 from kater.control_plane import usage as usage_ledger
 from kater.telemetry import TelemetryEvent, record_event
 from tests._rest import call as _call

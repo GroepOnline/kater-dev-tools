@@ -104,6 +104,19 @@ def handle(request: Request) -> Response:
         )
         if not decision.allowed:
             return Response.json(401, {"error": decision.error or "Unauthorized"})
+    else:
+        # Public routes skip credential checks, but a caller that presents an
+        # explicit context token must still fail closed when it is invalid --
+        # otherwise a bad token would silently downgrade to anonymous access.
+        from kater.authgate import resolve_identity_from_headers, set_request_identity
+
+        identity, ctx_error = resolve_identity_from_headers(
+            request.header("x-kater-context"), request.header("authorization")
+        )
+        if ctx_error:
+            set_request_identity(None)
+            return Response.json(401, {"error": ctx_error})
+        set_request_identity(identity)
 
     try:
         return matched_route.handler(request)

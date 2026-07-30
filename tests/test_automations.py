@@ -461,6 +461,7 @@ def test_proxy_heal_wraps_non_dict_result():
         proxy = MagicMock(spec=["started", "heal"])
         proxy.started = True
         proxy.heal.return_value = 3
+        proxy_factory.return_value = proxy
         out = run_kind("proxy_heal", {})
     assert out == {"healed": 3}
 

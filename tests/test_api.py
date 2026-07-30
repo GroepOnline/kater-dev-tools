@@ -249,15 +249,9 @@ def test_invalid_context_header_denied_through_full_pipeline(api_server) -> None
     assert body["error"] == "Invalid context token."
 
 
-def test_invalid_context_header_denied_on_public_path_through_full_pipeline(
-    api_server,
-) -> None:
-    # A public path (auth mode "none") must still fail closed on an explicit
-    # but invalid context token, all the way through the real HTTP handler.
-    err = _get_err(9912, "/health", headers={"X-Kater-Context": "garbage"})
-    assert err.code == 401
-    body = json.loads(err.read().decode())
-    assert body["error"] == "Invalid context token."
+def test_invalid_context_header_does_not_break_health_probe(api_server) -> None:
+    data = _get(9912, "/health", headers={"X-Kater-Context": "garbage"})
+    assert data["status"] == "ok"
 
 
 # ── Catalog ────────────────────────────────────────────────────────

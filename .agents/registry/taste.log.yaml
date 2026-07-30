@@ -1,0 +1,9 @@
+version: 1
+# Ruwe observaties. Promote naar taste.yaml na review (2+ onafhankelijke hits).
+entries: []
+# voorbeeld:
+# - date: 2026-07-30
+#   source: design-system/.commandcode/taste
+#   signal: "Prefers communication in Dutch"
+#   candidate_rule_id: dutch-communication
+#   status: promoted

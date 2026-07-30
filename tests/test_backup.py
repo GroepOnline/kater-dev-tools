@@ -476,6 +476,15 @@ def test_extract_enforces_custom_size_caps(tmp_path) -> None:
             )
 
 
+def test_read_manifest_rejects_oversized_manifest(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(backup, "MAX_MANIFEST_BYTES", 64)
+    bundle = tmp_path / "huge_manifest.tar.gz"
+    oversized = json.dumps({"bundle_version": 1, "files": [], "pad": "x" * 512}).encode("utf-8")
+    _write_tar(bundle, [("manifest.json", oversized)])
+    with pytest.raises(BackupError, match="manifest cap"):
+        backup.inspect_backup(bundle)
+
+
 def test_restore_rolls_back_from_retired_when_partial(project, tmp_path, monkeypatch) -> None:
     bundle = tmp_path / "bundle.tar.gz"
     backup.create_backup(bundle, project_dir=project)
@@ -503,3 +512,34 @@ def test_restore_rolls_back_from_retired_when_partial(project, tmp_path, monkeyp
     assert marker.read_text(encoding="utf-8") == "local-only"
     assert (project / ".kater" / "settings.json").read_text(encoding="utf-8") == before_settings
     assert member_swaps["count"] >= 2
+
+
+def test_backup_archive_is_never_world_readable_while_written(project, tmp_path, monkeypatch):
+    """The destination is 0600 from creation, not only after the closing chmod."""
+    previous = os.umask(0o022)
+    observed: dict[str, int] = {}
+    real_chmod = Path.chmod
+
+    def spy(self: Path, mode: int, **kwargs: object) -> None:
+        if self.suffix == ".gz":
+            observed["mode"] = stat.S_IMODE(self.stat().st_mode)
+        real_chmod(self, mode, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", spy)
+    try:
+        dest = tmp_path / "perm.tar.gz"
+        backup.create_backup(dest, project_dir=project)
+    finally:
+        os.umask(previous)
+
+    assert observed.get("mode") == 0o600
+    assert stat.S_IMODE(dest.stat().st_mode) == 0o600
+
+
+def test_bundle_with_absurdly_many_members_is_refused(tmp_path) -> None:
+    """Member metadata is bounded, so a tiny gzip cannot force a huge scan."""
+    bundle = tmp_path / "many.tar.gz"
+    _write_tar(bundle, [(f"m{i}", b"") for i in range(backup.MAX_ARCHIVE_MEMBERS + 5)])
+
+    with pytest.raises(BackupError, match="more than 64 members"):
+        backup.inspect_backup(bundle)

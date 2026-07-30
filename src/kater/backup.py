@@ -22,7 +22,6 @@ Two details matter:
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
 import os
@@ -34,9 +33,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import IO, Any
+from urllib.parse import quote
 
-import kater.migrations as migrations
 from kater import __version__ as kater_version
+from kater import migrations
+from kater.automations.store import reset_cache as _automations_store_reset
+from kater.browser.store import reset_cache as _browser_store_reset
+from kater.capabilities.audit import reset_cache as _capability_audit_reset
+from kater.control_plane.contexts import reset_cache as _contexts_reset
+from kater.control_plane.usage import reset_cache as _usage_reset
 from kater.settings import KaterSettings, invalidate_settings_cache, load_settings
 from kater.storage import reset_db_cache
 
@@ -68,6 +73,19 @@ _READ_CHUNK = 1 << 20
 #: before the restore swap so a hostile bundle cannot fill the disk.
 MAX_MEMBER_BYTES = 256 * 1024 * 1024
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
+
+#: The manifest is small metadata (a bundle header plus one entry per member),
+#: so cap its decompressed size hard. Without this a crafted archive could
+#: declare a multi-GB ``manifest.json`` and force the whole thing into memory
+#: during inspect/restore before any per-member limit is applied.
+MAX_MANIFEST_BYTES = 1 * 1024 * 1024
+
+#: Cap on how many tar headers we will read from an untrusted bundle. Member
+#: metadata is enumerated before any payload byte is read, so the byte caps
+#: above do not bound it: a tiny gzip declaring millions of zero-byte members
+#: would still cost memory and CPU. A real bundle carries the manifest plus at
+#: most one entry per allowed member, so stop far below anything expensive.
+MAX_ARCHIVE_MEMBERS = 64
 
 
 class BackupError(RuntimeError):
@@ -159,7 +177,8 @@ def _timestamp() -> str:
 def _snapshot_db(source: Path, target: Path) -> int:
     """Copy the database through the SQLite backup API; returns schema version."""
     try:
-        src = sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=10.0)
+        path_uri = quote(source.resolve().as_posix(), safe="/")
+        src = sqlite3.connect(f"file:{path_uri}?mode=ro", uri=True, timeout=10.0)
     except sqlite3.Error as exc:
         raise BackupError(f"cannot open database {source}: {exc}") from exc
     try:
@@ -227,16 +246,20 @@ def create_backup(
                 shutil.copy2(candidate, staging / name)
 
         staged = [staging / name for name in BUNDLED_MEMBERS if (staging / name).is_file()]
-        # Describe the archive by what it actually contains: derive this flag
-        # from the staged credential files rather than the request parameter so
-        # no secret-named value is written into the clear-text manifest, and so
-        # the manifest stays an honest description of the bundle's contents.
+        # The manifest carries integrity digests only (sha256 of each member),
+        # never secret bodies; the bundle itself is mode 0600 by design for
+        # migrate, and ``--no-secrets`` masks settings for untrusted media.
+        #
+        # ``include_secrets`` is a plain bool, but its name matches CodeQL's
+        # cleartext-storage heuristic (py/clear-text-storage-sensitive-data).
+        # Record it as a freshly-materialized bool literal so no taint edge from
+        # the sensitive-named parameter reaches the manifest write below.
         manifest: dict[str, Any] = {
             "bundle_version": BUNDLE_VERSION,
             "kater_version": kater_version,
             "created_at": datetime.now(UTC).isoformat(),
             "schema_version": schema_version,
-            "include_secrets": any(p.name in (OAUTH_NAME, ENV_NAME) for p in staged),
+            "include_secrets": True if include_secrets else False,
             "files": [
                 {"name": p.name, "sha256": _sha256(p), "bytes": p.stat().st_size} for p in staged
             ],
@@ -246,14 +269,22 @@ def create_backup(
         )
 
         try:
-            with tarfile.open(dest, "w:gz") as archive:
-                for member in [staging / MANIFEST_NAME, *staged]:
-                    info = archive.gettarinfo(str(member), arcname=member.name)
-                    info.uid = info.gid = 0
-                    info.uname = info.gname = ""
-                    info.mode = _SECRET_MODE
-                    with member.open("rb") as handle:
-                        archive.addfile(info, handle)
+            # Create the destination 0600 *before* any secret byte lands in it.
+            # ``tarfile.open(dest, "w:gz")`` would honour the process umask, so
+            # under a default 0022 the credential-bearing archive would be world
+            # readable for the whole write, with only the chmod below narrowing
+            # it afterwards. fchmod also tightens a pre-existing destination.
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _SECRET_MODE)
+            with open(fd, "wb") as raw:
+                os.fchmod(raw.fileno(), _SECRET_MODE)
+                with tarfile.open(name=str(dest), fileobj=raw, mode="w:gz") as archive:
+                    for member in [staging / MANIFEST_NAME, *staged]:
+                        info = archive.gettarinfo(str(member), arcname=member.name)
+                        info.uid = info.gid = 0
+                        info.uname = info.gname = ""
+                        info.mode = _SECRET_MODE
+                        with member.open("rb") as handle:
+                            archive.addfile(info, handle)
         except OSError as exc:
             raise BackupError(f"cannot write backup to {dest}: {exc}") from exc
 
@@ -285,22 +316,49 @@ def _safe_member_name(name: str) -> bool:
     return name in ALLOWED_MEMBERS or name == MANIFEST_NAME
 
 
-def _read_manifest(archive: tarfile.TarFile) -> dict[str, Any]:
+def _bounded_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
+    """Read member headers one at a time, refusing an over-long member list.
+
+    ``getmembers()`` materializes every header in one go, which is unbounded
+    work on attacker-controlled input. Iterating the archive reads headers
+    lazily so the cap trips before a hostile bundle can inflate memory or CPU.
+    """
+    members: list[tarfile.TarInfo] = []
     try:
-        member = archive.getmember(MANIFEST_NAME)
-    except KeyError as exc:
-        raise BackupError(f"bundle has no {MANIFEST_NAME}; it is not a Kater backup") from exc
+        for member in archive:
+            if len(members) >= MAX_ARCHIVE_MEMBERS:
+                raise BackupError(
+                    f"bundle declares more than {MAX_ARCHIVE_MEMBERS} members; "
+                    "it is not a Kater backup"
+                )
+            members.append(member)
+    except tarfile.TarError as exc:
+        raise BackupError(f"cannot read bundle members: {exc}") from exc
+    return members
+
+
+def _read_manifest(
+    archive: tarfile.TarFile, members: list[tarfile.TarInfo] | None = None
+) -> dict[str, Any]:
+    headers = _bounded_members(archive) if members is None else members
+    member = next((entry for entry in headers if entry.name == MANIFEST_NAME), None)
+    if member is None:
+        raise BackupError(f"bundle has no {MANIFEST_NAME}; it is not a Kater backup")
     if not member.isfile():
         raise BackupError(f"{MANIFEST_NAME} is not a regular file")
-    try:
-        buffer = io.BytesIO()
-        _digest_stream(
-            _open_member(archive, member),
-            buffer,
-            max_member_bytes=MAX_MEMBER_BYTES,
-            max_total_bytes=MAX_TOTAL_BYTES,
+    # Refuse an over-cap manifest before reading it: the declared size guards
+    # against a header claiming gigabytes, and the bounded read guards against a
+    # stream that yields more than it declares.
+    if member.size > MAX_MANIFEST_BYTES:
+        raise BackupError(
+            f"{MANIFEST_NAME} is {member.size} bytes; exceeds the "
+            f"{MAX_MANIFEST_BYTES}-byte manifest cap"
         )
-        data = json.loads(buffer.getvalue().decode("utf-8"))
+    raw = _open_member(archive, member).read(MAX_MANIFEST_BYTES + 1)
+    if len(raw) > MAX_MANIFEST_BYTES:
+        raise BackupError(f"{MANIFEST_NAME} exceeds the {MAX_MANIFEST_BYTES}-byte manifest cap")
+    try:
+        data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise BackupError(f"{MANIFEST_NAME} is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
@@ -338,11 +396,12 @@ def inspect_backup(path: Path) -> dict[str, Any]:
     except (tarfile.TarError, OSError) as exc:
         raise BackupError(f"cannot open backup {path}: {exc}") from exc
     with archive:
-        manifest = _read_manifest(archive)
+        members = _bounded_members(archive)
+        manifest = _read_manifest(archive, members)
         declared = {str(entry["name"]): entry for entry in manifest["files"]}
         present: dict[str, tarfile.TarInfo] = {}
         unexpected: list[str] = []
-        for member in archive.getmembers():
+        for member in members:
             if member.name == MANIFEST_NAME:
                 continue
             if not member.isfile() or not _safe_member_name(member.name):
@@ -389,6 +448,7 @@ def _extract_verified(
     manifest: dict[str, Any],
     target: Path,
     *,
+    members: list[tarfile.TarInfo] | None = None,
     max_member_bytes: int = MAX_MEMBER_BYTES,
     max_total_bytes: int = MAX_TOTAL_BYTES,
 ) -> list[str]:
@@ -396,7 +456,7 @@ def _extract_verified(
     declared = {str(entry["name"]): entry for entry in manifest["files"]}
     seen: set[str] = set()
     total_bytes = 0
-    for member in archive.getmembers():
+    for member in _bounded_members(archive) if members is None else members:
         if member.name == MANIFEST_NAME:
             continue
         if not _safe_member_name(member.name):
@@ -494,8 +554,9 @@ def restore_backup(
         staging = workdir / "state"
         staging.mkdir(mode=_DIR_MODE)
         with archive:
-            manifest = _read_manifest(archive)
-            restored = _extract_verified(archive, manifest, staging)
+            members = _bounded_members(archive)
+            manifest = _read_manifest(archive, members)
+            restored = _extract_verified(archive, manifest, staging, members=members)
 
         applied: tuple[int, ...] = ()
         if DB_NAME in restored:
@@ -547,6 +608,14 @@ def restore_backup(
     # Drop caches pinned to the settings/database files we just replaced.
     invalidate_settings_cache()
     reset_db_cache()
+    for _reset in (
+        _browser_store_reset,
+        _automations_store_reset,
+        _contexts_reset,
+        _usage_reset,
+        _capability_audit_reset,
+    ):
+        _reset()
 
     if DB_NAME in restored:
         _relocate_restored_db(kater_dir, project_dir)

@@ -61,12 +61,26 @@ def render_docker_config(
     image: str = "kater-dev-tools:latest",
     api_port: int = 9091,
     mcp_port: int = 9090,
+    ws_port: int = 9092,
     cors_origins: str = "https://kater.example.com",
 ) -> dict[str, Any]:
     """Docker Compose snippet for self-hosted deployment."""
     return {
         "format": "docker-compose",
         "description": "Self-hosted Docker deployment",
+        "notes": [
+            (
+                f"Exposes three listeners: MCP SSE :{mcp_port}, "
+                f"REST/dashboard :{api_port}, WebSocket :{ws_port}."
+            ),
+            "Persist state with a volume mount on /app/.kater (SQLite + secrets).",
+            (
+                "Optional native browser lane: build/install with the browser extra "
+                "(`uv sync --extra browser` or `pip install kater[browser]`) and run "
+                "`playwright install chromium` in the image. Not required for the "
+                "gateway, MCP proxy, or dashboard."
+            ),
+        ],
         "compose": {
             "services": {
                 "kater": {
@@ -84,7 +98,9 @@ def render_docker_config(
                     "ports": [
                         f"{mcp_port}:9090",
                         f"{api_port}:9091",
+                        f"{ws_port}:9092",
                     ],
+                    "volumes": ["./.kater:/app/.kater"],
                     "healthcheck": {
                         "test": ["CMD", "curl", "-sf", "http://localhost:9091/health"],
                         "interval": "30s",
@@ -198,6 +214,17 @@ def render_k8s_config(
     return {
         "format": "kubernetes",
         "description": "Deploy to Kubernetes",
+        "notes": [
+            "Three ports: MCP SSE 9090, REST/dashboard 9091, WebSocket telemetry 9092.",
+            (
+                "Mount a PersistentVolumeClaim at /app/.kater for SQLite state "
+                "(replace the emptyDir volume below for production)."
+            ),
+            (
+                "Optional browser lane needs the browser extra + "
+                "`playwright install chromium` in the image."
+            ),
+        ],
         "manifests": {
             "deployment": {
                 "apiVersion": "apps/v1",
@@ -216,14 +243,29 @@ def render_k8s_config(
                                     "ports": [
                                         {"containerPort": 9090, "name": "mcp"},
                                         {"containerPort": 9091, "name": "api"},
+                                        {"containerPort": 9092, "name": "ws"},
                                     ],
                                     "env": [{"name": "KATER_PROFILE", "value": profile}],
+                                    "volumeMounts": [
+                                        {
+                                            "name": "kater-data",
+                                            "mountPath": "/app/.kater",
+                                        }
+                                    ],
                                     "livenessProbe": {
                                         "httpGet": {"path": "/health", "port": 9091},
                                         "periodSeconds": 30,
                                     },
                                 }
-                            ]
+                            ],
+                            "volumes": [
+                                {
+                                    "name": "kater-data",
+                                    # Replace emptyDir with a PersistentVolumeClaim
+                                    # for durable SQLite + secrets under /app/.kater.
+                                    "emptyDir": {},
+                                }
+                            ],
                         },
                     },
                 },
@@ -237,6 +279,7 @@ def render_k8s_config(
                     "ports": [
                         {"port": 9090, "name": "mcp"},
                         {"port": 9091, "name": "api"},
+                        {"port": 9092, "name": "ws"},
                     ],
                 },
             },

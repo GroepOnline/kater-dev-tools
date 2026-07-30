@@ -24,6 +24,9 @@ POST_BASELINE_TABLES = (
     "browser_actions",
     "automations",
     "remote_contexts",
+    "usage_events",
+    "capability_audit",
+    "automation_meta",
 )
 
 LEGACY_EVENTS_DDL = """
@@ -73,7 +76,8 @@ def test_fresh_database_gets_the_full_baseline(db_path) -> None:
 
     status = migrations.schema_status(db_path)
     assert status["current_version"] == migrations.latest_version()
-    assert status["latest_version"] == 4
+    assert status["latest_version"] == 8
+    assert any(m.name == "usage_events" for m in migrations.MIGRATIONS)
     assert status["pending"] == []
     assert status["dirty"] is False
     assert status["database"] == str(db_path)
@@ -125,6 +129,51 @@ def test_legacy_database_adopts_the_baseline_without_losing_rows(db_path) -> Non
     finally:
         conn.close()
     assert rows == [("tool_call", "github")]
+
+
+def test_upgrade_marks_pre_v7_automations_as_already_seeded(db_path, monkeypatch) -> None:
+    """Adopting an existing install must not re-run the built-in default seed."""
+    monkeypatch.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:6])
+    migrations.run_migrations(db_path)
+    monkeypatch.undo()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        # A customised, disabled built-in; the other built-ins were deleted.
+        conn.execute(
+            """INSERT INTO automations
+               (id, name, enabled, kind, schedule_seconds, config, created_at, updated_at)
+               VALUES ('auto_doctor_watch', 'Doctor watch', 0, 'doctor', 999, '{}', 1.0, 1.0)"""
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    migrations.run_migrations(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        marker = conn.execute(
+            "SELECT value FROM automation_meta WHERE key = 'defaults_seeded'"
+        ).fetchone()
+        rows = conn.execute(
+            "SELECT id, enabled, schedule_seconds FROM automations"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert marker is not None
+    assert rows == [("auto_doctor_watch", 0, 999)]
+
+
+def test_fresh_database_is_not_marked_as_seeded(db_path) -> None:
+    migrations.run_migrations(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM automation_meta").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM automations").fetchone()[0] == 0
+    finally:
+        conn.close()
 
 
 def test_checksum_drift_on_an_applied_version_is_fatal(db_path) -> None:
@@ -270,6 +319,7 @@ def test_baseline_matches_the_ad_hoc_ddl_of_every_owning_module() -> None:
     fresh = sqlite3.connect(":memory:")
     try:
         for schema in legacy_schemas:
+            assert isinstance(schema, str)
             legacy.executescript(schema)
         migrations.run_migrations(fresh)
 

@@ -791,4 +791,6 @@ def test_security_headers_include_csp_referrer_and_https_hsts(api_server):
     csp = resp.headers.get("Content-Security-Policy")
     assert csp is not None
     assert "object-src 'none'" in csp
+    assert "https://fonts.googleapis.com" in csp
+    assert "https://fonts.gstatic.com" in csp
     assert resp.headers.get("Strict-Transport-Security") == ("max-age=31536000; includeSubDomains")

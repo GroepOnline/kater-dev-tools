@@ -20,6 +20,10 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # mcp 2 removes mcp.server.fastmcp; PyPI fastmcp still requires mcp<2
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
 
   # Keep GitHub Actions pinned/updated.
   - package-ecosystem: "github-actions"

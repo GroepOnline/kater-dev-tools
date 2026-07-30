@@ -1,0 +1,52 @@
+# Agent taste (canonieke bron)
+
+Dit is de gedeelde agent-gedrag-taste-plane voor ChefGroep coding agents.
+Niet te verwarren met UI-taste in `design-system/taste/`.
+
+| Plane | Waar | Wat |
+|---|---|---|
+| UI-taste | `design-system/taste/` | hoe product-UI eruitziet |
+| Agent-taste (deze map) | `kater-dev-tools/.agents/registry/` | hoe agents zich gedragen |
+| Per-tool overlay | `taste.overlay.<tool>.yaml` | alleen syntax/locatie, geen inhoud-override |
+
+## Bestanden
+
+| Pad | Rol |
+|---|---|
+| `registry/taste.yaml` | canonieke regels |
+| `registry/taste.log.yaml` | ruwe observaties (nog niet gepromoveerd) |
+| `registry/taste.overlay.*.yaml` | dunne tool-wrappers |
+| `scripts/generate-taste.py` | schrijft per-tool artefacts |
+
+## Precedence
+
+1. `taste.yaml` is single source of truth voor inhoud.
+2. Overlays mogen alleen toevoegen (pad, markers, syntax), nooit `text:` overschrijven.
+3. Gegenereerde bestanden krijgen header `GENERATED from .agents/registry/taste.yaml`.
+4. Globaal `~/.commandcode` mag later project-artefacts aanvullen; het mag canonieke regels niet stil vervangen.
+
+## Genereren
+
+```bash
+python3 .agents/scripts/generate-taste.py
+python3 .agents/scripts/generate-taste.py --check   # drift: exit 1 als artefacts stale
+```
+
+Targets (v1):
+
+- `.commandcode/taste/taste.md` (Command Code)
+- `.cursor/rules/taste.mdc` (Cursor)
+- `CLAUDE.md` sectie tussen `<!-- TASTE:START -->` … `<!-- TASTE:END -->`
+
+Pi en Agy: targets nog niet aangesloten tot hun configformaat is geverifieerd.
+
+## Loop
+
+```
+observatie → taste.log.yaml → review → promote naar taste.yaml → generate-taste.py → commit artefacts
+```
+
+## Relatie met design-system
+
+`design-system` besloot 2026-07-30 dat agent-taste hier hoort, niet in dat repo.
+Zie daar: `brain/Decisions/2026-07-30 Agent-taste buiten dit repo.md`.

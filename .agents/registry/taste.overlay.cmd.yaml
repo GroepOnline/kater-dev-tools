@@ -1,0 +1,7 @@
+# Dunne Command Code overlay: alleen locatie/syntax, geen tekst-override.
+tool: cmd
+output_path: .commandcode/taste/taste.md
+format: markdown_bullets
+notes:
+  - "Command Code leest project-taste uit .commandcode/taste/."
+  - "Na generate-taste.py is dit bestand GENERATED; niet handmatig bewerken."

@@ -12,6 +12,8 @@ htmlcov/
 .env.kater.example
 *.pyc
 .cursor/
+!.cursor/rules/
+!.cursor/rules/taste.mdc
 .opencode/
 
 # Runtime state — never commit (db + sqlite sidecars + oauth)

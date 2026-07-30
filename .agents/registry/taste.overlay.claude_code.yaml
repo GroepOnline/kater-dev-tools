@@ -1,0 +1,8 @@
+# Dunne Claude Code overlay: markers in CLAUDE.md.
+tool: claude_code
+output_path: CLAUDE.md
+format: markdown_markers
+marker_start: "<!-- TASTE:START -->"
+marker_end: "<!-- TASTE:END -->"
+notes:
+  - "Als CLAUDE.md ontbreekt, wordt alleen de sectie geschreven als nieuw bestand."

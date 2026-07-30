@@ -30,6 +30,35 @@ def _need_yaml():
         )
 
 
+def load_overlays() -> list[dict]:
+    """Load the per-tool overlays that declare output path, format and markers."""
+    yaml = _need_yaml()
+    paths = sorted(REG.glob("taste.overlay.*.yaml"))
+    if not paths:
+        sys.exit(f"no taste overlays found in {REG}")
+    overlays = []
+    for path in paths:
+        ov = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(ov, dict):
+            sys.exit(f"invalid overlay: {path}")
+        tool = ov.get("tool")
+        out = ov.get("output_path")
+        fmt = ov.get("format")
+        if not tool or not out:
+            sys.exit(f"overlay missing tool/output_path: {path}")
+        if fmt not in SUPPORTED_FORMATS:
+            sys.exit(f"overlay {path}: unsupported format {fmt!r}")
+        target = (ROOT / out).resolve()
+        if not target.is_relative_to(ROOT):
+            sys.exit(f"overlay {path}: output_path escapes repo root: {out}")
+        if fmt == MARKER_FORMAT and not (
+            ov.get("marker_start") and ov.get("marker_end")
+        ):
+            sys.exit(f"overlay {path}: markdown_markers needs marker_start/marker_end")
+        overlays.append(ov)
+    return overlays
+
+
 def load_taste() -> dict:
     yaml = _need_yaml()
     data = yaml.safe_load(TASTE.read_text(encoding="utf-8"))
@@ -78,15 +107,25 @@ def render_cursor_mdc(rules: list[dict]) -> str:
     )
 
 
-def render_claude_section(rules: list[dict]) -> str:
+def render_markers_section(rules: list[dict], start: str, end: str) -> str:
     body = bullets(rules)
     return (
-        "<!-- TASTE:START -->\n"
+        f"{start}\n"
         f"<!-- {HDR} -->\n\n"
         "## Agent taste\n\n"
         f"{body}"
-        "<!-- TASTE:END -->\n"
+        f"{end}\n"
     )
+
+
+MARKER_FORMAT = "markdown_markers"
+# Formats that render a standalone generated file; MARKER_FORMAT patches
+# a section into a hand-written file instead.
+RENDERERS = {
+    "markdown_bullets": render_cmd,
+    "cursor_mdc": render_cursor_mdc,
+}
+SUPPORTED_FORMATS = {MARKER_FORMAT, *RENDERERS}
 
 
 def upsert_markers(path: Path, section: str, start: str, end: str) -> str:
@@ -129,35 +168,24 @@ def main() -> int:
     data = load_taste()
     ok = True
 
-    cmd_rules = rules_for("cmd", data)
-    ok &= write_or_check(
-        ROOT / ".commandcode" / "taste" / "taste.md",
-        render_cmd(cmd_rules),
-        args.check,
-    )
-
-    cursor_rules = rules_for("cursor", data)
-    ok &= write_or_check(
-        ROOT / ".cursor" / "rules" / "taste.mdc",
-        render_cursor_mdc(cursor_rules),
-        args.check,
-    )
-
-    claude_rules = rules_for("claude_code", data)
-    claude_path = ROOT / "CLAUDE.md"
-    # CLAUDE.md is hand-written outside the taste markers, so the expected
-    # content is the current file with the marker section substituted. That
-    # keeps --check a full content comparison of the generated section.
-    ok &= write_or_check(
-        claude_path,
-        upsert_markers(
-            claude_path,
-            render_claude_section(claude_rules),
-            "<!-- TASTE:START -->",
-            "<!-- TASTE:END -->",
-        ),
-        args.check,
-    )
+    for ov in load_overlays():
+        path = ROOT / ov["output_path"]
+        rules = rules_for(ov["tool"], data)
+        fmt = ov["format"]
+        if fmt == MARKER_FORMAT:
+            # Marker targets are hand-written outside the markers, so the
+            # expected content is the current file with the section
+            # substituted. That keeps --check a full content comparison and
+            # flags a stale section or a missing end marker as drift.
+            section = render_markers_section(
+                rules, ov["marker_start"], ov["marker_end"]
+            )
+            content = upsert_markers(
+                path, section, ov["marker_start"], ov["marker_end"]
+            )
+        else:
+            content = RENDERERS[fmt](rules)
+        ok &= write_or_check(path, content, args.check)
 
     if args.check and not ok:
         return 1

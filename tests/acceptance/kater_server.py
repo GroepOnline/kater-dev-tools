@@ -19,7 +19,7 @@ from kater.proxy.manager import ProxyManager
 
 
 def build() -> tuple[CapabilityRegistry, ProxyManager]:
-    checkout = Path(os.environ["KATER_UDO_CHECKOUT"])
+    checkout = Path(os.environ["KATER_ACCEPTANCE_CHECKOUT"])
     digest = os.environ["GENERATED_CONTRACT_DIGEST"]
     manifests = load_computer_manifests_from_checkout(checkout, expected_digest=digest)
     registry = CapabilityRegistry()

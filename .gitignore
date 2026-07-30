@@ -11,9 +11,12 @@ htmlcov/
 .env.local
 .env.kater.example
 *.pyc
-.cursor/*
-!.cursor/rules/
-!.cursor/rules/taste.mdc
+# Cursor runtime outputs (committed SSOT lives under .cursor/skills, agents, hooks)
+.cursor/hooks/.state/
+.cursor/mcp.json
+.cursor/mcp.kater.json
+.cursor/.env.runtime
+.claude/
 .opencode/
 
 # Runtime state — never commit (db + sqlite sidecars + oauth)

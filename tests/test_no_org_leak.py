@@ -71,3 +71,44 @@ def test_scan_allows_only_exact_generated_contract_paths(tmp_path, monkeypatch):
 
     assert nol.scan([str(allowed.relative_to(tmp_path))]) == []
     assert nol.scan([str(lookalike.relative_to(tmp_path))])
+
+
+def test_scan_rejects_org_handle_under_cursor(tmp_path, monkeypatch):
+    cursor_skill = tmp_path / ".cursor/skills/example/SKILL.md"
+    cursor_skill.parent.mkdir(parents=True)
+    cursor_skill.write_text("repo: Online" + "ChefGroep/kater-dev-tools\n")
+    monkeypatch.chdir(tmp_path)
+    errors = nol.scan([".cursor/skills/example/SKILL.md"])
+    assert any("org handle outside attribution allowlist" in error for error in errors)
+
+
+def test_scan_rejects_org_handle_under_cursor_agents(tmp_path, monkeypatch):
+    # Regression: `.cursor/agents/*.md` (added by this PR) must never be
+    # allowlisted, matching the `.cursor/skills/*` guard above.
+    cursor_agent = tmp_path / ".cursor/agents/pr-gate.md"
+    cursor_agent.parent.mkdir(parents=True)
+    cursor_agent.write_text("gh repo view --repo Online" + "ChefGroep/kater-dev-tools\n")
+    monkeypatch.chdir(tmp_path)
+    errors = nol.scan([".cursor/agents/pr-gate.md"])
+    assert any("org handle outside attribution allowlist" in error for error in errors)
+
+
+def test_no_cursor_paths_in_allowlists():
+    """`.cursor/` must never appear in either allowlist (see code comment);
+    org-pinned Cursor artifacts belong in the private deployment overlay."""
+    for allowed in (nol.ALLOWED_ORG_HANDLE, nol.ALLOWED_PROD_DOMAIN):
+        assert not any(entry.startswith(".cursor/") for entry in allowed)
+
+
+def test_scan_allows_pre_commit_config_no_org_leak_hook(tmp_path, monkeypatch):
+    # The new local no-org-leak pre-commit hook only references the already
+    # allowlisted `no-org-leak.yml` filename in a comment; the config file
+    # itself contains no org handle / domain and must not trip the guard.
+    config = tmp_path / ".pre-commit-config.yaml"
+    config.write_text(
+        "# mirrors .github/workflows/no-org-leak.yml\n"
+        "- id: no-org-leak\n"
+        "  entry: uv run python scripts/no_org_leak.py\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    assert nol.scan([".pre-commit-config.yaml"]) == []

@@ -2,6 +2,11 @@
 
 Run Kater on a machine you control. **Always enable auth before public exposure.**
 
+For the ChefGroep always-on runtime target (`bc-scan-arm`), prefer the system
+service packaging in `docs/ops/bc-scan-arm-runtime.md` and
+`scripts/systemd/kater-system.service.example` (dedicated `kater` user, `/opt/kater`,
+ChefVault fail-closed bootstrap). Keep this page for generic self-managed deploys.
+
 ## Quick start (Tailscale / private network)
 
 ```bash

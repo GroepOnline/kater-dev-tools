@@ -94,6 +94,22 @@ def test_health(api_server) -> None:
     assert data["auth_mode"] == "none"
 
 
+def test_health_live(api_server) -> None:
+    data = _get(9912, "/health/live")
+    assert data["status"] == "ok"
+    assert "version" in data
+    assert data["auth_mode"] == "none"
+
+
+def test_health_ready(api_server) -> None:
+    data = _get(9912, "/health/ready")
+    assert data["status"] in {"ok", "degraded", "unhealthy"}
+    assert data["service"] == "kater"
+    assert "components" in data
+    assert "api" in data["components"]
+    assert "mcp" in data["components"]
+
+
 def test_profiles(api_server) -> None:
     data = _get(9912, "/api/profiles")
     assert "core" in data["profiles"]
@@ -264,9 +280,10 @@ def test_auth_allows_with_key(api_server) -> None:
 
 def test_auth_health_always_open(api_server) -> None:
     _post(9912, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
-    data = _get(9912, "/health")
-    assert data["status"] == "ok"
-    assert data["auth_mode"] == "apikey"
+    for path in ("/health", "/health/live", "/health/ready"):
+        data = _get(9912, path)
+        assert data["status"] in {"ok", "degraded"}
+        assert data["auth_mode"] == "apikey"
 
 
 # ── Catalog ────────────────────────────────────────────────────────
@@ -361,6 +378,8 @@ def test_openapi_spec(api_server) -> None:
     assert data["openapi"] == "3.1.0"
     assert "paths" in data
     assert "/health" in data["paths"]
+    assert "/health/live" in data["paths"]
+    assert "/health/ready" in data["paths"]
     assert "/api/catalog" in data["paths"]
 
 

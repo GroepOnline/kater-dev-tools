@@ -194,6 +194,141 @@ def _health(_: Request) -> Response:
     )
 
 
+@route("GET", "/health/live", public=True)
+def _health_live(_: Request) -> Response:
+    from kater import __version__
+
+    # Liveness: the process/API responds. Optional providers must not fail this,
+    # and neither must settings I/O -- a transiently unreadable config file must
+    # not make an orchestrator conclude the process is dead.
+    try:
+        auth_mode = load_settings().auth.mode
+    except Exception:
+        auth_mode = "unknown"
+    return Response.json(
+        200,
+        {"status": "ok", "version": __version__, "auth_mode": auth_mode},
+    )
+
+
+def _mcp_listener_reachable(host: str, port: int, timeout: float = 0.25) -> bool:
+    """Bounded TCP connect against the MCP SSE listener.
+
+    The MCP surface runs on its own port and can be down while the API is up, so
+    readiness must observe it instead of assuming it. Kept to a short timeout so
+    /health/ready stays cheap.
+    """
+    import ipaddress
+    import socket
+
+    target = host
+    try:
+        # A wildcard bind is not connectable; probe it over loopback instead.
+        if not host or ipaddress.ip_address(host).is_unspecified:
+            target = "127.0.0.1"
+    except ValueError:
+        pass
+    try:
+        with socket.create_connection((target, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+@route("GET", "/health/ready", public=True)
+def _health_ready(_: Request) -> Response:
+    from pathlib import Path
+
+    from kater import __version__
+
+    components: dict[str, dict[str, str]] = {"api": {"status": "ok"}}
+    degraded = False
+    unhealthy = False
+
+    # Readiness must report on settings failures rather than 500 out of the probe.
+    settings = None
+    try:
+        settings = load_settings()
+        auth_mode = settings.auth.mode
+        components["settings"] = {"status": "ok"}
+    except Exception as exc:
+        auth_mode = "unknown"
+        components["settings"] = {
+            "status": "unavailable",
+            "reason": f"settings_load_failed:{type(exc).__name__}",
+        }
+        unhealthy = True
+
+    if settings is not None and _mcp_listener_reachable(settings.host, settings.mcp_port):
+        components["mcp"] = {"status": "ok"}
+    else:
+        components["mcp"] = {
+            "status": "unavailable",
+            "reason": "mcp_listener_unreachable",
+        }
+        degraded = True
+
+    # UTRECHT_REPO_PATH is optional in current live env; when unset the Utrecht
+    # CLI tools degrade, but the gateway itself remains up. Report that clearly.
+    utrecht_path = os.environ.get("UTRECHT_REPO_PATH")
+    if utrecht_path and not Path(utrecht_path).expanduser().exists():
+        components["utrecht"] = {
+            "status": "unavailable",
+            "reason": "repository_provider_unavailable",
+        }
+        degraded = True
+    elif utrecht_path:
+        components["utrecht"] = {"status": "ok"}
+    else:
+        components["utrecht"] = {
+            "status": "degraded",
+            "reason": "UTRECHT_REPO_PATH_unset_optional",
+        }
+        degraded = True
+
+    fleet_path = os.environ.get("UTRECHT_FLEET_INVENTORY_PATH")
+    if not fleet_path:
+        components["fleet_cache"] = {
+            "status": "degraded",
+            "reason": "UTRECHT_FLEET_INVENTORY_PATH_unset_optional",
+        }
+        degraded = True
+    elif not Path(fleet_path).expanduser().exists():
+        components["fleet_cache"] = {
+            "status": "unavailable",
+            "reason": "fleet_inventory_missing",
+        }
+        degraded = True
+    else:
+        components["fleet_cache"] = {"status": "ok"}
+
+    # CI health is remote (ubuntu@bc-scan-2); this endpoint only reports whether
+    # the SSH target env is configured, not a live probe (to keep /ready cheap).
+    if os.environ.get("UTRECHT_CI_HEALTH_SSH_TARGET") and os.environ.get(
+        "UTRECHT_CI_HEALTH_REMOTE_REPO"
+    ):
+        components["ci_health"] = {"status": "ok", "reason": "env_configured_not_probed"}
+    else:
+        components["ci_health"] = {
+            "status": "unavailable",
+            "reason": "ci_health_env_missing",
+        }
+        degraded = True
+
+    status = "unhealthy" if unhealthy else "degraded" if degraded else "ok"
+
+    return Response.json(
+        200,
+        {
+            "status": status,
+            "service": "kater",
+            "version": __version__,
+            "auth_mode": auth_mode,
+            "components": components,
+        },
+    )
+
+
 @route("GET", "/", public=True)
 @route("GET", "/dashboard", public=True)
 def _dashboard(_: Request) -> Response:

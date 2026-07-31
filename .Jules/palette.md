@@ -33,3 +33,7 @@
 
 **Learning:** In single-page applications die met toetsenbord en schermlezer worden gebruikt, gaat de focus verloren als een overlay sluit zonder focusherstel. Leg `document.activeElement` vast bij het openen van een overlay en herstel de focus bij sluiten, annuleren of succesvol opslaan.
 **Action:** Leg altijd het actieve element vast dat de overlay opent en herstel de focus bij sluiten, annuleren of succesvolle voltooiing.
+
+## 2026-07-24 - [Context-Safe Async Button States]
+**Learning:** For asynchronous action buttons in control views (e.g., Browser navigate, reload, or close actions), passing the calling element to JavaScript using `this` (e.g., `onclick="browserNavigate(this)"`) allows contextual loading feedback and disabled states to be applied directly. This prevents double-submits or redundant in-flight network requests during longer operations without expensive DOM element lookups.
+**Action:** Ensure asynchronous button handlers support passing and handling `this` to maintain context-safe button states and clear screen-reader feedback via `aria-busy`.

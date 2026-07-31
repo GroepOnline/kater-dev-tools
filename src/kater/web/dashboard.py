@@ -1388,11 +1388,11 @@ _VIEW_BROWSER = r"""
             <input class="browser-url" id="browser-url" type="url"
               placeholder="https://…" autocomplete="off" aria-label="Browser URL"
               onkeydown="if(event.key==='Enter'){event.preventDefault();browserNavigate();}">
-            <button class="mini-btn interactive" type="button" onclick="browserNavigate()"
+            <button class="mini-btn interactive" type="button" onclick="browserNavigate(this)"
               aria-label="Navigate">Go</button>
-            <button class="mini-btn interactive" type="button" onclick="browserReload()"
+            <button class="mini-btn interactive" type="button" onclick="browserReload(this)"
               aria-label="Reload page">Reload</button>
-            <button class="mini-btn interactive" type="button" onclick="closeBrowserSession()"
+            <button class="mini-btn interactive" type="button" onclick="closeBrowserSession(this)"
               aria-label="Close session">Close</button>
           </div>
           <div class="browser-stage" id="browser-stage">
@@ -4078,9 +4078,14 @@ async function createBrowserSession() {
   }
 }
 
-async function closeBrowserSession() {
+async function closeBrowserSession(btn) {
   if (!browserSelectedId) { toast('no session selected', 'error'); return; }
   const id = browserSelectedId;
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = 'Closing...';
+  }
   try {
     await apiDelete('/api/browser/sessions/' + encodeURIComponent(id));
     toast('session closed');
@@ -4091,14 +4096,25 @@ async function closeBrowserSession() {
     await loadBrowserView();
   } catch (e) {
     toast('close: ' + (e.message || 'failed'), 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.textContent = 'Close';
+    }
   }
 }
 
-async function browserNavigate() {
+async function browserNavigate(btn) {
   if (!browserSelectedId) { toast('no session selected', 'error'); return; }
   const urlEl = document.getElementById('browser-url');
   const url = urlEl ? urlEl.value.trim() : '';
   if (!url) { toast('enter a URL', 'error'); return; }
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = 'Go...';
+  }
   try {
     const data = await apiPost(
       '/api/browser/sessions/' + encodeURIComponent(browserSelectedId) + '/act',
@@ -4113,11 +4129,22 @@ async function browserNavigate() {
   } catch (e) {
     pushBrowserLog(browserSelectedId, { kind: 'navigate', ok: false, detail: e.message || 'failed' });
     toast('navigate: ' + (e.message || 'failed'), 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.textContent = 'Go';
+    }
   }
 }
 
-async function browserReload() {
+async function browserReload(btn) {
   if (!browserSelectedId) { toast('no session selected', 'error'); return; }
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = 'Reloading...';
+  }
   try {
     const data = await apiPost(
       '/api/browser/sessions/' + encodeURIComponent(browserSelectedId) + '/act',
@@ -4131,6 +4158,12 @@ async function browserReload() {
   } catch (e) {
     pushBrowserLog(browserSelectedId, { kind: 'reload', ok: false, detail: e.message || 'failed' });
     toast('reload: ' + (e.message || 'failed'), 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.textContent = 'Reload';
+    }
   }
 }
 

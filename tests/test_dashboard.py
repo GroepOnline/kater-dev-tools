@@ -971,3 +971,17 @@ def test_zero_result_profile_recovery_behavior_node(tmp_path):
     # A failed capabilities request renders an error, never the profile action.
     assert res["fabricButtonHiddenOnError"] is True
     assert res["fabricErrorShown"] is True
+
+
+def test_browser_view_buttons_use_context_loading_states():
+    html = render_dashboard()
+    assert 'onclick="browserNavigate(this)"' in html
+    assert 'onclick="browserReload(this)"' in html
+    assert 'onclick="closeBrowserSession(this)"' in html
+    assert "async function browserNavigate(btn)" in html
+    assert "async function browserReload(btn)" in html
+    assert "async function closeBrowserSession(btn)" in html
+    assert "btn.setAttribute('aria-busy', 'true')" in html
+    assert "btn.removeAttribute('aria-busy')" in html
+    assert "btn.disabled = true" in html
+    assert "btn.disabled = false" in html

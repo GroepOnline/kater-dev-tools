@@ -6,7 +6,6 @@ for specific pinned versions/flags rather than executed, since these files
 only run inside GitHub Actions.
 """
 
-import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,11 +39,8 @@ def test_ci_jobs_install_the_browser_extra() -> None:
 def test_unit_matrix_job_uses_kater_checkout_sha_and_longer_timeout() -> None:
     block = _job_block(CI.read_text(encoding="utf-8"), "unit", "integration")
     assert KATER_CHECKOUT_SHA in block
-    # The exact cap is tuned as the suite grows; assert only that the inner
-    # guard exists and stays clear of the ~180s cap that used to trip on 3.14.
-    match = re.search(r"timeout (\d+)s uv run pytest", block)
-    assert match is not None
-    assert int(match.group(1)) > 180
+    assert "timeout 300s uv run pytest" in block
+    assert "timeout 180s" not in block
 
 
 def test_computer_acceptance_checks_out_kater_and_the_private_runtime() -> None:

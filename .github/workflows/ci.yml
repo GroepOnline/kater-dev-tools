@@ -148,13 +148,12 @@ jobs:
       # The inner `timeout` is a fast, explicit guard that yields a clean
       # exit 124 if a test wedges; the job-level `timeout-minutes: 15` above is
       # the real backstop against hangs. Keep this comfortably above the actual
-      # suite runtime: as the suite has grown, 3.11-3.13 now finish in ~180-270s
-      # and 3.14 (consistently the slowest) in ~250-300s, so a 300s cap was
-      # tripping on 3.14 with every test passing. 480s leaves headroom for
-      # runner jitter while the job-level cap still catches real hangs.
+      # suite runtime: 3.11/3.12 finish ~150s and 3.13 ~157s, but 3.14 runs
+      # ~20-30s slower and was tripping a 180s cap even though the full suite
+      # (see the coverage job, with instrumentation) completes in ~185s.
       - name: Test
         run: >-
-          timeout 480s uv run pytest -vv --tb=short -ra
+          timeout 450s uv run pytest -v --tb=short -ra
           --ignore=tests/test_computer_acceptance_e2e.py
 
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──

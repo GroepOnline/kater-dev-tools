@@ -62,6 +62,20 @@ Keep independent Vaultwarden items per provider (`primary`, `fallback`, `read-on
 not require editing Kater configuration: restart through the bootstrap and the fresh bundle
 is resolved before the gateway starts.
 
+## Production systemd (bc-scan-arm)
+
+For the always-on runtimehost, do **not** start Kater from a durable plaintext
+provider-key env file under a personal home directory.
+
+Use:
+
+- unit: `scripts/systemd/kater-system.service.example`
+- non-secret config: `scripts/systemd/kater.conf.example` → `/etc/kater/kater.conf`
+- broker token file: `/etc/kater/broker-token` (mode `0600`, owner `kater`)
+- bootstrap: `scripts/kater-with-chefvault.py` via `ExecStart`
+
+Full host layout and cutover gates: `docs/ops/bc-scan-arm-runtime.md`.
+
 ## Failure behavior
 
 The startup fails before Kater launches when the broker token is missing, the profile is not

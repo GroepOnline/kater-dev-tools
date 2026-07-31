@@ -818,3 +818,14 @@ def test_browser_view_buttons_use_context_loading_states(handler, loading_label,
     assert "btn.disabled = false" in restore
     assert "btn.removeAttribute('aria-busy')" in restore
     assert f"btn.textContent = '{idle_label}'" in restore
+
+
+def test_browser_url_enter_serializes_navigation_through_go_button():
+    html = render_dashboard()
+    assert 'id="browser-go"' in html
+    assert "browserNavigate(document.getElementById('browser-go'))" in html
+
+    block = _js_handler_block(html, "async function browserNavigate(btn)")
+    assert "if (browserNavigating) return;" in block
+    assert "browserNavigating = true;" in block
+    assert "browserNavigating = false;" in block[block.index("} finally {") :]

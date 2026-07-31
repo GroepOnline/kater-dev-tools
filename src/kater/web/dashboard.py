@@ -1387,8 +1387,9 @@ _VIEW_BROWSER = r"""
           <div class="browser-toolbar">
             <input class="browser-url" id="browser-url" type="url"
               placeholder="https://…" autocomplete="off" aria-label="Browser URL"
-              onkeydown="if(event.key==='Enter'){event.preventDefault();browserNavigate();}">
-            <button class="mini-btn interactive" type="button" onclick="browserNavigate(this)"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();browserNavigate(document.getElementById('browser-go'));}">
+            <button class="mini-btn interactive" type="button" id="browser-go"
+              onclick="browserNavigate(this)"
               aria-label="Navigate">Go</button>
             <button class="mini-btn interactive" type="button" onclick="browserReload(this)"
               aria-label="Reload page">Reload</button>
@@ -3892,6 +3893,7 @@ let browserSessions = [];
 let browserSelectedId = null;
 let browserPollTimer = null;
 let browserShotSeq = 0;
+let browserNavigating = false;
 const browserActionLog = new Map(); // session_id -> [{kind, ok, detail, ts}]
 
 function stopBrowserPoll() {
@@ -4106,10 +4108,12 @@ async function closeBrowserSession(btn) {
 }
 
 async function browserNavigate(btn) {
+  if (browserNavigating) return;
   if (!browserSelectedId) { toast('no session selected', 'error'); return; }
   const urlEl = document.getElementById('browser-url');
   const url = urlEl ? urlEl.value.trim() : '';
   if (!url) { toast('enter a URL', 'error'); return; }
+  browserNavigating = true;
   if (btn) {
     btn.disabled = true;
     btn.setAttribute('aria-busy', 'true');
@@ -4130,6 +4134,7 @@ async function browserNavigate(btn) {
     pushBrowserLog(browserSelectedId, { kind: 'navigate', ok: false, detail: e.message || 'failed' });
     toast('navigate: ' + (e.message || 'failed'), 'error');
   } finally {
+    browserNavigating = false;
     if (btn) {
       btn.disabled = false;
       btn.removeAttribute('aria-busy');

@@ -791,18 +791,30 @@ def test_credentials_modal_focus_restoration_behavior_node(tmp_path):
     assert res["body"]["focusRestored"] is False
 
 
-def test_browser_view_buttons_use_context_loading_states():
+def _js_handler_block(html: str, signature: str) -> str:
+    start = html.index(signature)
+    end = html.index("\nasync function", start + len(signature))
+    return html[start:end]
+
+
+@pytest.mark.parametrize(
+    ("handler", "loading_label", "idle_label"),
+    [
+        ("closeBrowserSession", "Closing...", "Close"),
+        ("browserNavigate", "Go...", "Go"),
+        ("browserReload", "Reloading...", "Reload"),
+    ],
+)
+def test_browser_view_buttons_use_context_loading_states(handler, loading_label, idle_label):
     html = render_dashboard()
-    # Check that Go, Reload, Close buttons pass 'this'
-    assert 'onclick="browserNavigate(this)"' in html
-    assert 'onclick="browserReload(this)"' in html
-    assert 'onclick="closeBrowserSession(this)"' in html
-    # Check that the JavaScript functions contain btn context handling
-    assert "async function browserNavigate(btn)" in html
-    assert "async function browserReload(btn)" in html
-    assert "async function closeBrowserSession(btn)" in html
-    # Check busy attribute setting and disabling
-    assert "btn.setAttribute('aria-busy', 'true')" in html
-    assert "btn.removeAttribute('aria-busy')" in html
-    assert "btn.disabled = true" in html
-    assert "btn.disabled = false" in html
+    assert f'onclick="{handler}(this)"' in html
+
+    block = _js_handler_block(html, f"async function {handler}(btn)")
+    assert "btn.disabled = true" in block
+    assert "btn.setAttribute('aria-busy', 'true')" in block
+    assert f"btn.textContent = '{loading_label}'" in block
+
+    restore = block[block.index("} finally {") :]
+    assert "btn.disabled = false" in restore
+    assert "btn.removeAttribute('aria-busy')" in restore
+    assert f"btn.textContent = '{idle_label}'" in restore

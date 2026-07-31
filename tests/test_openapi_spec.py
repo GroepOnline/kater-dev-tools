@@ -42,6 +42,16 @@ class TestBuildPaths:
         assert "/health" in paths
         assert "get" in paths["/health"]
 
+    def test_health_live_endpoint_exists(self):
+        paths = _build_paths()
+        assert "/health/live" in paths
+        assert "get" in paths["/health/live"]
+
+    def test_health_ready_endpoint_exists(self):
+        paths = _build_paths()
+        assert "/health/ready" in paths
+        assert "get" in paths["/health/ready"]
+
     def test_profiles_endpoint_exists(self):
         paths = _build_paths()
         assert "/api/profiles" in paths

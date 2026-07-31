@@ -32,6 +32,12 @@ class TestIsPublicPath:
     def test_health_is_public(self):
         assert should_proxy_to_api("/health") is True
 
+    def test_health_live_is_public(self):
+        assert should_proxy_to_api("/health/live") is True
+
+    def test_health_ready_is_public(self):
+        assert should_proxy_to_api("/health/ready") is True
+
     def test_authorize_is_public(self):
         assert should_proxy_to_api("/authorize") is True
 
@@ -134,6 +140,14 @@ class TestAuthenticate:
         )
         decision = authenticate(ctx)
         assert decision.allowed is True
+
+    def test_health_live_bypasses_apikey_check(self, apikey_settings):
+        ctx = AuthContext(settings=apikey_settings, path="/health/live")
+        assert authenticate(ctx).allowed is True
+
+    def test_health_ready_bypasses_apikey_check(self, apikey_settings):
+        ctx = AuthContext(settings=apikey_settings, path="/health/ready")
+        assert authenticate(ctx).allowed is True
 
     def test_no_path_allows_when_mode_none(self, no_auth_settings):
         """WebSocket/MCP transports pass path=None; mode=none allows."""

@@ -58,6 +58,20 @@ def _build_paths() -> dict[str, Any]:
             "Service health and version information.",
         )
     }
+    paths["/health/live"] = {
+        "get": _response(
+            "Liveness probe",
+            _ref("Health"),
+            "Process/API is up. Optional providers must not fail this endpoint.",
+        )
+    }
+    paths["/health/ready"] = {
+        "get": _response(
+            "Readiness probe",
+            _ref("HealthReady"),
+            "Component readiness. May report degraded when optional providers are unset.",
+        )
+    }
 
     paths["/"] = {
         "get": {
@@ -1009,6 +1023,30 @@ def _build_schemas() -> dict[str, Any]:
                 "status": {"type": "string"},
                 "version": {"type": "string"},
                 "auth_mode": {"type": "string"},
+            },
+        },
+        "HealthReady": {
+            "type": "object",
+            "required": ["status", "service", "version", "auth_mode", "components"],
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["ok", "degraded", "unhealthy"],
+                },
+                "service": {"type": "string"},
+                "version": {"type": "string"},
+                "auth_mode": {"type": "string"},
+                "components": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "required": ["status"],
+                        "properties": {
+                            "status": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                    },
+                },
             },
         },
         "Profiles": {

@@ -323,6 +323,8 @@ const document = {
   getElementById: (id) => shell[id] || null,
 };
 let credServer = null;
+let credInvoker = null;
+let detailInvoker = null;
 
 /*__DASHBOARD_JS__*/
 
@@ -477,3 +479,86 @@ def test_fabric_view_has_capabilities_contexts_computer_seams():
     assert "/api/capabilities" in html
     assert "/api/contexts" in html
     assert "/api/computer" in html
+
+
+def test_focus_restoration_logic_is_present():
+    html = render_dashboard()
+    assert "let detailInvoker = null;" in html
+    assert "let credInvoker = null;" in html
+    assert "function openDetail" in html
+    assert "detailInvoker = document.activeElement" in html
+    assert "function closeDetail" in html
+    assert "invoker.focus()" in html
+    assert "function openCredentialsModal" in html
+    assert "credInvoker = document.activeElement" in html
+    assert "function closeCredentialsModal" in html
+
+
+_FOCUS_HARNESS = r"""
+const document = {
+  activeElement: {
+    tagName: 'BUTTON',
+    focusCalled: false,
+    focus() { this.focusCalled = true; }
+  },
+  contains(el) { return true; },
+  getElementById(id) {
+    return {
+      classList: { remove() {}, add() {} },
+      appendChild() {},
+      innerHTML: '',
+      textContent: '',
+      style: {},
+    };
+  }
+};
+let selectedNode = null;
+let writeUrlState = () => {};
+const makeBadge = () => ({ classList: { remove() {} } });
+const formatLaunch = () => '-';
+
+let detailInvoker = null;
+let credInvoker = null;
+
+/*__DASHBOARD_JS__*/
+
+// Test openDetail
+const mockNode = { name: 'test' };
+openDetail(mockNode);
+const afterOpenDetailInvoker = detailInvoker;
+
+// Test closeDetail
+closeDetail();
+const afterCloseDetailInvoker = detailInvoker;
+const focusCalled = document.activeElement.focusCalled;
+
+process.stdout.write(JSON.stringify({
+  detailInvokerSet: afterOpenDetailInvoker === document.activeElement,
+  detailInvokerCleared: afterCloseDetailInvoker === null,
+  focusCalled: focusCalled,
+}));
+"""
+
+
+def test_focus_restoration_behavior_node(tmp_path):
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:
+        pytest.skip("node is required to execute the dashboard JS")
+    assert node is not None
+    html = render_dashboard()
+    dashboard_js = "\n".join(
+        _extract_js_function(html, name) for name in ("openDetail", "closeDetail")
+    )
+    script = tmp_path / "focus_restoration.cjs"
+    script.write_text(
+        _FOCUS_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(proc.stdout)
+    assert res["detailInvokerSet"] is True
+    assert res["detailInvokerCleared"] is True
+    assert res["focusCalled"] is True

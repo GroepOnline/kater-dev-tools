@@ -1614,6 +1614,8 @@ let servers = [];
 let profiles = [];
 let activeProfile = 'core';
 let selectedNode = null;
+let detailInvoker = null;
+let credInvoker = null;
 
 // Overview live state.
 let routeFilter = 'all';
@@ -2365,6 +2367,10 @@ function formatLaunch(node) {
 }
 
 function openDetail(node) {
+  if (!detailInvoker && document.activeElement
+      && document.activeElement.tagName !== 'BODY') {
+    detailInvoker = document.activeElement;
+  }
   selectedNode = node;
   document.getElementById('detail-name').textContent = node.name || '-';
   document.getElementById('detail-desc').textContent = node.description || '-';
@@ -2450,6 +2456,12 @@ function closeDetail() {
   document.getElementById('detail-panel').classList.remove('open');
   selectedNode = null;
   writeUrlState();
+  const invoker = detailInvoker;
+  detailInvoker = null;
+  if (invoker && typeof invoker.focus === 'function'
+      && document.contains(invoker)) {
+    invoker.focus();
+  }
 }
 
 // ── Credentials modal ──────────────────
@@ -2479,6 +2491,10 @@ async function promptCredentials(name) {
 }
 
 function openCredentialsModal(server) {
+  if (!credInvoker && document.activeElement
+      && document.activeElement.tagName !== 'BODY') {
+    credInvoker = document.activeElement;
+  }
   credServer = server;
   const reqs = server.env_required || [];
   document.getElementById('cred-title').textContent = 'Connect ' + server.name;
@@ -2527,6 +2543,12 @@ function openCredentialsModal(server) {
 function closeCredentialsModal() {
   document.getElementById('cred-modal').classList.remove('show');
   credServer = null;
+  const invoker = credInvoker;
+  credInvoker = null;
+  if (invoker && typeof invoker.focus === 'function'
+      && document.contains(invoker)) {
+    invoker.focus();
+  }
 }
 
 async function saveCredentials(btn) {

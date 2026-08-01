@@ -27,5 +27,5 @@
 
 ## 2026-07-23 - [Credential Modal Label Pairing]
 
-**Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must have a uniquely generated, sanitized ID (index-suffixed, since sanitization is lossy: `A_B` and `A-B` normalize alike) paired with its corresponding label's `for` attribute to guarantee the element is keyboard-navigable and its name is properly announced by screen readers.
+**Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must have a uniquely generated, sanitized ID (index-suffixed, since sanitization is lossy: `A_B` and `A-B` normalize alike) paired with its corresponding label's `for` attribute to give the input a programmatically associated label and provide its accessible name to screen readers.
 **Action:** Dynamically generate per-field unique sanitized IDs for connection credential inputs and explicitly associate them with labels using `for` and `id` attributes.

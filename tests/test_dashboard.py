@@ -251,6 +251,9 @@ def test_pr_view_has_accessible_refresh_button_and_status_region():
 def _extract_js_function(source: str, name: str) -> str:
     """Slice a whole `function name(...) {...}` declaration out of the JS."""
     start = source.index(f"function {name}(")
+    # Keep a leading `async` so awaited helpers stay valid when re-run in Node.
+    if start >= 6 and source[start - 6 : start] == "async ":
+        start -= 6
     depth = 0
     for pos in range(source.index("{", start), len(source)):
         if source[pos] == "{":
@@ -485,28 +488,50 @@ def test_focus_restoration_logic_is_present():
     html = render_dashboard()
     assert "let detailInvoker = null;" in html
     assert "let credInvoker = null;" in html
+    assert "let detailRequestGen = 0;" in html
     assert "function openDetail" in html
-    assert "const trigger = document.activeElement;" in html
+    assert "const trigger = invoker !== undefined ? invoker : document.activeElement;" in html
     assert "detailInvoker = trigger;" in html
     assert "function closeDetail" in html
     assert "invoker.focus()" in html
     assert "function openCredentialsModal" in html
-    assert "credInvoker = document.activeElement" in html
+    assert "credInvoker = trigger;" in html
     assert "function closeCredentialsModal" in html
+    assert "function openServerDetail" in html
+    assert "if (gen !== detailRequestGen) return;" in html
+    # Real callers must keep refresh=true on background reloads.
+    assert "openServerDetail(name, true)" in html
+    assert "openServerDetail(data.name, true)" in html
 
 
 _FOCUS_HARNESS = r"""
+const panelClassList = {
+  open: false,
+  add(c) { if (c === 'open') this.open = true; },
+  remove(c) { if (c === 'open') this.open = false; },
+  contains(c) { return c === 'open' ? this.open : false; },
+};
+const detailPanel = {
+  classList: panelClassList,
+  appendChild() {},
+  contains() { return false; },
+  innerHTML: '',
+  textContent: '',
+  style: {},
+};
 const document = {
   activeElement: null,
   contains(el) { return true; },
   getElementById(id) {
+    if (id === 'detail-panel') return detailPanel;
     return {
-      classList: { remove() {}, add() {} },
+      classList: { remove() {}, add() {}, contains() { return false; } },
       appendChild() {},
       contains() { return false; },
       innerHTML: '',
       textContent: '',
       style: {},
+      disabled: false,
     };
   }
 };
@@ -514,9 +539,18 @@ let selectedNode = null;
 let writeUrlState = () => {};
 const makeBadge = () => ({ classList: { remove() {} } });
 const formatLaunch = () => '-';
+function toast() {}
 
 let detailInvoker = null;
 let credInvoker = null;
+let detailRequestGen = 0;
+
+let pendingApi = null;
+function api(url) {
+  return new Promise((resolve, reject) => {
+    pendingApi = { url, resolve, reject };
+  });
+}
 
 /*__DASHBOARD_JS__*/
 
@@ -527,36 +561,79 @@ const makeCard = () => ({
 });
 const cardA = makeCard();
 const cardB = makeCard();
+const commandBar = {
+  tagName: 'INPUT',
+  focusCalled: false,
+  focus() { this.focusCalled = true; },
+};
 
-document.activeElement = cardA;
-openDetail({ name: 'a' });
-const afterOpenDetailInvoker = detailInvoker;
+(async () => {
+  document.activeElement = cardA;
+  openDetail({ name: 'a' });
+  const afterOpenDetailInvoker = detailInvoker;
 
-// Selecting another server while the panel stays open must retarget focus.
-document.activeElement = cardB;
-openDetail({ name: 'b' });
-const afterReselectInvoker = detailInvoker;
+  // Selecting another server while the panel stays open must retarget focus.
+  document.activeElement = cardB;
+  openDetail({ name: 'b' });
+  const afterReselectInvoker = detailInvoker;
 
-// A background refresh (WebSocket update) while the user works elsewhere
-// (e.g. the command bar) must not steal the return target from the last
-// explicitly selected row.
-const commandBar = { tagName: 'INPUT', focusCalled: false, focus() { this.focusCalled = true; } };
-document.activeElement = commandBar;
-openDetail({ name: 'b' }, true);
-const afterRefreshInvoker = detailInvoker;
+  // A background refresh (WebSocket update) while the user works elsewhere
+  // (e.g. the command bar) must not steal the return target from the last
+  // explicitly selected row.
+  document.activeElement = commandBar;
+  openDetail({ name: 'b' }, true);
+  const afterRefreshInvoker = detailInvoker;
 
-closeDetail();
-const afterCloseDetailInvoker = detailInvoker;
+  // Real caller: openServerDetail captures the invoker before the await.
+  // Move focus to the command bar while the API response is still pending.
+  detailInvoker = cardB;
+  selectedNode = { name: 'b' };
+  panelClassList.open = true;
+  document.activeElement = cardB;
+  const openPromise = openServerDetail('b', false, cardB);
+  document.activeElement = commandBar;
+  pendingApi.resolve({
+    name: 'b', env_required: [], env_configured: true, enabled: true,
+  });
+  await openPromise;
+  const afterAsyncInvoker = detailInvoker;
 
-process.stdout.write(JSON.stringify({
-  detailInvokerSet: afterOpenDetailInvoker === cardA,
-  detailInvokerFollowsSelection: afterReselectInvoker === cardB,
-  detailInvokerSurvivesRefresh: afterRefreshInvoker === cardB,
-  detailInvokerCleared: afterCloseDetailInvoker === null,
-  focusCalled: cardB.focusCalled,
-  staleInvokerFocused: cardA.focusCalled,
-  refreshFocusStolen: commandBar.focusCalled,
-}));
+  // Background refresh via the real caller must pass refresh=true and keep
+  // the prior invoker even when focus sits on the command bar.
+  document.activeElement = commandBar;
+  const refreshPromise = openServerDetail('b', true);
+  pendingApi.resolve({
+    name: 'b', env_required: [], env_configured: true, enabled: true,
+  });
+  await refreshPromise;
+  const afterCallerRefreshInvoker = detailInvoker;
+
+  // Stale refresh after the panel closed must not reopen it.
+  closeDetail();
+  const afterCloseDetailInvoker = detailInvoker;
+  panelClassList.open = false;
+  selectedNode = null;
+  const staleRefresh = openServerDetail('b', true);
+  pendingApi.resolve({ name: 'b', env_required: [], env_configured: true });
+  await staleRefresh;
+  const staleRefreshReopened = panelClassList.open;
+
+  process.stdout.write(JSON.stringify({
+    detailInvokerSet: afterOpenDetailInvoker === cardA,
+    detailInvokerFollowsSelection: afterReselectInvoker === cardB,
+    detailInvokerSurvivesRefresh: afterRefreshInvoker === cardB,
+    detailInvokerSurvivesAsyncFetch: afterAsyncInvoker === cardB,
+    detailInvokerSurvivesCallerRefresh: afterCallerRefreshInvoker === cardB,
+    detailInvokerCleared: afterCloseDetailInvoker === null,
+    focusCalled: cardB.focusCalled,
+    staleInvokerFocused: cardA.focusCalled,
+    refreshFocusStolen: commandBar.focusCalled,
+    staleRefreshDropped: staleRefreshReopened === false,
+  }));
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 """
 
 
@@ -567,7 +644,8 @@ def test_focus_restoration_behavior_node(tmp_path):
     assert node is not None
     html = render_dashboard()
     dashboard_js = "\n".join(
-        _extract_js_function(html, name) for name in ("openDetail", "closeDetail")
+        _extract_js_function(html, name)
+        for name in ("openDetail", "closeDetail", "openServerDetail")
     )
     script = tmp_path / "focus_restoration.cjs"
     script.write_text(
@@ -582,10 +660,13 @@ def test_focus_restoration_behavior_node(tmp_path):
     assert res["detailInvokerSet"] is True
     assert res["detailInvokerFollowsSelection"] is True
     assert res["detailInvokerSurvivesRefresh"] is True
+    assert res["detailInvokerSurvivesAsyncFetch"] is True
+    assert res["detailInvokerSurvivesCallerRefresh"] is True
     assert res["detailInvokerCleared"] is True
     assert res["focusCalled"] is True
     assert res["staleInvokerFocused"] is False
     assert res["refreshFocusStolen"] is False
+    assert res["staleRefreshDropped"] is True
 
 
 # The credentials modal builds real DOM, so it needs the element shim rather

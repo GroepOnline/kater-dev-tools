@@ -1011,3 +1011,104 @@ def test_browser_url_enter_serializes_navigation_through_go_button():
     assert "if (browserNavigating) return;" in block
     assert "browserNavigating = true;" in block
     assert "browserNavigating = false;" in block[block.index("} finally {") :]
+
+
+def test_browser_url_enter_serializes_navigation_through_go_button():
+    html = render_dashboard()
+    assert 'id="browser-go"' in html
+    assert "browserNavigate(document.getElementById('browser-go'))" in html
+
+    block = _js_handler_block(html, "async function browserNavigate(btn)")
+    assert "if (browserNavigating) return;" in block
+    assert "browserNavigating = true;" in block
+    assert "browserNavigating = false;" in block[block.index("} finally {") :]
+
+
+_BROWSER_NAV_HARNESS = r"""
+const urlEl = { value: 'https://example.com' };
+const document = {
+  getElementById(id) { return id === 'browser-url' ? urlEl : null; },
+};
+let browserNavigating = false;
+let browserSelectedId = 'sess-1';
+function toast() {}
+function pushBrowserLog() {}
+function showBrowserShot() {}
+async function pollBrowserScreenshot() {}
+async function loadBrowserView() {}
+
+let apiPostCalls = 0;
+let pendingResolve = null;
+function apiPost() {
+  apiPostCalls += 1;
+  return new Promise((resolve) => { pendingResolve = resolve; });
+}
+
+/*__DASHBOARD_JS__*/
+
+const btn = {
+  disabled: false,
+  textContent: 'Go',
+  attrs: {},
+  setAttribute(k, v) { this.attrs[k] = v; },
+  removeAttribute(k) { delete this.attrs[k]; },
+};
+
+(async () => {
+  const first = browserNavigate(btn);
+  const duringFlight = {
+    disabled: btn.disabled,
+    ariaBusy: btn.attrs['aria-busy'] === 'true',
+    label: btn.textContent,
+  };
+
+  await browserNavigate(btn);
+  const callsWhilePending = apiPostCalls;
+
+  pendingResolve({ ok: true, url: 'https://example.com', screenshot_b64: 'x' });
+  await first;
+  const afterFlight = {
+    disabled: btn.disabled,
+    ariaBusy: 'aria-busy' in btn.attrs,
+    label: btn.textContent,
+  };
+
+  const second = browserNavigate(btn);
+  const callsAfterRelease = apiPostCalls;
+  pendingResolve({ ok: true, url: 'https://example.com', screenshot_b64: 'x' });
+  await second;
+
+  process.stdout.write(JSON.stringify({
+    duringFlight,
+    callsWhilePending,
+    afterFlight,
+    callsAfterRelease,
+  }));
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+"""
+
+
+def test_browser_navigate_drops_overlapping_invocations_node(tmp_path):
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:
+        pytest.skip("node is required to execute the dashboard JS")
+    assert node is not None
+    html = render_dashboard()
+    dashboard_js = _extract_js_function(html, "browserNavigate")
+    script = tmp_path / "browser_navigate_guard.cjs"
+    script.write_text(
+        _BROWSER_NAV_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(proc.stdout)
+    assert res["duringFlight"] == {"disabled": True, "ariaBusy": True, "label": "Go..."}
+    assert res["callsWhilePending"] == 1
+    assert res["afterFlight"] == {"disabled": False, "ariaBusy": False, "label": "Go"}
+    assert res["callsAfterRelease"] == 2

@@ -2366,13 +2366,17 @@ function formatLaunch(node) {
   return '-';
 }
 
-function openDetail(node) {
+function openDetail(node, refresh) {
   // Track the latest trigger from outside the panel: selecting another server
   // while the panel is open must move the return target to that row, but focus
   // already inside the panel (close button, actions) is not a return target.
+  // Background refreshes (WebSocket updates, post-action reloads) pass
+  // refresh=true and must not overwrite the invoker: whatever happens to hold
+  // focus then (e.g. the command bar) never opened the panel.
   const trigger = document.activeElement;
   const openPanel = document.getElementById('detail-panel');
-  if (trigger && trigger.tagName !== 'BODY' && !openPanel.contains(trigger)) {
+  if (!refresh && trigger && trigger.tagName !== 'BODY'
+      && !openPanel.contains(trigger)) {
     detailInvoker = trigger;
   }
   selectedNode = node;
@@ -2580,7 +2584,7 @@ async function saveCredentials(btn) {
     closeCredentialsModal();
     await loadCatalog();
     if (currentView === 'catalog') await loadCatalogView();
-    if (selectedNode && selectedNode.name === name) openServerDetail(name);
+    if (selectedNode && selectedNode.name === name) openServerDetail(name, true);
   } catch (e) {
     toast('Could not save credentials: ' + (e.message || 'failed'), 'error');
   } finally {
@@ -2618,7 +2622,7 @@ async function detailToggle(enable, btn) {
   // don't keep rendering a stale, optimistically-mutated object.
   try { await loadCatalog(); } catch (e) { /* handled */ }
   const fresh = servers.find(s => s.name === name);
-  if (fresh) openDetail(fresh);
+  if (fresh) openDetail(fresh, true);
   // Enabling something that still needs a token? Bring up the connect popup.
   if (enable && fresh && fresh.env_configured === false) promptCredentials(name);
 }
@@ -3052,13 +3056,13 @@ function handleWSMessage(data) {
     // refresh the open detail panel so its status reflects the change.
     scheduleCatalogReload();
     if (selectedNode && selectedNode.name === data.name) {
-      openServerDetail(data.name);
+      openServerDetail(data.name, true);
     }
   }
   if (data.type === 'server_credentials') {
     scheduleCatalogReload();
     if (selectedNode && selectedNode.name === data.name) {
-      openServerDetail(data.name);
+      openServerDetail(data.name, true);
     }
   }
   if (data.type === 'tool_call' || data.type === 'chain_run'
@@ -3568,10 +3572,10 @@ async function toggleServerCard(name, el) {
   }
 }
 
-async function openServerDetail(name) {
+async function openServerDetail(name, refresh) {
   try {
     const data = await api('/api/mcp/servers/' + encodeURIComponent(name));
-    openDetail(data);
+    openDetail(data, refresh);
   } catch (e) {
     toast(name + ': ' + (e.message || 'not found'), 'error');
   }

@@ -537,15 +537,25 @@ document.activeElement = cardB;
 openDetail({ name: 'b' });
 const afterReselectInvoker = detailInvoker;
 
+// A background refresh (WebSocket update) while the user works elsewhere
+// (e.g. the command bar) must not steal the return target from the last
+// explicitly selected row.
+const commandBar = { tagName: 'INPUT', focusCalled: false, focus() { this.focusCalled = true; } };
+document.activeElement = commandBar;
+openDetail({ name: 'b' }, true);
+const afterRefreshInvoker = detailInvoker;
+
 closeDetail();
 const afterCloseDetailInvoker = detailInvoker;
 
 process.stdout.write(JSON.stringify({
   detailInvokerSet: afterOpenDetailInvoker === cardA,
   detailInvokerFollowsSelection: afterReselectInvoker === cardB,
+  detailInvokerSurvivesRefresh: afterRefreshInvoker === cardB,
   detailInvokerCleared: afterCloseDetailInvoker === null,
   focusCalled: cardB.focusCalled,
   staleInvokerFocused: cardA.focusCalled,
+  refreshFocusStolen: commandBar.focusCalled,
 }));
 """
 
@@ -571,9 +581,11 @@ def test_focus_restoration_behavior_node(tmp_path):
     res = json.loads(proc.stdout)
     assert res["detailInvokerSet"] is True
     assert res["detailInvokerFollowsSelection"] is True
+    assert res["detailInvokerSurvivesRefresh"] is True
     assert res["detailInvokerCleared"] is True
     assert res["focusCalled"] is True
     assert res["staleInvokerFocused"] is False
+    assert res["refreshFocusStolen"] is False
 
 
 # The credentials modal builds real DOM, so it needs the element shim rather

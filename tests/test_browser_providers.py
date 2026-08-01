@@ -493,4 +493,3 @@ def test_act_timeout_invalidates_browser_state(monkeypatch):
     # Replacement worker must still accept work.
     assert provider._runner.submit(lambda: 42, timeout=2.0) == 42
     provider.stop()
-

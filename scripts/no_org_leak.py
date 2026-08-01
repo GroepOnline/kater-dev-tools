@@ -17,6 +17,8 @@ from pathlib import Path
 
 # Files where the org handle / domain are legitimately expected (attribution,
 # split audit, license, code-owner routing, changelog). Anything outside these is a leak.
+# `.cursor/` is never allowlisted — org-pinned skills/agents belong in the private
+# deployment overlay (see docs/ops/private-cursor-overlay.md).
 ALLOWED_ORG_HANDLE = frozenset(
     {
         "README.md",
@@ -88,6 +90,7 @@ ALLOWED_PRIVATE_DATA_PLANE = frozenset(
         "SPLIT_DECISION.md",
         ".github/workflows/ci.yml",
         "tests/acceptance/computer_lane.py",
+        "tests/acceptance/kater_server.py",
         "tests/test_computer_acceptance_e2e.py",
         "tests/test_ci_dependabot_policy.py",
         "scripts/no_org_leak.py",
@@ -176,9 +179,7 @@ def scan(targets: list[str]) -> list[str]:
 
         if PRIVATE_DATA_PLANE_RE.search(text):
             if rel not in ALLOWED_PRIVATE_DATA_PLANE:
-                errors.append(
-                    f"{rel}: private data-plane reference outside audit allowlist"
-                )
+                errors.append(f"{rel}: private data-plane reference outside audit allowlist")
 
         if LEGACY_ALIAS_RE.search(text):
             if rel not in ALLOWED_LEGACY_ALIAS:

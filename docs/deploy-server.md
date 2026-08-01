@@ -2,6 +2,11 @@
 
 Run Kater on a machine you control. **Always enable auth before public exposure.**
 
+For the ChefGroep always-on runtime target (`bc-scan-arm`), prefer the system
+service packaging in `docs/ops/bc-scan-arm-runtime.md` and
+`scripts/systemd/kater-system.service.example` (dedicated `kater` user, `/opt/kater`,
+ChefVault fail-closed bootstrap). Keep this page for generic self-managed deploys.
+
 ## Quick start (Tailscale / private network)
 
 ```bash
@@ -86,6 +91,43 @@ Add to Cursor MCP config:
   }
 }
 ```
+
+## Ports
+
+One `kater serve` process opens three listeners, each overridable via its own
+environment variable:
+
+| Port | Env var | Role |
+|------|---------|------|
+| 9090 | `KATER_MCP_PORT` | MCP SSE (`/sse`) |
+| 9091 | `KATER_API_PORT` | REST API + dashboard |
+| 9092 | `KATER_WS_PORT` | WebSocket telemetry |
+
+Persist SQLite and secrets under `.kater/` (Docker/K8s: mount a volume at `/app/.kater`).
+
+## Schema migrate and backups
+
+Stop the server before write-heavy CLI against the same DB file:
+
+```bash
+uv run kater migrate apply
+uv run kater backup create
+```
+
+## Optional native browser lane
+
+Gateway, MCP proxy, and dashboard work without Playwright. For local browser sessions:
+
+```bash
+uv sync --extra browser
+uv run playwright install chromium
+```
+
+Configure via `KATER_BROWSER_*` in `.env` (see `.env.example`). Containers that need the
+browser extra must also provide Playwright's Linux system dependencies: either run
+`uv run playwright install --with-deps chromium` in the image (installs the OS libraries
+Chromium needs, not just the browser binary) or base the image on a pinned Playwright-matched
+image. CDP/remote providers avoid shipping a browser.
 
 ## Pre-flight check
 

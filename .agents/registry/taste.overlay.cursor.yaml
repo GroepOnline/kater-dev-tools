@@ -1,0 +1,6 @@
+# Dunne Cursor overlay.
+tool: cursor
+output_path: .cursor/rules/taste.mdc
+format: cursor_mdc
+notes:
+  - "Native Cursor rule; alwaysApply true zodat agents de regels laden."

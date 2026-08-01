@@ -1,0 +1,39 @@
+# Non-secret Kater runtime configuration for /etc/kater/kater.conf
+# Install with: install -m 0640 -o root -g kater kater.conf.example /etc/kater/kater.conf
+#
+# Secrets MUST NOT live in this file. Use ChefVault bootstrap:
+#   ExecStart=/opt/kater/current/scripts/kater-with-chefvault.py serve ...
+# and a broker token at /etc/kater/broker-token (mode 0600, owner kater).
+
+KATER_HOST=127.0.0.1
+KATER_PUBLIC=0
+KATER_AUTH_MODE=none
+KATER_RATE_LIMIT=120
+KATER_PROXY=1
+KATER_PROFILE=utrecht,ops,cloud,research,code,web,chef-vault
+
+# Canonical PR/repo identity (not a local checkout path).
+KATER_PR_REPO=<org>/<data-plane-repo>
+
+# Fleet inventory: host-local cache under /var/cache/kater (refreshed separately).
+UTRECHT_FLEET_INVENTORY_PATH=/var/cache/kater/utrecht-fleet/inventory/fleet.json
+
+# Remote CI health plane (bc-scan-2 remains execution SSOT).
+UTRECHT_CI_HEALTH_SSH_TARGET=ubuntu@bc-scan-2
+UTRECHT_CI_HEALTH_REMOTE_REPO=/home/ubuntu/<data-plane-repo>
+
+# Never point UTRECHT_MCP_URL at this Kater instance (self-loop).
+# UTRECHT_MCP_URL=
+
+# Optional local data-plane checkout for CLI tools only. Leave unset on runtime hosts.
+# UTRECHT_REPO_PATH=
+
+# ChefVault broker (secrets come from Vaultwarden via chefvault-profile).
+CHEF_VAULT_BROKER_URL=http://127.0.0.1:8322
+CHEF_VAULT_BROKER_TOKEN_FILE=/etc/kater/broker-token
+CHEF_VAULT_RUNTIME_DIR=/run/kater/chefvault
+CHEF_VAULT_PROFILE_COMMAND=chefvault-profile
+
+# Extensions: use ChefVault when bootstrapped; Utrecht overlay is separate package.
+# KATER_EXTENSIONS_MODULE is set by kater-with-chefvault.py to kater.chefvault_extension.
+# For Utrecht tools on top, load a combined extensions module in the release image.

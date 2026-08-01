@@ -1078,7 +1078,11 @@ def pr_gate_command(
     """Evaluate the deterministic merge gate for a PR."""
     from kater.pr_control import pr_gate_tool
 
-    result = pr_gate_tool(number, expected_head_sha=expected_head_sha)
+    try:
+        result = pr_gate_tool(number, expected_head_sha=expected_head_sha)
+    except RuntimeError as exc:
+        typer.echo(f"Gate failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     if json_output:
         _print_json(result)
         return
@@ -1110,3 +1114,549 @@ def pr_merge_command(
         typer.echo(f"Merge failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Merged PR #{result['pr_number']} (head {result['head_sha']}).")
+
+
+# ── migrate ────────────────────────────────────────────────────────
+
+
+migrate_app = typer.Typer(help="SQLite schema migrations.")
+app.add_typer(migrate_app, name="migrate")
+
+
+@migrate_app.command("status")
+def migrate_status_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Show current schema version and pending migrations."""
+    from kater.migrations import schema_status
+
+    status = schema_status()
+    if json_output:
+        _print_json(status)
+        return
+    typer.echo(f"database: {status['database']}")
+    typer.echo(f"current:  {status['current_version']} / latest {status['latest_version']}")
+    typer.echo(f"dirty:    {status['dirty']}")
+    pending = status["pending"]
+    if not pending:
+        typer.echo("pending:  none")
+        return
+    typer.echo(f"pending:  {len(pending)}")
+    for item in pending:
+        typer.echo(f"  {item['version']}: {item['name']}")
+
+
+@migrate_app.command("apply")
+def migrate_apply_command(
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Report pending migrations without applying.")
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Apply pending schema migrations (or report them with --dry-run)."""
+    from kater.migrations import MigrationError, run_migrations
+
+    try:
+        results = run_migrations(dry_run=dry_run)
+    except MigrationError as exc:
+        typer.echo(f"Migration failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = [{"version": r.version, "name": r.name, "status": r.status} for r in results]
+    if json_output:
+        _print_json({"dry_run": dry_run, "results": payload})
+        return
+    if not payload:
+        typer.echo("No migrations registered.")
+        return
+    for item in payload:
+        typer.echo(f"  {item['version']}: {item['name']} [{item['status']}]")
+
+
+# ── backup ─────────────────────────────────────────────────────────
+
+
+backup_app = typer.Typer(help="Backup and restore .kater state.")
+app.add_typer(backup_app, name="backup")
+
+
+@backup_app.command("create")
+def backup_create_command(
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Destination .tar.gz path or directory."),
+    ] = None,
+    no_secrets: Annotated[
+        bool, typer.Option("--no-secrets", help="Omit oauth/.env and redact settings secrets.")
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Bundle .kater state into a verifiable .tar.gz backup."""
+    from kater.backup import BackupError, create_backup
+
+    try:
+        result = create_backup(output, include_secrets=not no_secrets)
+    except BackupError as exc:
+        typer.echo(f"Backup failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = {
+        "path": str(result.path),
+        "bytes": result.bytes,
+        "files": list(result.files),
+        "schema_version": result.schema_version,
+        "include_secrets": result.include_secrets,
+    }
+    if json_output:
+        _print_json(payload)
+        return
+    typer.echo(f"Wrote {result.path} ({result.bytes} bytes, {len(result.files)} files)")
+
+
+@backup_app.command("inspect")
+def backup_inspect_command(
+    path: Annotated[Path, typer.Argument(help="Backup .tar.gz to inspect.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Validate a backup bundle and print its manifest."""
+    from kater.backup import BackupError, inspect_backup
+
+    try:
+        report = inspect_backup(path)
+    except BackupError as exc:
+        typer.echo(f"Inspect failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _print_json(report)
+        return
+    typer.echo(f"path:            {report['path']}")
+    typer.echo(f"ok:              {report['ok']}")
+    typer.echo(f"bundle_version:  {report['bundle_version']}")
+    typer.echo(f"kater_version:   {report['kater_version']}")
+    typer.echo(f"schema_version:  {report['schema_version']}")
+    typer.echo(f"include_secrets: {report['include_secrets']}")
+    typer.echo(f"files:           {', '.join(entry['name'] for entry in report['files'])}")
+    if report["missing"]:
+        typer.echo(f"missing:         {', '.join(report['missing'])}")
+    if report["unexpected"]:
+        typer.echo(f"unexpected:      {', '.join(report['unexpected'])}")
+    if report["mismatches"]:
+        typer.echo(f"mismatches:      {', '.join(report['mismatches'])}")
+
+
+@backup_app.command("restore")
+def backup_restore_command(
+    path: Annotated[Path, typer.Argument(help="Backup .tar.gz to restore.")],
+    force: Annotated[
+        bool, typer.Option("--force", help="Replace existing .kater (safety backup first).")
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Restore .kater state from a backup bundle."""
+    from kater.backup import BackupError, restore_backup
+
+    try:
+        result = restore_backup(path, force=force)
+    except BackupError as exc:
+        typer.echo(f"Restore failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    payload = {
+        "restored_files": list(result.restored_files),
+        "schema_version": result.schema_version,
+        "safety_backup": str(result.safety_backup) if result.safety_backup else None,
+        "migrations_applied": list(result.migrations_applied),
+    }
+    if json_output:
+        _print_json(payload)
+        return
+    typer.echo(
+        f"Restored {len(result.restored_files)} file(s); schema version {result.schema_version}"
+    )
+    if result.safety_backup is not None:
+        typer.echo(f"Safety backup: {result.safety_backup}")
+
+
+# ── browser ────────────────────────────────────────────────────────
+
+
+browser_app = typer.Typer(help="Native agent browser lane.")
+app.add_typer(browser_app, name="browser")
+
+
+@browser_app.command("providers")
+def browser_providers_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Report which browser backends are available without starting one."""
+    from kater.browser.tools import browser_providers_tool
+
+    result = browser_providers_tool()
+    if json_output:
+        _print_json(result)
+        return
+    for info in result["providers"]:
+        avail = "available" if info.get("available") else "unavailable"
+        detail = info.get("detail") or ""
+        typer.echo(f"  {info.get('kind')}: {avail}" + (f" - {detail}" if detail else ""))
+
+
+@browser_app.command("sessions")
+def browser_sessions_command(
+    live: Annotated[bool, typer.Option("--live", help="Hide closed/failed sessions.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List browser sessions and lane statistics."""
+    from kater.browser.tools import browser_sessions_tool
+
+    result = browser_sessions_tool(live_only=live)
+    if json_output:
+        _print_json(result)
+        return
+    sessions = result["sessions"]
+    typer.echo(f"{len(sessions)} session(s):")
+    for session in sessions:
+        typer.echo(
+            f"  {session.get('session_id')} [{session.get('state')}] "
+            f"{session.get('current_url') or '(no url)'}"
+        )
+
+
+@browser_app.command("open")
+def browser_open_command(
+    label: Annotated[str, typer.Option("--label", help="Human label for the session.")] = "",
+    url: Annotated[str, typer.Option("--url", help="Navigate here after opening.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Owning Kater profile.")] = "core",
+    width: Annotated[int, typer.Option("--width", help="Viewport width.")] = 1280,
+    height: Annotated[int, typer.Option("--height", help="Viewport height.")] = 800,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Open a browser session; optionally navigate to --url."""
+    from kater.browser.tools import browser_act_tool, browser_open_tool
+
+    kwargs: dict[str, Any] = {"profile": profile, "width": width, "height": height}
+    if label:
+        kwargs["label"] = label
+    result = browser_open_tool(**kwargs)
+    if result.get("ok") and url:
+        session_id = result["session"]["session_id"]
+        result["navigate"] = browser_act_tool(session_id=session_id, kind="navigate", url=url)
+    if json_output:
+        _print_json(result)
+        return
+    if not result.get("ok"):
+        typer.echo(f"Open failed: {result.get('error')}", err=True)
+        raise typer.Exit(code=1)
+    session = result["session"]
+    typer.echo(f"Opened {session['session_id']} [{session.get('state')}]")
+    nav = result.get("navigate")
+    if isinstance(nav, dict) and not nav.get("ok", True):
+        typer.echo(f"Navigate failed: {nav.get('error')}", err=True)
+        raise typer.Exit(code=1)
+
+
+@browser_app.command("act")
+def browser_act_command(
+    session_id: Annotated[str, typer.Argument(help="Session id from browser open.")],
+    kind: Annotated[str, typer.Option("--kind", help="Action kind (navigate, click, …).")],
+    url: Annotated[str, typer.Option("--url", help="Target URL (navigate).")] = "",
+    selector: Annotated[str, typer.Option("--selector", help="CSS selector.")] = "",
+    text: Annotated[str, typer.Option("--text", help="Text to type.")] = "",
+    key: Annotated[str, typer.Option("--key", help="Key to press.")] = "",
+    value: Annotated[str, typer.Option("--value", help="Option value (select).")] = "",
+    expression: Annotated[str, typer.Option("--expression", help="JS expression.")] = "",
+    delta_y: Annotated[
+        int | None, typer.Option("--delta-y", help="Vertical scroll delta in pixels.")
+    ] = None,
+    timeout_ms: Annotated[
+        int | None, typer.Option("--timeout-ms", help="Per-action timeout override.")
+    ] = None,
+    full_page: Annotated[
+        bool, typer.Option("--full-page", help="Full-page capture when kind=screenshot.")
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Run one browser action in an open session."""
+    from kater.browser.tools import browser_act_tool
+
+    kwargs: dict[str, Any] = {"session_id": session_id, "kind": kind}
+    if url:
+        kwargs["url"] = url
+    if selector:
+        kwargs["selector"] = selector
+    if text:
+        kwargs["text"] = text
+    if key:
+        kwargs["key"] = key
+    if value:
+        kwargs["value"] = value
+    if expression:
+        kwargs["expression"] = expression
+    if delta_y is not None:
+        kwargs["delta_y"] = delta_y
+    if timeout_ms is not None:
+        kwargs["timeout_ms"] = timeout_ms
+    if full_page:
+        kwargs["full_page"] = True
+    result = browser_act_tool(**kwargs)
+    if json_output:
+        _print_json(result)
+        return
+    if not result.get("ok", True):
+        typer.echo(f"Act failed: {result.get('error')}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"{kind} ok" + (f" → {result.get('url')}" if result.get("url") else ""))
+
+
+@browser_app.command("screenshot")
+def browser_screenshot_command(
+    session_id: Annotated[str, typer.Argument(help="Session id from browser open.")],
+    full_page: Annotated[bool, typer.Option("--full-page", help="Capture the full page.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Capture the current page as a JPEG (base64 in --json)."""
+    from kater.browser.tools import browser_screenshot_tool
+
+    result = browser_screenshot_tool(session_id=session_id, full_page=full_page)
+    if json_output:
+        _print_json(result)
+        return
+    if not result.get("ok", True):
+        typer.echo(f"Screenshot failed: {result.get('error')}", err=True)
+        raise typer.Exit(code=1)
+    image = result.get("screenshot_b64") or result.get("image_base64") or ""
+    typer.echo(f"Screenshot ok ({len(image)} base64 chars)")
+
+
+@browser_app.command("close")
+def browser_close_command(
+    session_id: Annotated[
+        str | None, typer.Argument(help="Session id to close (omit with --all).")
+    ] = None,
+    close_all: Annotated[bool, typer.Option("--all", help="Close every session.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Close one browser session, or every session with --all."""
+    from kater.browser.tools import browser_close_tool
+
+    if not close_all and not session_id:
+        typer.echo("Provide SESSION_ID or pass --all.", err=True)
+        raise typer.Exit(code=2)
+    kwargs: dict[str, Any] = {"all": True} if close_all else {"session_id": session_id}
+    result = browser_close_tool(**kwargs)
+    if json_output:
+        _print_json(result)
+        return
+    if not result.get("ok"):
+        typer.echo(f"Close failed: {result.get('error')}", err=True)
+        raise typer.Exit(code=1)
+    if close_all:
+        typer.echo(f"Closed {result.get('closed', 0)} session(s)")
+        return
+    session = result.get("session") or {}
+    typer.echo(f"Closed {session.get('session_id', session_id)}")
+
+
+# ── automations ────────────────────────────────────────────────────
+
+
+automations_app = typer.Typer(help="Scheduled automations (doctor, reap, prune, nudges).")
+app.add_typer(automations_app, name="automations")
+
+
+@automations_app.command("list")
+def automations_list_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List automations and seed defaults when the table is empty."""
+    from kater.automations import get_engine
+
+    engine = get_engine()
+    engine.ensure_defaults()
+    items = [item.to_dict() for item in engine.list()]
+    if json_output:
+        _print_json({"automations": items, "total": len(items)})
+        return
+    typer.echo(f"{len(items)} automation(s):")
+    for item in items:
+        state = "on" if item["enabled"] else "off"
+        last = item.get("last_status") or "-"
+        typer.echo(
+            f"  {item['id']} [{state}] {item['kind']} every {item['schedule_seconds']}s last={last}"
+        )
+
+
+@automations_app.command("run")
+def automations_run_command(
+    automation_id: Annotated[str, typer.Argument(help="Automation id to run.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Force one automation run now."""
+    from kater.automations import get_engine
+
+    try:
+        result = get_engine().run_now(automation_id)
+    except KeyError:
+        typer.echo(f"Automation not found: {automation_id}", err=True)
+        raise typer.Exit(code=1) from None
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
+    payload = result.to_dict()
+    if json_output:
+        _print_json(payload)
+        return
+    if payload["status"] != "ok":
+        typer.echo(f"Run failed: {payload.get('error')}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Ran {payload['id']} ({payload['kind']}) ok")
+
+
+@automations_app.command("enable")
+def automations_enable_command(
+    automation_id: Annotated[str, typer.Argument(help="Automation id to enable.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Enable an automation."""
+    from kater.automations import get_engine
+
+    automation = get_engine().set_enabled(automation_id, True)
+    if automation is None:
+        typer.echo(f"Automation not found: {automation_id}", err=True)
+        raise typer.Exit(code=1)
+    if json_output:
+        _print_json(automation.to_dict())
+        return
+    typer.echo(f"Enabled {automation.id}")
+
+
+@automations_app.command("disable")
+def automations_disable_command(
+    automation_id: Annotated[str, typer.Argument(help="Automation id to disable.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Disable an automation."""
+    from kater.automations import get_engine
+
+    automation = get_engine().set_enabled(automation_id, False)
+    if automation is None:
+        typer.echo(f"Automation not found: {automation_id}", err=True)
+        raise typer.Exit(code=1)
+    if json_output:
+        _print_json(automation.to_dict())
+        return
+    typer.echo(f"Disabled {automation.id}")
+
+
+# ── computer ───────────────────────────────────────────────────────
+
+
+computer_app = typer.Typer(help="Computer guest connector (HTTP capability lane).")
+app.add_typer(computer_app, name="computer")
+
+
+@computer_app.command("status")
+def computer_status_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Show whether the Computer connector is configured and active."""
+    from kater.capabilities.wiring import computer_status, ensure_computer_connector
+
+    ensure_computer_connector()
+    payload = computer_status()
+    if json_output:
+        _print_json(payload)
+        return
+    state = "active" if payload["active"] else ("configured" if payload["configured"] else "off")
+    typer.echo(
+        f"Computer [{state}] host={payload['base_url_host'] or '-'} "
+        f"profile={payload['profile']} capabilities={payload['capability_count']}"
+    )
+
+
+@computer_app.command("capabilities")
+def computer_capabilities_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List Computer tools exposed by the active connector."""
+    from kater.capabilities.wiring import ensure_computer_connector
+
+    connector = ensure_computer_connector()
+    tools = connector.list_tools() if connector is not None else []
+    payload = {"tools": tools, "total": len(tools)}
+    if json_output:
+        _print_json(payload)
+        return
+    if not tools:
+        typer.echo("No Computer capabilities (connector not configured).")
+        return
+    typer.echo(f"{len(tools)} capability(ies):")
+    for tool in tools:
+        typer.echo(f"  {tool.get('name')}")
+
+
+@computer_app.command("invoke")
+def computer_invoke_command(
+    capability_id: Annotated[str, typer.Argument(help="Capability id to invoke.")],
+    arg: Annotated[
+        list[str] | None,
+        typer.Option("--arg", help="Argument as key=value (repeatable)."),
+    ] = None,
+    args_json: Annotated[
+        str,
+        typer.Option("--args", help="JSON object of invocation arguments."),
+    ] = "",
+    args_file: Annotated[
+        Path | None,
+        typer.Option("--args-file", help="Path to a JSON object of arguments."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Invoke a Computer capability through the configured connector."""
+    from kater.capabilities.wiring import ensure_computer_connector
+
+    connector = ensure_computer_connector()
+    if connector is None:
+        typer.echo("Computer connector is not configured (set KATER_COMPUTER_URL+TOKEN).", err=True)
+        raise typer.Exit(code=1)
+
+    arguments: dict[str, Any] = {}
+    if args_file is not None:
+        try:
+            loaded = json.loads(args_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            typer.echo(f"Failed to read --args-file: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        if not isinstance(loaded, dict):
+            typer.echo("--args-file must contain a JSON object.", err=True)
+            raise typer.Exit(code=2)
+        arguments.update(loaded)
+    if args_json.strip():
+        try:
+            loaded = json.loads(args_json)
+        except json.JSONDecodeError as exc:
+            typer.echo(f"Invalid --args JSON: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        if not isinstance(loaded, dict):
+            typer.echo("--args must be a JSON object.", err=True)
+            raise typer.Exit(code=2)
+        arguments.update(loaded)
+    for item in arg or ():
+        if "=" not in item:
+            typer.echo(f"--arg must be key=value, got {item!r}", err=True)
+            raise typer.Exit(code=2)
+        key, value = item.split("=", 1)
+        if not key:
+            typer.echo(f"--arg must be key=value, got {item!r}", err=True)
+            raise typer.Exit(code=2)
+        arguments[key] = value
+
+    result = connector.call(capability_id, arguments)
+    if json_output:
+        _print_json(result)
+        return
+    status = result.get("status", "unknown")
+    typer.echo(f"{capability_id}: {status}")
+    if status != "succeeded":
+        error = result.get("error") or {}
+        code = error.get("code") if isinstance(error, dict) else None
+        if code:
+            typer.echo(f"  error: {code}", err=True)
+        raise typer.Exit(code=1)

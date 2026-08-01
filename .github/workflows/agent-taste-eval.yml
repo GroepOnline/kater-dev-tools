@@ -1,0 +1,93 @@
+name: agent-taste-eval
+
+on:
+  schedule:
+    # 04:27 UTC — beside existing no-org-leak / CI crons
+    - cron: "27 4 * * *"
+  workflow_dispatch:
+  # No pull_request trigger: ci.yml's validate job already runs
+  # generate-taste.py --check + eval-score.py --gate on every PR.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-taste-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # needed by the "Open issue on schedule failure" step below
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen --dev
+
+      - name: generate-taste --check
+        run: uv run python .agents/scripts/generate-taste.py --check
+
+      - name: eval-score --gate
+        run: |
+          EXTRA=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            EXTRA="--enforce-freshness"
+          fi
+          uv run python .agents/scripts/eval-score.py --gate $EXTRA
+        id: gate
+
+      - name: Upload scorecard artefact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-taste-scorecard
+          path: |
+            .agents/eval/scorecard.json
+            .agents/registry/signals.yaml
+          retention-days: 30
+
+      - name: Open issue on schedule failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const title = 'agent-taste-eval gate failed (nightly)';
+            const body = [
+              'Scheduled `eval-score.py --gate --enforce-freshness` failed.',
+              '',
+              'Artefact: `agent-taste-scorecard` on this workflow run.',
+              'No auto-commit; fix on feat/agent-taste-registry or main, then re-run.',
+              '',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join('\n');
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'agent-taste',
+              per_page: 5,
+            });
+            if (issues.data.some(i => i.title === title)) {
+              console.log('issue already open');
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['agent-taste'],
+            });

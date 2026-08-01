@@ -42,6 +42,16 @@ class TestBuildPaths:
         assert "/health" in paths
         assert "get" in paths["/health"]
 
+    def test_health_live_endpoint_exists(self):
+        paths = _build_paths()
+        assert "/health/live" in paths
+        assert "get" in paths["/health/live"]
+
+    def test_health_ready_endpoint_exists(self):
+        paths = _build_paths()
+        assert "/health/ready" in paths
+        assert "get" in paths["/health/ready"]
+
     def test_profiles_endpoint_exists(self):
         paths = _build_paths()
         assert "/api/profiles" in paths
@@ -73,6 +83,22 @@ class TestBuildPaths:
             for method, spec in methods.items():
                 if method in ("get", "post", "put", "delete", "patch", "head"):
                     assert "responses" in spec, f"{method.upper()} {path} missing responses"
+
+    def test_browser_paths_exist(self):
+        paths = _build_paths()
+        assert "get" in paths["/api/browser/providers"]
+        assert {"get", "post", "delete"} <= set(paths["/api/browser/sessions"])
+        assert {"get", "delete"} <= set(paths["/api/browser/sessions/{session_id}"])
+        assert "post" in paths["/api/browser/sessions/{session_id}/act"]
+        assert "post" in paths["/api/browser/sessions/{session_id}/screenshot"]
+        assert "get" in paths["/api/browser/stats"]
+
+    def test_automations_paths_exist(self):
+        paths = _build_paths()
+        assert {"get", "post"} <= set(paths["/api/automations"])
+        assert {"get", "delete"} <= set(paths["/api/automations/{id}"])
+        for suffix in ("run", "enable", "disable"):
+            assert "post" in paths[f"/api/automations/{{id}}/{suffix}"]
 
 
 class TestBuildSchemas:

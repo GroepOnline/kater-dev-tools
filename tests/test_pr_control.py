@@ -358,6 +358,29 @@ def test_review_threads_paginates_past_first_page() -> None:
     assert summ["open_threads"] == 1
 
 
+def test_review_threads_fails_closed_on_missing_cursor() -> None:
+    # hasNextPage without an endCursor would silently truncate the thread list
+    # and under-count open threads; the client must fail closed instead.
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(
+            returncode=0,
+            stdout=_graphql_threads_payload(
+                [{"isResolved": True, "isOutdated": False}],
+                has_next=True,
+                end_cursor=None,
+            ),
+            stderr="",
+        )
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    try:
+        client.review_threads(42)
+    except RuntimeError as exc:
+        assert "hasNextPage without an endCursor" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
 def test_client_api_error_raises() -> None:
     def fake_runner(args: list[str]) -> Any:
         return SimpleNamespace(returncode=1, stdout="", stderr="boom")
@@ -581,6 +604,44 @@ def test_merge_pr_applies_on_pass(monkeypatch) -> None:
     assert result["merged"] is True
     assert any("merge" in a and "--squash" in a for a in records)
     assert audit[-1]["action"] == "merge_applied"
+
+
+def test_merge_pr_includes_match_head_commit_and_handles_failure(monkeypatch) -> None:
+    """Verify --match-head-commit is passed to gh and merge failure is surfaced."""
+    monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.pull_request",
+        lambda self, number: _pr(),
+    )
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.is_base_protected", lambda self, base: False
+    )
+    records: list[list[str]] = []
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.runner",
+        staticmethod(_merge_runner_factory(records, fail=True)),
+    )
+    audit: list[dict[str, Any]] = []
+    monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: 1 and audit.append(kw))
+
+    # Merge failure is surfaced as RuntimeError.
+    try:
+        merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+    except RuntimeError as exc:
+        assert "merge conflict" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+    # --match-head-commit was included in the gh command.
+    merge_calls = [a for a in records if "merge" in a]
+    assert merge_calls, "gh pr merge was never called"
+    assert any("--match-head-commit" in a and "head000" in a for a in merge_calls), (
+        f"--match-head-commit head000 not found in args: {merge_calls}"
+    )
+
+    # Audit recorded the failure.
+    assert audit, "no audit entry recorded"
+    assert audit[-1]["action"] == "merge_failed"
 
 
 def test_pr_merge_tool_returns_merge_result(monkeypatch) -> None:

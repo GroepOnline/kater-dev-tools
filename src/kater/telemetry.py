@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from kater.control_plane.usage import record_usage_event
 from kater.storage import clear_all_events, insert_event, query_events
 
 _log = logging.getLogger("kater.telemetry")
@@ -34,12 +35,44 @@ class TelemetryEvent:
 
 def record_event(event: TelemetryEvent) -> None:
     insert_event(event.to_dict())
+    if event.type == "route_decision":
+        _emit_usage_from_route(event)
     try:
         from kater.websocket import broadcast_event
 
         broadcast_event(event.to_dict())
     except Exception as exc:
         _log.debug("telemetry broadcast failed: %s", exc)
+
+
+def _emit_usage_from_route(event: TelemetryEvent) -> None:
+    """Mirror control-plane route outcomes into the usage ledger."""
+    meta = event.metadata or {}
+    try:
+        cost_raw = meta.get("estimated_units", 0)
+        cost_units = float(cost_raw) if cost_raw is not None else 0.0
+    except (TypeError, ValueError):
+        cost_units = 0.0
+    try:
+        record_usage_event(
+            capability=event.name,
+            backend=meta.get("backend"),
+            tool_name=meta.get("tool_name"),
+            account_id=meta.get("account_id"),
+            context_id=meta.get("context_id"),
+            principal_id=meta.get("principal_id"),
+            success=bool(event.success),
+            duration_ms=float(event.duration_ms or 0),
+            cost_units=cost_units,
+            metadata={
+                "outcome": meta.get("outcome"),
+                "provider": meta.get("provider"),
+                "error": meta.get("error"),
+            },
+            timestamp=event.timestamp,
+        )
+    except Exception as exc:
+        _log.warning("usage event record failed for %s: %s", event.name, exc)
 
 
 def record_tool_call(

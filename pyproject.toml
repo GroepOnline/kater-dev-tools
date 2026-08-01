@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "jsonschema>=4.26",
-    "mcp>=1.28.1",
+    "mcp>=2.0.0",
     "pydantic>=2.7",
     "typer>=0.27.0",
 ]
@@ -35,8 +35,11 @@ kater = "kater.cli:app"
 kater-routes = "kater.control_plane.cli:app"
 kater-capabilities = "kater.capabilities.cli:app"
 
+[project.optional-dependencies]
+browser = ["playwright>=1.49"]
+
 [build-system]
-requires = ["uv_build>=0.11.32,<0.12"]
+requires = ["uv_build>=0.12.0,<0.13"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -47,6 +50,7 @@ dev = [
     "mypy>=2.3.0",
     "pyyaml>=6.0",
     "pip-audit>=2.9.0",
+    "playwright>=1.49",
 ]
 
 [tool.pytest.ini_options]
@@ -111,6 +115,9 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 "scripts/sync_cursor_plugins.py" = ["S603", "S607"]
 # no_org_leak.py runs git with list-form argv (operator-controlled).
 "scripts/no_org_leak.py" = ["S603", "S607"]
+# kater-with-chefvault bootstrap runs list-form argv against operator-controlled
+# binaries (chefvault-profile, uv) and re-execs uv; not user input.
+"scripts/kater-with-chefvault.py" = ["S603", "S606", "S607"]
 # pr_control shells out to the operator's gh CLI (read-only) and uses constant
 # verdict constants; S603/S607/S105 flagging is noise here.
 "src/kater/pr_control.py" = ["S603", "S607", "S105"]

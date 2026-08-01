@@ -829,3 +829,103 @@ def test_browser_url_enter_serializes_navigation_through_go_button():
     assert "if (browserNavigating) return;" in block
     assert "browserNavigating = true;" in block
     assert "browserNavigating = false;" in block[block.index("} finally {") :]
+
+
+# Gedragstest voor de navigatie-guard: voert het echte `browserNavigate` uit in
+# Node met een vertraagde `apiPost`, zodat een tweede aanroep tijdens een
+# lopende navigatie aantoonbaar wordt genegeerd in plaats van alleen de
+# brontekst van de guard te matchen.
+_BROWSER_NAV_HARNESS = r"""
+const urlEl = { value: 'https://example.com' };
+const document = {
+  getElementById(id) { return id === 'browser-url' ? urlEl : null; },
+};
+let browserNavigating = false;
+let browserSelectedId = 'sess-1';
+function toast() {}
+function pushBrowserLog() {}
+function showBrowserShot() {}
+async function pollBrowserScreenshot() {}
+async function loadBrowserView() {}
+
+let apiPostCalls = 0;
+let pendingResolve = null;
+function apiPost() {
+  apiPostCalls += 1;
+  return new Promise((resolve) => { pendingResolve = resolve; });
+}
+
+/*__DASHBOARD_JS__*/
+
+const btn = {
+  disabled: false,
+  textContent: 'Go',
+  attrs: {},
+  setAttribute(k, v) { this.attrs[k] = v; },
+  removeAttribute(k) { delete this.attrs[k]; },
+};
+
+(async () => {
+  const first = browserNavigate(btn);
+  const duringFlight = {
+    disabled: btn.disabled,
+    ariaBusy: btn.attrs['aria-busy'] === 'true',
+    label: btn.textContent,
+  };
+
+  // Tweede aanroep terwijl de eerste nog loopt: de guard moet die laten vallen.
+  await browserNavigate(btn);
+  const callsWhilePending = apiPostCalls;
+
+  pendingResolve({ ok: true, url: 'https://example.com', screenshot_b64: 'x' });
+  await first;
+  const afterFlight = {
+    disabled: btn.disabled,
+    ariaBusy: 'aria-busy' in btn.attrs,
+    label: btn.textContent,
+  };
+
+  // Na afronding laat de guard een nieuwe navigatie weer door.
+  const second = browserNavigate(btn);
+  const callsAfterRelease = apiPostCalls;
+  pendingResolve({ ok: true, url: 'https://example.com', screenshot_b64: 'x' });
+  await second;
+
+  process.stdout.write(JSON.stringify({
+    duringFlight,
+    callsWhilePending,
+    afterFlight,
+    callsAfterRelease,
+  }));
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+"""
+
+
+def test_browser_navigate_drops_overlapping_invocations_node(tmp_path):
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:
+        pytest.skip("node is required to execute the dashboard JS")
+    assert node is not None
+    html = render_dashboard()
+    dashboard_js = _extract_js_function(html, "browserNavigate")
+    script = tmp_path / "browser_navigate_guard.cjs"
+    script.write_text(
+        _BROWSER_NAV_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(proc.stdout)
+    # Tijdens de eerste navigatie is de knop uitgeschakeld en bezig gemarkeerd.
+    assert res["duringFlight"] == {"disabled": True, "ariaBusy": True, "label": "Go..."}
+    # De overlappende tweede aanroep bereikt de API niet.
+    assert res["callsWhilePending"] == 1
+    # Na afloop is de knopstatus hersteld.
+    assert res["afterFlight"] == {"disabled": False, "ariaBusy": False, "label": "Go"}
+    # En een volgende navigatie mag weer door de guard.
+    assert res["callsAfterRelease"] == 2

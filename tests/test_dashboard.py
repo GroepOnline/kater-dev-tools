@@ -522,12 +522,10 @@ let credInvoker = null;
 
 /*__DASHBOARD_JS__*/
 
-// Test openDetail
 const mockNode = { name: 'test' };
 openDetail(mockNode);
 const afterOpenDetailInvoker = detailInvoker;
 
-// Test closeDetail
 closeDetail();
 const afterCloseDetailInvoker = detailInvoker;
 const focusCalled = document.activeElement.focusCalled;

@@ -25,7 +25,12 @@
 **Learning:** Implementing the complete WAI-ARIA Combobox pattern (role="combobox", aria-autocomplete="list", aria-controls, aria-expanded, aria-activedescendant, and role="option") for a command palette ensures screen readers can correctly announce the search box, the live item count, and focus changes when navigating options via Arrow keys without losing typing focus.
 **Action:** Always fully bind role="combobox" inputs with their respective role="listbox" container using dynamic aria-activedescendant to ensure standard-compliant command palette accessibility.
 
+<<<<<<< HEAD
+## 2026-07-27 - [Connection Modal Label-Input Pairing]
+**Learning:** Dynamically generated input fields (such as those in connection or credentials modals) must be explicitly associated with their corresponding `<label>` elements by generating a sanitized unique ID (e.g. `cred-input-[name]`) and setting the label's `for` attribute and input's `id` attribute. This guarantees that screen readers correctly read out the field name when the field gains focus.
+**Action:** Always pair dynamically generated labels and inputs using sanitized matching ID / for attributes.
+=======
 ## 2026-07-23 - [Credential Modal Label Pairing]
-
-**Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must get a sanitized, collision-safe ID (sanitizing is lossy, so `A_B` and `A-B` would otherwise collapse to one ID; append the field index to keep IDs unique) and pair it via the label's `for` attribute and the input's `id` attribute. This gives the input a programmatically associated label so screen readers announce the credential name when the field gains focus.
-**Action:** Dynamically generate sanitized, index-suffixed unique IDs for connection credential inputs and explicitly associate each with its label using matching `label[for]` / `input[id]` attributes.
+**Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must have a uniquely generated, sanitized ID paired with its corresponding label's `for` attribute to guarantee the element is keyboard-navigable and its name is properly announced by screen readers.
+**Action:** Dynamically generate sanitized unique IDs for connection credential inputs and explicitly associate them with labels using `for` and `id` attributes.
+>>>>>>> origin/main

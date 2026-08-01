@@ -2367,13 +2367,9 @@ function formatLaunch(node) {
 }
 
 function openDetail(node) {
-  // Track the latest trigger from outside the panel: selecting another server
-  // while the panel is open must move the return target to that row, but focus
-  // already inside the panel (close button, actions) is not a return target.
-  const trigger = document.activeElement;
-  const openPanel = document.getElementById('detail-panel');
-  if (trigger && trigger.tagName !== 'BODY' && !openPanel.contains(trigger)) {
-    detailInvoker = trigger;
+  if (!detailInvoker && document.activeElement
+      && document.activeElement.tagName !== 'BODY') {
+    detailInvoker = document.activeElement;
   }
   selectedNode = node;
   document.getElementById('detail-name').textContent = node.name || '-';

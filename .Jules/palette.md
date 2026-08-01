@@ -26,8 +26,9 @@
 **Action:** Always fully bind role="combobox" inputs with their respective role="listbox" container using dynamic aria-activedescendant to ensure standard-compliant command palette accessibility.
 
 ## 2026-07-23 - [Credential Modal Label Pairing]
-**Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must have a uniquely generated, sanitized ID paired with its corresponding label's `for` attribute to guarantee the element is keyboard-navigable and its name is properly announced by screen readers.
-**Action:** Dynamically generate sanitized unique IDs for connection credential inputs and explicitly associate them with labels using `for` and `id` attributes.
+
+**Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must get a sanitized, collision-safe ID (sanitizing is lossy, so `A_B` and `A-B` would otherwise collapse to one ID; append the field index to keep IDs unique) and pair it via the label's `for` attribute and the input's `id` attribute. This gives the input a programmatically associated label so screen readers announce the credential name when the field gains focus.
+**Action:** Dynamically generate sanitized, index-suffixed unique IDs (via `credInputId(v, i)`) for connection credential inputs and explicitly associate each with its label using matching `label[for]` / `input[id]` attributes.
 
 ## 2026-07-24 - [Standard-Compliant Focus Restoration for Overlays]
 

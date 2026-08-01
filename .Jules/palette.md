@@ -30,5 +30,6 @@
 **Action:** Dynamically generate sanitized unique IDs for connection credential inputs and explicitly associate them with labels using `for` and `id` attributes.
 
 ## 2026-07-24 - [Standard-Compliant Focus Restoration for Overlays]
-**Learning:** In keyboard-driven and screen-reader accessible single-page applications, closing overlays (such as sliding panels or modal dialogs) without restoring focus causes keyboard focus to be lost. Capturing `document.activeElement` when opening an overlay and restoring focus to it upon closing or saving prevents users from being dropped back to the top of the document.
-**Action:** Always capture the triggering active element when displaying overlays and restore focus to it on close, dismiss, or successful completion.
+
+**Learning:** In single-page applications die met toetsenbord en schermlezer worden gebruikt, gaat de focus verloren als een overlay sluit zonder focusherstel. Leg `document.activeElement` vast bij het openen van een overlay en herstel de focus bij sluiten, annuleren of succesvol opslaan.
+**Action:** Leg altijd het actieve element vast dat de overlay opent en herstel de focus bij sluiten, annuleren of succesvolle voltooiing.

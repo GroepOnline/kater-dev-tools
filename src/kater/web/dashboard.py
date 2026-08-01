@@ -1616,6 +1616,9 @@ let activeProfile = 'core';
 let selectedNode = null;
 let detailInvoker = null;
 let credInvoker = null;
+// Bumps on every openServerDetail call so a late response from an older
+// fetch cannot reopen or overwrite the panel after the user moved on.
+let detailRequestGen = 0;
 
 // Overview live state.
 let routeFilter = 'all';
@@ -2320,14 +2323,15 @@ function moveRouteSel(delta) {
 
 async function openSelectedRoute() {
   if (routeSel < 0 || !routeRows[routeSel]) return;
-  const name = routeRows[routeSel].dataset.name;
+  const invoker = routeRows[routeSel];
+  const name = invoker.dataset.name;
   let node = servers.find(s => s.name === name);
   if (!node) return;
   if (!node.mcp) {
     try { node = await api('/api/mcp/servers/' + encodeURIComponent(node.name)); }
     catch (err) { /* fall back */ }
   }
-  openDetail(node);
+  openDetail(node, false, invoker);
 }
 
 function buildNodes() {
@@ -2351,7 +2355,7 @@ async function onServerMapClick(e) {
     try { node = await api('/api/mcp/servers/' + encodeURIComponent(node.name)); }
     catch (err) { /* fall back */ }
   }
-  openDetail(node);
+  openDetail(node, false, row);
 }
 
 function startAnimationLoop() {}
@@ -2366,14 +2370,16 @@ function formatLaunch(node) {
   return '-';
 }
 
-function openDetail(node, refresh) {
+function openDetail(node, refresh, invoker) {
   // Track the latest trigger from outside the panel: selecting another server
   // while the panel is open must move the return target to that row, but focus
   // already inside the panel (close button, actions) is not a return target.
   // Background refreshes (WebSocket updates, post-action reloads) pass
   // refresh=true and must not overwrite the invoker: whatever happens to hold
   // focus then (e.g. the command bar) never opened the panel.
-  const trigger = document.activeElement;
+  // Callers that await a fetch pass the pre-captured invoker so a focus move
+  // during the request cannot steal the return target.
+  const trigger = invoker !== undefined ? invoker : document.activeElement;
   const openPanel = document.getElementById('detail-panel');
   if (!refresh && trigger && trigger.tagName !== 'BODY'
       && !openPanel.contains(trigger)) {
@@ -2487,21 +2493,23 @@ function connectSelected() {
   if (selectedNode && selectedNode.name) promptCredentials(selectedNode.name);
 }
 
-async function promptCredentials(name) {
+async function promptCredentials(name, invoker) {
   // Always work from the full server doc: the catalog payload omits the list
   // of required env vars, the detail endpoint has it.
+  // Capture the trigger before the await — focus may move while loading.
+  const captured = invoker !== undefined ? invoker : document.activeElement;
   try {
     const server = await api('/api/mcp/servers/' + encodeURIComponent(name));
-    if (server && !server.error) openCredentialsModal(server);
+    if (server && !server.error) openCredentialsModal(server, captured);
   } catch (e) {
     toast('Could not load ' + name + ': ' + (e.message || 'failed'), 'error');
   }
 }
 
-function openCredentialsModal(server) {
-  if (!credInvoker && document.activeElement
-      && document.activeElement.tagName !== 'BODY') {
-    credInvoker = document.activeElement;
+function openCredentialsModal(server, invoker) {
+  const trigger = invoker !== undefined ? invoker : document.activeElement;
+  if (!credInvoker && trigger && trigger.tagName !== 'BODY') {
+    credInvoker = trigger;
   }
   credServer = server;
   const reqs = server.env_required || [];
@@ -2683,7 +2691,7 @@ function initDelegation() {
       return;
     }
     const card = e.target.closest('.server-card');
-    if (card && card.dataset.name) openServerDetail(card.dataset.name);
+    if (card && card.dataset.name) openServerDetail(card.dataset.name, false, card);
   });
   grid.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -2697,7 +2705,7 @@ function initDelegation() {
       const card = e.target.closest('.server-card');
       if (card && card.dataset.name && e.target === card) {
         e.preventDefault();
-        openServerDetail(card.dataset.name);
+        openServerDetail(card.dataset.name, false, card);
       }
     }
   });
@@ -3572,10 +3580,25 @@ async function toggleServerCard(name, el) {
   }
 }
 
-async function openServerDetail(name, refresh) {
+async function openServerDetail(name, refresh, invoker) {
+  // Capture before the await so a focus move during the fetch cannot steal
+  // the return target. Background refreshes skip capture entirely.
+  const captured = refresh
+    ? null
+    : (invoker !== undefined ? invoker : document.activeElement);
+  const gen = ++detailRequestGen;
   try {
     const data = await api('/api/mcp/servers/' + encodeURIComponent(name));
-    openDetail(data, refresh);
+    if (gen !== detailRequestGen) return;
+    if (refresh) {
+      // Drop stale refreshes: panel closed, or user selected another server.
+      const panel = document.getElementById('detail-panel');
+      if (!panel || !panel.classList.contains('open')) return;
+      if (!selectedNode || selectedNode.name !== name) return;
+      openDetail(data, true);
+      return;
+    }
+    openDetail(data, false, captured);
   } catch (e) {
     toast(name + ': ' + (e.message || 'not found'), 'error');
   }

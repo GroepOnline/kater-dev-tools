@@ -435,6 +435,15 @@ def test_pr_view_reload_is_race_safe_and_dom_safe():
     assert "badge.textContent = verdict" in fn_body
 
 
+<<<<<<< HEAD
+def test_cred_modal_labels_are_paired_with_inputs():
+    # Credentials modal labels must be explicitly paired with their corresponding
+    # input elements using a sanitized ID for proper screen reader support.
+    html = render_dashboard()
+    assert "const id = 'cred-input-' + v.replace(/[^a-z0-9]/gi, '-')" in html
+    assert "label.setAttribute('for', id)" in html
+    assert "input.id = id" in html
+=======
 def test_browser_view_has_live_pane_seams():
     html = render_dashboard()
     assert 'id="view-browser"' in _VIEW_BROWSER
@@ -477,3 +486,4 @@ def test_fabric_view_has_capabilities_contexts_computer_seams():
     assert "/api/capabilities" in html
     assert "/api/contexts" in html
     assert "/api/computer" in html
+>>>>>>> origin/main

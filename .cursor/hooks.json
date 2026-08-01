@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/fetch-cursor-artifacts.sh",
+        "timeout": 15
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": ".cursor/hooks/fetch-cursor-artifacts.sh",
+        "timeout": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": ".cursor/hooks/fetch-cursor-artifacts.sh",
+        "timeout": 15
+      }
+    ],
+    "workspaceOpen": [
+      {
+        "command": ".cursor/hooks/fetch-cursor-artifacts.sh",
+        "timeout": 15
+      }
+    ]
+  }
+}

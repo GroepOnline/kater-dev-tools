@@ -1,0 +1,18 @@
+version: 1
+generated_by: scripts/generate_cursor_index.py
+items:
+- name: kater-project
+  path: .cursor/rules/kater-project.mdc
+  kind: rule
+  summary: Kater dev-tools project SSOT, parallel scopes, and verification discipline.
+  when: alwaysApply — Kater dev-tools project SSOT, parallel scopes…
+- name: taste
+  path: .cursor/rules/taste.mdc
+  kind: rule
+  summary: Agent-gedrag-taste (generated from kater-dev-tools .agents/registry/taste.yaml).
+  when: alwaysApply — Agent-gedrag-taste (generated from kater-dev-…
+- name: verify-before-claim
+  path: .cursor/rules/verify-before-claim.mdc
+  kind: rule
+  summary: Probe gateway health and ports before claiming live runtime state.
+  when: alwaysApply — Probe gateway health and ports before claimin…

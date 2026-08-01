@@ -25,7 +25,7 @@
 **Learning:** Implementing the complete WAI-ARIA Combobox pattern (role="combobox", aria-autocomplete="list", aria-controls, aria-expanded, aria-activedescendant, and role="option") for a command palette ensures screen readers can correctly announce the search box, the live item count, and focus changes when navigating options via Arrow keys without losing typing focus.
 **Action:** Always fully bind role="combobox" inputs with their respective role="listbox" container using dynamic aria-activedescendant to ensure standard-compliant command palette accessibility.
 
-## 2026-07-27 - [Connection Modal Label-Input Pairing]
+## 2026-07-23 - [Credential Modal Label Pairing]
 
-**Learning:** Dynamically generated input fields (such as those in connection or credentials modals) must be explicitly associated with their corresponding `<label>` elements by generating a per-field unique ID (e.g. `cred-input-[index]-[name]`) and setting the label's `for` attribute and input's `id` attribute. Prefix the sanitized name with the field index so names that sanitize identically (e.g. `A_B` and `A-B`) cannot collide into the same ID and misroute the label. This guarantees that screen readers correctly read out the field name when the field gains focus.
-**Action:** Always pair dynamically generated labels and inputs using per-field unique (index-prefixed) matching ID / for attributes.
+**Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must have a uniquely generated, sanitized ID (index-suffixed, since sanitization is lossy: `A_B` and `A-B` normalize alike) paired with its corresponding label's `for` attribute to guarantee the element is keyboard-navigable and its name is properly announced by screen readers.
+**Action:** Dynamically generate per-field unique sanitized IDs for connection credential inputs and explicitly associate them with labels using `for` and `id` attributes.

@@ -39,7 +39,12 @@ async def mcp_checks() -> None:
     async with sse_client("http://127.0.0.1:9090/sse") as (read, write):
         async with ClientSession(read, write) as session:
             init = await session.initialize()
-            check("MCP initialize", init.serverInfo is not None, init.serverInfo.name or "")
+            info = getattr(init, "server_info", None) or getattr(init, "serverInfo", None)
+            check(
+                "MCP initialize",
+                info is not None,
+                (getattr(info, "name", None) or "") if info is not None else "",
+            )
             tools = await session.list_tools()
             names = [tool.name for tool in tools.tools]
             check("MCP tools/list", len(names) > 0, f"{len(names)} tools")

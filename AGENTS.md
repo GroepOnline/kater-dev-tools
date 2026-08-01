@@ -1,7 +1,74 @@
 # AGENTS.md — Kater Dev Tools
 
-Project conventions for AI agents working in this repo. The user's global
-`C:\Users\joep\AGENTS.md` holds the Merge CLI section and is loaded alongside this file.
+Project conventions for AI agents working in this repo. Optional desktop-only:
+a maintainer may load a personal global `AGENTS.md` for Merge CLI notes — not
+required in Cursor Cloud.
+
+## Skills
+
+Full index + environment metadata: [`.cursor/INDEX.md`](.cursor/INDEX.md)
+(regenerate with `python3 scripts/generate_cursor_index.py`).
+
+| Skill | Path | Use when |
+| --- | --- | --- |
+| `local-verify` | `.cursor/skills/local-verify/` | Umbrella: cloud vs desktop vs Docker verify matrix + port koppelingen |
+| `kater-gateway` | `.cursor/skills/kater-gateway/` | Serve, health, smoke ladder |
+| `kater-doctor` | `.cursor/skills/kater-doctor/` | `kater doctor` diagnostics / fix-plan |
+| `kater-e2e` | `.cursor/skills/kater-e2e/` | `./scripts/e2e-mcp.sh` (server up) |
+| `kater-dashboard` | `.cursor/skills/kater-dashboard/` | REST + dashboard on `:9091` |
+| `pr-gate` | `.cursor/skills/pr-gate/` | Merge-ready PR checks and gate contract |
+| `ci-fixer` | `.cursor/skills/ci-fixer/` | Fix failing CI / lint / tests (twin of `ci-fixer` agent) |
+| `parallel-lanes` | `.cursor/skills/parallel-lanes/` | Spawn ~4 disjoint-scope parallel workers |
+| `create-skill` | `.cursor/skills/create-skill/` | `/create-skill` — scaffold a project skill |
+| `create-subagent` | `.cursor/skills/create-subagent/` | `/create-subagent` — scaffold a project subagent |
+
+Slash commands (thin wrappers): `.cursor/commands/*.md` — see INDEX.
+
+SSOT is `.cursor/` only — no mirrored copies under `.agents` / `.claude` / `.codex`.
+Org-pinned PR gate overlays live in the private deployment repo; see
+[`docs/ops/private-cursor-overlay.md`](docs/ops/private-cursor-overlay.md).
+Local/desktop verify how-to: [`docs/ops/local-desktop-verify.md`](docs/ops/local-desktop-verify.md).
+
+## Subagents
+
+| Agent | Path | Use when |
+| --- | --- | --- |
+| `kater-verify` | `.cursor/agents/kater-verify.md` | Read-only gateway/smoke/e2e/doctor proof |
+| `ci-fixer` | `.cursor/agents/ci-fixer.md` | Fix failing CI / lint / tests on current PR |
+| `parallel-lane` | `.cursor/agents/parallel-lane.md` | One disjoint-scope implementation lane |
+| `pr-gate` | `.cursor/agents/pr-gate.md` | One-PR gate lane (CI, review, rebase) |
+
+## Pre-commit / pre-hooks
+
+```bash
+uvx pre-commit install
+uvx pre-commit run --all-files
+```
+
+Local hooks include hygiene, ruff, mypy, gitleaks, `no-org-leak`, and
+`cursor-index` (`scripts/check_cursor_artifacts.sh` — catalog cache + INDEX
+staleness + org-leak scan under `.cursor/`).
+
+## Hooks
+
+Project hooks in `.cursor/hooks.json` fetch the skills/agents catalog on new
+sessions (and once per cloud conversation after the first tool use):
+
+| Event | Cloud | Role |
+| --- | --- | --- |
+| `sessionStart` | no | Inject catalog + write inject marker (IDE) |
+| `postToolUse` | yes | Inject catalog once per conversation (cloud substitute for sessionStart); later calls are a cheap no-op |
+| `beforeSubmitPrompt` | yes | Allow prompt (`continue: true`); no context inject (schema limitation) |
+| `workspaceOpen` | no | Register `.cursor/plugins/*` via `pluginPaths` |
+
+Cloud cold-start: catalog reaches the model after the first successful
+`postToolUse` inject (or when the agent runs the manual command below).
+
+Manual refresh:
+
+```bash
+.cursor/hooks/fetch-cursor-artifacts.sh --print-markdown
+```
 
 ## Parallel Working (Default)
 
@@ -27,13 +94,35 @@ Each agent prompt must be self-contained: focused scope, clear goal, constraints
 code"), and expected output (summary of root cause + changes). After return: review summaries, check
 for cross-agent conflicts, run the full test suite, then integrate.
 
-## Cursor Cloud specific instructions
+## Agent taste (shared)
+
+Canonieke agent-gedrag-taste leeft in `.agents/registry/taste.yaml` (niet in
+consuming apps zoals `design-system`). Genereer tool-artefacts met:
+
+```bash
+uv run python .agents/scripts/generate-taste.py
+uv run python .agents/scripts/generate-taste.py --check
+```
+
+Zie `.agents/README.md`. UI-taste blijft in `design-system/taste/`.
 
 Kater is a single Python package (`uv`-managed, Python 3.11–3.14; VM ships 3.12). The startup update
 script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile`) and runs
 `uv sync --dev`, so deps are ready before each session. Use `uv run <cmd>` for everything.
 
-- **Run the app**: `uv run kater up` (or `uv run kater serve`). One process starts three
+- **Artifact catalog**: skills, agents, hooks, and ports are indexed in
+  [`.cursor/INDEX.md`](.cursor/INDEX.md) (regenerate with `python3 scripts/generate_cursor_index.py`).
+  In Cloud, hooks inject the catalog after the **first** `postToolUse` — not at session open. Until
+  then, read INDEX or run `.cursor/hooks/fetch-cursor-artifacts.sh --print-markdown`. Use the
+  **`local-verify`** skill (`/local-verify`) for the cloud vs desktop vs Docker verify matrix.
+- **Auto-terminal gateway**: `.cursor/environment.json` starts
+  `uv run kater serve --profile core --no-proxy --host 127.0.0.1` in a background terminal (MCP
+  `:9090`, REST/dashboard `:9091`, WebSocket `:9092`). This is **not** `kater up` — it does not
+  write `.cursor/mcp.json`. For live MCP tools from the agent session, either run
+  `uv run kater up` once (writes project MCP config) or add SSE wiring yourself:
+  `"url": "http://127.0.0.1:9090/sse"`. See [`docs/cursor-setup.md`](docs/cursor-setup.md#cloud-agent-mcp-wiring).
+- **Run the app (manual)**: `uv run kater up` (init + MCP config + serve) or `uv run kater serve`.
+  One process starts three
   listeners — REST API + dashboard on `:9091`, MCP SSE on `:9090/sse`, WebSocket telemetry
   on `:9092`. Defaults to loopback with `auth=none`; no external DB (SQLite auto-provisions
   under `.kater/`). Secrets in `.kater/.env` are loaded automatically; proxy backends
@@ -44,10 +133,10 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
   `./scripts/smoke.sh`).
 - **Test suite timing**: `uv run pytest` takes ~100-120s (551 passing, a few skipped for live/network
  integrations); don't assume it hung.
-- **`./scripts/smoke.sh` must run with the server stopped**: it drives the `kater` CLI against the
- same `.kater/kater.db` SQLite file the live server holds, and running it while `kater serve` is up
- causes a concurrent-writer `disk I/O error`. CI stops the server before smoke; do the same locally.
- `./scripts/e2e-mcp.sh`, by contrast, requires the server running.
+- **Stop before smoke**: `./scripts/smoke.sh` must run with the server **stopped** — stop the
+  auto-terminal gateway first. Smoke drives the CLI against `.kater/kater.db`; a live `kater serve`
+  causes concurrent-writer `disk I/O error`. CI stops the server before smoke; do the same in Cloud.
+  `./scripts/e2e-mcp.sh`, by contrast, requires the server running.
 - **End-to-end check**: with the server running, `./scripts/e2e-mcp.sh` validates REST + a real MCP
   client (initialize/tools) + the WebSocket handshake. Best single proof the gateway works.
 - **Core functionality without secrets**: exercisable without any adapter API keys via the CLI

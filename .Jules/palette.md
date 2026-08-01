@@ -29,3 +29,8 @@
 
 **Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must get a sanitized, collision-safe ID (sanitizing is lossy, so `A_B` and `A-B` would otherwise collapse to one ID; append the field index to keep IDs unique) and pair it via the label's `for` attribute and the input's `id` attribute. This gives the input a programmatically associated label so screen readers announce the credential name when the field gains focus.
 **Action:** Dynamically generate sanitized, index-suffixed unique IDs (via `credInputId(v, i)`) for connection credential inputs and explicitly associate each with its label using matching `label[for]` / `input[id]` attributes.
+
+## 2026-07-24 - [Standard-Compliant Focus Restoration for Overlays]
+
+**Learning:** In single-page applications die met toetsenbord en schermlezer worden gebruikt, gaat de focus verloren als een overlay sluit zonder focusherstel. Leg `document.activeElement` vast bij het openen van een overlay en herstel de focus bij sluiten, annuleren of succesvol opslaan.
+**Action:** Leg altijd het actieve element vast dat de overlay opent en herstel de focus bij sluiten, annuleren of succesvolle voltooiing.

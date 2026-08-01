@@ -28,3 +28,8 @@
 ## 2026-07-23 - [Credential Modal Label Pairing]
 **Learning:** For dynamically generated forms (e.g. the connection credential modal), each dynamically created input must have a uniquely generated, sanitized ID paired with its corresponding label's `for` attribute to guarantee the element is keyboard-navigable and its name is properly announced by screen readers.
 **Action:** Dynamically generate sanitized unique IDs for connection credential inputs and explicitly associate them with labels using `for` and `id` attributes.
+
+## 2026-07-24 - [Standard-Compliant Focus Restoration for Overlays]
+
+**Learning:** In single-page applications die met toetsenbord en schermlezer worden gebruikt, gaat de focus verloren als een overlay sluit zonder focusherstel. Leg `document.activeElement` vast bij het openen van een overlay en herstel de focus bij sluiten, annuleren of succesvol opslaan.
+**Action:** Leg altijd het actieve element vast dat de overlay opent en herstel de focus bij sluiten, annuleren of succesvolle voltooiing.

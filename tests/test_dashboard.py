@@ -486,7 +486,8 @@ def test_focus_restoration_logic_is_present():
     assert "let detailInvoker = null;" in html
     assert "let credInvoker = null;" in html
     assert "function openDetail" in html
-    assert "detailInvoker = document.activeElement" in html
+    assert "const trigger = document.activeElement;" in html
+    assert "detailInvoker = trigger;" in html
     assert "function closeDetail" in html
     assert "invoker.focus()" in html
     assert "function openCredentialsModal" in html
@@ -496,16 +497,13 @@ def test_focus_restoration_logic_is_present():
 
 _FOCUS_HARNESS = r"""
 const document = {
-  activeElement: {
-    tagName: 'BUTTON',
-    focusCalled: false,
-    focus() { this.focusCalled = true; }
-  },
+  activeElement: null,
   contains(el) { return true; },
   getElementById(id) {
     return {
       classList: { remove() {}, add() {} },
       appendChild() {},
+      contains() { return false; },
       innerHTML: '',
       textContent: '',
       style: {},
@@ -522,18 +520,32 @@ let credInvoker = null;
 
 /*__DASHBOARD_JS__*/
 
-const mockNode = { name: 'test' };
-openDetail(mockNode);
+const makeCard = () => ({
+  tagName: 'BUTTON',
+  focusCalled: false,
+  focus() { this.focusCalled = true; },
+});
+const cardA = makeCard();
+const cardB = makeCard();
+
+document.activeElement = cardA;
+openDetail({ name: 'a' });
 const afterOpenDetailInvoker = detailInvoker;
+
+// Selecting another server while the panel stays open must retarget focus.
+document.activeElement = cardB;
+openDetail({ name: 'b' });
+const afterReselectInvoker = detailInvoker;
 
 closeDetail();
 const afterCloseDetailInvoker = detailInvoker;
-const focusCalled = document.activeElement.focusCalled;
 
 process.stdout.write(JSON.stringify({
-  detailInvokerSet: afterOpenDetailInvoker === document.activeElement,
+  detailInvokerSet: afterOpenDetailInvoker === cardA,
+  detailInvokerFollowsSelection: afterReselectInvoker === cardB,
   detailInvokerCleared: afterCloseDetailInvoker === null,
-  focusCalled: focusCalled,
+  focusCalled: cardB.focusCalled,
+  staleInvokerFocused: cardA.focusCalled,
 }));
 """
 
@@ -558,8 +570,10 @@ def test_focus_restoration_behavior_node(tmp_path):
     assert proc.returncode == 0, proc.stderr
     res = json.loads(proc.stdout)
     assert res["detailInvokerSet"] is True
+    assert res["detailInvokerFollowsSelection"] is True
     assert res["detailInvokerCleared"] is True
     assert res["focusCalled"] is True
+    assert res["staleInvokerFocused"] is False
 
 
 # The credentials modal builds real DOM, so it needs the element shim rather

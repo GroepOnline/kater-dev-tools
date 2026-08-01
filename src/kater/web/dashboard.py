@@ -2493,6 +2493,15 @@ function openCredentialsModal(server) {
     reqs.forEach((v, i) => {
       const wrap = document.createElement('div');
       wrap.className = 'form-field';
+<<<<<<< HEAD
+      const id = 'cred-input-' + v.replace(/[^a-z0-9]/gi, '-');
+      const label = document.createElement('label');
+      label.className = 'form-label';
+      label.textContent = v;
+      label.setAttribute('for', id);
+      const input = document.createElement('input');
+      input.id = id;
+=======
       const inputId = credInputId(v, i);
       const label = document.createElement('label');
       label.className = 'form-label';
@@ -2500,6 +2509,7 @@ function openCredentialsModal(server) {
       label.setAttribute('for', inputId);
       const input = document.createElement('input');
       input.id = inputId;
+>>>>>>> origin/main
       input.className = 'form-input';
       input.type = 'password';
       input.autocomplete = 'off';

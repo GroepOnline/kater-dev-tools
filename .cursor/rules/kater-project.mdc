@@ -1,0 +1,13 @@
+---
+description: Kater dev-tools project SSOT, parallel scopes, and verification discipline
+alwaysApply: true
+---
+
+# Kater project conventions
+
+- **SSOT for Cursor artifacts**: `.cursor/` only — skills, agents, hooks, rules, and optional plugins. Do not mirror copies under `.agents/`, `.claude/`, or `.codex/`.
+- **No org leak in `.cursor/`**: Generic OSS skills/agents must not hardcode the org GitHub handle or production domains. Org-pinned variants belong in the private deployment overlay (`docs/ops/private-cursor-overlay.md`). Pre-commit runs `scripts/check_cursor_artifacts.sh` and `scripts/no_org_leak.py`.
+- **Parallel work**: For multi-part tasks, dispatch disjoint file scopes to subagents. The Edit tool locks whole files — two agents must not edit the same file concurrently.
+- **Verify with real commands**: Do not claim the gateway, dashboard, or MCP surface is up from docs alone. Probe health and ports before asserting runtime state (see `verify-before-claim`).
+- **Catalog discovery**: Hooks inject the skills/agents catalog via `.cursor/hooks/fetch-cursor-artifacts.sh`. Manual refresh: `.cursor/hooks/fetch-cursor-artifacts.sh --print-markdown`. When `scripts/generate_cursor_index.py` exists, keep `.cursor/INDEX.md` in sync.
+- **Local verify matrix**: Cloud agent VM, local Cursor IDE, and Docker Compose each have different constraints — see `docs/ops/local-desktop-verify.md`.

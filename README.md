@@ -271,6 +271,9 @@ uv run pytest -v
 ./scripts/e2e-mcp.sh   # requires `kater serve` with KATER_PROXY=1
 ```
 
+- **Cursor agents** — MCP wiring, hooks, and Cloud vs desktop verify:
+  [docs/cursor-setup.md](docs/cursor-setup.md), [AGENTS.md](AGENTS.md)
+
 ## Architecture
 
 ```

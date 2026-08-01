@@ -31,9 +31,12 @@ uv run ruff check .
 
 Optioneel maar sterk aanbevolen: installeer de pre-commit hooks lokaal zodat
 lint/type/format/secrets checks al draaien vóór je een commit maakt. De hooks
-gebruiken exact dezelfde `ruff`, `mypy` en `gitleaks` configuratie als CI
-(`.github/workflows/ci.yml` en `no-org-leak.yml`), dus wat lokaal groen is, is
-ook groen in CI — geen verrassingen na de push.
+gebruiken exact dezelfde `ruff`, `mypy`, `gitleaks`, `no-org-leak`, en `cursor-index`
+configuratie als CI (`.github/workflows/ci.yml` en `no-org-leak.yml`), dus wat lokaal groen is,
+is ook groen in CI — geen verrassingen na de push.
+
+`cursor-index` draait `scripts/check_cursor_artifacts.sh` (catalog cache, INDEX-staleness,
+org-leak scan onder `.cursor/`). `no-org-leak` scant de volledige tree.
 
 ```bash
 # Installeer de git hook (eenmalig per clone):
@@ -48,6 +51,12 @@ uvx pre-commit run --all-files
 `.pre-commit-config.yaml`. Na een `git commit` draaien de hooks automatisch
 over de gewijzigde bestanden; bij een faalende hook wordt de commit geblokkeerd
 tot je de problemen oplost.
+
+## Cursor agents
+
+Working in Cursor (IDE or Cloud)? Start with [docs/cursor-setup.md](docs/cursor-setup.md),
+[docs/ops/local-desktop-verify.md](docs/ops/local-desktop-verify.md), and
+[AGENTS.md](AGENTS.md) for MCP wiring, verify matrix, hooks, and Cloud boot behavior.
 
 ## Security
 

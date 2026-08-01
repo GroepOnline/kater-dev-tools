@@ -42,9 +42,9 @@ class ComputerAcceptanceHarness:
 
     @classmethod
     def from_environment(cls) -> ComputerAcceptanceHarness:
-        raw = os.environ.get("KATER_UDO_CHECKOUT")
+        raw = os.environ.get("KATER_ACCEPTANCE_CHECKOUT")
         if not raw:
-            raise RuntimeError("KATER_UDO_CHECKOUT is required for the real acceptance lane")
+            raise RuntimeError("KATER_ACCEPTANCE_CHECKOUT is required for the real acceptance lane")
         checkout = Path(raw).resolve()
         if not checkout.is_dir() or not (checkout / ".git").exists():
             raise RuntimeError(f"invalid contract checkout: {checkout}")

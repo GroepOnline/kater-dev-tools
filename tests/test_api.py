@@ -54,6 +54,36 @@ def _get_err(port: int, path: str, headers: dict | None = None) -> urllib.error.
     pytest.fail("Expected HTTPError")
 
 
+def test_public_path_fails_closed_on_an_invalid_context_token(api_server) -> None:
+    """A public route ignores absent credentials, but not an invalid one.
+
+    ``/health`` skips the credential check, so an explicit but unverifiable
+    ``X-Kater-Context`` must be rejected rather than silently downgraded to
+    anonymous access.
+    """
+    assert _get(9912, "/health")["status"] == "ok"
+
+    err = _get_err(9912, "/health", headers={"X-Kater-Context": "garbage"})
+    assert err.code == 401
+    assert json.loads(err.read().decode())["error"] == "Invalid context token."
+
+
+def test_cors_advertises_the_context_header_and_mutating_methods(api_server) -> None:
+    """Preflight must allow X-Kater-Context and the PATCH/DELETE routes."""
+    req = urllib.request.Request(
+        "http://127.0.0.1:9912/api/profiles",
+        method="OPTIONS",
+        headers={"Origin": "http://127.0.0.1"},
+    )
+    resp = urllib.request.urlopen(req)
+    allowed_headers = resp.headers.get("Access-Control-Allow-Headers", "")
+    allowed_methods = resp.headers.get("Access-Control-Allow-Methods", "")
+    assert "X-Kater-Context" in allowed_headers
+    assert "Authorization" in allowed_headers
+    for method in ("GET", "POST", "PATCH", "DELETE", "OPTIONS"):
+        assert method in allowed_methods
+
+
 # ── Basic endpoints ────────────────────────────────────────────────
 
 
@@ -62,6 +92,22 @@ def test_health(api_server) -> None:
     assert data["status"] == "ok"
     assert "version" in data
     assert data["auth_mode"] == "none"
+
+
+def test_health_live(api_server) -> None:
+    data = _get(9912, "/health/live")
+    assert data["status"] == "ok"
+    assert "version" in data
+    assert data["auth_mode"] == "none"
+
+
+def test_health_ready(api_server) -> None:
+    data = _get(9912, "/health/ready")
+    assert data["status"] in {"ok", "degraded", "unhealthy"}
+    assert data["service"] == "kater"
+    assert "components" in data
+    assert "api" in data["components"]
+    assert "mcp" in data["components"]
 
 
 def test_profiles(api_server) -> None:
@@ -234,9 +280,10 @@ def test_auth_allows_with_key(api_server) -> None:
 
 def test_auth_health_always_open(api_server) -> None:
     _post(9912, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
-    data = _get(9912, "/health")
-    assert data["status"] == "ok"
-    assert data["auth_mode"] == "apikey"
+    for path in ("/health", "/health/live", "/health/ready"):
+        data = _get(9912, path)
+        assert data["status"] in {"ok", "degraded"}
+        assert data["auth_mode"] == "apikey"
 
 
 # ── Catalog ────────────────────────────────────────────────────────
@@ -331,6 +378,8 @@ def test_openapi_spec(api_server) -> None:
     assert data["openapi"] == "3.1.0"
     assert "paths" in data
     assert "/health" in data["paths"]
+    assert "/health/live" in data["paths"]
+    assert "/health/ready" in data["paths"]
     assert "/api/catalog" in data["paths"]
 
 

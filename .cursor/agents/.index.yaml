@@ -1,0 +1,23 @@
+version: 1
+generated_by: scripts/generate_cursor_index.py
+items:
+- name: ci-fixer
+  path: .cursor/agents/ci-fixer.md
+  kind: agent
+  summary: CI and local lint/test fixer for the current PR branch.
+  when: CI and local lint/test fixer for the current PR branch. Use…
+- name: kater-verify
+  path: .cursor/agents/kater-verify.md
+  kind: agent
+  summary: Read-only gateway verification lane.
+  when: Read-only gateway verification lane. Use proactively after…
+- name: parallel-lane
+  path: .cursor/agents/parallel-lane.md
+  kind: agent
+  summary: Single disjoint-scope implementation lane.
+  when: Single disjoint-scope implementation lane. Use proactively…
+- name: pr-gate
+  path: .cursor/agents/pr-gate.md
+  kind: agent
+  summary: PR gate lane executor.
+  when: PR gate lane executor. Use proactively when /pr-gate (or th…

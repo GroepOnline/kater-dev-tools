@@ -2094,6 +2094,7 @@ function switchProfile(p) {
   writeUrlState();
   loadCatalog();
   if (currentView === 'catalog') loadCatalogView();
+  if (currentView === 'fabric') loadFabricView();
   toast('profile: ' + p);
 }
 
@@ -2227,6 +2228,18 @@ function visibleRouteServers() {
   return servers.filter(s => serverState(s) === routeFilter);
 }
 
+// Shared recovery-action factory for zero-result empty states (Server Map,
+// Catalog, Fabric): one semantic <button type="button">.view-empty-link so
+// styling and behavior stay in sync across views.
+function addEmptyStateLink(container, label, handler) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'view-empty-link';
+  btn.textContent = label;
+  btn.onclick = handler;
+  container.appendChild(btn);
+}
+
 function renderServerMap() {
   const el = document.getElementById('server-map');
   if (!el) return;
@@ -2239,30 +2252,15 @@ function renderServerMap() {
     if (servers.length) {
       empty.textContent = 'No servers match this filter.';
       if (routeFilter !== 'all') {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'view-empty-link';
-        btn.textContent = 'Switch filter to all';
-        btn.onclick = resetRouteFilter;
-        empty.appendChild(btn);
+        addEmptyStateLink(empty, 'Switch filter to all', resetRouteFilter);
       }
       if (activeProfile !== 'core') {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'view-empty-link';
-        btn.textContent = 'Switch profile to core';
-        btn.onclick = () => switchProfile('core');
-        empty.appendChild(btn);
+        addEmptyStateLink(empty, 'Switch profile to core', () => switchProfile('core'));
       }
     } else {
       empty.textContent = 'No servers in this profile.';
       if (activeProfile !== 'core') {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'view-empty-link';
-        btn.textContent = 'Switch profile to core';
-        btn.onclick = () => switchProfile('core');
-        empty.appendChild(btn);
+        addEmptyStateLink(empty, 'Switch profile to core', () => switchProfile('core'));
       }
     }
     el.appendChild(empty);
@@ -3457,14 +3455,7 @@ async function loadCatalogView() {
     const empty = document.createElement('div');
     empty.className = 'view-empty';
     empty.style.gridColumn = '1 / -1';
-    const addLink = (label, handler) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'view-empty-link';
-      btn.textContent = label;
-      btn.onclick = handler;
-      empty.appendChild(btn);
-    };
+    const addLink = (label, handler) => addEmptyStateLink(empty, label, handler);
     const hasQuery = !!catalogQuery;
     const hasFilter = catalogFilter !== 'all';
     if (hasQuery && hasFilter) {
@@ -4212,7 +4203,7 @@ async function loadFabricView() {
   if (!capsEl || !ctxEl || !computerEl) return;
   try {
     const [capsRes, ctxRes, computerRes] = await Promise.allSettled([
-      api('/api/capabilities'),
+      api('/api/capabilities?profile=' + encodeURIComponent(activeProfile || 'core')),
       api('/api/contexts'),
       api('/api/computer'),
     ]);
@@ -4234,12 +4225,7 @@ async function loadFabricView() {
       empty.className = 'view-empty';
       empty.textContent = 'No capabilities discoverable for the current profile.';
       if (activeProfile !== 'core') {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'view-empty-link';
-        btn.textContent = 'Switch profile to core';
-        btn.onclick = () => switchProfile('core');
-        empty.appendChild(btn);
+        addEmptyStateLink(empty, 'Switch profile to core', () => switchProfile('core'));
       }
       capsEl.appendChild(empty);
     } else {

@@ -884,7 +884,7 @@ def test_server_map_empty_state_recovery_buttons_behavior_node(tmp_path):
     html = render_dashboard()
     dashboard_js = "\n".join(
         _extract_js_function(html, name)
-        for name in ("visibleRouteServers", "renderServerMap")
+        for name in ("addEmptyStateLink", "visibleRouteServers", "renderServerMap")
     )
     script = tmp_path / "empty_state_recovery.cjs"
     script.write_text(

@@ -34,3 +34,8 @@
 
 **Learning:** In single-page applications die met toetsenbord en schermlezer worden gebruikt, gaat de focus verloren als een overlay sluit zonder focusherstel. Leg `document.activeElement` vast bij het openen van een overlay en herstel de focus bij sluiten, annuleren of succesvol opslaan.
 **Action:** Leg altijd het actieve element vast dat de overlay opent en herstel de focus bij sluiten, annuleren of succesvolle voltooiing.
+
+## 2026-08-02 - [Profile Empty State Recovery Actions]
+
+**Learning:** For tabbed or filtered single-page dashboard interfaces where empty states can be caused by profile-level filtering, offering a contextual "Switch profile to core" recovery action (using the `.view-empty-link` class) prevented users from hitting dead ends and significantly improved usability and keyboard/screen-reader accessibility.
+**Action:** Always provide direct, one-click recovery links to fallback to a valid profile state when custom profiles filter out all results in empty-state views.

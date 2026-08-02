@@ -85,6 +85,7 @@ def test_zero_result_states_have_recovery_actions():
     # Labels shown in the empty state, plus the shared styling hook.
     assert "Clear search" in html
     assert "Switch filter to all" in html
+    assert "Switch profile to core" in html
     assert "view-empty-link" in html
     # Buttons are defensively typed so they never submit a surrounding form.
     assert "type = 'button'" in html

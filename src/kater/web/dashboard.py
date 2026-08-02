@@ -2246,7 +2246,25 @@ function renderServerMap() {
         btn.onclick = resetRouteFilter;
         empty.appendChild(btn);
       }
-    } else { empty.textContent = 'No servers in this profile.'; }
+      if (activeProfile !== 'core') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'view-empty-link';
+        btn.textContent = 'Switch profile to core';
+        btn.onclick = () => switchProfile('core');
+        empty.appendChild(btn);
+      }
+    } else {
+      empty.textContent = 'No servers in this profile.';
+      if (activeProfile !== 'core') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'view-empty-link';
+        btn.textContent = 'Switch profile to core';
+        btn.onclick = () => switchProfile('core');
+        empty.appendChild(btn);
+      }
+    }
     el.appendChild(empty);
     return;
   }
@@ -3455,14 +3473,26 @@ async function loadCatalogView() {
       empty.textContent = 'No servers match "' + catalogQuery + '" in this status.';
       addLink('Clear search', clearCatalogSearch);
       addLink('Switch filter to all', resetCatalogFilter);
+      if (activeProfile !== 'core') {
+        addLink('Switch profile to core', () => switchProfile('core'));
+      }
     } else if (hasQuery) {
       empty.textContent = 'No servers match "' + catalogQuery + '".';
       addLink('Clear search', clearCatalogSearch);
+      if (activeProfile !== 'core') {
+        addLink('Switch profile to core', () => switchProfile('core'));
+      }
     } else if (hasFilter) {
       empty.textContent = 'No servers in this status.';
       addLink('Switch filter to all', resetCatalogFilter);
+      if (activeProfile !== 'core') {
+        addLink('Switch profile to core', () => switchProfile('core'));
+      }
     } else {
-      empty.textContent = 'No servers in this profile. Switch profiles in the top bar.';
+      empty.textContent = 'No servers in this profile.';
+      if (activeProfile !== 'core') {
+        addLink('Switch profile to core', () => switchProfile('core'));
+      }
     }
     grid.appendChild(empty);
     return;
@@ -4203,6 +4233,14 @@ async function loadFabricView() {
       const empty = document.createElement('div');
       empty.className = 'view-empty';
       empty.textContent = 'No capabilities discoverable for the current profile.';
+      if (activeProfile !== 'core') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'view-empty-link';
+        btn.textContent = 'Switch profile to core';
+        btn.onclick = () => switchProfile('core');
+        empty.appendChild(btn);
+      }
       capsEl.appendChild(empty);
     } else {
       for (const item of caps.slice(0, 50)) {

@@ -790,3 +790,140 @@ def test_credentials_modal_focus_restoration_behavior_node(tmp_path):
     assert res["body"]["capturedNothing"] is True
     assert res["body"]["cleared"] is True
     assert res["body"]["focusRestored"] is False
+
+
+# Runs the shipped renderServerMap JS against a minimal DOM so the empty-state
+# recovery actions are proven behaviorally: a non-core empty state must render
+# a real button[type="button"].view-empty-link whose click switches the
+# profile to core (complements the source-string checks in
+# test_zero_result_states_have_recovery_actions).
+_EMPTY_STATE_HARNESS = r"""
+class El {
+  constructor(tag) {
+    this.tagName = String(tag).toUpperCase();
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.textContent = '';
+    this.type = '';
+    this.className = '';
+    this.onclick = null;
+  }
+  get innerHTML() { return ''; }
+  set innerHTML(value) {
+    if (value !== '') throw new Error('harness only supports clearing innerHTML');
+    this.children = [];
+  }
+  appendChild(child) { this.children.push(child); return child; }
+  addEventListener() {}
+}
+
+let serverMap = null;
+const document = {
+  createElement: (tag) => new El(tag),
+  getElementById: (id) => (id === 'server-map' ? serverMap : null),
+};
+let servers = [];
+let routeFilter = 'all';
+let activeProfile = 'core';
+let routeRows = [];
+const profileSwitches = [];
+function switchProfile(name) { profileSwitches.push(name); }
+let filterResets = 0;
+function resetRouteFilter() { filterResets += 1; }
+const serverState = (s) => s.state;
+const makeBadge = () => new El('span');
+
+/*__DASHBOARD_JS__*/
+
+function run(opts) {
+  serverMap = new El('div');
+  servers = opts.servers;
+  routeFilter = opts.routeFilter;
+  activeProfile = opts.activeProfile;
+  renderServerMap();
+  const empty = serverMap.children[0] || null;
+  const buttons = empty ? empty.children.filter((c) => c.tagName === 'BUTTON') : [];
+  return {
+    emptyClass: empty ? empty.className : null,
+    message: empty ? empty.textContent : null,
+    buttons: buttons.map((b) => {
+      const before = profileSwitches.length;
+      const beforeResets = filterResets;
+      if (typeof b.onclick === 'function') b.onclick();
+      return {
+        type: b.type,
+        className: b.className,
+        label: b.textContent,
+        hasHandler: typeof b.onclick === 'function',
+        profileSwitchedTo:
+          profileSwitches.length > before ? profileSwitches[profileSwitches.length - 1] : null,
+        filterReset: filterResets > beforeResets,
+      };
+    }),
+  };
+}
+
+process.stdout.write(JSON.stringify({
+  nonCoreEmptyProfile: run({ servers: [], routeFilter: 'all', activeProfile: 'palette' }),
+  coreEmptyProfile: run({ servers: [], routeFilter: 'all', activeProfile: 'core' }),
+  nonCoreFilteredOut: run({
+    servers: [{ name: 'demo', state: 'ready' }],
+    routeFilter: 'disabled',
+    activeProfile: 'palette',
+  }),
+}));
+"""
+
+
+def test_server_map_empty_state_recovery_buttons_behavior_node(tmp_path):
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:  # pragma: no cover - depends on the host toolchain
+        pytest.skip("node is required to execute the dashboard JS")
+    assert node is not None
+    html = render_dashboard()
+    dashboard_js = "\n".join(
+        _extract_js_function(html, name)
+        for name in ("visibleRouteServers", "renderServerMap")
+    )
+    script = tmp_path / "empty_state_recovery.cjs"
+    script.write_text(
+        _EMPTY_STATE_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(proc.stdout)
+
+    # Non-core profile with no servers: a semantic recovery button is rendered
+    # next to the message, and clicking it switches the profile to core.
+    non_core = res["nonCoreEmptyProfile"]
+    assert non_core["emptyClass"] == "view-empty"
+    assert non_core["message"] == "No servers in this profile."
+    assert [b["label"] for b in non_core["buttons"]] == ["Switch profile to core"]
+    btn = non_core["buttons"][0]
+    assert btn["type"] == "button"
+    assert btn["className"] == "view-empty-link"
+    assert btn["hasHandler"] is True
+    assert btn["profileSwitchedTo"] == "core"
+
+    # Core profile: there is nowhere better to switch to, so no button.
+    core = res["coreEmptyProfile"]
+    assert core["message"] == "No servers in this profile."
+    assert core["buttons"] == []
+
+    # Non-core profile where a status filter hides all servers: both recovery
+    # actions appear, in order, and each click triggers its own handler.
+    filtered = res["nonCoreFilteredOut"]
+    assert filtered["message"] == "No servers match this filter."
+    assert [b["label"] for b in filtered["buttons"]] == [
+        "Switch filter to all",
+        "Switch profile to core",
+    ]
+    for button in filtered["buttons"]:
+        assert button["type"] == "button"
+        assert button["className"] == "view-empty-link"
+    assert filtered["buttons"][0]["filterReset"] is True
+    assert filtered["buttons"][1]["profileSwitchedTo"] == "core"

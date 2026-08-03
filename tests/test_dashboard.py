@@ -92,6 +92,14 @@ def test_zero_result_states_have_recovery_actions():
     assert "catalogLoadSeq" in html
 
 
+def test_zero_result_states_have_profile_recovery_action():
+    # Sighted, screen reader, and keyboard users must have a path to escape
+    # zero-result states when a custom profile has nothing configured.
+    html = render_dashboard()
+    assert "Switch profile to core" in html
+    assert "switchProfile('core')" in html
+
+
 def test_each_view_is_present_via_its_own_seam():
     # The per-view constants must each own exactly their view and compose
     # into the single _HTML body (deletion test: drop one -> a view vanishes).

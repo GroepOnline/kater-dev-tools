@@ -2094,6 +2094,7 @@ function switchProfile(p) {
   writeUrlState();
   loadCatalog();
   if (currentView === 'catalog') loadCatalogView();
+  if (currentView === 'fabric') loadFabricView();
   toast('profile: ' + p);
 }
 
@@ -2253,7 +2254,10 @@ function renderServerMap() {
         btn.type = 'button';
         btn.className = 'view-empty-link';
         btn.textContent = 'Switch profile to core';
-        btn.onclick = () => switchProfile('core');
+        btn.onclick = () => {
+          if (routeFilter !== 'all') setRouteFilter('all', true);
+          switchProfile('core');
+        };
         empty.appendChild(btn);
       }
     }
@@ -4212,7 +4216,12 @@ async function loadFabricView() {
       count.textContent = caps.length + ' caps · ' + contexts.length + ' contexts';
     }
     capsEl.replaceChildren();
-    if (!caps.length) {
+    if (capsRes.status === 'rejected') {
+      const err = document.createElement('div');
+      err.className = 'view-empty';
+      err.textContent = 'Could not load capabilities: ' + ((capsRes.reason && capsRes.reason.message) || 'error');
+      capsEl.appendChild(err);
+    } else if (!caps.length) {
       const empty = document.createElement('div');
       empty.className = 'view-empty';
       empty.textContent = 'No capabilities discoverable for the current profile.';

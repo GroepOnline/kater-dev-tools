@@ -36,5 +36,6 @@
 **Action:** Leg altijd het actieve element vast dat de overlay opent en herstel de focus bij sluiten, annuleren of succesvolle voltooiing.
 
 ## 2026-08-03 - [Profile-Aware Zero-Result Recovery Buttons]
+
 **Learning:** For application dashboards filtered/partitioned by profiles, when an operator switches to a custom profile that yields zero results, rendering a direct "Switch profile to core" recovery button offers a keyboard-safe, screen-reader-friendly way back to a populated state. This minimizes dead-ends and helps the operator realize they are filtering by a custom profile.
 **Action:** When views are partitioned by customizable filters or profiles, always provide a primary fallback action (like switching to 'core' or clearing filters) directly inside the zero-result view.

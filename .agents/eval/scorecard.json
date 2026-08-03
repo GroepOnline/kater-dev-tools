@@ -1,5 +1,5 @@
 {
-  "ts": "2026-07-30T10:44:12Z",
+  "ts": "2026-08-03T14:02:36Z",
   "pass": true,
   "plane": "agent-taste",
   "metrics": {
@@ -7,9 +7,11 @@
     "rule_count": 10,
     "open_critical_signals": 0,
     "open_signals": 0,
-    "days_since_score_refresh": 0.0,
+    "days_since_score_refresh": 4.14,
     "taste_log_entries": 0
   },
   "failures": [],
-  "warnings": []
+  "warnings": [
+    "days_since_score_refresh=4.1 > warn 2.0"
+  ]
 }

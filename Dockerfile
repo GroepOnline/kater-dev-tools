@@ -34,6 +34,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /app /app
 COPY config ./config
 
+# Vault-auth bootstrap wrapper (fail-closed) + the uv runner it execs. The
+# wrapper is the container entrypoint for vault-auth deploys (see deploy/).
+COPY scripts ./scripts
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
+RUN chmod +x scripts/kater-with-chefvault.py && chown -R kater:kater scripts
+
+# State dir for the ChefVault materializer and kater SQLite. Pre-create it
+# owner-only so a named volume mounted at /app/.kater inherits kater ownership
+# on first use (the pod runs with a read-only root FS).
+RUN install -d -o kater -g kater -m 0700 /app/.kater
+
 USER kater
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \

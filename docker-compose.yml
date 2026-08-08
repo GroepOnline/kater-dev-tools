@@ -5,6 +5,10 @@ services:
     image: kater-dev-tools:latest
     restart: unless-stopped
     command: ["kater", "serve", "--host", "0.0.0.0"]
+    # Optional: run the ChefVault bootstrap wrapper instead of plain kater
+    # (fail-closed secrets from Vaultwarden via the broker). Requires a broker
+    # token reachable from the container; see docs/ops/chefvault.md.
+    # command: ["/app/scripts/kater-with-chefvault.py", "serve", "--host", "0.0.0.0"]
     env_file:
       - path: .env
         required: false

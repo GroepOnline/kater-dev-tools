@@ -8,7 +8,7 @@ description: >-
 
 # /parallel-lanes
 
-Load and follow `.cursor/skills/parallel-lanes/SKILL.md`.
+Load and follow `.cursor/skills/kater-dev-tools-parallel-lanes/SKILL.md`.
 
 Do not invent a parallel procedure. Prefer the skill SSOT under `.cursor/`.
 
@@ -22,7 +22,7 @@ Do not invent a parallel procedure. Prefer the skill SSOT under `.cursor/`.
 
 | Role | Path |
 | --- | --- |
-| Skill (dispatch contract) | `.cursor/skills/parallel-lanes/SKILL.md` |
+| Skill (dispatch contract) | `.cursor/skills/kater-dev-tools-parallel-lanes/SKILL.md` |
 | One lane subagent | `.cursor/agents/parallel-lane.md` |
 | Coordinator | Parent session — integrate, test, commit |
 

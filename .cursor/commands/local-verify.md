@@ -8,7 +8,7 @@ description: >-
 
 # /local-verify
 
-Load and follow `.cursor/skills/local-verify/SKILL.md`.
+Load and follow `.cursor/skills/kater-dev-tools-local-verify/SKILL.md`.
 
 Do not invent a parallel procedure. Prefer the skill SSOT under `.cursor/`.
 

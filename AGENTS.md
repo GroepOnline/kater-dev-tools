@@ -152,3 +152,7 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
 - **Dashboard verification**: the dashboard hydrates without a blocking confirm overlay (the old
   import-time `review_fixes.py` monkeypatch layer was removed in #94/#95). Validate the gateway via
   the REST API, the `kater` CLI, or `./scripts/e2e-mcp.sh` rather than headless GUI automation.
+
+## Skill satellites
+
+Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → groeponline-ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: GroepOnline/chefgroep-skills).

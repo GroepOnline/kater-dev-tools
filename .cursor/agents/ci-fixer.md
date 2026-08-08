@@ -15,7 +15,7 @@ minimal diffs on the current PR branch.
 
 | Skill | Path | When |
 | --- | --- | --- |
-| `local-verify` | `.cursor/skills/local-verify/SKILL.md` | Reproduce locally after fix |
+| `local-verify` | `.cursor/skills/kater-dev-tools-local-verify/SKILL.md` | Reproduce locally after fix |
 | `pr-gate` | `.cursor/skills/pr-gate/SKILL.md` | Merge-ready contract |
 | `kater-gateway` | `.cursor/skills/kater-gateway/SKILL.md` | Smoke/e2e ordering if serve paths touched |
 

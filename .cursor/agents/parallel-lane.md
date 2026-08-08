@@ -16,8 +16,8 @@ file-lock conflicts.
 
 | Skill | Path | When |
 | --- | --- | --- |
-| `parallel-lanes` | `.cursor/skills/parallel-lanes/SKILL.md` | Dispatch template, merge policy |
-| `local-verify` | `.cursor/skills/local-verify/SKILL.md` | Post-lane verification |
+| `parallel-lanes` | `.cursor/skills/kater-dev-tools-parallel-lanes/SKILL.md` | Dispatch template, merge policy |
+| `local-verify` | `.cursor/skills/kater-dev-tools-local-verify/SKILL.md` | Post-lane verification |
 | `kater-gateway` | `.cursor/skills/kater-gateway/SKILL.md` | If lane touches serve/smoke paths |
 
 Subagents: `kater-verify` after implementation; `ci-fixer` if lane breaks CI;

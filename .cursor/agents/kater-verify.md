@@ -21,7 +21,7 @@ Read before running (parent may have already loaded them):
 | `kater-doctor` | `.cursor/skills/kater-doctor/SKILL.md` | Doctor JSON interpretation |
 | `kater-e2e` | `.cursor/skills/kater-e2e/SKILL.md` | MCP e2e expectations |
 | `kater-dashboard` | `.cursor/skills/kater-dashboard/SKILL.md` | REST/dashboard checks |
-| `local-verify` | `.cursor/skills/local-verify/SKILL.md` | Full local verify contract |
+| `local-verify` | `.cursor/skills/kater-dev-tools-local-verify/SKILL.md` | Full local verify contract |
 
 Hand off failures that need code changes to `ci-fixer` or `parallel-lane`; hand
 off PR merge readiness to `pr-gate` (skill + subagent).

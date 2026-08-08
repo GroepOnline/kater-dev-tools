@@ -1,9 +1,7 @@
 ---
 name: kater-dashboard
-description: >-
-  Verify the Kater web dashboard and REST API surfaces on :9091.
-  Use for /kater-dashboard, dashboard hydration, /api/status, telemetry UI,
-  or when REST checks matter but full MCP e2e is out of scope.
+description: Verify the Kater web dashboard and REST API surfaces on :9091.
+details: Use for /kater-dashboard, dashboard hydration, /api/status, telemetry UI, or when REST checks matter but full MCP e2e is out of scope.
 ---
 
 # Kater dashboard

@@ -1,9 +1,7 @@
 ---
 name: kater-doctor
-description: >-
-  Run Kater doctor diagnostics, fix plans, and safe apply for MCP/Cursor wiring.
-  Use for /kater-doctor, "kater doctor", MCP config drift, Cursor mcp.json
-  mismatches, or pre-serve environment checks.
+description: Run Kater doctor diagnostics, fix plans, and safe apply for MCP/Cursor wiring.
+details: Use for /kater-doctor, "kater doctor", MCP config drift, Cursor mcp.json mismatches, or pre-serve environment checks.
 ---
 
 # Kater doctor

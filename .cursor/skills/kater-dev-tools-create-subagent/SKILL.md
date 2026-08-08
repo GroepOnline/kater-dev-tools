@@ -2,8 +2,8 @@
 name: kater-dev-tools-create-subagent
 role: satellite
 ambient: true
-description: |-
-  kater-dev-tools-specifieke skill-authoring-feiten. Chains up to skill-creator voor procedure, invarianten en safety gates.
+description: kater-dev-tools-specifieke skill-authoring-feiten.
+details: Chains up to skill-creator voor procedure, invarianten en safety gates.
 use:
 - "/create-subagent"
 extends: skill-creator

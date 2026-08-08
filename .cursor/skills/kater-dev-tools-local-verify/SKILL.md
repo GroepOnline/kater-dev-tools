@@ -2,8 +2,8 @@
 name: kater-dev-tools-local-verify
 role: satellite
 ambient: true
-description: |-
-  kater-dev-tools-specifieke workflow-verification-feiten. Chains up to workflow-verification-meta voor procedure, invarianten en safety gates.
+description: kater-dev-tools-specifieke workflow-verification-feiten.
+details: Chains up to workflow-verification-meta voor procedure, invarianten en safety gates.
 use:
 - "/local-verify"
 - "desktop vs cloud"

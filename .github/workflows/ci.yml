@@ -440,12 +440,16 @@ jobs:
           echo "coverage=${{ needs.coverage.result }}"
           for r in "${{ needs.validate.result }}" "${{ needs.lint-type.result }}" \
                    "${{ needs.unit.result }}" "${{ needs.integration.result }}" \
-                   "${{ needs.e2e.result }}" "${{ needs.package.result }}" \
+                   "${{ needs.package.result }}" \
                    "${{ needs.security-pr.result }}" "${{ needs.coverage.result }}"; do
             if [ "$r" != "success" ]; then
               echo "required job failed: $r"; exit 1
             fi
           done
+          # e2e is by design skipped on PR lanes; only a real failure blocks.
+          if [ "${{ needs.e2e.result }}" = "failure" ]; then
+            echo "required job failed: e2e"; exit 1
+          fi
           echo "gate: PASS"
 
   # ── summary: always-on job with a per-job conclusions table + triage links ──

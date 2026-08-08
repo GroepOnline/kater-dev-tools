@@ -5,7 +5,7 @@ description = "Developer MCP gateway with profile-gated tools for code agents"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11,<3.15"
-authors = [{ name = "OnlineChefGroep contributors" }]
+authors = [{ name = "GroepOnline contributors" }]
 keywords = ["mcp", "gateway", "agents", "cursor", "devtools"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -25,10 +25,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/OnlineChefGroep/kater-dev-tools"
-Repository = "https://github.com/OnlineChefGroep/kater-dev-tools"
-Issues = "https://github.com/OnlineChefGroep/kater-dev-tools/issues"
-Security = "https://github.com/OnlineChefGroep/kater-dev-tools/security/policy"
+Homepage = "https://github.com/GroepOnline/kater-dev-tools"
+Repository = "https://github.com/GroepOnline/kater-dev-tools"
+Issues = "https://github.com/GroepOnline/kater-dev-tools/issues"
+Security = "https://github.com/GroepOnline/kater-dev-tools/security/policy"
 
 [project.scripts]
 kater = "kater.cli:app"
@@ -113,6 +113,8 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 "src/kater/proxy/stdio_backend.py" = ["S603", "S607"]
 # sync script runs git with list-form argv against SSOT marketplace URLs.
 "scripts/sync_cursor_plugins.py" = ["S603", "S607"]
+# release contract validator runs git with list-form argv (operator-controlled).
+"scripts/validate_release.py" = ["S603", "S607"]
 # no_org_leak.py runs git with list-form argv (operator-controlled).
 "scripts/no_org_leak.py" = ["S603", "S607"]
 # kater-with-chefvault bootstrap runs list-form argv against operator-controlled

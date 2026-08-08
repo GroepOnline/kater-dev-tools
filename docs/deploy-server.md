@@ -11,7 +11,7 @@ ChefVault fail-closed bootstrap). Keep this page for generic self-managed deploy
 
 ```bash
 mkdir -p ~/OrgChefgroep
-git clone https://github.com/OnlineChefGroep/kater-dev-tools.git ~/OrgChefgroep/kater-dev-tools
+git clone https://github.com/GroepOnline/kater-dev-tools.git ~/OrgChefgroep/kater-dev-tools
 cd ~/OrgChefgroep/kater-dev-tools
 cp .env.example .env
 docker compose up -d --build

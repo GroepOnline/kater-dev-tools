@@ -1,7 +1,7 @@
 # OSS / Private Split — Phase 1 Decision
 
 **Date:** 2026-07-02  
-**Repos:** `OnlineChefGroep/kater-dev-tools` (public OSS) · `OnlineChefGroep/utrecht-katermcp` (private deployment)
+**Repos:** `GroepOnline/kater-dev-tools` (public OSS) · `GroepOnline/utrecht-katermcp` (private deployment)
 
 ## Decision
 
@@ -58,6 +58,6 @@ Per split policy: fork is acceptable only when history is clean of **both** secr
 
 ## Final status (2026-07-02)
 
-- OSS strip PR: https://github.com/OnlineChefGroep/kater-dev-tools/pull/17 (CI green)
-- Private overlay: https://github.com/OnlineChefGroep/utrecht-katermcp (`isPrivate: true`, 11 tests)
+- OSS strip PR: https://github.com/GroepOnline/kater-dev-tools/pull/17 (CI green)
+- Private overlay: https://github.com/GroepOnline/utrecht-katermcp (`isPrivate: true`, 11 tests)
 - Local verification: 417 pytest pass; gitleaks clean with `.gitleaks.toml`

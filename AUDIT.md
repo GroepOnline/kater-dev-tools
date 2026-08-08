@@ -9,13 +9,13 @@ All org-specific items below were **resolved** on branch `feat/oss-private-split
 
 | Action | Result |
 |--------|--------|
-| Move deploy scripts / systemd with production domain | → `OnlineChefGroep/utrecht-katermcp` (private) |
+| Move deploy scripts / systemd with production domain | → `GroepOnline/utrecht-katermcp` (private) |
 | Remove `src/kater/adapters/utrecht.py` | Deleted; extension hook added |
 | Remove handoff docs, `docs/adapters/utrecht.md` | Deleted from OSS |
 | Genericize `docs/PLAN-v1.0.md` | Removed from OSS (copy in private `docs/internal/`) |
 | Update tests | `demo_private` fixture via `tests/fixtures/private_extension.py` |
 | CI leak gate | `.github/workflows/no-org-leak.yml` + `.gitleaks.toml` |
-| Private repo | https://github.com/OnlineChefGroep/utrecht-katermcp (`isPrivate: true`) |
+| Private repo | https://github.com/GroepOnline/utrecht-katermcp (`isPrivate: true`) |
 
 **Verification:** 417 tests pass; no `chefgroep.nl`/`.online` in tracked OSS content; gitleaks clean.
 

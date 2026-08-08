@@ -17,7 +17,7 @@ You are the kater-dev-tools PR gate lane executor. You receive exactly one PR
 | Skill | Path |
 | --- | --- |
 | `pr-gate` | `.cursor/skills/pr-gate/SKILL.md` |
-| `local-verify` | `.cursor/skills/local-verify/SKILL.md` |
+| `local-verify` | `.cursor/skills/kater-dev-tools-local-verify/SKILL.md` |
 | `kater-gateway` | `.cursor/skills/kater-gateway/SKILL.md` |
 
 Delegate when it isolates context:

@@ -81,24 +81,24 @@ def test_index_lists_skills_and_agents() -> None:
     for required in (
         "kater-gateway",
         "pr-gate",
-        "create-skill",
-        "create-subagent",
+        "kater-dev-tools-create-skill",
+        "kater-dev-tools-create-subagent",
         "kater-doctor",
         "kater-e2e",
         "kater-dashboard",
-        "local-verify",
-        "parallel-lanes",
-        "ci-fixer",
+        "kater-dev-tools-local-verify",
+        "kater-dev-tools-parallel-lanes",
+        "kater-dev-tools-ci-fixer",
     ):
         assert required in skill_names, f"missing skill index entry: {required}"
 
-    for required in ("pr-gate", "kater-verify", "ci-fixer", "parallel-lane"):
+    for required in ("pr-gate", "kater-verify", "kater-dev-tools-ci-fixer", "parallel-lane"):
         assert required in agent_names, f"missing agent index entry: {required}"
 
     for required in ("kater-project", "verify-before-claim"):
         assert required in rule_names, f"missing rule index entry: {required}"
 
-    for required in ("local-verify", "kater-gateway", "pr-gate", "ci-fixer"):
+    for required in ("kater-dev-tools-local-verify", "kater-gateway", "pr-gate", "kater-dev-tools-ci-fixer"):
         assert required in command_names, f"missing command index entry: {required}"
 
     assert EXPECTED_HOOK_EVENTS <= hook_names

@@ -1,0 +1,59 @@
+[Unit]
+Description=Kater MCP Gateway (hardened container, vault-auth)
+Documentation=file:///opt/kater/current/docs/ops/chefvault.md
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+# Non-secret operator config (KATER_* overrides). Secrets are NOT stored here:
+# the ChefVault broker token is mounted as a file and provider keys are
+# materialized by scripts/kater-with-chefvault.py (fail-closed) before kater starts.
+EnvironmentFile=-/etc/chef/kater/secrets.env
+
+# Best-effort image pull before each start (idempotent, ignored off-line).
+ExecStartPre=-/usr/bin/docker pull kater-dev-tools:latest
+
+# Runs the vault-auth wrapper as the container command. Host networking lets the
+# container reach the local ChefVault broker (127.0.0.1:8322) and, because the
+# wrapper starts kater with --host 127.0.0.1, exposes 9090-9092 on the host
+# loopback only. The broker binary(s) are mounted read-only from the host.
+ExecStart=/usr/bin/docker run --rm --name kater-pod \
+  --network host \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --pids-limit 512 \
+  --init \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  -v kater_data:/app/.kater \
+  -v /etc/chef/kater/broker-token:/etc/kater/broker-token:ro \
+  -v /usr/local/bin/chefvault-profile:/usr/local/bin/chefvault-profile:ro \
+  -v /usr/local/bin/chefvault-profile-mcp:/usr/local/bin/chefvault-profile-mcp:ro \
+  -e CHEF_VAULT_BROKER_TOKEN_FILE=/etc/kater/broker-token \
+  -e CHEF_VAULT_BROKER_URL=http://127.0.0.1:8322 \
+  kater-dev-tools:latest \
+  /app/scripts/kater-with-chefvault.py serve --host 127.0.0.1
+
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+KillMode=control-group
+
+# systemd-level hardening mirrors the compose/read-only container posture.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

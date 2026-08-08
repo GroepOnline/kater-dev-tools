@@ -7,11 +7,14 @@ LEAK_SAMPLES = {
     "src/kater/evil.py": "BASE = 'https://chefgroep" + ".nl/x'",
     "src/kater/evil2.py": "owner = 'online" + "chefgroep'",
     "src/kater/evil3.py": "DB = 'postgres" + "://user:pass@host/db'",
+    "src/kater/evil4.py": "BASE = 'https://groeponline.nl/x'",
+    "src/kater/evil5.py": "owner = 'GroepOnline'",
 }
 # Files/contents that are allowed (attribution / audit docs).
 CLEAN_SAMPLES = {
-    "README.md": "Online" + "ChefGroep maintains Kater.",
-    "docs/deploy-server.md": "Point DNS at chefgroep" + ".online",
+    "README.md": "GroepOnline maintains Kater.",
+    "docs/deploy-server.md": "Point DNS at groeponline.nl",
+    "SECURITY.md": "Online" + "ChefGroep security contact.",
     "src/kater/ok.py": "print('hello kater')",
     # CODEOWNERS routes review requests to GitHub owners by definition.
     ".github/CODEOWNERS": "* @Online" + "ChefGroep\n",

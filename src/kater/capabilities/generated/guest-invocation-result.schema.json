@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://onlinechefgroep.nl/schemas/computer-acceptance/guest-invocation-result.schema.json",
+  "$id": "https://groeponline.nl/schemas/computer-acceptance/guest-invocation-result.schema.json",
   "title": "GuestInvocationResult",
   "type": "object",
   "required": ["protocol_version", "status", "request_id"],

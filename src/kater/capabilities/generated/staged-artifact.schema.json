@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://onlinechefgroep.nl/schemas/computer-acceptance/staged-artifact.schema.json",
+  "$id": "https://groeponline.nl/schemas/computer-acceptance/staged-artifact.schema.json",
   "title": "StagedArtifact",
   "type": "object",
   "required": ["artifact_id", "computer_session_id", "workspace_id", "workspace_generation", "kind", "state", "relative_path", "content_sha256", "size_bytes", "created_at"],

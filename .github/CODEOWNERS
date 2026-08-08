@@ -1,4 +1,4 @@
-# CODEOWNERS for OnlineChefGroep/kater-dev-tools
+# CODEOWNERS for GroepOnline/kater-dev-tools
 #
 # Each line routes review requests for matching paths to the listed owners.
 # Patterns use .gitignore-style globs and are matched against the full repo
@@ -7,7 +7,7 @@
 #
 # Owners are GitHub usernames (or @org/team). This repo is currently a
 # solo-maintained project, so every area routes to @OnlineChef. If a team is
-# introduced later, replace the username with @OnlineChefGroep/<team>.
+# introduced later, replace the username with @GroepOnline/<team>.
 
 # ── Default: everything routes to the solo maintainer ──────────────────────
 * @OnlineChef

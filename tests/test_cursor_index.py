@@ -92,7 +92,7 @@ def test_index_lists_skills_and_agents() -> None:
     ):
         assert required in skill_names, f"missing skill index entry: {required}"
 
-    for required in ("pr-gate", "kater-verify", "kater-dev-tools-ci-fixer", "parallel-lane"):
+    for required in ("pr-gate", "kater-verify", "ci-fixer", "parallel-lane"):
         assert required in agent_names, f"missing agent index entry: {required}"
 
     for required in ("kater-project", "verify-before-claim"):

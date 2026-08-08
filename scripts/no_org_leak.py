@@ -117,8 +117,8 @@ ALLOWED_LEGACY_ALIAS = frozenset(
 #   - ``PRIVATE_DATA_PLANE_RE`` — references to the private data-plane repo
 #     and the Utrecht Data OS overlay (in any upper/lower-case form)
 #   - ``LEGACY_ALIAS_RE``  — the legacy ``kater-utrecht`` overlap alias
-PROD_DOMAIN_RE = re.compile(r"chefgroep\.(nl|online)", re.IGNORECASE)
-ORG_HANDLE_RE = re.compile(r"online" + r"chefgroep", re.IGNORECASE)
+PROD_DOMAIN_RE = re.compile(r"(?:chefgroep\.(?:nl|online)|groeponline\.nl)", re.IGNORECASE)
+ORG_HANDLE_RE = re.compile(r"(?:online" + r"chefgroep|groep" + r"online)", re.IGNORECASE)
 CREDENTIAL_CONN_RE = re.compile(r"(postgres|redis|upstash)://[^\"'\s]+@")
 INTERNAL_ID_RE = re.compile(r"\bCHE-[0-9]+\b", re.IGNORECASE)
 PRIVATE_DATA_PLANE_RE = re.compile(

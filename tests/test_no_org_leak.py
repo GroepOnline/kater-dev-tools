@@ -34,7 +34,7 @@ def test_scan_flags_leaks(tmp_path):
         p.write_text(body)
         targets.append(str(p))
     errors = nol.scan(targets)
-    assert len(errors) >= len(LEAK_SAMPLES)  # 1 file kan meerdere patronen triggeren (bv. groeponline.nl: domein + org-handle)
+    assert all(any(error.startswith(f"{target}:") for error in errors) for target in targets)
     assert all("leak" in e or "connection" in e for e in errors)
 
 

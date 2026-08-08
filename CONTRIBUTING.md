@@ -5,7 +5,7 @@ Thanks for helping improve Kater! This project is a developer MCP gateway — ke
 ## Development setup
 
 ```bash
-git clone https://github.com/OnlineChefGroep/kater-dev-tools.git
+git clone https://github.com/GroepOnline/kater-dev-tools.git
 cd kater-dev-tools
 uv sync --dev
 uv run pytest -v

@@ -26,7 +26,7 @@ jobs:
   release:
     name: Build and publish GitHub Release
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -38,6 +38,9 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --dev --extra browser
 
       - name: Resolve version
         id: version
@@ -55,15 +58,35 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $VERSION (tag: v$VERSION)"
 
-      - name: Verify version matches pyproject.toml
+      - name: Fetch mainline for immutable-ancestry check
+        run: git fetch --no-tags origin main
+
+      # ── Release-contract gate (release-policy.json + scripts/validate_release.py) ──
+      - name: Validate release against policy
         run: |
-          DECLARED=$(uv run python -c "import tomllib; print(tomllib.loads(open('pyproject.toml','rb').read().decode())['project']['version'])")
-          RESOLVED="${{ steps.version.outputs.version }}"
-          echo "pyproject.toml version: $DECLARED"
-          echo "resolved release version: $RESOLVED"
-          if [ "$DECLARED" != "$RESOLVED" ]; then
-            echo "::warning::pyproject.toml ($DECLARED) does not match release version ($RESOLVED). Update pyproject.toml in a bump PR before tagging."
+          # Tag pushes resolve the tag to its commit; workflow_dispatch releases
+          # are cut from the current checkout (HEAD), which must sit on main.
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            COMMIT="HEAD"
+          else
+            COMMIT="${{ steps.version.outputs.tag }}"
           fi
+          uv run python scripts/validate_release.py \
+            "${{ steps.version.outputs.tag }}" \
+            --commit "$COMMIT" \
+            --main-ref origin/main
+
+      # ── Full lint/type/test gates BEFORE asset build ──────────────────
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Mypy
+        run: uv run mypy
+
+      - name: Test
+        run: >-
+          timeout 300s uv run pytest -vv --tb=short -ra
+          --ignore=tests/test_computer_acceptance_e2e.py
 
       - name: Build distributions
         run: uv build
@@ -92,13 +115,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.version.outputs.tag }}"
+          PRERELEASE=""
+          # Development channel (vX.Y.Z.devN) releases are always prereleases.
+          if [[ "$TAG" == *".dev"* ]]; then
+            PRERELEASE="--prerelease"
+            echo "Marking $TAG as prerelease (development channel)"
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; uploading assets only."
           else
             gh release create "$TAG" \
               --generate-notes \
               --notes-file CHANGELOG.md \
-              --title "$TAG"
+              --title "$TAG" \
+              $PRERELEASE
           fi
 
       - name: Upload build artifacts to Release

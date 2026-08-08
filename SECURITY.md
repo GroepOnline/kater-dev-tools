@@ -11,7 +11,7 @@
 Please **do not** open public GitHub issues for security problems.
 
 Email security reports to the repository maintainers via GitHub private security advisories:
-https://github.com/OnlineChefGroep/kater-dev-tools/security/advisories/new
+https://github.com/GroepOnline/kater-dev-tools/security/advisories/new
 
 Include:
 

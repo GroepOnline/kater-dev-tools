@@ -1,6 +1,6 @@
 # Kater
 
-[![CI](https://github.com/OnlineChefGroep/kater-dev-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/OnlineChefGroep/kater-dev-tools/actions/workflows/ci.yml)
+[![CI](https://github.com/GroepOnline/kater-dev-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/kater-dev-tools/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Kater is an open-source, developer-only MCP gateway for code agents. One endpoint, one

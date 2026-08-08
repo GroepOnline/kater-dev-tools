@@ -1,9 +1,7 @@
 ---
 name: kater-gateway
-description: >-
-  Start, configure, and verify the Kater MCP gateway locally or in cloud.
-  Use for /kater-gateway, "kater serve", "kater up", gateway health, port
-  wiring, or when an agent must prove the gateway works without adapter secrets.
+description: Start, configure, and verify the Kater MCP gateway locally or in cloud.
+details: Use for /kater-gateway, "kater serve", "kater up", gateway health, port wiring, or when an agent must prove the gateway works without adapter secrets.
 ---
 
 # Kater gateway

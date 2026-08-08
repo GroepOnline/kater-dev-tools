@@ -1,9 +1,7 @@
 ---
 name: pr-gate
-description: >-
-  Evaluate and fix one PR until merge-ready using Kater PR gate rules and gh.
-  Use for /pr-gate, "pr gate", merge-ready checks, or when CI/review threads
-  block merge. Delegate lane work to the pr-gate subagent.
+description: Evaluate and fix one PR until merge-ready using Kater PR gate rules and gh.
+details: Use for /pr-gate, "pr gate", merge-ready checks, or when CI/review threads block merge. Delegate lane work to the pr-gate subagent.
 ---
 
 # PR gate

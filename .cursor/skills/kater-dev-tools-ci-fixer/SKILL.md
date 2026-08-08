@@ -2,8 +2,8 @@
 name: kater-dev-tools-ci-fixer
 role: satellite
 ambient: true
-description: |-
-  kater-dev-tools-specifieke ci-ops-feiten. Chains up to groeponline-ci-fix-loop voor procedure, invarianten en safety gates.
+description: kater-dev-tools-specifieke ci-ops-feiten.
+details: Chains up to groeponline-ci-fix-loop voor procedure, invarianten en safety gates.
 use:
 - "/ci-fixer"
 - "rode checks"

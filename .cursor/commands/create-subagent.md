@@ -9,7 +9,7 @@ description: >-
 
 # /create-subagent
 
-Load and follow `.cursor/skills/create-subagent/SKILL.md`.
+Load and follow `.cursor/skills/kater-dev-tools-create-subagent/SKILL.md`.
 
 Do not invent a parallel procedure. Prefer the skill SSOT under `.cursor/`.
 

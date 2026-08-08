@@ -19,15 +19,15 @@ AGENTS_DIR = ROOT / ".cursor/agents"
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 
 EXPECTED_SKILLS = {
-    "ci-fixer",
-    "create-skill",
-    "create-subagent",
+    "kater-dev-tools-ci-fixer",
+    "kater-dev-tools-create-skill",
+    "kater-dev-tools-create-subagent",
     "kater-dashboard",
     "kater-doctor",
     "kater-e2e",
     "kater-gateway",
-    "local-verify",
-    "parallel-lanes",
+    "kater-dev-tools-local-verify",
+    "kater-dev-tools-parallel-lanes",
     "pr-gate",
 }
 EXPECTED_AGENTS = {"ci-fixer", "kater-verify", "parallel-lane", "pr-gate"}
@@ -71,11 +71,14 @@ def test_skill_frontmatter_has_nonempty_description(skill_path: Path) -> None:
     assert description.strip()
 
 
-def test_meta_scaffolding_skills_disable_model_invocation() -> None:
-    for name in ("create-skill", "create-subagent"):
+def test_meta_scaffolding_skills_are_satellites() -> None:
+    # mesh-satellites: model-invocable (ambient true), chained naar skill-creator
+    for name in ("kater-dev-tools-create-skill", "kater-dev-tools-create-subagent"):
         path = SKILLS_DIR / name / "SKILL.md"
         frontmatter, _ = _parse_frontmatter(path)
-        assert frontmatter.get("disable-model-invocation") is True
+        assert frontmatter.get("role") == "satellite"
+        assert frontmatter.get("extends") == "skill-creator"
+        assert frontmatter.get("ambient") is True
 
 
 def test_workflow_skills_do_not_disable_model_invocation() -> None:
@@ -96,9 +99,9 @@ def test_pr_gate_skill_and_agent_are_cross_linked() -> None:
 
 
 def test_ci_fixer_skill_and_agent_are_cross_linked() -> None:
-    skill_path = SKILLS_DIR / "ci-fixer" / "SKILL.md"
+    skill_path = SKILLS_DIR / "kater-dev-tools-ci-fixer" / "SKILL.md"
     frontmatter, skill_body = _parse_frontmatter(skill_path)
-    assert frontmatter["name"] == "ci-fixer"
+    assert frontmatter["name"] == "kater-dev-tools-ci-fixer"
     assert ".cursor/agents/ci-fixer.md" in skill_body
 
     agent_path = AGENTS_DIR / "ci-fixer.md"
@@ -107,14 +110,14 @@ def test_ci_fixer_skill_and_agent_are_cross_linked() -> None:
 
 
 def test_parallel_lanes_skill_and_agent_are_cross_linked() -> None:
-    skill_path = SKILLS_DIR / "parallel-lanes" / "SKILL.md"
+    skill_path = SKILLS_DIR / "kater-dev-tools-parallel-lanes" / "SKILL.md"
     _, skill_body = _parse_frontmatter(skill_path)
     assert ".cursor/agents/parallel-lane.md" in skill_body
 
     agent_path = AGENTS_DIR / "parallel-lane.md"
     frontmatter, agent_body = _parse_frontmatter(agent_path)
     assert frontmatter["name"] == "parallel-lane"
-    assert ".cursor/skills/parallel-lanes/SKILL.md" in agent_body
+    assert ".cursor/skills/kater-dev-tools-parallel-lanes/SKILL.md" in agent_body
 
 
 def test_pr_gate_agent_frontmatter_fields() -> None:

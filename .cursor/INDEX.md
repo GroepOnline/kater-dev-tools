@@ -19,15 +19,15 @@
 
 | Name | Path | Summary |
 | --- | --- | --- |
-| `ci-fixer` | `.cursor/skills/ci-fixer/SKILL.md` | Fix failing CI, lint, or tests on the current PR branch with minimal diffs. |
-| `create-skill` | `.cursor/skills/create-skill/SKILL.md` | Project endpoint for /create-skill. |
-| `create-subagent` | `.cursor/skills/create-subagent/SKILL.md` | Project endpoint for /create-subagent. |
 | `kater-dashboard` | `.cursor/skills/kater-dashboard/SKILL.md` | Verify the Kater web dashboard and REST API surfaces on :9091. |
+| `kater-dev-tools-ci-fixer` | `.cursor/skills/kater-dev-tools-ci-fixer/SKILL.md` | kater-dev-tools-specifieke ci-ops-feiten. |
+| `kater-dev-tools-create-skill` | `.cursor/skills/kater-dev-tools-create-skill/SKILL.md` | kater-dev-tools-specifieke skill-authoring-feiten. |
+| `kater-dev-tools-create-subagent` | `.cursor/skills/kater-dev-tools-create-subagent/SKILL.md` | kater-dev-tools-specifieke skill-authoring-feiten. |
+| `kater-dev-tools-local-verify` | `.cursor/skills/kater-dev-tools-local-verify/SKILL.md` | kater-dev-tools-specifieke workflow-verification-feiten. |
+| `kater-dev-tools-parallel-lanes` | `.cursor/skills/kater-dev-tools-parallel-lanes/SKILL.md` | kater-dev-tools-specifieke workflow-verification-feiten. |
 | `kater-doctor` | `.cursor/skills/kater-doctor/SKILL.md` | Run Kater doctor diagnostics, fix plans, and safe apply for MCP/Cursor wiring. |
 | `kater-e2e` | `.cursor/skills/kater-e2e/SKILL.md` | End-to-end gateway proof: REST, MCP SSE initialize/tools, WebSocket handshake. |
 | `kater-gateway` | `.cursor/skills/kater-gateway/SKILL.md` | Start, configure, and verify the Kater MCP gateway locally or in cloud. |
-| `local-verify` | `.cursor/skills/local-verify/SKILL.md` | Umbrella verify matrix: what to test on cloud VM vs local desktop vs Docker, port koppelingen, and canonical order of operations before push. |
-| `parallel-lanes` | `.cursor/skills/parallel-lanes/SKILL.md` | Dispatch parallel Cursor subagents with disjoint file scopes (~4 lanes) and a coordinator integrate step. |
 | `pr-gate` | `.cursor/skills/pr-gate/SKILL.md` | Evaluate and fix one PR until merge-ready using Kater PR gate rules and gh. |
 
 ## Agents

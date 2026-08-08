@@ -81,14 +81,14 @@ def test_index_lists_skills_and_agents() -> None:
     for required in (
         "kater-gateway",
         "pr-gate",
-        "create-skill",
-        "create-subagent",
+        "kater-dev-tools-create-skill",
+        "kater-dev-tools-create-subagent",
         "kater-doctor",
         "kater-e2e",
         "kater-dashboard",
-        "local-verify",
-        "parallel-lanes",
-        "ci-fixer",
+        "kater-dev-tools-local-verify",
+        "kater-dev-tools-parallel-lanes",
+        "kater-dev-tools-ci-fixer",
     ):
         assert required in skill_names, f"missing skill index entry: {required}"
 

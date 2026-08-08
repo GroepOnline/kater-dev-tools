@@ -8,7 +8,7 @@ description: >-
 
 # /create-skill
 
-Load and follow `.cursor/skills/create-skill/SKILL.md`.
+Load and follow `.cursor/skills/kater-dev-tools-create-skill/SKILL.md`.
 
 Do not invent a parallel procedure. Prefer the skill SSOT under `.cursor/`.
 
@@ -22,7 +22,7 @@ Do not invent a parallel procedure. Prefer the skill SSOT under `.cursor/`.
 
 | Artifact | Path |
 | --- | --- |
-| Skill (this command) | `.cursor/skills/create-skill/SKILL.md` |
+| Skill (this command) | `.cursor/skills/kater-dev-tools-create-skill/SKILL.md` |
 | Twin subagent skill | `.cursor/skills/create-subagent/SKILL.md` |
 | Subagent output | `.cursor/agents/<name>.md` |
 

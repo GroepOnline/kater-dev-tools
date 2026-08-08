@@ -28,6 +28,6 @@ Do not invent a parallel procedure. Prefer the agent SSOT under `.cursor/`.
 
 | Skill | Path |
 | --- | --- |
-| Local reproduce | `.cursor/skills/local-verify/SKILL.md` |
+| Local reproduce | `.cursor/skills/kater-dev-tools-local-verify/SKILL.md` |
 | Merge-ready gate | `.cursor/skills/pr-gate/SKILL.md` |
 | Gateway ordering | `.cursor/skills/kater-gateway/SKILL.md` |

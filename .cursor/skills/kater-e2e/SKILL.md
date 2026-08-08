@@ -1,6 +1,6 @@
 ---
 name: kater-e2e
-description: End-to-end gateway proof: REST, MCP SSE initialize/tools, WebSocket handshake.
+description: 'End-to-end gateway proof: REST, MCP SSE initialize/tools, WebSocket handshake.'
 details: Use for /kater-e2e, e2e-mcp.sh, "prove MCP works", or post-change gateway validation while the server is running.
 ---
 

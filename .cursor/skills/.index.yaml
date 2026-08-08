@@ -10,27 +10,27 @@ items:
   path: .cursor/skills/kater-dev-tools-ci-fixer/SKILL.md
   kind: skill
   summary: kater-dev-tools-specifieke ci-ops-feiten.
-  when: kater-dev-tools-specifieke ci-ops-feiten. Chains up to groe…
+  when: kater-dev-tools-specifieke ci-ops-feiten.
 - name: kater-dev-tools-create-skill
   path: .cursor/skills/kater-dev-tools-create-skill/SKILL.md
   kind: skill
   summary: kater-dev-tools-specifieke skill-authoring-feiten.
-  when: kater-dev-tools-specifieke skill-authoring-feiten. Chains u…
+  when: kater-dev-tools-specifieke skill-authoring-feiten.
 - name: kater-dev-tools-create-subagent
   path: .cursor/skills/kater-dev-tools-create-subagent/SKILL.md
   kind: skill
   summary: kater-dev-tools-specifieke skill-authoring-feiten.
-  when: kater-dev-tools-specifieke skill-authoring-feiten. Chains u…
+  when: kater-dev-tools-specifieke skill-authoring-feiten.
 - name: kater-dev-tools-local-verify
   path: .cursor/skills/kater-dev-tools-local-verify/SKILL.md
   kind: skill
   summary: kater-dev-tools-specifieke workflow-verification-feiten.
-  when: kater-dev-tools-specifieke workflow-verification-feiten. Ch…
+  when: kater-dev-tools-specifieke workflow-verification-feiten.
 - name: kater-dev-tools-parallel-lanes
   path: .cursor/skills/kater-dev-tools-parallel-lanes/SKILL.md
   kind: skill
   summary: kater-dev-tools-specifieke workflow-verification-feiten.
-  when: kater-dev-tools-specifieke workflow-verification-feiten. Ch…
+  when: kater-dev-tools-specifieke workflow-verification-feiten.
 - name: kater-doctor
   path: .cursor/skills/kater-doctor/SKILL.md
   kind: skill

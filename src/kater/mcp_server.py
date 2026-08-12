@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import keyword
 import logging
 import os
 import re
@@ -81,6 +82,27 @@ def _validate_param_name(name: str) -> str:
     if name in _RESERVED_PARAM_NAMES:
         raise InvalidToolSchemaError(f"tool property name {name!r} shadows a handler binding")
     return name
+
+
+def _safe_reflect_name(schema_name: str, taken: set[str]) -> str:
+    """Map a validated schema property to a name safe for ``inspect.Parameter``."""
+    candidates: list[str] = []
+    if not keyword.iskeyword(schema_name):
+        candidates.append(schema_name)
+    candidates.extend((f"{schema_name}_", f"arg_{schema_name}"))
+
+    for candidate in candidates:
+        if (
+            candidate.isidentifier()
+            and not keyword.iskeyword(candidate)
+            and candidate not in _RESERVED_PARAM_NAMES
+            and candidate not in taken
+        ):
+            return candidate
+
+    raise InvalidToolSchemaError(
+        f"tool property name {schema_name!r} cannot be reflected into a handler signature"
+    )
 
 
 def _validate_tool_name(name: str) -> str:
@@ -235,11 +257,14 @@ def _build_proxy_handler(
 
     # Validate every property name up front. Failing closed on the first bad
     # name is preferable to registering a partially-shaped handler.
-    validated: list[str] = []
+    param_map: dict[str, str] = {}
+    taken_safe_names: set[str] = set()
     for prop_name in properties:
         _validate_param_name(prop_name)
-        validated.append(prop_name)
-        if len(validated) > _MAX_TOOL_PROPERTIES:
+        safe_name = _safe_reflect_name(prop_name, taken_safe_names)
+        taken_safe_names.add(safe_name)
+        param_map[safe_name] = prop_name
+        if len(param_map) > _MAX_TOOL_PROPERTIES:
             raise InvalidToolSchemaError(
                 f"tool {tool_name!r} has more than {_MAX_TOOL_PROPERTIES} properties; "
                 "refusing to register"
@@ -250,7 +275,11 @@ def _build_proxy_handler(
         # to the upstream tool. Positional args are rejected on the signature
         # level (every parameter is keyword-only), which also matches how the
         # previous exec-based handler behaved once you read its generated code.
-        args = {name: value for name, value in kwargs.items() if value is not None}
+        args = {
+            param_map[safe_name]: value
+            for safe_name, value in kwargs.items()
+            if value is not None
+        }
         return proxy.call_tool(tool_name, args)
 
     handler.__name__ = "handler"
@@ -264,12 +293,12 @@ def _build_proxy_handler(
     # field in its advertised input schema, matching prior behaviour.
     parameters = [
         inspect.Parameter(
-            name=name,
+            name=safe_name,
             kind=inspect.Parameter.KEYWORD_ONLY,
             default=None,
             annotation=Any,
         )
-        for name in validated
+        for safe_name in param_map
     ]
     handler.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
         parameters=parameters,
@@ -371,8 +400,8 @@ class AuthASGIMiddleware:
         await send({"type": "http.response.body", "body": body})
 
 
-def build_sse_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
-    """Return the FastMCP SSE ASGI app wrapped with Kater auth."""
+def build_mcp_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
+    """Return the combined MCP ASGI app (SSE + streamable HTTP) wrapped with Kater auth."""
     server = create_server(profile=profile)
     if use_proxy:
         from kater.proxy import get_proxy
@@ -387,11 +416,15 @@ def build_sse_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
     from kater.gateway import ApiProxyMiddleware
 
     security = getattr(server, "_kater_sse_transport_security", None)
-    if security is not None:
-        inner = AuthASGIMiddleware(server.sse_app(transport_security=security))
-    else:
-        inner = AuthASGIMiddleware(server.sse_app())
+    from kater.mcp import combine_mcp_transports
+
+    inner = AuthASGIMiddleware(combine_mcp_transports(server, security=security))
     return ApiProxyMiddleware(inner)
+
+
+def build_sse_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
+    """Backward-compatible alias for :func:`build_mcp_app`."""
+    return build_mcp_app(profile=profile, use_proxy=use_proxy)
 
 
 def serve(
@@ -403,5 +436,5 @@ def serve(
 ) -> None:
     import uvicorn
 
-    app = build_sse_app(profile=profile, use_proxy=use_proxy)
+    app = build_mcp_app(profile=profile, use_proxy=use_proxy)
     uvicorn.run(app, host=host, port=port, log_level="warning")

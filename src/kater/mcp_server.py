@@ -89,7 +89,14 @@ def _safe_reflect_name(schema_name: str, taken: set[str]) -> str:
     candidates: list[str] = []
     if not keyword.iskeyword(schema_name):
         candidates.append(schema_name)
-    candidates.extend((f"{schema_name}_", f"arg_{schema_name}"))
+    candidates.append(f"{schema_name}_")
+    candidates.append(f"arg_{schema_name}")
+    # When earlier properties consumed the usual fallbacks (e.g. ``from_`` and
+    # ``arg_from`` already taken for schema property ``from``), keep appending
+    # underscores until an unused identifier is found.
+    for extra in range(2, 32):
+        candidates.append(f"{schema_name}{'_' * extra}")
+        candidates.append(f"arg_{schema_name}{'_' * (extra - 1)}")
 
     for candidate in candidates:
         if (

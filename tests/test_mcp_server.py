@@ -203,3 +203,39 @@ class _FakeAsyncContext:
 
     async def __aexit__(self, *exc: object) -> None:
         return None
+
+
+def test_build_proxy_handler_reflects_python_keyword_params() -> None:
+    """Schema properties named like Python keywords must not crash registration."""
+    import inspect
+
+    from typing import Any
+
+    proxy = Mock()
+    proxy.call_tool.return_value = {"ok": True}
+
+    handler = mcp_server._build_proxy_handler(
+        "firecrawl__search",
+        {
+            "type": "object",
+            "properties": {
+                "from": {"type": "string"},
+                "class": {"type": "string"},
+                "query": {"type": "string"},
+            },
+            "required": ["query"],
+        },
+        proxy,
+    )
+
+    sig = inspect.signature(handler)
+    assert list(sig.parameters) == ["from_", "class_", "query"]
+    for param in sig.parameters.values():
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY
+        assert param.annotation is Any
+
+    handler(from_="2024-01-01", class_="article", query="mcp")
+    proxy.call_tool.assert_called_once_with(
+        "firecrawl__search",
+        {"from": "2024-01-01", "class": "article", "query": "mcp"},
+    )

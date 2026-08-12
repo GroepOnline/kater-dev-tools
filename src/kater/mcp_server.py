@@ -371,34 +371,6 @@ class AuthASGIMiddleware:
         await send({"type": "http.response.body", "body": body})
 
 
-def _combine_mcp_transports(server: Any, *, security: Any | None) -> Any:
-    """Expose SSE and (when supported) streamable HTTP from one FastMCP server."""
-    transport_kwargs: dict[str, Any] = {}
-    if security is not None:
-        transport_kwargs["transport_security"] = security
-
-    sse_starlette = server.sse_app(**transport_kwargs)
-
-    streamable_factory = getattr(server, "streamable_http_app", None)
-    if not callable(streamable_factory):
-        return sse_starlette
-
-    stream_starlette = streamable_factory(**transport_kwargs)
-    routes = list(sse_starlette.routes) + list(stream_starlette.routes)
-
-    from contextlib import AsyncExitStack, asynccontextmanager
-
-    from starlette.applications import Starlette
-
-    @asynccontextmanager
-    async def lifespan(app: Starlette):
-        async with AsyncExitStack() as stack:
-            await stack.enter_async_context(server.session_manager.run())
-            yield
-
-    return Starlette(routes=routes, lifespan=lifespan)
-
-
 def build_mcp_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
     """Return the combined MCP ASGI app (SSE + streamable HTTP) wrapped with Kater auth."""
     server = create_server(profile=profile)
@@ -415,7 +387,9 @@ def build_mcp_app(*, profile: str = "core", use_proxy: bool = False) -> Any:
     from kater.gateway import ApiProxyMiddleware
 
     security = getattr(server, "_kater_sse_transport_security", None)
-    inner = AuthASGIMiddleware(_combine_mcp_transports(server, security=security))
+    from kater.mcp import combine_mcp_transports
+
+    inner = AuthASGIMiddleware(combine_mcp_transports(server, security=security))
     return ApiProxyMiddleware(inner)
 
 

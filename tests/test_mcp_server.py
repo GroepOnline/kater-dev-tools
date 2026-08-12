@@ -205,6 +205,37 @@ class _FakeAsyncContext:
         return None
 
 
+def test_build_proxy_handler_allocates_extra_suffixes_on_name_collision() -> None:
+    """When fallback names collide, keep suffixing instead of skipping the tool."""
+    import inspect
+
+    from typing import Any
+
+    proxy = Mock()
+    proxy.call_tool.return_value = {"ok": True}
+
+    handler = mcp_server._build_proxy_handler(
+        "evil__collide",
+        {
+            "type": "object",
+            "properties": {
+                "from_": {"type": "string"},
+                "arg_from": {"type": "string"},
+                "from": {"type": "string"},
+            },
+        },
+        proxy,
+    )
+
+    sig = inspect.signature(handler)
+    assert list(sig.parameters) == ["from_", "arg_from", "from__"]
+    handler(from_="a", arg_from="b", from__="c")
+    proxy.call_tool.assert_called_once_with(
+        "evil__collide",
+        {"from_": "a", "arg_from": "b", "from": "c"},
+    )
+
+
 def test_build_proxy_handler_reflects_python_keyword_params() -> None:
     """Schema properties named like Python keywords must not crash registration."""
     import inspect

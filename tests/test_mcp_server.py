@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -140,3 +141,65 @@ def test_mcp_rate_limit_ignores_spoofed_xff_from_public_peer(monkeypatch, tmp_pa
 
     assert seen_clients == ["8.8.8.8"]
     assert sent[0]["status"] == 429
+
+
+def test_build_mcp_app_combines_sse_and_streamable_http() -> None:
+    class _Route:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+    fake_sse_app = Mock()
+    fake_sse_app.routes = [_Route("/sse"), _Route("/messages")]
+    fake_stream_app = Mock()
+    fake_stream_app.routes = [_Route("/mcp")]
+
+    class FakeServer:
+        def sse_app(self, **kwargs: Any) -> Mock:
+            return fake_sse_app
+
+        def streamable_http_app(self, **kwargs: Any) -> Mock:
+            return fake_stream_app
+
+        @property
+        def session_manager(self) -> Mock:
+            return self._session_manager
+
+        def __init__(self) -> None:
+            self._session_manager = Mock()
+            self._session_manager.run.return_value = _FakeAsyncContext()
+
+    fake_server = FakeServer()
+
+    with patch("kater.mcp_server.create_server", return_value=fake_server):
+        app = mcp_server.build_mcp_app(profile="core")
+
+    auth_mw = app._app
+    starlette = auth_mw._app
+    paths = [route.path for route in starlette.routes]
+    assert paths == ["/sse", "/messages", "/mcp"]
+    assert starlette.router.lifespan_context is not None
+
+
+def test_build_mcp_app_sse_only_without_streamable_http() -> None:
+    fake_sse_app = Mock()
+    fake_sse_app.routes = [Mock(path="/sse")]
+
+    class FakeServer:
+        def sse_app(self, **kwargs: Any) -> Mock:
+            return fake_sse_app
+
+    fake_server = FakeServer()
+
+    with patch("kater.mcp_server.create_server", return_value=fake_server):
+        app = mcp_server.build_mcp_app(profile="core")
+
+    auth_mw = app._app
+    assert auth_mw._app is fake_sse_app
+
+
+class _FakeAsyncContext:
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None

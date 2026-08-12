@@ -114,7 +114,7 @@ class KaterRuntime:
             _log.warning("computer connector setup failed: %s", exc)
 
         from kater.api import create_api_server
-        from kater.mcp_server import build_sse_app
+        from kater.mcp_server import build_mcp_app
         from kater.websocket import create_ws_server
 
         self._api_server = create_api_server(self._listen.host, self._listen.api_port)
@@ -133,7 +133,7 @@ class KaterRuntime:
         )
         self._ws_thread.start()
 
-        mcp_app = build_sse_app(profile=self._profile, use_proxy=self._use_proxy)
+        mcp_app = build_mcp_app(profile=self._profile, use_proxy=self._use_proxy)
         config = uvicorn.Config(
             mcp_app,
             host=self._listen.host,

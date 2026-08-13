@@ -40,13 +40,20 @@ class BaseBackend:
         self._protocol_version: str | None = None
 
     def start(self) -> None:
+        connected = False
         try:
             self._connect()
+            connected = True
             self._running = True
             self._initialize()
             self._refresh_tools()
             self._status.healthy = True
         except Exception as exc:
+            if connected:
+                try:
+                    self._disconnect()
+                except Exception:
+                    pass
             self._status.error = str(exc)
             self._status.healthy = False
             self._running = False
@@ -101,13 +108,23 @@ class BaseBackend:
                 "clientInfo": {"name": "kater-proxy", "version": "1.0"},
             },
         )
+        if "error" in result:
+            raise BackendOperationalError(
+                f"MCP initialize failed: {result['error']}",
+                fallback_safe=False,
+            )
         negotiated = (result.get("result") or {}).get("protocolVersion")
-        if negotiated is not None and negotiated not in SUPPORTED_PROTOCOL_VERSIONS:
+        if not isinstance(negotiated, str) or not negotiated:
+            raise BackendOperationalError(
+                "MCP initialize response missing a valid protocol version",
+                fallback_safe=False,
+            )
+        if negotiated not in SUPPORTED_PROTOCOL_VERSIONS:
             raise BackendOperationalError(
                 f"unsupported MCP protocol version from server: {negotiated}",
                 fallback_safe=False,
             )
-        self._protocol_version = negotiated or NEWEST_PROTOCOL_VERSION
+        self._protocol_version = negotiated
         self._rpc("notifications/initialized")
 
     def _refresh_tools(self) -> None:

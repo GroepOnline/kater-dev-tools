@@ -61,7 +61,7 @@ def test_recording_backend_start_runs_mcp_session():
     ]
     init_params = backend.rpc_calls[0][1]
     assert init_params is not None
-    assert init_params["protocolVersion"] == "2024-11-05"
+    assert init_params["protocolVersion"] == "2025-06-18"
     assert init_params["clientInfo"]["name"] == "kater-proxy"
 
     tools = backend.list_tools()
@@ -69,6 +69,32 @@ def test_recording_backend_start_runs_mcp_session():
     assert tools[0].name == "search"
     assert tools[0].backend == "recording"
     assert tools[0].input_schema == {"type": "object"}
+
+
+def test_initialize_rejects_unsupported_protocol_version():
+    # A server answering with a protocol version this gateway does not speak
+    # must fail the session, not silently proceed on a mismatched version.
+    backend = RecordingBackend(
+        rpc_responses={
+            "initialize": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"protocolVersion": "2026-01-01"},
+            }
+        }
+    )
+    backend.start()
+    assert not backend.is_healthy()
+    assert "unsupported MCP protocol version" in backend.status.error
+
+
+def test_initialize_accepts_negotiated_older_version():
+    # The gateway advertises the newest version but accepts a supported older
+    # version the server answers with (backward-compatible negotiation).
+    backend = RecordingBackend()  # stub answers 2024-11-05
+    backend.start()
+    assert backend.is_healthy()
+    assert backend._protocol_version == "2024-11-05"
 
 
 def test_recording_backend_call_tool_unwraps_result():

@@ -6,6 +6,14 @@ from typing import Any
 
 from kater.proxy.models import BackendStatus, ProxiedTool
 
+# Newest-first MCP protocol versions this gateway speaks. 2025-06-18 is the
+# current stable MCP release (streamable HTTP transport, elicitation, form
+# filling); older servers negotiate down from it in the initialize response.
+# The gateway advertises the newest version and accepts any supported version
+# the server answers with, instead of pinning the legacy 2024-11-05.
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+NEWEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
+
 
 class BackendOperationalError(Exception):
     """Transport/protocol failure distinct from a JSON-RPC business error.
@@ -29,6 +37,7 @@ class BaseBackend:
         self._tools: list[ProxiedTool] = []
         self._status = BackendStatus(name=self.name)
         self._running = False
+        self._protocol_version: str | None = None
 
     def start(self) -> None:
         try:
@@ -84,14 +93,21 @@ class BaseBackend:
         raise NotImplementedError
 
     def _initialize(self) -> None:
-        self._rpc(
+        result = self._rpc(
             "initialize",
             {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": NEWEST_PROTOCOL_VERSION,
                 "capabilities": {},
                 "clientInfo": {"name": "kater-proxy", "version": "1.0"},
             },
         )
+        negotiated = (result.get("result") or {}).get("protocolVersion")
+        if negotiated is not None and negotiated not in SUPPORTED_PROTOCOL_VERSIONS:
+            raise BackendOperationalError(
+                f"unsupported MCP protocol version from server: {negotiated}",
+                fallback_safe=False,
+            )
+        self._protocol_version = negotiated or NEWEST_PROTOCOL_VERSION
         self._rpc("notifications/initialized")
 
     def _refresh_tools(self) -> None:

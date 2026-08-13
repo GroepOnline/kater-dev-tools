@@ -42,6 +42,13 @@ ALLOWED_ORG_HANDLE = frozenset(
         # self-allowlist below; the samples must stay literal or the suite
         # cannot assert detection.
         "tests/test_no_org_leak.py",
+        # Immutable design-system consumer contract: these files pin the
+        # public design-system repo by name + commit SHA by design (machine
+        # contract, never copied or hand-edited). Same rationale as the
+        # vendored contract schemas above.
+        ".github/design-system.json",
+        ".github/design-system.yml",
+        ".github/workflows/design-system-contract.yml",
         # The detector itself encodes the patterns as literal regex text and
         # comments; self-allowlist is required so the scanner can describe
         # what it scans for. Same pattern as gitleaks allowing its own
@@ -68,6 +75,11 @@ ALLOWED_PROD_DOMAIN = frozenset(
         "docs/deploy-server.md",
         # Leak-sample fixture file — see the ALLOWED_ORG_HANDLE note above.
         "tests/test_no_org_leak.py",
+        # Immutable design-system consumer contract — see the
+        # ALLOWED_ORG_HANDLE note above.
+        ".github/design-system.json",
+        ".github/design-system.yml",
+        ".github/workflows/design-system-contract.yml",
         # Detector self-allowlist — see the ALLOWED_ORG_HANDLE note above.
         "scripts/no_org_leak.py",
         # Same four vendored contract schemas as above. See the

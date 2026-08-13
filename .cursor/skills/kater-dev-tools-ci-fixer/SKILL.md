@@ -3,14 +3,14 @@ name: kater-dev-tools-ci-fixer
 role: satellite
 ambient: true
 description: kater-dev-tools-specifieke ci-ops-feiten.
-details: Chains up to groeponline-ci-fix-loop voor procedure, invarianten en safety gates.
+details: Chains up to ci-fix-loop voor procedure, invarianten en safety gates.
 use:
 - "/ci-fixer"
 - "rode checks"
-extends: groeponline-ci-fix-loop
+extends: ci-fix-loop
 chains:
   skills:
-  - groeponline-ci-fix-loop
+  - ci-fix-loop
 invocable-by:
 - user
 - agent
@@ -33,4 +33,4 @@ last_reviewed: '2026-08-08'
 - Twin subagent: `.cursor/agents/ci-fixer.md`.
 - Fix contract: CI/lint/tests only, minimale diff; reproduceer lokaal, herbekijk checks na push.
 
-Procedure, invarianten en gates: `groeponline-ci-fix-loop`.
+Procedure, invarianten en gates: `ci-fix-loop`.

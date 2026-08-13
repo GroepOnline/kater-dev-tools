@@ -2,8 +2,12 @@
 name: ci-fix-loop
 role: meta
 ambient: false
-description: CI fix loop — reproduce, minimal fix, re-verify. Pointer to this repo's ci-fixer lane.
-details: Shared procedure for turning red checks green without scope creep. Repo-specific facts live in kater-dev-tools-ci-fixer.
+description: >-
+  Indexable stub so kater-dev-tools-ci-fixer extends/chains resolve under
+  .cursor/skills. Canonical CI fix procedure lives in portable skills, not here.
+details: >-
+  Artifact hook scans only .cursor/skills. This file is the resolvable target for
+  extends/chains; do not treat it as a second poll/watch CI loop.
 use:
 - "/ci-fixer"
 - "fix CI"
@@ -19,34 +23,30 @@ risk: read-only
 last_reviewed: '2026-08-14'
 ---
 
-# CI fix loop
+# ci-fix-loop (repo index stub)
 
-Thin meta skill for the fix loop contract. Repo-specific commands, paths, and
-invariants: `.cursor/skills/kater-dev-tools-ci-fixer/SKILL.md` and twin subagent
-`.cursor/agents/ci-fixer.md`.
+Thin satellite so `kater-dev-tools-ci-fixer` `extends: ci-fix-loop` and
+`chains.skills` resolve. The artifact hook only indexes `.cursor/skills`.
 
-## Loop (one PR branch)
+## Canonical portable skills (load these — do not duplicate)
 
-1. **Snapshot** — `gh pr view` for head SHA, changed files, check rollup.
-2. **Triage** — `gh pr checks`; for failures, `gh run view --log-failed`.
-3. **Reproduce** — run the matching local command from `.github/workflows/ci.yml`
-   (ruff, mypy, pytest, smoke, lock check, pre-commit).
-4. **Fix** — minimal diff; stay within PR scope + CI-required artifacts.
-5. **Re-verify** — repeat affected commands until local repro passes.
-6. **Push** — only when authorized; one-shot check status after notify.
+| Home | Path / name | Role |
+| --- | --- | --- |
+| Account portable | `~/.agents/skills/groeponline-ci-fix-loop/SKILL.md` | Org-wide CI repair chain (when that lane is in scope) |
+| Cursor team-kit | plugin skill `fix-ci` | Focused PR-check repair |
 
-## Safety gates
+## Repo facts / twin
 
-- CI/lint/tests only — no feature scope creep or drive-by refactors.
-- Never merge, close, or force-push unless explicitly authorized.
-- Resolve org/repo at runtime via `gh repo view` — never hardcode slugs in fixes.
-- `./scripts/smoke.sh` requires the gateway server **stopped** (no concurrent writer).
-- Stop at merge-ready; delegate merge gate to `pr-gate` when checks and threads are clear.
-
-## Satellites
-
-| Skill | Role |
+| Artifact | Path |
 | --- | --- |
-| `kater-dev-tools-ci-fixer` | kater-dev-tools CI commands and repo facts |
-| `kater-dev-tools-local-verify` | post-fix local matrix verification |
-| `pr-gate` | merge-ready contract after CI is green |
+| Satellite (commands, paths) | `.cursor/skills/kater-dev-tools-ci-fixer/SKILL.md` |
+| Twin subagent | `.cursor/agents/ci-fixer.md` |
+| Post-fix local matrix | `.cursor/skills/kater-dev-tools-local-verify/SKILL.md` |
+| Merge-ready gate | `.cursor/skills/pr-gate/SKILL.md` |
+
+## Hard bans (org)
+
+- No `ci-watcher`, no `gh run watch`, no poll-until-green loops.
+- One-shot `gh pr checks` / `gh run view --log-failed` only when authorized or after notify.
+- Never merge, close, or force-push unless explicitly authorized.
+- CI/lint/tests only — no feature scope creep.

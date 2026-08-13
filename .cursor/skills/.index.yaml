@@ -4,8 +4,9 @@ items:
 - name: ci-fix-loop
   path: .cursor/skills/ci-fix-loop/SKILL.md
   kind: skill
-  summary: CI fix loop — reproduce, minimal fix, re-verify.
-  when: CI fix loop — reproduce, minimal fix, re-verify. Pointer to…
+  summary: Indexable stub so kater-dev-tools-ci-fixer extends/chains resolve under
+    .cursor/skills.
+  when: Indexable stub so kater-dev-tools-ci-fixer extends/chains r…
 - name: kater-dashboard
   path: .cursor/skills/kater-dashboard/SKILL.md
   kind: skill

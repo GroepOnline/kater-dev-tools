@@ -103,6 +103,17 @@ def test_no_cursor_paths_in_allowlists():
         assert not any(entry.startswith(".cursor/") for entry in allowed)
 
 
+def test_self_allowlist(tmp_path, monkeypatch):
+    # The detector's own test file holds literal leak samples. It must be
+    # allowlisted so the PR diff-scan does not flag the detector suite itself
+    # (regression: the CI "Org-leak guard" step failed on exactly this file).
+    p = tmp_path / "tests/test_no_org_leak.py"
+    p.parent.mkdir(parents=True)
+    p.write_text(open("tests/test_no_org_leak.py").read())
+    monkeypatch.chdir(tmp_path)
+    assert nol.scan(["tests/test_no_org_leak.py"]) == []
+
+
 def test_scan_allows_pre_commit_config_no_org_leak_hook(tmp_path, monkeypatch):
     # The new local no-org-leak pre-commit hook only references the already
     # allowlisted `no-org-leak.yml` filename in a comment; the config file

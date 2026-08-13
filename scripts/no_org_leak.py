@@ -36,6 +36,17 @@ ALLOWED_ORG_HANDLE = frozenset(
         # CHANGELOG.md links to compare/release views under the org's GitHub
         # domain; the org handle appears in every URL by design.
         "CHANGELOG.md",
+        # The detector's own test file contains the leak samples as literal
+        # fixtures — it exists precisely so the scanner can prove it flags
+        # them. Same principle as the ``scripts/no_org_leak.py``
+        # self-allowlist below; the samples must stay literal or the suite
+        # cannot assert detection.
+        "tests/test_no_org_leak.py",
+        # The detector itself encodes the patterns as literal regex text and
+        # comments; self-allowlist is required so the scanner can describe
+        # what it scans for. Same pattern as gitleaks allowing its own
+        # ``.gitleaks.toml`` to mention its own secret-keyword names.
+        "scripts/no_org_leak.py",
         # The four vendored contract schemas below are pinned by content digest
         # (see ``GENERATED_CONTRACT_DIGEST`` in
         # ``src/kater/capabilities/computer.py``). Their $id URLs are emitted by
@@ -55,6 +66,10 @@ ALLOWED_PROD_DOMAIN = frozenset(
         "AUDIT.md",
         "no-org-leak.yml",
         "docs/deploy-server.md",
+        # Leak-sample fixture file — see the ALLOWED_ORG_HANDLE note above.
+        "tests/test_no_org_leak.py",
+        # Detector self-allowlist — see the ALLOWED_ORG_HANDLE note above.
+        "scripts/no_org_leak.py",
         # Same four vendored contract schemas as above. See the
         # ALLOWED_ORG_HANDLE note for the rationale; this exemption will be
         # lifted once the contract generator ships with neutral hostnames.

@@ -70,7 +70,7 @@ jobs:
       - name: Lint workflow files
         run: |
           for f in .github/workflows/*.yml; do
-            python - "$f" <<'PY'
+            uv run python - "$f" <<'PY'
           import sys, yaml
           with open(sys.argv[1]) as f:
               yaml.safe_load(f)
@@ -330,7 +330,7 @@ jobs:
 
       - name: Verify package contents
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import zipfile, glob, sys
           wheels = glob.glob("dist/*.whl")
           assert wheels, "no wheel built"

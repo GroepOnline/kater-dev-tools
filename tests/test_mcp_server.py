@@ -209,8 +209,6 @@ def test_build_proxy_handler_allocates_extra_suffixes_on_name_collision() -> Non
     """When fallback names collide, keep suffixing instead of skipping the tool."""
     import inspect
 
-    from typing import Any
-
     proxy = Mock()
     proxy.call_tool.return_value = {"ok": True}
 
@@ -239,8 +237,6 @@ def test_build_proxy_handler_allocates_extra_suffixes_on_name_collision() -> Non
 def test_build_proxy_handler_reflects_python_keyword_params() -> None:
     """Schema properties named like Python keywords must not crash registration."""
     import inspect
-
-    from typing import Any
 
     proxy = Mock()
     proxy.call_tool.return_value = {"ok": True}

@@ -19,6 +19,7 @@
 
 | Name | Path | Summary |
 | --- | --- | --- |
+| `ci-fix-loop` | `.cursor/skills/ci-fix-loop/SKILL.md` | CI fix loop — reproduce, minimal fix, re-verify. |
 | `kater-dashboard` | `.cursor/skills/kater-dashboard/SKILL.md` | Verify the Kater web dashboard and REST API surfaces on :9091. |
 | `kater-dev-tools-ci-fixer` | `.cursor/skills/kater-dev-tools-ci-fixer/SKILL.md` | kater-dev-tools-specifieke ci-ops-feiten. |
 | `kater-dev-tools-create-skill` | `.cursor/skills/kater-dev-tools-create-skill/SKILL.md` | kater-dev-tools-specifieke skill-authoring-feiten. |

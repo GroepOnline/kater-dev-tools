@@ -10,6 +10,14 @@ LEAK_SAMPLES = {
     "src/kater/evil4.py": "BASE = 'https://groeponline.nl/x'",
     "src/kater/evil5.py": "owner = 'GroepOnline'",
 }
+# Suffixes emitted by scripts/no_org_leak.py (after ``path: ``).
+LEAK_EXPECTED_SUFFIX = {
+    "src/kater/evil.py": "org production domain outside allowlist",
+    "src/kater/evil2.py": "org handle outside attribution allowlist",
+    "src/kater/evil3.py": "credential-shaped connection string",
+    "src/kater/evil4.py": "org production domain outside allowlist",
+    "src/kater/evil5.py": "org handle outside attribution allowlist",
+}
 # Files/contents that are allowed (attribution / audit docs).
 CLEAN_SAMPLES = {
     "README.md": "GroepOnline maintains Kater.",
@@ -35,7 +43,11 @@ def test_scan_flags_leaks(tmp_path):
         targets.append(str(p))
     errors = nol.scan(targets)
     assert all(any(error.startswith(f"{target}:") for error in errors) for target in targets)
-    assert all("leak" in e or "connection" in e for e in errors)
+    for rel, expected_suffix in LEAK_EXPECTED_SUFFIX.items():
+        assert any(
+            error.endswith(f": {expected_suffix}") and error.split(":", 1)[0].endswith(rel)
+            for error in errors
+        ), f"missing {expected_suffix!r} for {rel}"
 
 
 def test_scan_allows_attribution_and_clean(tmp_path, monkeypatch):

@@ -13,6 +13,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+# Environment keys materialized from persisted settings, rather than supplied externally.
+persisted_env_keys: set[str] = set()
+
+
 class AuthConfig(BaseModel):
     mode: str = "none"  # none | apikey | oauth
     api_keys: list[str] = Field(default_factory=list)
@@ -93,8 +97,9 @@ class KaterSettings(BaseModel):
             if override.connections:
                 primary = {**primary, **override.connections[0].env}
             for key, value in primary.items():
-                if value:
-                    os.environ.setdefault(key, value)
+                if value and key not in os.environ:
+                    os.environ[key] = value
+                    persisted_env_keys.add(key)
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")

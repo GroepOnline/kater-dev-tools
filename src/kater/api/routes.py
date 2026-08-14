@@ -42,6 +42,7 @@ from kater.settings import (
     load_settings,
     save_settings,
     unsafe_public_settings_override_enabled,
+    persisted_env_keys,
 )
 from kater.telemetry import (
     eval_summary,
@@ -1044,6 +1045,8 @@ def _server_credentials(req: Request) -> Response:
         else:
             override.env.pop(key, None)
             os.environ.pop(key, None)
+            if source.oauth and key == source.oauth.token_env:
+                override.connections = []
     settings.server_overrides[name] = override
     label = str(body.get("label") or "").strip()
     token_key = source.oauth.token_env if source.oauth else None
@@ -1305,9 +1308,10 @@ def _server_connection_delete(req: Request) -> Response:
     override = settings.server_overrides.get(name)
     if not override or not override.connections:
         token_env = source.oauth.token_env if source.oauth else None
-        if token_env in _oauth_runtime_env:
+        if token_env in _oauth_runtime_env or token_env in persisted_env_keys:
             os.environ.pop(token_env, None)
             _oauth_runtime_env.discard(token_env)
+            persisted_env_keys.discard(token_env)
     save_settings(settings)
     try:
         get_proxy().sync_source(source)

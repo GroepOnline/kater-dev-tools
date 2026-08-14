@@ -260,6 +260,7 @@ def status_overview() -> dict[str, Any]:
     import os
 
     from kater import __version__
+    from kater.connect import source_is_configured
     from kater.profiles import all_tool_sources
     from kater.settings import load_settings
 
@@ -276,7 +277,7 @@ def status_overview() -> dict[str, Any]:
             enabled_count += 1
         else:
             disabled_count += 1
-        if all(os.environ.get(v) for v in source.env):
+        if source_is_configured(source, settings):
             configured_count += 1
         else:
             missing_count += 1

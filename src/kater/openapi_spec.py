@@ -331,6 +331,59 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/mcp/servers/{name}/oauth/start"] = {
+        "post": {
+            "summary": "Start catalog Connect OAuth for a server",
+            "parameters": [_name_param()],
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+                "404": _error_ref(),
+                "409": _error_ref(),
+            },
+        }
+    }
+
+    paths["/api/mcp/oauth/callback"] = {
+        "get": {
+            "summary": "Provider redirect for catalog Connect (state-bound)",
+            "responses": {
+                "200": {"description": "Connected; HTML redirect to catalog."},
+                "400": {"description": "Missing code, expired state, or provider error."},
+            },
+        }
+    }
+
+    paths["/api/mcp/servers/{name}/connections"] = {
+        "get": {
+            "summary": "List public connection metadata (no token values)",
+            "parameters": [_name_param()],
+            "responses": {
+                "200": _ok(),
+                "404": _error_ref(),
+            },
+        }
+    }
+
+    paths["/api/mcp/servers/{name}/connections/{conn_id}"] = {
+        "delete": {
+            "summary": "Remove a saved catalog connection",
+            "parameters": [
+                _name_param(),
+                {
+                    "name": "conn_id",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string"},
+                },
+            ],
+            "responses": {
+                "200": _ok(),
+                "404": _error_ref(),
+            },
+        }
+    }
+
     paths["/api/settings"] = {
         "get": _response("Get settings", _ref("Settings")),
         "post": {

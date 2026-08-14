@@ -358,6 +358,28 @@ def test_settings_redacts_server_credentials(api_server, monkeypatch) -> None:
         os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
 
 
+def test_catalog_oauth_start_deny_default_without_client(api_server) -> None:
+    import os
+
+    os.environ.pop("SLACK_MCP_CLIENT_ID", None)
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _post(9912, "/api/mcp/servers/slack/oauth/start", {})
+    assert exc.value.code == 409
+    body = json.loads(exc.value.read().decode())
+    assert body["error"] == "oauth_app_missing"
+    assert body["setup"]["client_id_env"] == "SLACK_MCP_CLIENT_ID"
+    assert body["setup"]["client_secret_env"] == "SLACK_MCP_CLIENT_SECRET"
+    dumped = json.dumps(body)
+    assert "kater-test-" not in dumped
+    listed = _get(9912, "/api/mcp/servers/slack/connections")
+    assert listed["connections"] == []
+    catalog = _get(9912, "/api/catalog?q=slack")
+    slack = next(s for s in catalog["servers"] if s["name"] == "slack")
+    assert slack["oauth"]["provider"] == "slack"
+    assert slack["oauth"]["client_configured"] is False
+    assert "token" not in json.dumps(slack["oauth"]["connections"])
+
+
 def test_private_server_hidden_in_public_mode(monkeypatch) -> None:
     # A public deployment must not acknowledge private (org-only) servers at all.
     # The detail/toggle/credentials handlers all gate through _visible_source,

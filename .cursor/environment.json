@@ -1,6 +1,9 @@
 {
   "name": "kater-dev-tools",
-  "install": "chmod +x .cursor/hooks/fetch-cursor-artifacts.sh scripts/check_cursor_artifacts.sh scripts/sync-chefgroep-skills.sh 2>/dev/null && ./scripts/sync-chefgroep-skills.sh && .cursor/hooks/fetch-cursor-artifacts.sh --write-cache && if [ -f scripts/generate_cursor_index.py ]; then python3 scripts/generate_cursor_index.py; fi && export PATH=\"$HOME/.local/bin:$PATH\" && uv sync --dev",
+  "repositoryDependencies": [
+    "github.com/GroepOnline/chefgroep-skills"
+  ],
+  "install": "chmod +x .cursor/hooks/fetch-cursor-artifacts.sh scripts/check_cursor_artifacts.sh scripts/sync-chefgroep-skills.sh 2>/dev/null && CHEFGROEP_SKILLS_REPO=github.com/GroepOnline/chefgroep-skills ./scripts/sync-chefgroep-skills.sh && .cursor/hooks/fetch-cursor-artifacts.sh --write-cache && if [ -f scripts/generate_cursor_index.py ]; then python3 scripts/generate_cursor_index.py; fi && export PATH=\"$HOME/.local/bin:$PATH\" && uv sync --dev",
   "start": "export PATH=\"$HOME/.local/bin:$PATH\"; curl -sf --max-time 3 http://127.0.0.1:9091/health >/dev/null 2>&1 || true",
   "terminals": [
     {

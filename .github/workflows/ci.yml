@@ -209,15 +209,29 @@ jobs:
         run: |
           echo "Private UDO acceptance skipped outside the upstream repository; the public Kater gates remain required." | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Explain skipped missing UDO deploy key
+        if: >-
+          github.event.repository.fork != true
+          && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+          && secrets.UDO_READ_DEPLOY_KEY == ''
+        run: |
+          echo "Private computer-acceptance skipped: UDO_READ_DEPLOY_KEY is unset on this runner/repo." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout Kater
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: >-
+          github.event.repository.fork != true
+          && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+          && secrets.UDO_READ_DEPLOY_KEY != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Checkout pinned private contract runtime
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: >-
+          github.event.repository.fork != true
+          && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+          && secrets.UDO_READ_DEPLOY_KEY != ''
         with:
           repository: ${{ github.repository_owner }}/utrecht-data-os
           ref: 4fc8217eb90d1a6024030620e35f84369bb5c805
@@ -226,30 +240,45 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: >-
+          github.event.repository.fork != true
+          && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+          && secrets.UDO_READ_DEPLOY_KEY != ''
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: "3.12"
           enable-cache: true
 
       - name: Sync Kater dependencies (frozen)
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: >-
+          github.event.repository.fork != true
+          && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+          && secrets.UDO_READ_DEPLOY_KEY != ''
         run: uv sync --frozen --dev
 
       - name: Install pinned controller dependencies
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: >-
+          github.event.repository.fork != true
+          && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+          && secrets.UDO_READ_DEPLOY_KEY != ''
         working-directory: utrecht-data-os/platform/agent-control-plane/apps/session-controller
         run: npm ci --ignore-scripts
 
       - name: Run Computer acceptance lane
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: >-
+          github.event.repository.fork != true
+          && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+          && secrets.UDO_READ_DEPLOY_KEY != ''
         env:
           COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
           KATER_ACCEPTANCE_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
 
       - name: Publish schema-validated acceptance evidence
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: >-
+          github.event.repository.fork != true
+          && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+          && secrets.UDO_READ_DEPLOY_KEY != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: computer-acceptance-evidence
@@ -322,11 +351,12 @@ jobs:
 
       - name: Install into a clean venv and smoke
         run: |
-          uv venv /tmp/kater-pkg-test
-          uv pip install --python /tmp/kater-pkg-test dist/*.whl
-          /tmp/kater-pkg-test/bin/kater version
-          /tmp/kater-pkg-test/bin/kater doctor
-          /tmp/kater-pkg-test/bin/kater --help
+          PKG_VENV="${RUNNER_TEMP}/kater-pkg-test"
+          uv venv --clear "$PKG_VENV"
+          uv pip install --python "$PKG_VENV" dist/*.whl
+          "$PKG_VENV/bin/kater" version
+          "$PKG_VENV/bin/kater" doctor
+          "$PKG_VENV/bin/kater" --help
 
       - name: Verify package contents
         run: |

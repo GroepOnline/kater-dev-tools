@@ -29,6 +29,8 @@ REASON_NO_REVIEWS = "NO_REVIEWS"
 REASON_DRAFT = "DRAFT"
 REASON_BASE_PROTECTED = "BASE_PROTECTED"
 REASON_REPO_DENIED = "REPO_DENIED"
+REASON_MISSING_HEAD_SHA = "MISSING_HEAD_SHA"
+REASON_REQUIRED_CHECK_LOOKUP = "REQUIRED_CHECK_LOOKUP"
 
 _FAILED_CONCLUSIONS = frozenset(
     {"FAILURE", "CANCELLED", "CANCELED", "TIMED_OUT", "STARTUP_FAILURE", "ERROR"}
@@ -190,20 +192,20 @@ def write_scope_rejection(repo: str, policy: GatePolicy) -> str | None:
         if cleaned.lower() not in allowed:
             return "repository is not on the company-control allowlist"
     plane = os.environ.get("KATER_PR_PLANE", "").strip().lower()
-    allowed_planes = _login_set(policy.allowed_planes)  # reuse lower/strip set helper
+    allowed_planes = _login_set(policy.allowed_planes)
     if policy.require_company_control_plane or allowed_planes:
         required = allowed_planes or {_COMPANY_CONTROL_PLANE}
         if plane not in required:
             return "plane is not company-control"
-    elif plane and plane != _COMPANY_CONTROL_PLANE:
+    elif plane != _COMPANY_CONTROL_PLANE:
         return "plane is not company-control"
     return None
 
 
 def classify_check(check: dict[str, Any]) -> str:
     """Return 'failed', 'pending', 'success', or 'other' for one check/status."""
-    status = str(check.get("status") or "").upper()
-    conclusion = str(check.get("conclusion") or "").upper()
+    status = str(check.get("status") or check.get("state") or "").upper()
+    conclusion = str(check.get("conclusion") or check.get("state") or "").upper()
     if conclusion in _FAILED_CONCLUSIONS:
         return "failed"
     if status in _PENDING_STATUSES or conclusion in _PENDING_CONCLUSIONS:
@@ -224,19 +226,29 @@ def summarize_checks(
     by_name: dict[str, str] = {}
     required_from_flags: list[str] = []
     severity = {"failed": 3, "pending": 2, "success": 1, "other": 0}
-    for check in checks:
+    latest: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+    for index, check in enumerate(checks):
         if not isinstance(check, dict):
             continue
         name = str(check.get("name") or check.get("context") or "").strip()
+        if not name:
+            continue
+        attempt = check.get("run_attempt", check.get("attempt", check.get("runAttempt")))
+        timestamp = str(check.get("completed_at") or check.get("completedAt") or check.get("started_at") or "")
+        key = (int(attempt) if str(attempt).isdigit() else -1, timestamp, index)
+        previous = latest.get(name)
+        if previous is None or key >= previous[0]:
+            latest[name] = (key, check)
+        if check.get("isRequired") is True:
+            required_from_flags.append(name)
+
+    for name, (_, check) in latest.items():
         kind = classify_check(check)
         if kind == "failed":
             failed += 1
         elif kind == "pending":
             pending += 1
-        if name and severity.get(kind, 0) >= severity.get(by_name.get(name, "other"), 0):
-            by_name[name] = kind
-        if check.get("isRequired") is True and name:
-            required_from_flags.append(name)
+        by_name[name] = kind
 
     required = tuple(
         dict.fromkeys(n.strip() for n in (*required_names, *required_from_flags) if n.strip())
@@ -670,9 +682,9 @@ class GitHubPRClient:
                 f"repos/{self.repo}/branches/{base_ref}/protection/required_status_checks"
             )
         except RuntimeError:
-            return []
+            raise
         if not isinstance(data, dict):
-            return []
+            raise RuntimeError("required status-check policy response was invalid")
         contexts = data.get("contexts") or []
         checks = data.get("checks") or []
         names: list[str] = []
@@ -802,12 +814,14 @@ def gate_for_pr(
     base_protected = client.is_base_protected(summary["base_ref"] or "")
     repo = (getattr(client, "repo", None) or summary.get("repo") or "").strip()
     required_names = tuple(policy.required_check_names)
+    lookup_failed = False
     if policy.require_required_checks:
-        required_names = tuple(
-            dict.fromkeys(
-                [*required_names, *client.required_status_contexts(summary["base_ref"] or "")]
-            )
-        )
+        try:
+            discovered = client.required_status_contexts(summary["base_ref"] or "")
+        except RuntimeError:
+            lookup_failed = True
+            discovered = []
+        required_names = tuple(dict.fromkeys([*required_names, *discovered]))
     head_sha = str(summary["head_sha"] or "")
     exact_runs = client.commit_check_runs(head_sha) if head_sha else []
     rollup = [c for c in (pr.get("statusCheckRollup") or []) if isinstance(c, dict)]
@@ -832,7 +846,7 @@ def gate_for_pr(
         repo=repo,
         required_failed=check_summary["required_failed"],
         required_pending=check_summary["required_pending"],
-        required_missing=check_summary["required_missing"],
+        required_missing=check_summary["required_missing"] + (1 if lookup_failed else 0),
     )
 
 
@@ -969,7 +983,7 @@ def merge_pr(
             action="merge_rejected",
             pr_number=number,
             verdict=VERDICT_BLOCK,
-            reasons=[REASON_HEAD_STALE],
+            reasons=[REASON_MISSING_HEAD_SHA],
             expected_head_sha=None,
             applied_head_sha=None,
             actor=actor or None,

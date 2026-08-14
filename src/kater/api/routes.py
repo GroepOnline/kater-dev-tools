@@ -1053,7 +1053,7 @@ def _server_oauth_start(req: Request) -> Response:
             "client_secret_env": source.oauth.client_secret_env,
         }
         if source.oauth.provider == "slack":
-            setup["manifest"] = slack_app_manifest(callback)
+            setup["manifest"] = slack_app_manifest(callback, source)
         elif source.oauth.provider == "microsoft":
             setup["notes"] = (
                 "Register a Microsoft Entra app (public client + PKCE). "
@@ -1079,6 +1079,9 @@ def _server_oauth_start(req: Request) -> Response:
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
     return Response.json(200, started)
+
+
+_oauth_runtime_env: set[str] = set()
 
 
 @route("GET", "/api/mcp/oauth/callback", public=True)
@@ -1145,6 +1148,7 @@ def _mcp_oauth_callback(req: Request) -> Response:
     if extra.get("team_id"):
         env["SLACK_TEAM_ID"] = str(extra["team_id"])
     settings = load_settings()
+    had_connections = bool(settings.server_overrides.get(source.name, None) and settings.server_overrides[source.name].connections)
     conn = add_connection(
         settings,
         source.name,
@@ -1152,7 +1156,9 @@ def _mcp_oauth_callback(req: Request) -> Response:
         label=str(result.get("label") or extra.get("team") or ""),
         extra=extra,
     )
-    os.environ[source.oauth.token_env] = result["access_token"]
+    if not had_connections:
+        os.environ[source.oauth.token_env] = result["access_token"]
+        _oauth_runtime_env.add(source.oauth.token_env)
     save_settings(settings)
     try:
         get_proxy().sync_source(source)
@@ -1193,6 +1199,11 @@ def _server_connection_delete(req: Request) -> Response:
     removed = remove_connection(settings, name, req.params["conn_id"])
     if not removed:
         return Response.json(404, {"error": "Unknown connection"})
+    if not settings.server_overrides.get(name, None) or not settings.server_overrides[name].connections:
+        token_env = source.oauth.token_env if source.oauth else None
+        if token_env in _oauth_runtime_env:
+            os.environ.pop(token_env, None)
+            _oauth_runtime_env.discard(token_env)
     save_settings(settings)
     try:
         get_proxy().sync_source(source)

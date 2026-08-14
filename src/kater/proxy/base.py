@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from typing import Any
@@ -50,10 +51,8 @@ class BaseBackend:
             self._status.healthy = True
         except Exception as exc:
             if connected:
-                try:
+                with contextlib.suppress(Exception):
                     self._disconnect()
-                except Exception:
-                    pass
             self._status.error = str(exc)
             self._status.healthy = False
             self._running = False

@@ -118,9 +118,14 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
 - **Auto-terminal gateway**: `.cursor/environment.json` starts
   `uv run kater serve --profile core --no-proxy --host 127.0.0.1` in a background terminal (MCP
   `:9090`, REST/dashboard `:9091`, WebSocket `:9092`). This is **not** `kater up` — it does not
-  write `.cursor/mcp.json`. For live MCP tools from the agent session, either run
+  write `.cursor/mcp.json`. Install also syncs ChefGroep meta-skills from the private
+  `chefgroep-skills` repo into `.cursor/plugins/chefgroep-skills/` (see
+  `scripts/sync-chefgroep-skills.sh` + `repositoryDependencies`). For live MCP tools from the
+  agent session, either run
   `uv run kater up` once (writes project MCP config) or add SSE wiring yourself:
   `"url": "http://127.0.0.1:9090/sse"`. See [`docs/cursor-setup.md`](docs/cursor-setup.md#cloud-agent-mcp-wiring).
+  Disable Cursor marketplace plugins `posthog` and `harness` in the user/team plugin set if
+  Cloud Agents must not load those skills/commands (repo config cannot turn them off).
 - **Run the app (manual)**: `uv run kater up` (init + MCP config + serve) or `uv run kater serve`.
   One process starts three
   listeners — REST API + dashboard on `:9091`, MCP SSE on `:9090/sse`, WebSocket telemetry

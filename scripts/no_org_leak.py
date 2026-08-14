@@ -49,6 +49,10 @@ ALLOWED_ORG_HANDLE = frozenset(
         ".github/design-system.json",
         ".github/design-system.yml",
         ".github/workflows/design-system-contract.yml",
+        # Cloud Agent environment SSOT: repositoryDependencies must name the
+        # private meta-skills GitHub slug so the generated token can clone it.
+        # Not a skill/agent body — those stay org-free under `.cursor/skills`.
+        ".cursor/environment.json",
         # The detector itself encodes the patterns as literal regex text and
         # comments; self-allowlist is required so the scanner can describe
         # what it scans for. Same pattern as gitleaks allowing its own

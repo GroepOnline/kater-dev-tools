@@ -109,10 +109,19 @@ def test_scan_rejects_org_handle_under_cursor_agents(tmp_path, monkeypatch):
 
 
 def test_no_cursor_paths_in_allowlists():
-    """`.cursor/` must never appear in either allowlist (see code comment);
-    org-pinned Cursor artifacts belong in the private deployment overlay."""
+    """Org-pinned Cursor skills/agents stay out of allowlists.
+
+    The sole `.cursor/` exception is ``environment.json`` (Cloud
+    ``repositoryDependencies`` must name the meta-skills GitHub slug).
+    """
+    assert ".cursor/environment.json" in nol.ALLOWED_ORG_HANDLE
     for allowed in (nol.ALLOWED_ORG_HANDLE, nol.ALLOWED_PROD_DOMAIN):
-        assert not any(entry.startswith(".cursor/") for entry in allowed)
+        extras = [
+            entry
+            for entry in allowed
+            if entry.startswith(".cursor/") and entry != ".cursor/environment.json"
+        ]
+        assert extras == []
 
 
 def test_self_allowlist(tmp_path, monkeypatch):

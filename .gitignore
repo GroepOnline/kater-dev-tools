@@ -13,6 +13,7 @@ htmlcov/
 *.pyc
 # Cursor runtime outputs (committed SSOT lives under .cursor/skills, agents, hooks)
 .cursor/hooks/.state/
+.cursor/plugins/
 .cursor/mcp.json
 .cursor/mcp.kater.json
 .cursor/.env.runtime

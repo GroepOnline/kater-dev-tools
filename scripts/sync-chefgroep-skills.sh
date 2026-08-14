@@ -36,6 +36,17 @@ done
 
 log() { printf '[sync-chefgroep-skills] %s\n' "$*"; }
 
+# git clone/fetch/set-url diagnostics can echo the remote URL, including
+# credentials in CHEFGROEP_SKILLS_GIT_URL. Never surface that on logs.
+git_quiet() {
+  (
+    unset GIT_TRACE GIT_TRACE2 GIT_TRACE2_EVENT GIT_TRACE_PACKET \
+      GIT_TRACE_PERFORMANCE GIT_CURL_VERBOSE
+    export GIT_TERMINAL_PROMPT=0
+    exec git "$@" >/dev/null 2>&1
+  )
+}
+
 PLUGIN_NAME="chefgroep-skills"
 PLUGIN_DEST="${REPO_DIR}/.cursor/plugins/${PLUGIN_NAME}"
 CACHE_ROOT="${CURSOR_PLUGINS_HOME:-${HOME}/.cursor/plugins}/sources/${PLUGIN_NAME}"
@@ -87,14 +98,19 @@ fi
 mkdir -p "$(dirname "${CACHE_ROOT}")"
 if [[ -d "${CACHE_ROOT}/.git" ]]; then
   log "update ${CACHE_ROOT}"
-  git -C "${CACHE_ROOT}" remote set-url origin "${GIT_URL}"
-  git -C "${CACHE_ROOT}" fetch --depth 1 origin
-  git -C "${CACHE_ROOT}" checkout --force FETCH_HEAD
-  git -C "${CACHE_ROOT}" pull --ff-only 2>/dev/null || true
+  if ! git_quiet -C "${CACHE_ROOT}" remote set-url origin "${GIT_URL}"; then
+    log "ERROR: could not retarget origin"
+    exit 1
+  fi
+  if ! git_quiet -C "${CACHE_ROOT}" fetch --depth 1 --quiet origin; then
+    log "ERROR: fetch failed (grant Cloud Agent token access to the meta-skills repo)"
+    exit 1
+  fi
+  git -C "${CACHE_ROOT}" checkout --force --quiet FETCH_HEAD
 else
   log "clone ChefGroep skills"
   rm -rf "${CACHE_ROOT}"
-  if ! git clone --depth 1 "${GIT_URL}" "${CACHE_ROOT}"; then
+  if ! git_quiet clone --depth 1 --quiet "${GIT_URL}" "${CACHE_ROOT}"; then
     log "ERROR: clone failed (grant Cloud Agent token access to the meta-skills repo)"
     exit 1
   fi

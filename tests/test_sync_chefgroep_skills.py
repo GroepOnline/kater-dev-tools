@@ -13,6 +13,8 @@ REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "sync-chefgroep-skills.sh"
 PLUGIN_DEST = REPO / ".cursor" / "plugins" / "chefgroep-skills"
 PLUGIN_INSTALLED = REPO / ".cursor" / "plugins" / "installed"
+_FAKE_TOKEN = "ghs_this_is_not_a_real_token_leak_test"
+_FAKE_CRED_URL = f"https://x-access-token:{_FAKE_TOKEN}@127.0.0.1:1/example/chefgroep-skills.git"
 
 
 def _cleanup_plugin_install() -> None:
@@ -52,6 +54,13 @@ def _git_repo(path: Path, files: dict[str, str], executable: tuple[str, ...] = (
             target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     subprocess.run(["git", "add", "-A"], cwd=path, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
+
+
+def _assert_no_credential(proc: subprocess.CompletedProcess[str], secret: str, url: str) -> None:
+    combined = f"{proc.stdout}{proc.stderr}"
+    assert secret not in combined
+    assert url not in combined
+    assert "x-access-token" not in combined
 
 
 def _run_sync(extra_env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
@@ -114,10 +123,8 @@ def test_sync_dry_run_mentions_dest(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_sync_dry_run_does_not_log_git_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    secret = "ghs_this_is_not_a_real_token_leak_test"
-    url = f"https://x-access-token:{secret}@github.com/example/chefgroep-skills.git"
     monkeypatch.delenv("CHEFGROEP_SKILLS_REPO", raising=False)
-    monkeypatch.setenv("CHEFGROEP_SKILLS_GIT_URL", url)
+    monkeypatch.setenv("CHEFGROEP_SKILLS_GIT_URL", _FAKE_CRED_URL)
     proc = subprocess.run(
         [str(SCRIPT), "--dry-run"],
         cwd=REPO,
@@ -125,12 +132,13 @@ def test_sync_dry_run_does_not_log_git_url(monkeypatch: pytest.MonkeyPatch) -> N
         text=True,
         check=False,
     )
-    combined = f"{proc.stdout}{proc.stderr}"
     assert proc.returncode == 0
-    assert secret not in combined
-    assert url not in combined
-    assert "https://" not in combined
-    for line in SCRIPT.read_text(encoding="utf-8").splitlines():
+    _assert_no_credential(proc, _FAKE_TOKEN, _FAKE_CRED_URL)
+    assert "https://" not in f"{proc.stdout}{proc.stderr}"
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "git_quiet" in text
+    assert "pull --ff-only" not in text
+    for line in text.splitlines():
         if line.lstrip().startswith("log "):
             assert "${GIT_URL}" not in line
             assert "$GIT_URL" not in line
@@ -160,6 +168,69 @@ def test_upstream_sync_failure_exits_nonzero(tmp_path: Path) -> None:
         assert proc.returncode != 0
         assert "WARN: upstream sync.sh" not in proc.stdout
         assert "done (" not in proc.stdout
+        assert not PLUGIN_DEST.exists()
+    finally:
+        _cleanup_plugin_install()
+
+
+def test_upstream_scripts_sync_failure_exits_nonzero(tmp_path: Path) -> None:
+    repo = tmp_path / "skills-src"
+    _git_repo(
+        repo,
+        files={"README": "src\n", "scripts/sync.sh": "#!/bin/sh\nexit 7\n"},
+        executable=("scripts/sync.sh",),
+    )
+    try:
+        proc = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": str(repo),
+                "CURSOR_PLUGINS_HOME": str(tmp_path / "plugins-home"),
+            }
+        )
+        assert proc.returncode != 0
+        assert "run upstream scripts/sync.sh" in proc.stdout
+        assert "WARN: upstream" not in proc.stdout
+        assert "done (" not in proc.stdout
+        assert not PLUGIN_DEST.exists()
+    finally:
+        _cleanup_plugin_install()
+
+
+def test_clone_fetch_failure_does_not_log_credentials(tmp_path: Path) -> None:
+    plugins_home = tmp_path / "plugins-home"
+    try:
+        clone_proc = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": _FAKE_CRED_URL,
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+            }
+        )
+        assert clone_proc.returncode != 0
+        assert "ERROR: clone failed" in clone_proc.stdout
+        assert "done (" not in clone_proc.stdout
+        _assert_no_credential(clone_proc, _FAKE_TOKEN, _FAKE_CRED_URL)
+
+        local = tmp_path / "skills-src"
+        _git_repo(local, files={"marker": "ok\n"})
+        first = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": str(local),
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+            }
+        )
+        assert first.returncode == 0, first.stdout + first.stderr
+        _cleanup_plugin_install()
+
+        fetch_proc = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": _FAKE_CRED_URL,
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+            }
+        )
+        assert fetch_proc.returncode != 0
+        assert "ERROR: fetch failed" in fetch_proc.stdout
+        assert "done (" not in fetch_proc.stdout
+        _assert_no_credential(fetch_proc, _FAKE_TOKEN, _FAKE_CRED_URL)
         assert not PLUGIN_DEST.exists()
     finally:
         _cleanup_plugin_install()

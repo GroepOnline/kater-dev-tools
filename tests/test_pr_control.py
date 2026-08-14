@@ -537,6 +537,10 @@ def test_pr_policy_tool_returns_policy() -> None:
 # ── §6 merge write-path ───────────────────────────────────────────
 
 
+def _enable_company_control_plane(monkeypatch) -> None:
+    monkeypatch.setenv("KATER_PR_PLANE", "company-control")
+
+
 def _merge_runner_factory(records: list[list[str]], *, fail: bool = False) -> Any:
     def fake_runner(args: list[str]) -> Any:
         records.append(args)
@@ -548,6 +552,7 @@ def _merge_runner_factory(records: list[list[str]], *, fail: bool = False) -> An
 
 
 def test_merge_pr_refuses_non_pass_gate(monkeypatch) -> None:
+    _enable_company_control_plane(monkeypatch)
     monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
     monkeypatch.setattr(
         "kater.pr_control.GitHubPRClient.pull_request",
@@ -574,6 +579,7 @@ def test_merge_pr_refuses_non_pass_gate(monkeypatch) -> None:
 
 
 def test_merge_pr_refuses_head_sha_mismatch(monkeypatch) -> None:
+    _enable_company_control_plane(monkeypatch)
     monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
     monkeypatch.setattr(
         "kater.pr_control.GitHubPRClient.pull_request",
@@ -594,6 +600,7 @@ def test_merge_pr_refuses_head_sha_mismatch(monkeypatch) -> None:
 
 
 def test_merge_pr_applies_on_pass(monkeypatch) -> None:
+    _enable_company_control_plane(monkeypatch)
     monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
     monkeypatch.setattr(
         "kater.pr_control.GitHubPRClient.pull_request",
@@ -617,6 +624,7 @@ def test_merge_pr_applies_on_pass(monkeypatch) -> None:
 
 def test_merge_pr_includes_match_head_commit_and_handles_failure(monkeypatch) -> None:
     """Verify --match-head-commit is passed to gh and merge failure is surfaced."""
+    _enable_company_control_plane(monkeypatch)
     monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
     monkeypatch.setattr(
         "kater.pr_control.GitHubPRClient.pull_request",
@@ -767,9 +775,19 @@ def test_repo_is_denied_matches_marker_prefix() -> None:
 def test_write_scope_requires_explicit_repo() -> None:
     policy = GatePolicy()
     assert write_scope_rejection("", policy) == "explicit repository required for merge"
-    assert write_scope_rejection("acme-co/example-repo", policy) is None
+    assert write_scope_rejection("acme-co/example-repo", policy) == "plane is not company-control"
     denied = write_scope_rejection("utrecht-lab/sample", policy)
     assert denied == "repository is not allowed for this gate"
+
+
+def test_write_scope_plane_fail_closed_by_default(monkeypatch) -> None:
+    policy = GatePolicy()
+    monkeypatch.delenv("KATER_PR_PLANE", raising=False)
+    assert write_scope_rejection("acme-co/example-repo", policy) == "plane is not company-control"
+    monkeypatch.setenv("KATER_PR_PLANE", "udo")
+    assert write_scope_rejection("acme-co/example-repo", policy) == "plane is not company-control"
+    monkeypatch.setenv("KATER_PR_PLANE", "company-control")
+    assert write_scope_rejection("acme-co/example-repo", policy) is None
 
 
 def test_write_scope_allowlist_and_plane(monkeypatch) -> None:
@@ -861,6 +879,7 @@ def test_gate_for_pr_blocks_failed_required_on_exact_head() -> None:
 
 
 def test_merge_pr_refuses_empty_expected_head_sha(monkeypatch) -> None:
+    _enable_company_control_plane(monkeypatch)
     monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
     monkeypatch.setattr(
         "kater.pr_control.GitHubPRClient.pull_request",
@@ -899,6 +918,25 @@ def test_merge_pr_refuses_denied_repo(monkeypatch) -> None:
     else:
         raise AssertionError("expected MergeRejected")
     assert audit[0]["reasons"] == [REPO_DENIED]
+
+
+def test_merge_pr_refuses_missing_plane(monkeypatch) -> None:
+    monkeypatch.delenv("KATER_PR_PLANE", raising=False)
+    monkeypatch.setattr("kater.pr_control.GitHubPRClient.__init__", lambda self, **kw: None)
+    monkeypatch.setattr(
+        "kater.pr_control.GitHubPRClient.pull_request",
+        lambda self, number: _pr(),
+    )
+    audit: list[dict[str, Any]] = []
+    monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: audit.append(kw) or 1)
+    try:
+        merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+    except MergeRejected as exc:
+        assert "plane is not company-control" in str(exc)
+    else:
+        raise AssertionError("expected MergeRejected")
+    assert audit[0]["action"] == "merge_rejected"
+    assert audit[0]["detail"] == "plane is not company-control"
 
 
 def test_pr_gate_skill_is_notify_first() -> None:

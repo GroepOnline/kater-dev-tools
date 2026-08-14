@@ -197,6 +197,8 @@ def write_scope_rejection(repo: str, policy: GatePolicy) -> str | None:
         required = allowed_planes or {_COMPANY_CONTROL_PLANE}
         if plane not in required:
             return "plane is not company-control"
+    elif plane != _COMPANY_CONTROL_PLANE:
+        return "plane is not company-control"
     return None
 
 

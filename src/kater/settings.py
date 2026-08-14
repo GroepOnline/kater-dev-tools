@@ -12,7 +12,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # Environment keys materialized from persisted settings, rather than supplied externally.
 persisted_env_keys: set[str] = set()
 

@@ -40,9 +40,9 @@ from kater.settings import (
     ServerOverride,
     is_public_settings,
     load_settings,
+    persisted_env_keys,
     save_settings,
     unsafe_public_settings_override_enabled,
-    persisted_env_keys,
 )
 from kater.telemetry import (
     eval_summary,

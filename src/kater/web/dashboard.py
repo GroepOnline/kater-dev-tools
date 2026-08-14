@@ -2502,8 +2502,18 @@ async function promptCredentials(name, invoker) {
     const server = await api('/api/mcp/servers/' + encodeURIComponent(name));
     if (server && !server.error) {
       if (server.oauth) {
-        const started = await apiPost('/api/mcp/servers/' + encodeURIComponent(name) + '/oauth/start', {});
-        if (started.authorize_url) { window.location.href = started.authorize_url; return; }
+        try {
+          const started = await apiPost('/api/mcp/servers/' + encodeURIComponent(name) + '/oauth/start', {});
+          if (started.authorize_url) { window.location.href = started.authorize_url; return; }
+        } catch (e) {
+          if (e.status === 409 && e.data && e.data.error === 'oauth_app_missing') {
+            const setup = e.data.setup || {};
+            server.env_required = [setup.client_id_env, setup.client_secret_env].filter(Boolean);
+            openCredentialsModal(server, captured);
+            return;
+          }
+          throw e;
+        }
       }
       openCredentialsModal(server, captured);
     }

@@ -197,8 +197,6 @@ def write_scope_rejection(repo: str, policy: GatePolicy) -> str | None:
         required = allowed_planes or {_COMPANY_CONTROL_PLANE}
         if plane not in required:
             return "plane is not company-control"
-    elif plane != _COMPANY_CONTROL_PLANE:
-        return "plane is not company-control"
     return None
 
 
@@ -225,17 +223,24 @@ def summarize_checks(
     pending = 0
     by_name: dict[str, str] = {}
     required_from_flags: list[str] = []
-    severity = {"failed": 3, "pending": 2, "success": 1, "other": 0}
     latest: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
     for index, check in enumerate(checks):
         if not isinstance(check, dict):
             continue
         name = str(check.get("name") or check.get("context") or "").strip()
         if not name:
+            kind = classify_check(check)
+            if kind == "failed":
+                failed += 1
+            elif kind == "pending":
+                pending += 1
             continue
         attempt = check.get("run_attempt", check.get("attempt", check.get("runAttempt")))
-        timestamp = str(check.get("completed_at") or check.get("completedAt") or check.get("started_at") or "")
-        key = (int(attempt) if str(attempt).isdigit() else -1, timestamp, index)
+        timestamp = str(
+            check.get("completed_at") or check.get("completedAt") or check.get("started_at") or ""
+        )
+        attempt_text = "" if attempt is None else str(attempt)
+        key = (int(attempt_text) if attempt_text.isdigit() else -1, timestamp, index)
         previous = latest.get(name)
         if previous is None or key >= previous[0]:
             latest[name] = (key, check)

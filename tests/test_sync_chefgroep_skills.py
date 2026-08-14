@@ -15,6 +15,30 @@ PLUGIN_DEST = REPO / ".cursor" / "plugins" / "chefgroep-skills"
 PLUGIN_INSTALLED = REPO / ".cursor" / "plugins" / "installed"
 _FAKE_TOKEN = "ghs_this_is_not_a_real_token_leak_test"
 _FAKE_CRED_URL = f"https://x-access-token:{_FAKE_TOKEN}@127.0.0.1:1/example/chefgroep-skills.git"
+_GIT_TRACE_FILE_VARS = (
+    "GIT_TRACE",
+    "GIT_TRACE2",
+    "GIT_TRACE2_EVENT",
+    "GIT_TRACE2_PERF",
+    "GIT_TRACE_PACKET",
+    "GIT_TRACE_PERFORMANCE",
+    "GIT_TRACE_SETUP",
+    "GIT_TRACE_CURL",
+)
+_GIT_TRACE_UNSET_VARS = (
+    *_GIT_TRACE_FILE_VARS,
+    "GIT_TRACE2_BRIEF",
+    "GIT_TRACE2_EVENT_BRIEF",
+    "GIT_TRACE2_PERF_BRIEF",
+    "GIT_TRACE2_CONFIG_PARAMS",
+    "GIT_TRACE2_ENV_VARS",
+    "GIT_TRACE2_DST_DEBUG",
+    "GIT_TRACE_SHALLOW",
+    "GIT_TRACE_CURL_NO_DATA",
+    "GIT_TRACE_PACK_ACCESS",
+    "GIT_TRACE_PACKFILE",
+    "GIT_CURL_VERBOSE",
+)
 
 
 def _cleanup_plugin_install() -> None:
@@ -56,11 +80,36 @@ def _git_repo(path: Path, files: dict[str, str], executable: tuple[str, ...] = (
     subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
 
 
+def _assert_no_credential_text(text: str, secret: str, url: str, source: str) -> None:
+    assert secret not in text, f"{source} leaked fake token"
+    assert url not in text, f"{source} leaked credential URL"
+    assert "x-access-token" not in text, f"{source} leaked token scheme"
+
+
 def _assert_no_credential(proc: subprocess.CompletedProcess[str], secret: str, url: str) -> None:
-    combined = f"{proc.stdout}{proc.stderr}"
-    assert secret not in combined
-    assert url not in combined
-    assert "x-access-token" not in combined
+    _assert_no_credential_text(f"{proc.stdout}{proc.stderr}", secret, url, "stdio")
+
+
+def _inject_git_traces(tmp_path: Path) -> tuple[dict[str, str], list[Path]]:
+    dest_dir = tmp_path / "git-traces"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    extra: dict[str, str] = {
+        "GIT_CURL_VERBOSE": "1",
+        "GIT_TRACE2_ENV_VARS": "*",
+    }
+    dests: list[Path] = []
+    for name in _GIT_TRACE_FILE_VARS:
+        path = dest_dir / f"{name.lower()}.log"
+        path.write_text("", encoding="utf-8")
+        dests.append(path)
+        extra[name] = str(path)
+    return extra, dests
+
+
+def _assert_no_credential_in_traces(dests: list[Path], secret: str, url: str) -> None:
+    for path in dests:
+        text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+        _assert_no_credential_text(text, secret, url, path.name)
 
 
 def _run_sync(extra_env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
@@ -232,6 +281,78 @@ def test_clone_fetch_failure_does_not_log_credentials(tmp_path: Path) -> None:
         assert "done (" not in fetch_proc.stdout
         _assert_no_credential(fetch_proc, _FAKE_TOKEN, _FAKE_CRED_URL)
         assert not PLUGIN_DEST.exists()
+    finally:
+        _cleanup_plugin_install()
+
+
+def test_git_trace_env_does_not_leak_credentials(tmp_path: Path) -> None:
+    plugins_home = tmp_path / "plugins-home"
+    script = SCRIPT.read_text(encoding="utf-8")
+    for name in _GIT_TRACE_UNSET_VARS:
+        assert name in script
+    assert 'git_quiet -C "${CACHE_ROOT}" checkout' in script
+    for line in script.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("git ") and "checkout" in stripped:
+            raise AssertionError(f"raw git checkout bypasses git_quiet: {stripped}")
+
+    clone_env, clone_dests = _inject_git_traces(tmp_path / "clone")
+    try:
+        clone_proc = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": _FAKE_CRED_URL,
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+                **clone_env,
+            }
+        )
+        assert clone_proc.returncode != 0
+        assert "ERROR: clone failed" in clone_proc.stdout
+        assert "done (" not in clone_proc.stdout
+        _assert_no_credential(clone_proc, _FAKE_TOKEN, _FAKE_CRED_URL)
+        _assert_no_credential_in_traces(clone_dests, _FAKE_TOKEN, _FAKE_CRED_URL)
+
+        local = tmp_path / "skills-src"
+        _git_repo(local, files={"marker": "ok\n"})
+        seed_env, seed_dests = _inject_git_traces(tmp_path / "seed")
+        seed = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": str(local),
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+                **seed_env,
+            }
+        )
+        assert seed.returncode == 0, seed.stdout + seed.stderr
+        _assert_no_credential(seed, _FAKE_TOKEN, _FAKE_CRED_URL)
+        _assert_no_credential_in_traces(seed_dests, _FAKE_TOKEN, _FAKE_CRED_URL)
+        _cleanup_plugin_install()
+
+        fetch_env, fetch_dests = _inject_git_traces(tmp_path / "fetch")
+        fetch_proc = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": _FAKE_CRED_URL,
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+                **fetch_env,
+            }
+        )
+        assert fetch_proc.returncode != 0
+        assert "ERROR: fetch failed" in fetch_proc.stdout
+        assert "done (" not in fetch_proc.stdout
+        _assert_no_credential(fetch_proc, _FAKE_TOKEN, _FAKE_CRED_URL)
+        _assert_no_credential_in_traces(fetch_dests, _FAKE_TOKEN, _FAKE_CRED_URL)
+        assert not PLUGIN_DEST.exists()
+
+        update_env, update_dests = _inject_git_traces(tmp_path / "update")
+        update = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": str(local),
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+                **update_env,
+            }
+        )
+        assert update.returncode == 0, update.stdout + update.stderr
+        assert "update " in update.stdout
+        _assert_no_credential(update, _FAKE_TOKEN, _FAKE_CRED_URL)
+        _assert_no_credential_in_traces(update_dests, _FAKE_TOKEN, _FAKE_CRED_URL)
     finally:
         _cleanup_plugin_install()
 

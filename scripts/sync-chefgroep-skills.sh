@@ -36,12 +36,31 @@ done
 
 log() { printf '[sync-chefgroep-skills] %s\n' "$*"; }
 
-# git clone/fetch/set-url diagnostics can echo the remote URL, including
-# credentials in CHEFGROEP_SKILLS_GIT_URL. Never surface that on logs.
+# git clone/fetch/set-url/checkout diagnostics can echo the remote URL,
+# including credentials in CHEFGROEP_SKILLS_GIT_URL. Never surface that
+# on stdout, stderr, or Git trace destinations.
 git_quiet() {
   (
-    unset GIT_TRACE GIT_TRACE2 GIT_TRACE2_EVENT GIT_TRACE_PACKET \
-      GIT_TRACE_PERFORMANCE GIT_CURL_VERBOSE
+    unset \
+      GIT_TRACE \
+      GIT_TRACE2 \
+      GIT_TRACE2_EVENT \
+      GIT_TRACE2_PERF \
+      GIT_TRACE2_BRIEF \
+      GIT_TRACE2_EVENT_BRIEF \
+      GIT_TRACE2_PERF_BRIEF \
+      GIT_TRACE2_CONFIG_PARAMS \
+      GIT_TRACE2_ENV_VARS \
+      GIT_TRACE2_DST_DEBUG \
+      GIT_TRACE_PACKET \
+      GIT_TRACE_PERFORMANCE \
+      GIT_TRACE_SETUP \
+      GIT_TRACE_SHALLOW \
+      GIT_TRACE_CURL \
+      GIT_TRACE_CURL_NO_DATA \
+      GIT_TRACE_PACK_ACCESS \
+      GIT_TRACE_PACKFILE \
+      GIT_CURL_VERBOSE
     export GIT_TERMINAL_PROMPT=0
     exec git "$@" >/dev/null 2>&1
   )
@@ -106,7 +125,10 @@ if [[ -d "${CACHE_ROOT}/.git" ]]; then
     log "ERROR: fetch failed (grant Cloud Agent token access to the meta-skills repo)"
     exit 1
   fi
-  git -C "${CACHE_ROOT}" checkout --force --quiet FETCH_HEAD
+  if ! git_quiet -C "${CACHE_ROOT}" checkout --force --quiet FETCH_HEAD; then
+    log "ERROR: checkout failed"
+    exit 1
+  fi
 else
   log "clone ChefGroep skills"
   rm -rf "${CACHE_ROOT}"

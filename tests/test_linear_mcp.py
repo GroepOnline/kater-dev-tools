@@ -127,7 +127,7 @@ def test_proxy_manager_starts_linear_without_default_enabled(monkeypatch):
     linear = next(source for source in TOOL_SOURCES if source.name == "linear")
     assert linear.default_enabled is False
 
-    def fake_create(self, source):
+    def fake_create(self, source, env_values=None):
         if source.name == "linear":
             return MockBackend(tools=[{"name": "list_issues"}])
         return None

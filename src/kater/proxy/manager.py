@@ -145,6 +145,7 @@ class ProxyManager:
                 return
             self._active_profile = profile
             self._start_backends(profile)
+            self._started = True
 
     def _source_eligible(self, source: ToolSource, settings: Any) -> bool:
         enabled_default = not (
@@ -154,7 +155,6 @@ class ProxyManager:
             return False
         profiles = parse_profiles(self._active_profile)
         return bool("core" in profiles or profiles.intersection(source.profiles))
-            self._started = True
 
     def stop(self) -> None:
         with self._lock:

@@ -204,6 +204,8 @@ def _form_post(url: str, payload: dict[str, str]) -> dict[str, Any]:
             parsed = {"error": "token_http_error", "status": exc.code}
         parsed.setdefault("error", f"token_http_{exc.code}")
         return parsed
+    except OSError as exc:
+        return {"error": "token_transport_error", "message": str(exc)}
     try:
         parsed = json.loads(raw) if raw else {}
     except json.JSONDecodeError:

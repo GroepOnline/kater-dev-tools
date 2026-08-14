@@ -114,14 +114,89 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
+# Never persist userinfo in .git/config. Credentials stay in-process via
+# a one-shot http.extraHeader on clone/fetch only.
+credential_free_url() {
+  local url="$1"
+  case "$url" in
+    https://*@*) printf 'https://%s\n' "${url#https://*@}" ;;
+    http://*@*) printf 'http://%s\n' "${url#http://*@}" ;;
+    *) printf '%s\n' "$url" ;;
+  esac
+}
+
+userinfo_basic() {
+  local url="$1"
+  local rest userinfo
+  case "$url" in
+    https://*@*|http://*@*)
+      rest="${url#*://}"
+      userinfo="${rest%%@*}"
+      if [[ -n "${userinfo}" && "${userinfo}" == *:* ]]; then
+        printf '%s' "${userinfo}" | base64 -w0 2>/dev/null || printf '%s' "${userinfo}" | base64
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
+git_transport() {
+  local hdr
+  if hdr="$(userinfo_basic "${GIT_URL}")"; then
+    git_quiet -c "http.extraHeader=Authorization: Basic ${hdr}" "$@"
+  else
+    git_quiet "$@"
+  fi
+}
+
+scrub_origin_userinfo() {
+  local existing
+  existing="$(git -C "${CACHE_ROOT}" remote get-url origin 2>/dev/null || true)"
+  if [[ -z "${existing}" ]]; then
+    return 0
+  fi
+  git_quiet -C "${CACHE_ROOT}" remote set-url origin "$(credential_free_url "${existing}")" || true
+}
+
+run_upstream_sync() {
+  (
+    unset CHEFGROEP_SKILLS_GIT_URL
+    unset \
+      GIT_TRACE \
+      GIT_TRACE2 \
+      GIT_TRACE2_EVENT \
+      GIT_TRACE2_PERF \
+      GIT_TRACE2_BRIEF \
+      GIT_TRACE2_EVENT_BRIEF \
+      GIT_TRACE2_PERF_BRIEF \
+      GIT_TRACE2_CONFIG_PARAMS \
+      GIT_TRACE2_ENV_VARS \
+      GIT_TRACE2_DST_DEBUG \
+      GIT_TRACE_PACKET \
+      GIT_TRACE_PERFORMANCE \
+      GIT_TRACE_SETUP \
+      GIT_TRACE_SHALLOW \
+      GIT_TRACE_CURL \
+      GIT_TRACE_CURL_NO_DATA \
+      GIT_TRACE_PACK_ACCESS \
+      GIT_TRACE_PACKFILE \
+      GIT_CURL_VERBOSE
+    export GIT_TERMINAL_PROMPT=0
+    exec "$@"
+  )
+}
+
+SAFE_URL="$(credential_free_url "${GIT_URL}")"
 mkdir -p "$(dirname "${CACHE_ROOT}")"
 if [[ -d "${CACHE_ROOT}/.git" ]]; then
   log "update ${CACHE_ROOT}"
-  if ! git_quiet -C "${CACHE_ROOT}" remote set-url origin "${GIT_URL}"; then
+  scrub_origin_userinfo
+  if ! git_quiet -C "${CACHE_ROOT}" remote set-url origin "${SAFE_URL}"; then
     log "ERROR: could not retarget origin"
     exit 1
   fi
-  if ! git_quiet -C "${CACHE_ROOT}" fetch --depth 1 --quiet origin; then
+  if ! git_transport -C "${CACHE_ROOT}" fetch --depth 1 --quiet origin; then
     log "ERROR: fetch failed (grant Cloud Agent token access to the meta-skills repo)"
     exit 1
   fi
@@ -132,20 +207,21 @@ if [[ -d "${CACHE_ROOT}/.git" ]]; then
 else
   log "clone ChefGroep skills"
   rm -rf "${CACHE_ROOT}"
-  if ! git_quiet clone --depth 1 --quiet "${GIT_URL}" "${CACHE_ROOT}"; then
+  if ! git_transport clone --depth 1 --quiet "${SAFE_URL}" "${CACHE_ROOT}"; then
     log "ERROR: clone failed (grant Cloud Agent token access to the meta-skills repo)"
     exit 1
   fi
+  git_quiet -C "${CACHE_ROOT}" remote set-url origin "${SAFE_URL}" || true
 fi
 
 # Prefer upstream sync contract when present. Fail closed: a broken
 # upstream sync must not report a successful plugin install.
 if [[ -x "${CACHE_ROOT}/sync.sh" ]]; then
   log "run upstream sync.sh"
-  (cd "${CACHE_ROOT}" && ./sync.sh)
+  (cd "${CACHE_ROOT}" && run_upstream_sync ./sync.sh)
 elif [[ -x "${CACHE_ROOT}/scripts/sync.sh" ]]; then
   log "run upstream scripts/sync.sh"
-  (cd "${CACHE_ROOT}" && ./scripts/sync.sh)
+  (cd "${CACHE_ROOT}" && run_upstream_sync ./scripts/sync.sh)
 fi
 
 # Cursor Cloud plugin discovery via workspaceOpen pluginPaths.
@@ -171,7 +247,11 @@ if [[ ! -d "${PLUGIN_DEST}/commands" && -d "${CACHE_ROOT}/.cursor/commands" ]]; 
 fi
 
 mkdir -p "${REPO_DIR}/.cursor/plugins/installed"
-PLUGIN_NAME="${PLUGIN_NAME}" PLUGIN_DEST="${PLUGIN_DEST}" python3 - <<'PY'
+if ! command -v uv >/dev/null 2>&1; then
+  log "ERROR: uv is required to write plugin manifest"
+  exit 1
+fi
+PLUGIN_NAME="${PLUGIN_NAME}" PLUGIN_DEST="${PLUGIN_DEST}" uv run python - <<'PY'
 import json
 import os
 from datetime import UTC, datetime

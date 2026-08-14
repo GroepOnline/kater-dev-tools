@@ -41,12 +41,30 @@ _GIT_TRACE_UNSET_VARS = (
 )
 
 
+_PLUGIN_ROOT = REPO / ".cursor" / "plugins"
+
+
 def _cleanup_plugin_install() -> None:
     shutil.rmtree(PLUGIN_DEST, ignore_errors=True)
     shutil.rmtree(PLUGIN_INSTALLED, ignore_errors=True)
-    plugins = REPO / ".cursor" / "plugins"
-    if plugins.is_dir() and not any(plugins.iterdir()):
-        plugins.rmdir()
+    if _PLUGIN_ROOT.is_dir() and not any(_PLUGIN_ROOT.iterdir()):
+        _PLUGIN_ROOT.rmdir()
+
+
+@pytest.fixture(autouse=True)
+def _preserve_workspace_plugins(tmp_path_factory: pytest.TempPathFactory):
+    """Do not delete a developer-installed .cursor/plugins tree."""
+    snapshot = None
+    if _PLUGIN_ROOT.exists():
+        snapshot = tmp_path_factory.mktemp("plugins-snap") / "plugins"
+        shutil.copytree(_PLUGIN_ROOT, snapshot)
+    yield
+    if snapshot is not None:
+        if _PLUGIN_ROOT.exists():
+            shutil.rmtree(_PLUGIN_ROOT)
+        shutil.copytree(snapshot, _PLUGIN_ROOT)
+    else:
+        _cleanup_plugin_install()
 
 
 def _git_repo(path: Path, files: dict[str, str], executable: tuple[str, ...] = ()) -> None:
@@ -399,5 +417,92 @@ def test_environment_json_wires_skills_sync() -> None:
     assert any(dep.endswith("/chefgroep-skills") for dep in payload["repositoryDependencies"])
     assert "sync-chefgroep-skills.sh" in payload["install"]
     assert "CHEFGROEP_SKILLS_REPO=" in payload["install"]
-    assert "posthog" not in payload["install"].lower()
-    assert "harness" not in payload["install"].lower()
+    install = payload["install"]
+    uv_sync_at = install.find("uv sync --dev")
+    index_at = install.find("uv run python scripts/generate_cursor_index.py")
+    assert uv_sync_at >= 0
+    assert index_at > uv_sync_at
+    assert "python3 scripts/generate_cursor_index.py" not in install
+    assert "posthog" not in install.lower()
+    assert "harness" not in install.lower()
+
+
+def test_cache_origin_never_stores_credentials(tmp_path: Path) -> None:
+    local = tmp_path / "skills-src"
+    _git_repo(local, files={"marker": "ok\n"})
+    plugins_home = tmp_path / "plugins-home"
+    cache = plugins_home / "sources" / "chefgroep-skills"
+    cred_url = f"https://x-access-token:{_FAKE_TOKEN}@127.0.0.1:1/example/chefgroep-skills.git"
+    try:
+        first = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": str(local),
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+            }
+        )
+        assert first.returncode == 0, first.stdout + first.stderr
+        config = (cache / ".git" / "config").read_text(encoding="utf-8")
+        _assert_no_credential_text(config, _FAKE_TOKEN, cred_url, "git-config-after-clone")
+
+        failed = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": cred_url,
+                "CURSOR_PLUGINS_HOME": str(plugins_home),
+            }
+        )
+        assert failed.returncode != 0
+        config = (cache / ".git" / "config").read_text(encoding="utf-8")
+        _assert_no_credential_text(config, _FAKE_TOKEN, cred_url, "git-config-after-failed-fetch")
+        origin = subprocess.run(
+            ["git", "-C", str(cache), "remote", "get-url", "origin"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert _FAKE_TOKEN not in origin
+        assert "x-access-token" not in origin
+    finally:
+        _cleanup_plugin_install()
+
+
+def test_upstream_sync_cannot_read_credential_env(tmp_path: Path) -> None:
+    repo = tmp_path / "skills-src"
+    dump = tmp_path / "env-dump"
+    _git_repo(
+        repo,
+        files={
+            "README": "src\n",
+            "sync.sh": (
+                "#!/bin/sh\n"
+                f"umask 077; env > '{dump}'\n"
+                "exit 0\n"
+            ),
+        },
+        executable=("sync.sh",),
+    )
+    try:
+        proc = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": f"https://x-access-token:{_FAKE_TOKEN}@127.0.0.1:1/example/chefgroep-skills.git",
+                "CURSOR_PLUGINS_HOME": str(tmp_path / "plugins-home-fail"),
+            }
+        )
+        assert proc.returncode != 0
+        assert not dump.exists()
+
+        ok = _run_sync(
+            {
+                "CHEFGROEP_SKILLS_GIT_URL": str(repo),
+                "CURSOR_PLUGINS_HOME": str(tmp_path / "plugins-home-ok"),
+                "GIT_TRACE": "1",
+                "GIT_CURL_VERBOSE": "1",
+            }
+        )
+        assert ok.returncode == 0, ok.stdout + ok.stderr
+        text = dump.read_text(encoding="utf-8")
+        assert "CHEFGROEP_SKILLS_GIT_URL=" not in text
+        assert "GIT_TRACE=" not in text
+        assert "GIT_CURL_VERBOSE=" not in text
+        assert _FAKE_TOKEN not in text
+    finally:
+        _cleanup_plugin_install()

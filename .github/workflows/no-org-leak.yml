@@ -1,8 +1,8 @@
 name: No org leak
 
 on:
+  # No base-branch filter: stacked feature-base PRs must run the same guard.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
   schedule:
@@ -15,6 +15,7 @@ permissions:
   contents: read
 
 jobs:
+  # INTERIM / P1 (GRO-1209): persistent pr-isolated listener, not ephemeral.
   no-org-leak:
     # GitHub-hosted runners banned until Actions spending restored.
     # PR → pr-isolated; else → heavy.
@@ -38,7 +39,7 @@ jobs:
           enable-cache: true
 
       - name: Org-leak guard (explicit allowlist script)
-        run: uv run python scripts/no_org_leak.py --base "${{ github.event_name == 'pull_request' && 'origin/main' || '' }}"
+        run: uv run python scripts/no_org_leak.py --base "${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}"
 
       - name: Install gitleaks (checksum-validated)
         run: |

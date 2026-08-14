@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # No base-branch filter: stacked feature-base PRs must run the same
+  # required Python jobs (ruff, mypy, full pytest) as PRs targeting main.
   pull_request:
-    branches: [main]
   schedule:
     # Nightly 04:17 UTC — runs the full suite on main to catch dependency
     # drift and flakiness without waiting for a PR. Sits just before the
@@ -21,6 +22,11 @@ permissions:
   contents: read
 
 jobs:
+  # INTERIM / P1 (GRO-1209): pr-isolated and heavy are persistent chef-ci
+  # listeners, not ephemeral job sandboxes. Listener credentials remain in
+  # the guest; workspace wipe is not a HOME/process boundary. Do not treat
+  # this lane as production-safe isolation. GitHub-hosted runners stay banned
+  # until Actions spending is restored. PR → pr-isolated; else → heavy.
   # ── validate: lockfile, config, generated files, docs, metadata ────────
   validate:
     # GitHub-hosted runners banned until Actions spending restored.

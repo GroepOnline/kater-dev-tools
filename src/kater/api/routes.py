@@ -78,6 +78,29 @@ def _is_public_mode() -> bool:
     )
 
 
+def _catalog_admin_denied(req: Request) -> Response | None:
+    """Fail closed unless the caller holds the operator admin credential."""
+    from kater.settings import check_admin
+
+    settings = load_settings()
+    if not check_admin(req.header("authorization"), settings):
+        return Response.json(403, {"error": "admin credential required for catalog mutations"})
+    return None
+
+
+def _secret_persist_denied(req: Request) -> Response | None:
+    """Admin gate plus deny-default local settings persist policy."""
+    denied = _catalog_admin_denied(req)
+    if denied:
+        return denied
+    from kater.secret_persist import connect_secret_decision
+
+    decision = connect_secret_decision(load_settings())
+    if not decision.allowed:
+        return Response.json(403, decision.as_error())
+    return None
+
+
 def _cookie_value(req: Request, name: str) -> str:
     cookie = req.header("cookie") or ""
     prefix = f"{name}="
@@ -991,8 +1014,12 @@ def _server_action(req: Request) -> Response:
 @route("POST", "/api/mcp/servers/{name}/credentials")
 def _server_credentials(req: Request) -> Response:
     # Store the credentials a server needs to connect. Only env vars the server
-    # actually declares are accepted (no arbitrary env injection), values are
-    # applied to the live process and persisted (gitignored .kater/settings.json).
+    # actually declares are accepted (no arbitrary env injection). Persist to
+    # gitignored .kater/settings.json is deny-default: public/company-control
+    # never writes raw values; local-dev requires an explicit secret-sink opt-in.
+    denied = _secret_persist_denied(req)
+    if denied:
+        return denied
     name = req.params["name"]
     source = _visible_source(name)
     if not source:

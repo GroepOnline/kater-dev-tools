@@ -316,9 +316,10 @@ def test_update_storage_backend(api_server) -> None:
     assert exc.value.code == 400
 
 
-def test_server_credentials(api_server) -> None:
+def test_server_credentials(api_server, monkeypatch) -> None:
     import os
 
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     try:
         ok = _post(
             9912,
@@ -339,9 +340,10 @@ def test_server_credentials(api_server) -> None:
         os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
 
 
-def test_settings_redacts_server_credentials(api_server) -> None:
+def test_settings_redacts_server_credentials(api_server, monkeypatch) -> None:
     import os
 
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     try:
         _post(
             9912,

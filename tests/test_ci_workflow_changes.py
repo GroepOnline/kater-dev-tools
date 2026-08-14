@@ -30,6 +30,32 @@ def test_automerge_uses_github_script_v9() -> None:
     assert "actions/github-script@v" not in text
 
 
+def test_ci_runs_full_python_jobs_on_stacked_feature_base_prs() -> None:
+    text = CI.read_text(encoding="utf-8")
+    on_block = text.split("\njobs:", 1)[0]
+    pr_block = on_block.split("pull_request:", 1)[1].split("schedule:", 1)[0]
+    assert "branches:" not in pr_block
+    assert "  lint-type:" in text
+    assert "uv run ruff check ." in text
+    assert "uv run mypy" in text
+    assert "timeout 480s uv run pytest" in text
+    assert "GRO-1209" in text
+    assert "INTERIM" in text
+    assert "production-safe isolation" in text
+    assert "  validate:" in text
+    assert "  unit:" in text
+    assert "  gate:" in text
+
+
+def test_no_org_leak_runs_on_stacked_feature_base_prs() -> None:
+    text = NO_ORG_LEAK.read_text(encoding="utf-8")
+    on_block = text.split("\njobs:", 1)[0]
+    pr_block = on_block.split("pull_request:", 1)[1].split("push:", 1)[0]
+    assert "branches:" not in pr_block
+    assert "github.event.pull_request.base.ref" in text
+    assert "GRO-1209" in text
+
+
 def test_ci_jobs_install_the_browser_extra() -> None:
     text = CI.read_text(encoding="utf-8")
     # lint-type, unit, integration, computer-acceptance, package: 5 occurrences.

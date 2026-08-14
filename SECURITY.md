@@ -33,7 +33,7 @@ Kater exposes MCP tools over HTTP/SSE. Treat a public instance like an API gatew
 5. **Restrict CORS** — avoid `*` on public deployments; set `KATER_CORS_ORIGINS`.
 6. **Keep adapter secrets in env** — never commit `.env`; Kater redacts secrets in API/MCP tool responses.
 7. **Bind to loopback behind a tunnel** — Cloudflare Tunnel or Tailscale; do not expose raw ports.
-8. **Set an admin key** — `KATER_ADMIN_KEY` separates tool usage from settings changes. In public mode, settings mutations are blocked without it.
+8. **Set an admin key** — `KATER_ADMIN_KEY` separates tool usage from settings and catalog credential changes. In public mode, those mutations are blocked without it. Manual `POST /api/mcp/servers/{name}/credentials` is deny-default in public/company-control: it must not persist raw values to `.kater/settings.json`. Local persist requires `KATER_CONNECT_ALLOW_LOCAL_SETTINGS=1` (development only). ChefVault is the referenced durable sink and is not written by this gateway.
 9. **Keep client registration closed** — public `/register` is disabled unless `KATER_ALLOW_DYNAMIC_REGISTRATION=1` and `KATER_REGISTRATION_TOKEN` is set. Prefer pre-seeded first-party clients/admin bootstrap over anonymous runtime registration.
 10. **Dashboard key** — `KATER_DASHBOARD_KEY` is an optional shortcut that bypasses OAuth token validation for a browser dashboard session in `oauth` mode. Leave unset unless you need it.
 

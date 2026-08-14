@@ -200,7 +200,9 @@ export KATER_ALLOW_DYNAMIC_REGISTRATION=1
 export KATER_REGISTRATION_TOKEN="$(openssl rand -hex 24)"
 ```
 
-Use `KATER_ADMIN_KEY` for public dashboard/API settings changes.
+Use `KATER_ADMIN_KEY` for public dashboard/API settings changes and Catalog
+Connect mutations. Public Connect will not persist OAuth tokens to local
+settings; see [docs/ops/catalog-connect.md](docs/ops/catalog-connect.md).
 
 ### Docker (local)
 

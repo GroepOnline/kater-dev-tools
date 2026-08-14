@@ -16,6 +16,18 @@ ENV_EXAMPLE = ROOT / ".env.example"
 DOC_BROWSER = ROOT / "docs" / "browser.md"
 DOC_DEPLOY_LOCAL = ROOT / "docs" / "deploy-local.md"
 DOC_DEPLOY_SERVER = ROOT / "docs" / "deploy-server.md"
+DOC_CATALOG_CONNECT = ROOT / "docs" / "ops" / "catalog-connect.md"
+DOC_SECURITY = ROOT / "SECURITY.md"
+
+
+class TestEnvExampleCatalogConnectPolicy:
+    def test_documents_connect_secret_and_origin_gates(self) -> None:
+        text = ENV_EXAMPLE.read_text(encoding="utf-8")
+        assert "KATER_CONNECT_ALLOW_LOCAL_SETTINGS=0" in text
+        assert "KATER_CONNECT_SECRET_SINK=" in text
+        assert "KATER_CONNECT_PUBLIC_BASE_URL=https://kater.example.com" in text
+        assert "docs/ops/chefvault.md" in text
+        assert "does not write Vault items" in text
 
 
 class TestEnvExampleContextTokenSection:
@@ -165,3 +177,18 @@ class TestDocDeployServerMd:
         assert "uv sync --extra browser" in text
         assert "playwright install --with-deps chromium" in text
         assert "CDP/remote providers avoid shipping a browser" in text
+        assert "KATER_CONNECT_PUBLIC_BASE_URL" in text
+        assert "docs/ops/catalog-connect.md" in text
+
+
+class TestDocCatalogConnect:
+    def test_documents_deny_default_sink_and_origin(self) -> None:
+        text = DOC_CATALOG_CONNECT.read_text(encoding="utf-8")
+        assert "KATER_CONNECT_ALLOW_LOCAL_SETTINGS" in text
+        assert "KATER_CONNECT_PUBLIC_BASE_URL" in text
+        assert "check_admin" in text
+        assert "does **not** write Vault items" in text
+        assert "X-Forwarded-Host" in text
+        security = DOC_SECURITY.read_text(encoding="utf-8")
+        assert "KATER_CONNECT_PUBLIC_BASE_URL" in security
+        assert "KATER_CONNECT_ALLOW_LOCAL_SETTINGS" in security

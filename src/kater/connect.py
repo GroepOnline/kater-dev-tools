@@ -1,8 +1,9 @@
 """Catalog Connect: per-server account connections (multi-account OAuth).
 
 One ToolSource can hold several provider accounts (two Slack workspaces,
-two Azure tenants). Tokens stay in gitignored settings; the API never
-echoes values.
+two Azure tenants). The API never echoes token values. Persisting OAuth
+tokens to ``.kater/settings.json`` is local-development only and is gated
+by ``kater.connect_policy`` — public/company-control defaults to deny.
 """
 
 from __future__ import annotations

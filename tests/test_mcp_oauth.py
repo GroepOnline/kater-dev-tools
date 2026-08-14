@@ -8,7 +8,9 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from kater.connect_policy import ConnectOriginError
 from kater.mcp_oauth import (
+    abandon_pending,
     callback_html,
     consume_callback,
     peek_pending,
@@ -135,6 +137,29 @@ def test_consume_callback_exchanges_with_mocked_http(tmp_path: Path, monkeypatch
     )
     assert result["access_token"] == "kater-test-access-token"
     assert result["extra"]["team_id"] == "T-TEST"
+    assert peek_pending(started["state"]) == {}
+
+
+def test_start_authorize_rejects_hostile_non_loopback_http(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ConnectOriginError, match="invalid_connect_base_url"):
+        start_authorize(
+            _source(),
+            client_id="kater-test-client-id",
+            base_url="http://evil.example",
+        )
+    assert not (tmp_path / ".kater" / "mcp-oauth-pending.json").exists()
+
+
+def test_abandon_pending_drops_state_without_exchange(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    started = start_authorize(
+        _source(),
+        client_id="kater-test-client-id",
+        base_url="http://127.0.0.1:9091",
+    )
+    dropped = abandon_pending(started["state"])
+    assert dropped["server"] == "demo-oauth"
     assert peek_pending(started["state"]) == {}
 
 

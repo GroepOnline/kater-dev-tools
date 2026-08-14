@@ -39,8 +39,10 @@ def test_ci_jobs_install_the_browser_extra() -> None:
 def test_unit_matrix_job_uses_kater_checkout_sha_and_longer_timeout() -> None:
     block = _job_block(CI.read_text(encoding="utf-8"), "unit", "integration")
     assert KATER_CHECKOUT_SHA in block
-    assert "timeout 300s uv run pytest" in block
+    assert "timeout 480s uv run pytest" in block
+    assert "--no-cov" in block
     assert "timeout 180s" not in block
+    assert "timeout 300s" not in block
 
 
 def test_computer_acceptance_checks_out_kater_and_the_private_runtime() -> None:

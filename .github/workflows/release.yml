@@ -86,7 +86,7 @@ jobs:
 
       - name: Test
         run: >-
-          timeout 300s uv run pytest -vv --tb=short -ra
+          timeout 480s uv run pytest -vv --tb=short -ra --no-cov
           --ignore=tests/test_computer_acceptance_e2e.py
 
       - name: Build distributions

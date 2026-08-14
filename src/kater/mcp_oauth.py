@@ -25,6 +25,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from kater.connect_policy import assert_safe_oauth_base
 from kater.profiles import ToolSource
 
 _log = logging.getLogger("kater.mcp_oauth")
@@ -141,6 +142,7 @@ def start_authorize(
         raise ValueError(f"{source.name} has no OAuth connect config")
     if not client_id:
         raise ValueError("oauth client id is not configured")
+    base_url = assert_safe_oauth_base(base_url)
     callback = redirect_uri(base_url)
     verifier, challenge = _pkce_pair()
     state = secrets.token_urlsafe(32)
@@ -236,6 +238,16 @@ def peek_pending(state: str) -> dict[str, Any]:
     return dict(record) if isinstance(record, dict) else {}
 
 
+def abandon_pending(state: str) -> dict[str, Any]:
+    """Drop a pending session without exchanging a code (fail-closed)."""
+    now = time.time()
+    with _lock:
+        pending = _prune_locked(_load_pending(), now)
+        record = pending.pop(state, None)
+        _save_pending(pending)
+    return dict(record) if isinstance(record, dict) else {}
+
+
 def consume_callback(
     *,
     state: str,
@@ -286,6 +298,12 @@ def callback_html(*, server: str, label: str, catalog_url: str, error: str = "")
         )
     )
     dest = html.escape(catalog_url, quote=True)
+    script_url = (
+        json.dumps(catalog_url)
+        .replace("<", r"\u003c")
+        .replace(">", r"\u003e")
+        .replace("&", r"\u0026")
+    )
     return (
         "<!doctype html><meta charset=utf-8><title>"
         + html.escape(title)
@@ -294,5 +312,5 @@ def callback_html(*, server: str, label: str, catalog_url: str, error: str = "")
         + '</p><p><a href="'
         + dest
         + '">Back to catalog</a></p>'
-        + f"<script>location.replace({json.dumps(catalog_url).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')})</script>"
+        + f"<script>location.replace({script_url})</script>"
     )

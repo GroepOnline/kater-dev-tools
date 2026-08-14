@@ -76,6 +76,9 @@ Use:
 
 Full host layout and cutover gates: `docs/ops/bc-scan-arm-runtime.md`.
 
+Catalog Connect does not write OAuth tokens into ChefVault. See
+[catalog-connect.md](catalog-connect.md) for the deny-default persist gate.
+
 ## Failure behavior
 
 The startup fails before Kater launches when the broker token is missing, the profile is not

@@ -155,3 +155,115 @@ def test_slack_catalog_source_declares_connect_env_names() -> None:
     assert slack.oauth.token_env == "SLACK_ACCESS_TOKEN"
     assert slack.transport.value == "http"
     assert "SLACK_BOT_TOKEN" not in slack.env
+
+
+def test_secret_sink_local_requires_explicit_opt_in(monkeypatch) -> None:
+    from kater.connect_policy import connect_secret_decision
+    from kater.settings import invalidate_settings_cache
+
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    monkeypatch.delenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", raising=False)
+    monkeypatch.delenv("KATER_CONNECT_SECRET_SINK", raising=False)
+    invalidate_settings_cache()
+    denied = connect_secret_decision(KaterSettings())
+    assert denied.allowed is False
+    assert denied.reason == "local_settings_opt_in_required"
+    assert denied.persist_local_settings is False
+
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    allowed = connect_secret_decision(KaterSettings())
+    assert allowed.allowed is True
+    assert allowed.sink == "local-settings"
+    assert allowed.persist_local_settings is True
+
+
+def test_secret_sink_public_deny_default_ignores_local_opt_in(monkeypatch) -> None:
+    from kater.connect_policy import connect_secret_decision
+    from kater.settings import invalidate_settings_cache
+
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    monkeypatch.delenv("KATER_CONNECT_SECRET_SINK", raising=False)
+    invalidate_settings_cache()
+    denied = connect_secret_decision(KaterSettings())
+    assert denied.allowed is False
+    assert denied.reason == "secret_sink_required"
+    assert denied.persist_local_settings is False
+
+
+def test_secret_sink_chefvault_is_reference_only(monkeypatch) -> None:
+    from kater.connect_policy import connect_secret_decision
+    from kater.settings import invalidate_settings_cache
+
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_CONNECT_SECRET_SINK", "chefvault")
+    invalidate_settings_cache()
+    denied = connect_secret_decision(KaterSettings())
+    assert denied.allowed is False
+    assert denied.reason == "chefvault_persist_unavailable"
+    assert "access_token" not in denied.as_error()["message"]
+
+
+def test_public_origin_requires_https_canonical_url(monkeypatch) -> None:
+    from kater.connect_policy import (
+        ConnectOriginError,
+        resolve_connect_base_url,
+        validate_public_https_base,
+    )
+    from kater.settings import invalidate_settings_cache
+
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.delenv("KATER_CONNECT_PUBLIC_BASE_URL", raising=False)
+    invalidate_settings_cache()
+    settings = KaterSettings()
+    try:
+        resolve_connect_base_url("https://evil.example", settings)
+        raise AssertionError("missing public base must fail closed")
+    except ConnectOriginError as exc:
+        assert exc.reason == "public_base_url_required"
+
+    monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "http://kater.example.test")
+    try:
+        resolve_connect_base_url("https://ignored.example", settings)
+        raise AssertionError("http public base must fail closed")
+    except ConnectOriginError as exc:
+        assert exc.reason == "public_base_url_must_be_https"
+
+    for bad in (
+        "javascript:alert(1)",
+        "https://user:pass@kater.example.test",
+        "https://kater.example.test/callback",
+        "https://kater.example.test?next=https://evil.example",
+    ):
+        try:
+            validate_public_https_base(bad)
+            raise AssertionError(f"accepted hostile base: {bad}")
+        except ConnectOriginError:
+            pass
+
+    monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "https://kater.example.test")
+    assert (
+        resolve_connect_base_url("http://evil.example", settings) == "https://kater.example.test"
+    )
+
+
+def test_dev_origin_rejects_hostile_host(monkeypatch) -> None:
+    from kater.connect_policy import ConnectOriginError, resolve_connect_base_url
+    from kater.settings import invalidate_settings_cache
+
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    monkeypatch.delenv("KATER_CONNECT_PUBLIC_BASE_URL", raising=False)
+    invalidate_settings_cache()
+    settings = KaterSettings()
+    assert resolve_connect_base_url("http://127.0.0.1:9091", settings) == "http://127.0.0.1:9091"
+    try:
+        resolve_connect_base_url("http://evil.example", settings)
+        raise AssertionError("hostile host must be rejected in local mode")
+    except ConnectOriginError as exc:
+        assert exc.reason == "dev_base_url_must_be_loopback"
+    recovered = resolve_connect_base_url(
+        "http://evil.example",
+        settings,
+        pending_redirect="http://127.0.0.1:9091/api/mcp/oauth/callback",
+    )
+    assert recovered == "http://127.0.0.1:9091"

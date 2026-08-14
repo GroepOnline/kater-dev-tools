@@ -414,6 +414,36 @@ def _security_check() -> list[Finding]:
             )
         findings.append(
             Finding(
+                code="public_connect_secret_sink_disabled",
+                severity="info",
+                message=(
+                    "Catalog Connect OAuth token persist is deny-default in public "
+                    "mode. Local .kater/settings.json is not an approved company-control sink."
+                ),
+                suggested_action=(
+                    "Materialize provider tokens via the ChefVault broker "
+                    "(docs/ops/chefvault.md). Do not set "
+                    "KATER_CONNECT_ALLOW_LOCAL_SETTINGS on public hosts."
+                ),
+            )
+        )
+        if not os.environ.get("KATER_CONNECT_PUBLIC_BASE_URL", "").strip():
+            findings.append(
+                Finding(
+                    code="public_connect_base_url_missing",
+                    severity="info",
+                    message=(
+                        "KATER_CONNECT_PUBLIC_BASE_URL is unset; public Catalog "
+                        "Connect will not trust Host / X-Forwarded-Host for redirects."
+                    ),
+                    suggested_action=(
+                        "Set KATER_CONNECT_PUBLIC_BASE_URL=https://<canonical-host> "
+                        "if you need Connect at all; HTTPS only."
+                    ),
+                )
+            )
+        findings.append(
+            Finding(
                 code="public_oauth_ready",
                 severity="info",
                 message="OAuth auth enabled — compatible with ChatGPT Remote MCP.",

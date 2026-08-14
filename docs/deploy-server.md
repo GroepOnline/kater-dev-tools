@@ -58,6 +58,9 @@ cp .env.example .env
 #   KATER_RATE_LIMIT=60
 #   KATER_CORS_ORIGINS=https://kater.yourdomain.com
 #   KATER_ADMIN_KEY=<operator key>
+#   KATER_CONNECT_PUBLIC_BASE_URL=https://kater.yourdomain.com
+# Catalog Connect does not persist OAuth tokens on public hosts
+# (docs/ops/catalog-connect.md). Do not set KATER_CONNECT_ALLOW_LOCAL_SETTINGS.
 
 ./scripts/deploy-cloudflare.sh kater.yourdomain.com kater
 ```

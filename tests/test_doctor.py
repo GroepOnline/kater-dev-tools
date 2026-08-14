@@ -158,6 +158,8 @@ def test_doctor_ok_for_public_oauth(monkeypatch, tmp_path) -> None:
     assert not any(f.code == "public_without_auth" for f in report.findings)
     assert not any(f.code == "public_oauth_open_registration" for f in report.findings)
     assert any(f.code == "public_oauth_ready" for f in report.findings)
+    assert any(f.code == "public_connect_secret_sink_disabled" for f in report.findings)
+    assert any(f.code == "public_connect_base_url_missing" for f in report.findings)
 
 
 def test_doctor_flags_dynamic_registration_without_token(monkeypatch, tmp_path) -> None:

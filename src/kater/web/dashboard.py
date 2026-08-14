@@ -2500,7 +2500,13 @@ async function promptCredentials(name, invoker) {
   const captured = invoker !== undefined ? invoker : document.activeElement;
   try {
     const server = await api('/api/mcp/servers/' + encodeURIComponent(name));
-    if (server && !server.error) openCredentialsModal(server, captured);
+    if (server && !server.error) {
+      if (server.oauth) {
+        const started = await apiPost('/api/mcp/servers/' + encodeURIComponent(name) + '/oauth/start', {});
+        if (started.authorize_url) { window.location.href = started.authorize_url; return; }
+      }
+      openCredentialsModal(server, captured);
+    }
   } catch (e) {
     toast('Could not load ' + name + ': ' + (e.message || 'failed'), 'error');
   }

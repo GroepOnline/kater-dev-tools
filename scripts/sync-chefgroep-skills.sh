@@ -39,7 +39,6 @@ log() { printf '[sync-chefgroep-skills] %s\n' "$*"; }
 PLUGIN_NAME="chefgroep-skills"
 PLUGIN_DEST="${REPO_DIR}/.cursor/plugins/${PLUGIN_NAME}"
 CACHE_ROOT="${CURSOR_PLUGINS_HOME:-${HOME}/.cursor/plugins}/sources/${PLUGIN_NAME}"
-AGENTS_SKILLS="${HOME}/.agents/skills"
 
 resolve_git_url() {
   if [[ -n "${CHEFGROEP_SKILLS_GIT_URL:-}" ]]; then
@@ -75,7 +74,7 @@ if ! GIT_URL="$(resolve_git_url)"; then
 fi
 
 if [[ "${DRY_RUN}" -eq 1 ]]; then
-  log "would sync ${GIT_URL} -> ${CACHE_ROOT}"
+  log "would sync ChefGroep skills -> ${CACHE_ROOT}"
   log "would install plugin tree -> ${PLUGIN_DEST}"
   exit 0
 fi
@@ -88,11 +87,12 @@ fi
 mkdir -p "$(dirname "${CACHE_ROOT}")"
 if [[ -d "${CACHE_ROOT}/.git" ]]; then
   log "update ${CACHE_ROOT}"
+  git -C "${CACHE_ROOT}" remote set-url origin "${GIT_URL}"
   git -C "${CACHE_ROOT}" fetch --depth 1 origin
   git -C "${CACHE_ROOT}" checkout --force FETCH_HEAD
   git -C "${CACHE_ROOT}" pull --ff-only 2>/dev/null || true
 else
-  log "clone ${GIT_URL}"
+  log "clone ChefGroep skills"
   rm -rf "${CACHE_ROOT}"
   if ! git clone --depth 1 "${GIT_URL}" "${CACHE_ROOT}"; then
     log "ERROR: clone failed (grant Cloud Agent token access to the meta-skills repo)"
@@ -100,13 +100,14 @@ else
   fi
 fi
 
-# Prefer upstream sync contract when present (canonical ~/.agents/skills).
+# Prefer upstream sync contract when present. Fail closed: a broken
+# upstream sync must not report a successful plugin install.
 if [[ -x "${CACHE_ROOT}/sync.sh" ]]; then
   log "run upstream sync.sh"
-  (cd "${CACHE_ROOT}" && ./sync.sh) || log "WARN: upstream sync.sh exited non-zero"
+  (cd "${CACHE_ROOT}" && ./sync.sh)
 elif [[ -x "${CACHE_ROOT}/scripts/sync.sh" ]]; then
   log "run upstream scripts/sync.sh"
-  (cd "${CACHE_ROOT}" && ./scripts/sync.sh) || log "WARN: upstream scripts/sync.sh exited non-zero"
+  (cd "${CACHE_ROOT}" && ./scripts/sync.sh)
 fi
 
 # Cursor Cloud plugin discovery via workspaceOpen pluginPaths.
@@ -151,18 +152,5 @@ payload["generated_at"] = datetime.now(UTC).isoformat()
 manifest.parent.mkdir(parents=True, exist_ok=True)
 manifest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 PY
-
-# Optional global agents tree (mesh tooling); ignore if missing.
-if [[ -d "${CACHE_ROOT}/skills" ]]; then
-  mkdir -p "${AGENTS_SKILLS}"
-  while IFS= read -r skill_dir; do
-    name="$(basename "${skill_dir}")"
-    target="${AGENTS_SKILLS}/${name}"
-    if [[ -e "${target}" || -L "${target}" ]]; then
-      continue
-    fi
-    ln -s "${skill_dir}" "${target}"
-  done < <(find "${CACHE_ROOT}/skills" -mindepth 1 -maxdepth 1 -type d | LC_ALL=C sort)
-fi
 
 log "done (plugin components=${copied}; dest=${PLUGIN_DEST})"

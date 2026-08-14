@@ -149,7 +149,7 @@ collect_plugins() {
   while IFS= read -r path; do
     [[ -z "${path}" ]] && continue
     printf 'plugin\t%s\t%s\n' "$(basename "${path}")" "${path}"
-  done < <(find .cursor/plugins -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+  done < <(find .cursor/plugins -mindepth 1 -maxdepth 1 -type d ! -name installed -print | LC_ALL=C sort)
 }
 
 ARTIFACTS="$(

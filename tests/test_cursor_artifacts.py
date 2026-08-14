@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -200,6 +201,40 @@ def test_workspace_open_returns_plugin_paths_key() -> None:
     assert isinstance(out["pluginPaths"], list)
     # No .cursor/plugins directory exists in this repo, so it must be empty.
     assert out["pluginPaths"] == []
+
+
+def test_collect_plugins_excludes_installed_metadata_dir() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert text.count("! -name installed") >= 2
+
+    plugins = ROOT / ".cursor" / "plugins"
+    installed = plugins / "installed"
+    real = plugins / "chefgroep-skills"
+    created_root = not plugins.exists()
+    try:
+        installed.mkdir(parents=True)
+        (installed / "manifest.json").write_text("{}\n", encoding="utf-8")
+        real.mkdir(parents=True)
+
+        md = subprocess.run(
+            [str(SCRIPT), "--print-markdown"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert "| plugin | `chefgroep-skills` |" in md
+        assert "| plugin | `installed` |" not in md
+
+        opened = json.loads(_run({"hook_event_name": "workspaceOpen"}).stdout)
+        names = {Path(path).name for path in opened["pluginPaths"]}
+        assert "chefgroep-skills" in names
+        assert "installed" not in names
+    finally:
+        shutil.rmtree(real, ignore_errors=True)
+        shutil.rmtree(installed, ignore_errors=True)
+        if created_root and plugins.is_dir() and not any(plugins.iterdir()):
+            plugins.rmdir()
 
 
 def test_unknown_hook_event_returns_empty_object() -> None:

@@ -21,11 +21,20 @@ class AuthConfig(BaseModel):
     oauth_jwks_url: str | None = None
 
 
+class ServerConnection(BaseModel):
+    id: str
+    label: str = ""
+    env: dict[str, str] = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(default_factory=dict)
+    created_at: float = 0.0
+
+
 class ServerOverride(BaseModel):
     enabled: bool | None = None
     env: dict[str, str] = Field(default_factory=dict)
     args_override: list[str] | None = None
     url_override: str | None = None
+    connections: list[ServerConnection] = Field(default_factory=list)
 
 
 class KaterSettings(BaseModel):
@@ -75,9 +84,15 @@ class KaterSettings(BaseModel):
         Externally-provided env (e.g. systemd/secret managers) always wins, so
         we only fill gaps — that way an operator can override a dashboard-set
         value from the outside without it being clobbered on restart.
+
+        Only the first connection (or legacy env map) is applied process-wide.
+        Extra accounts stay on their backend instance so tokens do not collide.
         """
         for override in self.server_overrides.values():
-            for key, value in (override.env or {}).items():
+            primary = dict(override.env or {})
+            if override.connections:
+                primary = {**primary, **override.connections[0].env}
+            for key, value in primary.items():
                 if value:
                     os.environ.setdefault(key, value)
 
@@ -95,6 +110,11 @@ class KaterSettings(BaseModel):
             env = override.get("env")
             if env:
                 override["env"] = {key: "***" for key in env}
+            connections = override.get("connections")
+            if connections:
+                for conn in connections:
+                    if conn.get("env"):
+                        conn["env"] = {key: "***" for key in conn["env"]}
         return d
 
     @classmethod

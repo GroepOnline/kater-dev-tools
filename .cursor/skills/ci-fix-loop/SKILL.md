@@ -32,7 +32,7 @@ Thin satellite so `kater-dev-tools-ci-fixer` `extends: ci-fix-loop` and
 
 | Home | Path / name | Role |
 | --- | --- | --- |
-| Account portable | `~/.agents/skills/groeponline-ci-fix-loop/SKILL.md` | Org-wide CI repair chain (when that lane is in scope) |
+| Account portable | `~/.agents/skills/` skill named `ci-fix-loop` | Org-wide CI repair chain (when that lane is in scope) |
 | Cursor team-kit | plugin skill `fix-ci` | Focused PR-check repair |
 
 ## Repo facts / twin

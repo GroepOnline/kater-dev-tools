@@ -78,13 +78,15 @@ def test_public_non_admin_cannot_mutate_or_start_or_delete(monkeypatch) -> None:
     assert deleted.status == 403
 
 
-def test_public_admin_can_set_credentials_but_oauth_start_stays_deny_default(
-    monkeypatch,
-) -> None:
+def test_public_admin_cannot_persist_credentials_or_start_oauth(monkeypatch, tmp_path) -> None:
+    from kater.settings import invalidate_settings_cache, settings_path
+
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KATER_PUBLIC", "1")
     monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
     monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "https://kater.example.test")
     monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    invalidate_settings_cache()
     headers = {"authorization": "Bearer admin-secret"}
 
     creds = call(
@@ -93,15 +95,13 @@ def test_public_admin_can_set_credentials_but_oauth_start_stays_deny_default(
         body={"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
         headers=headers,
     )
-    try:
-        assert creds.status == 200
-        assert creds.payload is not None
-        assert creds.payload["applied"] == ["GITHUB_PERSONAL_ACCESS_TOKEN"]
-        assert "kater-test-token" not in json.dumps(creds.payload)
-    finally:
-        import os
-
-        os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
+    assert creds.status == 403
+    assert creds.payload is not None
+    assert creds.payload["error"] == "secret_sink_required"
+    assert "kater-test-token" not in json.dumps(creds.payload)
+    path = settings_path()
+    if path.exists():
+        assert "kater-test-token" not in path.read_text(encoding="utf-8")
 
     start = call(
         "POST",

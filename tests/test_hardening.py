@@ -204,18 +204,14 @@ def test_public_catalog_mutations_require_admin_key(monkeypatch, api_server):
     )
     assert err.code == 403
 
-    try:
-        ok = _post(
-            9970,
-            "/api/mcp/servers/github/credentials",
-            {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
-            headers=admin,
-        )
-        assert ok["applied"] == ["GITHUB_PERSONAL_ACCESS_TOKEN"]
-    finally:
-        import os
-
-        os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
+    admin_err = _get_err_post(
+        9970,
+        "/api/mcp/servers/github/credentials",
+        {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
+        headers=admin,
+    )
+    assert admin_err.code == 403
+    assert "secret_sink_required" in admin_err.read().decode()
 
     start_err = _get_err_post(9970, "/api/mcp/servers/slack/oauth/start", {}, headers=tool)
     assert start_err.code == 403

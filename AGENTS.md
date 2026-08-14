@@ -155,4 +155,4 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
 
 ## Skill satellites
 
-Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → groeponline-ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: GroepOnline/chefgroep-skills).
+Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: chefgroep-skills).

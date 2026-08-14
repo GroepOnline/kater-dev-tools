@@ -60,15 +60,20 @@ gh repo view --json nameWithOwner -q .nameWithOwner
 
    Abort if `headRefOid` != provided `head_sha` when `head_sha` was given.
 
-2. **Checks** — `gh pr checks <pr> --repo <repo>`; on failure `gh run view --log-failed`.
+2. **Checks** — notify-first: at most one `gh pr checks <pr> --repo <repo>`
+   (never `--watch`). On failure, one-shot `gh run view --log-failed`. Incomplete
+   → `CHECKS_UNKNOWN`, stop.
 
-3. **Fix loop** — minimal diff; push; re-watch checks.
+3. **Fix loop** — minimal diff; push; do **not** poll checks. Wait for CI notify,
+   then one-shot re-gate with the new head SHA.
 
 4. **Local verify** (when goal is `verify-local` or change touches serve/CLI paths) —
    delegate to `kater-verify` or run: stop serve → `./scripts/smoke.sh`; optional
    `uv run kater doctor --json`.
 
-5. **Gate** — summarize verdict against `src/kater/pr_control.py` reason codes.
+5. **Gate** — summarize verdict against `src/kater/pr_control.py` reason codes
+   (`FAILED_CHECKS`, `P1_LATCH`, independent approval, company-control repo).
+   Write/merge paths need a nonempty `expected_head_sha`.
 
 ## Return format (mandatory)
 

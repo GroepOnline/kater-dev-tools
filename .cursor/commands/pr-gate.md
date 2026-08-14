@@ -16,7 +16,8 @@ Do not invent a parallel procedure. Prefer the skill SSOT under `.cursor/`.
 
 - Merge-ready evaluation on the current PR
 - CI or review threads block merge
-- Gate verdict needed (`PASS`, `WARN`, `BLOCK`) on recorded head SHA
+- Gate verdict needed (`PASS`, `WARN`, `BLOCK`) on a nonempty recorded head SHA
+  (`FAILED_CHECKS`, `P1_LATCH`, independent review, company-control repo)
 
 ## Twin chain
 

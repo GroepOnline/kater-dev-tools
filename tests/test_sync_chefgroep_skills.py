@@ -57,12 +57,12 @@ def _preserve_workspace_plugins(tmp_path_factory: pytest.TempPathFactory):
     snapshot = None
     if _PLUGIN_ROOT.exists():
         snapshot = tmp_path_factory.mktemp("plugins-snap") / "plugins"
-        shutil.copytree(_PLUGIN_ROOT, snapshot)
+        shutil.copytree(_PLUGIN_ROOT, snapshot, symlinks=True)
     yield
     if snapshot is not None:
         if _PLUGIN_ROOT.exists():
             shutil.rmtree(_PLUGIN_ROOT)
-        shutil.copytree(snapshot, _PLUGIN_ROOT)
+        shutil.copytree(snapshot, _PLUGIN_ROOT, symlinks=True)
     else:
         _cleanup_plugin_install()
 

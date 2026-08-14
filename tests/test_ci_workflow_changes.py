@@ -53,7 +53,14 @@ def test_no_org_leak_runs_on_stacked_feature_base_prs() -> None:
     pr_block = on_block.split("pull_request:", 1)[1].split("push:", 1)[0]
     assert "branches:" not in pr_block
     assert "github.event.pull_request.base.ref" in text
+    assert "PR_BASE_REF" in text
     assert "GRO-1209" in text
+    assert 'origin "${{ github.event.pull_request.base.ref }}"' not in text
+    assert "format('origin/{0}', github.event.pull_request.base.ref)" not in text
+    assert "head.repo.full_name == github.repository" in text
+    assert "github.event.pull_request.base.sha" in text
+    assert "trusted-scanner" in text
+    assert "${RUNNER_TEMP}/trusted-scanner/scripts/no_org_leak.py" in text
 
 
 def test_ci_jobs_install_the_browser_extra() -> None:

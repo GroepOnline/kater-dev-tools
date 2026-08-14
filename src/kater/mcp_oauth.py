@@ -83,7 +83,9 @@ def redirect_uri(base_url: str) -> str:
     return base_url.rstrip("/") + "/api/mcp/oauth/callback"
 
 
-def slack_app_manifest(callback: str) -> dict[str, Any]:
+def slack_app_manifest(callback: str, source: ToolSource | None = None) -> dict[str, Any]:
+    user_scopes = discover_scopes(source) if source else SLACK_DEFAULT_SCOPES.replace(",", " ")
+
     return {
         "display_information": {
             "name": "Kater MCP",
@@ -94,7 +96,10 @@ def slack_app_manifest(callback: str) -> dict[str, Any]:
         },
         "oauth_config": {
             "redirect_urls": [callback],
-            "scopes": {"bot": ["users:read"], "user": []},
+            "scopes": {
+                "bot": ["users:read"],
+                "user": user_scopes.split(),
+            },
         },
         "settings": {
             "org_deploy_enabled": False,
@@ -289,5 +294,5 @@ def callback_html(*, server: str, label: str, catalog_url: str, error: str = "")
         + '</p><p><a href="'
         + dest
         + '">Back to catalog</a></p>'
-        + f"<script>location.replace({json.dumps(catalog_url)})</script>"
+        + f"<script>location.replace({json.dumps(catalog_url).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')})</script>"
     )

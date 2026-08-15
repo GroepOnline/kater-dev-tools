@@ -9,7 +9,9 @@ fi
 
 uv run python - <<'PY'
 import asyncio
+import base64
 import json
+import os
 import socket
 import sys
 import urllib.request
@@ -69,13 +71,14 @@ async def mcp_checks() -> None:
 asyncio.run(mcp_checks())
 
 sock = socket.create_connection(("127.0.0.1", 9092), timeout=5)
+ws_key = base64.b64encode(os.urandom(16)).decode()
 sock.sendall(
     b"GET /ws HTTP/1.1\r\n"
     b"Host: 127.0.0.1:9092\r\n"
     b"Upgrade: websocket\r\n"
     b"Connection: Upgrade\r\n"
-    b"REDACTED_GENERIC_API_KEY\n"
-    b"Sec-WebSocket-Version: 13\r\n\r\n"
+    + f"Sec-WebSocket-Key: {ws_key}\r\n".encode()
+    + b"Sec-WebSocket-Version: 13\r\n\r\n"
 )
 upgrade = sock.recv(4096).decode(errors="replace")
 sock.close()

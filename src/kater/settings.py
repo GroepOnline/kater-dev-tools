@@ -357,9 +357,9 @@ def check_admin(
     """True if the caller holds the operator/admin credential.
 
     Operators set ``KATER_ADMIN_KEY`` to separate "use tools" from "change
-    settings". When unset, every authenticated caller is treated as admin
-    (single-user local default). When set, sensitive settings mutations
-    (auth mode, api_keys, CORS, rate limit) require this key, so a leaked
+    settings" and catalog credential writes. When unset, every authenticated
+    caller is treated as admin (single-user local default). When set, sensitive
+    settings mutations and ``POST /credentials`` require this key, so a leaked
     tool-credential cannot weaken the gateway.
     """
     admin_key = os.environ.get("KATER_ADMIN_KEY", "")

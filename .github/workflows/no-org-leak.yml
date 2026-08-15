@@ -1,8 +1,8 @@
 name: No org leak
 
 on:
+  # No base-branch filter: stacked feature-base PRs must run the same guard.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
   schedule:
@@ -15,11 +15,16 @@ permissions:
   contents: read
 
 jobs:
+  # INTERIM / P1 (GRO-1209): persistent pr-isolated listener, not ephemeral.
+  # PR scanner code is pinned to the trusted base SHA; forks never run here.
   no-org-leak:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # GitHub-hosted runners banned until Actions spending restored.
     # PR → pr-isolated; else → heavy.
     runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 10
+    env:
+      PR_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -28,9 +33,20 @@ jobs:
           # Full history only for scheduled/release full scans; PRs diff-scan.
           fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
 
+      - name: Checkout trusted scanner from base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          # Self-hosted checkout refuses paths outside GITHUB_WORKSPACE
+          # (RUNNER_TEMP is a sibling of the workspace, not a child).
+          path: .ci-trusted-scanner
+          fetch-depth: 1
+
       - name: Fetch base ref for PR diff-scan
         if: github.event_name == 'pull_request'
-        run: git fetch --no-tags --depth 1 origin "${{ github.event.pull_request.base.ref }}"
+        run: git fetch --no-tags --depth 1 origin "$PR_BASE_REF"
 
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -38,7 +54,17 @@ jobs:
           enable-cache: true
 
       - name: Org-leak guard (explicit allowlist script)
-        run: uv run python scripts/no_org_leak.py --base "${{ github.event_name == 'pull_request' && 'origin/main' || '' }}"
+        run: |
+          set -euo pipefail
+          if [ -n "${PR_BASE_REF}" ]; then
+            install -m 500 .ci-trusted-scanner/scripts/no_org_leak.py "${RUNNER_TEMP}/no_org_leak.py"
+            rm -rf .ci-trusted-scanner
+            # --no-project: do not sync the PR-controlled pyproject before
+            # invoking the stdlib scanner copied from the trusted base SHA.
+            uv run --no-project python "${RUNNER_TEMP}/no_org_leak.py" --base "origin/${PR_BASE_REF}"
+          else
+            uv run --no-project python scripts/no_org_leak.py
+          fi
 
       - name: Install gitleaks (checksum-validated)
         run: |

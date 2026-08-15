@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -208,13 +209,19 @@ def test_collect_plugins_excludes_installed_metadata_dir() -> None:
     assert text.count("! -name installed") >= 2
 
     plugins = ROOT / ".cursor" / "plugins"
+    snapshot = None
+    if plugins.exists():
+        snapshot = Path(tempfile.mkdtemp(prefix="kater-plugins-snap-"))
+        inner = snapshot / "plugins"
+        shutil.copytree(plugins, inner)
+        snapshot = inner
+    created_root = snapshot is None
     installed = plugins / "installed"
     real = plugins / "chefgroep-skills"
-    created_root = not plugins.exists()
     try:
-        installed.mkdir(parents=True)
+        installed.mkdir(parents=True, exist_ok=True)
         (installed / "manifest.json").write_text("{}\n", encoding="utf-8")
-        real.mkdir(parents=True)
+        real.mkdir(parents=True, exist_ok=True)
 
         md = subprocess.run(
             [str(SCRIPT), "--print-markdown"],
@@ -231,10 +238,15 @@ def test_collect_plugins_excludes_installed_metadata_dir() -> None:
         assert "chefgroep-skills" in names
         assert "installed" not in names
     finally:
-        shutil.rmtree(real, ignore_errors=True)
-        shutil.rmtree(installed, ignore_errors=True)
-        if created_root and plugins.is_dir() and not any(plugins.iterdir()):
-            plugins.rmdir()
+        if snapshot is not None:
+            shutil.rmtree(plugins, ignore_errors=True)
+            shutil.copytree(snapshot, plugins)
+            shutil.rmtree(snapshot.parent, ignore_errors=True)
+        else:
+            shutil.rmtree(real, ignore_errors=True)
+            shutil.rmtree(installed, ignore_errors=True)
+            if created_root and plugins.is_dir() and not any(plugins.iterdir()):
+                plugins.rmdir()
 
 
 def test_unknown_hook_event_returns_empty_object() -> None:

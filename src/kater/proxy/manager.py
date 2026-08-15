@@ -200,7 +200,9 @@ class ProxyManager:
             if not instances:
                 continue
             for backend_name, env_values in instances:
-                backend = self._create_backend(source, env_values=env_values)
+                backend = self._create_backend(
+                    source, env_values=env_values, backend_name=backend_name
+                )
                 if backend is None:
                     continue
                 try:
@@ -220,8 +222,10 @@ class ProxyManager:
         self,
         source: ToolSource,
         env_values: dict[str, str] | None = None,
+        backend_name: str | None = None,
     ) -> BaseBackend | None:
         overlay = env_values or {}
+        instance_name = backend_name or source.name
 
         def getenv(name: str) -> str | None:
             return overlay.get(name) or os.environ.get(name)
@@ -240,7 +244,7 @@ class ProxyManager:
                     env[key] = val
             env.update({k: v for k, v in overlay.items() if v})
             return StdioBackend(
-                name=source.name,
+                name=instance_name,
                 command=source.mcp.command,
                 args=source.mcp.args,
                 env=env,
@@ -260,11 +264,11 @@ class ProxyManager:
             headers = resolve_remote_headers(source, include_secrets=True, env=overlay)
             if url.rstrip("/").endswith("/mcp"):
                 return StreamableHTTPBackend(
-                    name=source.name,
+                    name=instance_name,
                     url=url,
                     headers=headers,
                 )
-            return SSEBackend(name=source.name, url=url, headers=headers)
+            return SSEBackend(name=instance_name, url=url, headers=headers)
         return None
 
     def drop_backends_for(self, source_name: str) -> None:
@@ -296,7 +300,9 @@ class ProxyManager:
         if not self._source_eligible(source, settings):
             return
         for backend_name, env_values in launch_instances(source, settings):
-            backend = self._create_backend(source, env_values=env_values)
+            backend = self._create_backend(
+                source, env_values=env_values, backend_name=backend_name
+            )
             if backend is None:
                 continue
             try:

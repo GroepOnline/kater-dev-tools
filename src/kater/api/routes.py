@@ -1302,7 +1302,7 @@ def _server_connection_delete(req: Request) -> Response:
     from kater.connect import remove_connection, source_is_configured
 
     settings = load_settings()
-    removed = remove_connection(settings, name, req.params["conn_id"])
+    removed = remove_connection(settings, name, req.params["conn_id"], source)
     if not removed:
         return Response.json(404, {"error": "Unknown connection"})
     override = settings.server_overrides.get(name)

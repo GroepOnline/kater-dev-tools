@@ -157,7 +157,9 @@ def add_connection(
     return conn
 
 
-def remove_connection(settings: KaterSettings, name: str, conn_id: str) -> bool:
+def remove_connection(
+    settings: KaterSettings, name: str, conn_id: str, source: ToolSource | None = None
+) -> bool:
     override = settings.server_overrides.get(name)
     if not override:
         return False
@@ -165,14 +167,29 @@ def remove_connection(settings: KaterSettings, name: str, conn_id: str) -> bool:
     override.connections = [c for c in override.connections if c.id != conn_id]
     if len(override.connections) == before:
         if conn_id == "legacy" and override.env:
-            override.env = {}
+            override.env = _preserve_client_env(override.env, source)
             return True
         return False
+    # Refresh the primary env from the first remaining connection, but keep any
+    # OAuth app credentials (client id/secret) that live directly on override.env.
+    client_env = _preserve_client_env(override.env, source)
     if override.connections:
-        override.env = dict(override.connections[0].env)
+        override.env = {**client_env, **dict(override.connections[0].env)}
     else:
-        override.env = {}
+        override.env = client_env
     return True
+
+
+def _preserve_client_env(
+    env: dict[str, str], source: ToolSource | None
+) -> dict[str, str]:
+    """Keep only OAuth app credentials (client id/secret) from an env map."""
+    if not source or not source.oauth:
+        return {}
+    keep = {source.oauth.client_id_env}
+    if source.oauth.client_secret_env:
+        keep.add(source.oauth.client_secret_env)
+    return {k: v for k, v in env.items() if k in keep and v}
 
 
 def launch_instances(
@@ -193,6 +210,9 @@ def launch_instances(
                 env[source.oauth.token_env] = token
         if env and _env_satisfies(source, env):
             conns = [ServerConnection(id="env", env=env)]
+        elif not source.env and not source.oauth:
+            # Sources without declared credentials or OAuth are always runnable.
+            conns = [ServerConnection(id="default", env={})]
     out: list[tuple[str, dict[str, str]]] = []
     for index, conn in enumerate(conns):
         backend = source.name if index == 0 else f"{source.name}__{conn.id}"

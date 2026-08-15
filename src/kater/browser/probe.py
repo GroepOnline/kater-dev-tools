@@ -64,10 +64,44 @@ def probe_steel() -> ProviderInfo:
 
 
 def _has_chromium_build(root: Path) -> bool:
+    """True only when a chromium* tree contains a launchable binary.
+
+    A bare ``chromium_*`` directory (stale / partial Playwright cache) must
+    not count as available — otherwise ``requires_chromium`` tests run and
+    fail with ``Executable doesn't exist``.
+    """
     try:
-        return any(child.name.startswith("chromium") for child in root.iterdir())
+        children = list(root.iterdir())
     except OSError:
         return False
+    for child in children:
+        if not child.name.startswith("chromium"):
+            continue
+        if not child.is_dir():
+            continue
+        for candidate in (
+            "chrome-linux/chrome",
+            "chrome-linux64/chrome",
+            "chrome-headless-shell-linux64/chrome-headless-shell",
+            "chrome-headless-shell-linux/chrome-headless-shell",
+            "chrome-mac/Chromium",
+            "chrome-mac-arm64/Google Chrome for Testing",
+            "chrome-win/chrome.exe",
+            "chrome-win64/chrome.exe",
+        ):
+            if (child / candidate).is_file():
+                return True
+        # Fallback: any nested executable named chrome / chrome-headless-shell
+        try:
+            for path in child.rglob("*"):
+                if not path.is_file():
+                    continue
+                name = path.name.lower()
+                if name in {"chrome", "chrome.exe", "chrome-headless-shell", "chromium"}:
+                    return True
+        except OSError:
+            continue
+    return False
 
 
 def _playwright_version() -> str | None:

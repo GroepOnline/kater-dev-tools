@@ -111,17 +111,19 @@ def test_scan_rejects_org_handle_under_cursor_agents(tmp_path, monkeypatch):
 def test_no_cursor_paths_in_allowlists():
     """Org-pinned Cursor skills/agents stay out of allowlists.
 
-    The sole `.cursor/` exception is ``environment.json`` (Cloud
-    ``repositoryDependencies`` must name the meta-skills GitHub slug).
+    Cloud ``environment.json`` must stay org-agnostic so the trusted
+    scanner on ``main`` can scan it. Private meta-skills come from env
+    (``CHEFGROEP_SKILLS_REPO`` / ``CHEFGROEP_SKILLS_GIT_URL``), not from
+    a committed GitHub slug.
     """
-    assert ".cursor/environment.json" in nol.ALLOWED_ORG_HANDLE
     for allowed in (nol.ALLOWED_ORG_HANDLE, nol.ALLOWED_PROD_DOMAIN):
-        extras = [
-            entry
-            for entry in allowed
-            if entry.startswith(".cursor/") and entry != ".cursor/environment.json"
-        ]
+        extras = [entry for entry in allowed if entry.startswith(".cursor/")]
         assert extras == []
+
+
+def test_environment_json_is_org_agnostic():
+    errors = nol.scan([".cursor/environment.json"])
+    assert errors == []
 
 
 def test_self_allowlist(tmp_path, monkeypatch):

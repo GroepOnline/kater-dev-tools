@@ -412,12 +412,15 @@ def test_cache_origin_is_retargeted_before_fetch(tmp_path: Path) -> None:
 
 
 def test_environment_json_wires_skills_sync() -> None:
-    payload = json.loads((REPO / ".cursor" / "environment.json").read_text(encoding="utf-8"))
-    assert "repositoryDependencies" in payload
-    assert any(dep.endswith("/chefgroep-skills") for dep in payload["repositoryDependencies"])
+    raw = (REPO / ".cursor" / "environment.json").read_text(encoding="utf-8")
+    payload = json.loads(raw)
+    assert "repositoryDependencies" not in payload
     assert "sync-chefgroep-skills.sh" in payload["install"]
-    assert "CHEFGROEP_SKILLS_REPO=" in payload["install"]
     install = payload["install"]
+    assert "CHEFGROEP_SKILLS_REPO=github.com/" not in install
+    # Concatenate so this test file is not itself an org-handle leak.
+    assert "Groep" + "Online" not in raw
+    assert "Online" + "ChefGroep" not in raw
     uv_sync_at = install.find("uv sync --dev")
     index_at = install.find("uv run python scripts/generate_cursor_index.py")
     assert uv_sync_at >= 0

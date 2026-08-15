@@ -59,8 +59,11 @@ def test_no_org_leak_runs_on_stacked_feature_base_prs() -> None:
     assert "format('origin/{0}', github.event.pull_request.base.ref)" not in text
     assert "head.repo.full_name == github.repository" in text
     assert "github.event.pull_request.base.sha" in text
-    assert "trusted-scanner" in text
-    assert "${RUNNER_TEMP}/trusted-scanner/scripts/no_org_leak.py" in text
+    assert "path: .ci-trusted-scanner" in text
+    assert "path: ${{ runner.temp }}/trusted-scanner" not in text
+    assert '${RUNNER_TEMP}/no_org_leak.py' in text
+    assert "uv run --no-project python" in text
+    assert "rm -rf .ci-trusted-scanner" in text
 
 
 def test_ci_jobs_install_the_browser_extra() -> None:

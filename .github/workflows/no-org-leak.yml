@@ -39,7 +39,9 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha }}
-          path: ${{ runner.temp }}/trusted-scanner
+          # Self-hosted checkout refuses paths outside GITHUB_WORKSPACE
+          # (RUNNER_TEMP is a sibling of the workspace, not a child).
+          path: .ci-trusted-scanner
           fetch-depth: 1
 
       - name: Fetch base ref for PR diff-scan
@@ -55,9 +57,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${PR_BASE_REF}" ]; then
-            uv run python "${RUNNER_TEMP}/trusted-scanner/scripts/no_org_leak.py" --base "origin/${PR_BASE_REF}"
+            install -m 500 .ci-trusted-scanner/scripts/no_org_leak.py "${RUNNER_TEMP}/no_org_leak.py"
+            rm -rf .ci-trusted-scanner
+            # --no-project: do not sync the PR-controlled pyproject before
+            # invoking the stdlib scanner copied from the trusted base SHA.
+            uv run --no-project python "${RUNNER_TEMP}/no_org_leak.py" --base "origin/${PR_BASE_REF}"
           else
-            uv run python scripts/no_org_leak.py
+            uv run --no-project python scripts/no_org_leak.py
           fi
 
       - name: Install gitleaks (checksum-validated)

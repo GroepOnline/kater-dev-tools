@@ -213,20 +213,23 @@ def create_server(*, profile: str = "core") -> Any:
 
 
 def register_proxy_tools(server: Any, *, proxy: Any, profile: str) -> None:
-    del profile
     try:
         for tool_def in proxy.list_tools():
             _make_proxy_tool(server, tool_def, proxy)
     except Exception as exc:
         _log.warning("proxy tool registration failed: %s", exc)
-        _register_proxy_status_tool(server, proxy=proxy, enabled=False)
+        _register_proxy_status_tool(server, proxy=proxy, enabled=False, profile=profile)
         return
 
-    _register_proxy_status_tool(server, proxy=proxy, enabled=True)
+    _register_proxy_status_tool(server, proxy=proxy, enabled=True, profile=profile)
 
 
 def _register_proxy_status_tool(
-    server: Any, *, proxy: Any | None = None, enabled: bool = False
+    server: Any,
+    *,
+    proxy: Any | None = None,
+    enabled: bool = False,
+    profile: str | None = None,
 ) -> None:
     def proxy_status() -> dict:
         if proxy is None:
@@ -238,7 +241,7 @@ def _register_proxy_status_tool(
         }
 
     server.tool(name="kater_proxy_status")(
-        wrap_tool_handler("kater_proxy_status", proxy_status)
+        wrap_tool_handler("kater_proxy_status", proxy_status, profile=profile)
     )
 
 

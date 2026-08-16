@@ -424,7 +424,7 @@ class ProxyManager:
         identity: RequestIdentity | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
-        profile = load_settings().default_profile
+        profile = self._active_profile
         success = True
         try:
             result = self._call_tool_body(name, arguments, identity=identity)

@@ -34,6 +34,9 @@ from kater.pr_control import (
     REASON_REPO_DENIED as REPO_DENIED,
 )
 from kater.pr_control import (
+    REASON_REQUIRED_CHECK_LOOKUP as REQUIRED_CHECK_LOOKUP,
+)
+from kater.pr_control import (
     REASON_UNRESOLVED_THREAD as UNRESOLVED_THREAD,
 )
 from kater.pr_control import (
@@ -770,14 +773,24 @@ def test_gate_denied_repo_blocks() -> None:
 def test_repo_is_denied_matches_marker_prefix() -> None:
     assert repo_is_denied("utrecht-lab/sample", ("utrecht",)) is True
     assert repo_is_denied("acme-co/example-repo", ("utrecht",)) is False
+    # Separator-free owner/name variants must still match.
+    assert repo_is_denied("utrechtlab/sample", ("utrecht",)) is True
+    assert repo_is_denied("acme/utrechtdata", ("utrecht",)) is True
 
 
-def test_write_scope_requires_explicit_repo() -> None:
+def test_write_scope_requires_explicit_repo(monkeypatch) -> None:
     policy = GatePolicy()
+    monkeypatch.delenv("KATER_PR_PLANE", raising=False)
     assert write_scope_rejection("", policy) == "explicit repository required for merge"
     assert write_scope_rejection("acme-co/example-repo", policy) == "plane is not company-control"
     denied = write_scope_rejection("utrecht-lab/sample", policy)
     assert denied == "repository is not allowed for this gate"
+
+
+def test_write_scope_skips_plane_when_not_required(monkeypatch) -> None:
+    policy = GatePolicy(require_company_control_plane=False, allowed_planes=())
+    monkeypatch.delenv("KATER_PR_PLANE", raising=False)
+    assert write_scope_rejection("acme-co/example-repo", policy) is None
 
 
 def test_write_scope_plane_fail_closed_by_default(monkeypatch) -> None:
@@ -863,7 +876,25 @@ def test_summarize_pr_flags_p1_label_and_failed_check() -> None:
 
 
 def test_gate_for_pr_blocks_failed_required_on_exact_head() -> None:
+    import json
+
     def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        if "check-runs" in path:
+            payload = {
+                "check_runs": [
+                    {
+                        "name": "merge-gate",
+                        "status": "completed",
+                        "conclusion": "failure",
+                    }
+                ]
+            }
+            return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+        if "required_status_checks" in path:
+            payload = {"contexts": ["merge-gate"], "checks": []}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+        # Branch protection probe and unrelated calls.
         return SimpleNamespace(returncode=0, stdout="{}", stderr="")
 
     client = GitHubPRClient(repo="o/r", runner=fake_runner)
@@ -872,7 +903,7 @@ def test_gate_for_pr_blocks_failed_required_on_exact_head() -> None:
             {
                 "name": "merge-gate",
                 "status": "COMPLETED",
-                "conclusion": "FAILURE",
+                "conclusion": "SUCCESS",
                 "isRequired": True,
             }
         ]
@@ -880,6 +911,30 @@ def test_gate_for_pr_blocks_failed_required_on_exact_head() -> None:
     res = gate_for_pr(client, pr)
     assert res.verdict == BLOCK
     assert FAILED_CHECKS in res.reasons
+
+
+def test_gate_for_pr_blocks_required_check_lookup_failure() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        if "required_status_checks" in path:
+            return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 500: boom")
+        if "check-runs" in path:
+            return SimpleNamespace(returncode=0, stdout='{"check_runs":[]}', stderr="")
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    res = gate_for_pr(client, _pr())
+    assert res.verdict == BLOCK
+    assert REQUIRED_CHECK_LOOKUP in res.reasons
+    assert FAILED_CHECKS not in res.reasons
+
+
+def test_required_status_contexts_404_is_empty() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    assert client.required_status_contexts("main") == []
 
 
 def test_merge_pr_refuses_empty_expected_head_sha(monkeypatch) -> None:

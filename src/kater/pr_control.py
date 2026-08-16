@@ -101,7 +101,7 @@ class GatePolicy:
     reject_bot_approval: bool = True
     reject_fixer_approval: bool = True
     require_explicit_repo_on_write: bool = True
-    require_company_control_plane: bool = False
+    require_company_control_plane: bool = True
     independent_reviewer_allowlist: tuple[str, ...] = ()
     independent_reviewer_denylist: tuple[str, ...] = _DEFAULT_BOT_DENYLIST
     fixer_logins: tuple[str, ...] = ()
@@ -167,7 +167,8 @@ def repo_from_url(url: str) -> str:
 def repo_is_denied(repo: str, markers: tuple[str, ...]) -> bool:
     """True when owner or name contains a denied marker as a path segment/prefix."""
     owner, _, name = (repo or "").strip().lower().partition("/")
-    haystacks = [owner, name, (repo or "").strip().lower()]
+    segments = [owner, name]
+    haystacks = [*segments, (repo or "").strip().lower()]
     for marker in markers:
         token = marker.strip().lower()
         if not token:
@@ -176,6 +177,10 @@ def repo_is_denied(repo: str, markers: tuple[str, ...]) -> bool:
             if hay == token or hay.startswith(f"{token}-") or hay.startswith(f"{token}_"):
                 return True
             if f"-{token}-" in f"-{hay}-" or f"_{token}_" in f"_{hay}_":
+                return True
+        # Separator-free variants (utrechtlab / utrechtdata) — owner/name only.
+        for hay in segments:
+            if token in hay:
                 return True
     return False
 
@@ -197,8 +202,6 @@ def write_scope_rejection(repo: str, policy: GatePolicy) -> str | None:
         required = allowed_planes or {_COMPANY_CONTROL_PLANE}
         if plane not in required:
             return "plane is not company-control"
-    elif plane != _COMPANY_CONTROL_PLANE:
-        return "plane is not company-control"
     return None
 
 
@@ -372,6 +375,8 @@ def _collapse(
         REASON_UNRESOLVED_THREAD,
         REASON_OVERLAPPING_PR,
         REASON_REPO_DENIED,
+        REASON_MISSING_HEAD_SHA,
+        REASON_REQUIRED_CHECK_LOOKUP,
     }
     if policy.block_drafts:
         blocking_here.add(REASON_DRAFT)
@@ -554,7 +559,8 @@ class GitHubPRClient:
             "--json",
             (
                 "number,title,headRefName,baseRefName,state,"
-                "isDraft,mergeable,reviewDecision,statusCheckRollup,commits"
+                "isDraft,mergeable,reviewDecision,statusCheckRollup,commits,"
+                "url,labels,author,latestReviews"
             ),
         ]
         repo = getattr(self, "repo", None)
@@ -681,14 +687,17 @@ class GitHubPRClient:
         return bool(data)
 
     def required_status_contexts(self, base_ref: str) -> list[str]:
-        """Branch-protection required contexts. Empty when unprotected or unreadable."""
+        """Branch-protection required contexts. Empty when unprotected (404)."""
         if not getattr(self, "repo", None) or not base_ref:
             return []
         try:
             data = self._api(
                 f"repos/{self.repo}/branches/{base_ref}/protection/required_status_checks"
             )
-        except RuntimeError:
+        except RuntimeError as exc:
+            msg = str(exc).lower()
+            if "404" in msg or "not found" in msg:
+                return []
             raise
         if not isinstance(data, dict):
             raise RuntimeError("required status-check policy response was invalid")
@@ -705,18 +714,33 @@ class GitHubPRClient:
                     names.append(app_ctx)
         return list(dict.fromkeys(names))
 
-    def commit_check_runs(self, sha: str) -> list[dict[str, Any]]:
-        """Check runs for an exact commit SHA. Empty on transport/shape errors."""
+    def commit_check_runs(self, sha: str) -> list[dict[str, Any]] | None:
+        """Check runs for an exact commit SHA.
+
+        Returns ``None`` on transport/shape errors so callers can fail closed
+        instead of treating a lookup failure as an empty (green) result.
+        Successful empty lists are returned as ``[]``.
+        """
         if not getattr(self, "repo", None) or not sha:
             return []
+        runs: list[dict[str, Any]] = []
+        page = 1
         try:
-            data = self._api(f"repos/{self.repo}/commits/{sha}/check-runs")
+            while page <= 20:
+                data = self._api(
+                    f"repos/{self.repo}/commits/{sha}/check-runs",
+                    params={"per_page": "100", "page": str(page)},
+                )
+                if not isinstance(data, dict):
+                    return None
+                batch = data.get("check_runs") or []
+                runs.extend(row for row in batch if isinstance(row, dict))
+                if len(batch) < 100:
+                    break
+                page += 1
         except RuntimeError:
-            return []
-        if not isinstance(data, dict):
-            return []
-        runs = data.get("check_runs") or []
-        return [row for row in runs if isinstance(row, dict)]
+            return None
+        return runs
 
 
 def _label_list(pr: dict[str, Any]) -> list[Any]:
@@ -821,21 +845,30 @@ def gate_for_pr(
     base_protected = client.is_base_protected(summary["base_ref"] or "")
     repo = (getattr(client, "repo", None) or summary.get("repo") or "").strip()
     required_names = tuple(policy.required_check_names)
-    lookup_failed = False
+    required_lookup_failed = False
     if policy.require_required_checks:
         try:
             discovered = client.required_status_contexts(summary["base_ref"] or "")
         except RuntimeError:
-            lookup_failed = True
+            required_lookup_failed = True
             discovered = []
         required_names = tuple(dict.fromkeys([*required_names, *discovered]))
     head_sha = str(summary["head_sha"] or "")
-    exact_runs = client.commit_check_runs(head_sha) if head_sha else []
     rollup = [c for c in (pr.get("statusCheckRollup") or []) if isinstance(c, dict)]
-    # Prefer exact-SHA check runs when the provider returned any; otherwise rollup.
-    check_rows = exact_runs or rollup
+    check_runs_failed = False
+    if head_sha:
+        exact_runs = client.commit_check_runs(head_sha)
+        if exact_runs is None:
+            check_runs_failed = True
+            check_rows: list[dict[str, Any]] = []
+        else:
+            # Successful exact-SHA lookup wins even when empty — do not fall
+            # back to rollup (which can hide a missing required check).
+            check_rows = exact_runs
+    else:
+        check_rows = rollup
     check_summary = summarize_checks(check_rows, required_names=required_names)
-    return evaluate_gate(
+    result = evaluate_gate(
         pr_number=summary["number"],
         head_sha=summary["head_sha"],
         base_sha=summary["base_sha"],
@@ -853,8 +886,18 @@ def gate_for_pr(
         repo=repo,
         required_failed=check_summary["required_failed"],
         required_pending=check_summary["required_pending"],
-        required_missing=check_summary["required_missing"] + (1 if lookup_failed else 0),
+        required_missing=check_summary["required_missing"],
     )
+    if required_lookup_failed or check_runs_failed:
+        if REASON_REQUIRED_CHECK_LOOKUP not in result.reasons:
+            result.reasons.append(REASON_REQUIRED_CHECK_LOOKUP)
+        result.verdict = _collapse(
+            result.verdict,
+            result.reasons,
+            policy,
+            required_incomplete=check_summary["required_pending"] > 0,
+        )
+    return result
 
 
 # ── MCP tool handlers (read-only) ─────────────────────────────────────────
@@ -1038,7 +1081,8 @@ def merge_pr(
         "--match-head-commit",
         pinned,
     ]
-    repo = getattr(client, "repo", None)
+    # Reuse the validated ``repo`` from write-scope resolution — do not
+    # re-read client.repo after the gate passed.
     if repo:
         args += ["--repo", repo]
     result = client.runner(args)

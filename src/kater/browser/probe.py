@@ -63,6 +63,19 @@ def probe_steel() -> ProviderInfo:
     )
 
 
+def _is_launchable(path: Path) -> bool:
+    """True when ``path`` looks like a Chromium binary this host can exec."""
+    try:
+        if not path.is_file():
+            return False
+        # Windows builds ship ``.exe``; execute bit is not meaningful there.
+        if path.suffix.lower() == ".exe":
+            return True
+        return os.access(path, os.X_OK)
+    except OSError:
+        return False
+
+
 def _has_chromium_build(root: Path) -> bool:
     """True only when a chromium* tree contains a launchable binary.
 
@@ -89,16 +102,15 @@ def _has_chromium_build(root: Path) -> bool:
             "chrome-win/chrome.exe",
             "chrome-win64/chrome.exe",
         ):
-            if (child / candidate).is_file():
+            if _is_launchable(child / candidate):
                 return True
-        # Fallback: any nested executable named chrome / chrome-headless-shell
+        # Fallback: any nested launchable named chrome / chrome-headless-shell
         try:
             for path in child.rglob("*"):
-                if not path.is_file():
-                    continue
                 name = path.name.lower()
                 if name in {"chrome", "chrome.exe", "chrome-headless-shell", "chromium"}:
-                    return True
+                    if _is_launchable(path):
+                        return True
         except OSError:
             continue
     return False

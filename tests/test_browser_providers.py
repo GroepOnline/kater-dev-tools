@@ -87,6 +87,18 @@ def test_probe_local_rejects_empty_chromium_directory(monkeypatch, tmp_path):
     assert "playwright install chromium" in local.detail
 
 
+def test_probe_local_rejects_non_executable_chrome(monkeypatch, tmp_path):
+    root = tmp_path / "ms-playwright"
+    chrome = root / "chromium-123" / "chrome-linux" / "chrome"
+    chrome.parent.mkdir(parents=True)
+    chrome.write_text("#!/bin/sh\necho stub\n")
+    chrome.chmod(0o644)  # present but not executable
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(root))
+    local = probe_local()
+    assert local.available is False
+    assert "playwright install chromium" in local.detail
+
+
 def test_probe_cdp_and_steel_report_env(monkeypatch):
     monkeypatch.setenv("KATER_BROWSER_CDP_URL", "ws://localhost:9222")
     monkeypatch.setenv("KATER_BROWSER_STEEL_URL", "http://localhost:3000")

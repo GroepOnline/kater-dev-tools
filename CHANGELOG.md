@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Catalog Connect fail-closed policy: admin on credential/OAuth/delete mutations, deny-default secret sink, and configured HTTPS public base URL (`docs/ops/catalog-connect.md`).
 - Usage / cost events ledger (`usage_events` migration) with `GET /api/usage` and `GET /api/usage/summary`; route decisions mirror into the ledger.
 - Dashboard Fabric view for capabilities, contexts, and computer status (palette-only nav).
 - HTTP capability discovery (`GET /api/capabilities`, `GET /api/capabilities/{id}`) and remote context CRUD (`/api/contexts*`) with migration v4 (`remote_contexts`).
@@ -33,7 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- _Nothing yet._
+- Catalog Connect: HTTP `DELETE` now reaches the API handler; re-saving a token updates the existing account instead of duplicating it; disconnect clears gateway-written process env so the backend does not restart with the revoked token.
+- Slack catalog table lists HTTP (Slack-hosted MCP) instead of stdio. `SLACK_BOT_TOKEN` is now `SLACK_ACCESS_TOKEN`.
 
 ## [1.0.0] - 2025-01-01
 

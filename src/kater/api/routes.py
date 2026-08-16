@@ -40,6 +40,7 @@ from kater.settings import (
     ServerOverride,
     is_public_settings,
     load_settings,
+    persisted_env_keys,
     save_settings,
     unsafe_public_settings_override_enabled,
 )
@@ -168,22 +169,39 @@ def _mcp_servers_payload() -> dict[str, Any]:
     for source in visible_tool_sources():
         if source.transport == "native":
             continue
-        env_present = all(os.environ.get(v) for v in source.env)
-        servers.append(
-            {
-                "name": source.name,
-                "description": source.description,
-                "transport": source.transport.value,
-                "risk": source.risk.value,
-                "profiles": sorted(source.profiles),
-                "env_required": source.env,
-                "env_configured": env_present,
-                "homepage": source.homepage,
-                "mcp": source.mcp.model_dump() if source.mcp else None,
-                "enabled": settings.is_server_enabled(source.name, default=True),
-            }
-        )
+        servers.append(_server_doc(source, settings, include_mcp=True))
     return {"total": len(servers), "servers": servers}
+
+
+def _server_doc(
+    source: Any,
+    settings: Any | None = None,
+    *,
+    include_mcp: bool = False,
+    include_context_cost: bool = False,
+) -> dict[str, Any]:
+    from kater.connect import public_oauth, source_is_configured
+
+    settings = settings or load_settings()
+    oauth = public_oauth(source, settings)
+    doc: dict[str, Any] = {
+        "name": source.name,
+        "description": source.description,
+        "transport": source.transport.value,
+        "risk": source.risk.value,
+        "profiles": sorted(source.profiles),
+        "env_required": source.env,
+        "env_configured": source_is_configured(source, settings),
+        "homepage": source.homepage,
+        "enabled": settings.is_server_enabled(source.name, default=True),
+        "oauth": oauth,
+        "connections": (oauth or {}).get("connections") or [],
+    }
+    if include_mcp:
+        doc["mcp"] = source.mcp.model_dump() if source.mcp else None
+    if include_context_cost:
+        doc["context_cost"] = source.context_cost
+    return doc
 
 
 def _group_by(items: list[dict], key: str) -> dict[str, int]:
@@ -601,22 +619,7 @@ def _mcp_server(req: Request) -> Response:
     if not source:
         return Response.json(404, {"error": f"Unknown server: {req.params['name']}"})
     settings = load_settings()
-    env_present = all(os.environ.get(v) for v in source.env)
-    return Response.json(
-        200,
-        {
-            "name": source.name,
-            "description": source.description,
-            "transport": source.transport.value,
-            "risk": source.risk.value,
-            "profiles": sorted(source.profiles),
-            "env_required": source.env,
-            "env_configured": env_present,
-            "homepage": source.homepage,
-            "mcp": source.mcp.model_dump() if source.mcp else None,
-            "enabled": settings.is_server_enabled(source.name, default=True),
-        },
-    )
+    return Response.json(200, _server_doc(source, settings, include_mcp=True))
 
 
 @route("GET", "/api/settings")
@@ -729,11 +732,13 @@ def _backends(
         "missing_env": overview.get("missing_env", 0),
     }
     settings = load_settings()
+    from kater.connect import source_is_configured
+
     per_server: dict[str, dict[str, bool]] = {}
     for source in __import__("kater.profiles", fromlist=["all_tool_sources"]).all_tool_sources():
         if source.transport == "native":
             continue
-        env_present = all(os.environ.get(v) for v in source.env)
+        env_present = source_is_configured(source, settings)
         per_server[source.name] = {
             "enabled": settings.is_server_enabled(source.name, default=True),
             "configured": bool(env_present),
@@ -808,21 +813,7 @@ def _catalog(req: Request) -> Response:
             haystack = f"{source.name} {source.description}".lower()
             if query not in haystack:
                 continue
-        env_ok = all(os.environ.get(v) for v in source.env)
-        results.append(
-            {
-                "name": source.name,
-                "description": source.description,
-                "transport": source.transport.value,
-                "risk": source.risk.value,
-                "profiles": sorted(source.profiles),
-                "env_required": source.env,
-                "env_configured": env_ok,
-                "enabled": settings.is_server_enabled(source.name, default=True),
-                "homepage": source.homepage,
-                "context_cost": source.context_cost,
-            }
-        )
+        results.append(_server_doc(source, settings, include_context_cost=True))
     return Response.json(
         200,
         {
@@ -1014,9 +1005,8 @@ def _server_action(req: Request) -> Response:
 @route("POST", "/api/mcp/servers/{name}/credentials")
 def _server_credentials(req: Request) -> Response:
     # Store the credentials a server needs to connect. Only env vars the server
-    # actually declares are accepted (no arbitrary env injection). Persist to
-    # gitignored .kater/settings.json is deny-default: public/company-control
-    # never writes raw values; local-dev requires an explicit secret-sink opt-in.
+    # actually declares (including OAuth client/token keys) are accepted.
+    # Persist to gitignored .kater/settings.json is deny-default.
     denied = _secret_persist_denied(req)
     if denied:
         return denied
@@ -1030,7 +1020,13 @@ def _server_credentials(req: Request) -> Response:
     if not isinstance(env, dict):
         return Response.json(400, {"error": "Body must include an 'env' object."})
 
-    declared = set(source.env)
+    from kater.connect import (
+        declared_credential_keys,
+        source_is_configured,
+        upsert_connection,
+    )
+
+    declared = declared_credential_keys(source)
     for key in env:
         if key not in declared:
             return Response.json(400, {"error": f"{name} does not use credential '{key}'."})
@@ -1038,23 +1034,322 @@ def _server_credentials(req: Request) -> Response:
     settings = load_settings()
     override = settings.server_overrides.get(name) or ServerOverride()
     applied: list[str] = []
+    cleaned: dict[str, str] = {}
+    cleared: set[str] = set()
     for key, value in env.items():
         text = str(value or "").strip()
         if text:
             override.env[key] = text
-            os.environ[key] = text
+            _remember_runtime_env(key, text)
             applied.append(key)
+            cleaned[key] = text
         else:
             override.env.pop(key, None)
-            # Clearing must also drop it from the live process, otherwise
-            # env_configured below would still read the old value as "set".
-            os.environ.pop(key, None)
+            cleared.add(key)
     settings.server_overrides[name] = override
+    label = str(body.get("label") or "").strip()
+    token_key = source.oauth.token_env if source.oauth else None
+    if token_key and cleaned.get(token_key):
+        upsert_connection(settings, name, cleaned, label=label or "manual")
+    elif cleared:
+        # Empty fields clear that env key only. Account removal is DELETE.
+        _forget_runtime_env(cleared)
     save_settings(settings)
 
-    env_present = all(os.environ.get(v) for v in source.env)
+    env_present = source_is_configured(source, settings)
+    try:
+        get_proxy().sync_source(source)
+    except Exception:
+        from kater.api.server import _log
+
+        _log.exception("failed to sync %s after credentials", name)
     _ws_broadcast("server_credentials", {"name": name, "env_configured": env_present})
     return Response.json(200, {"name": name, "env_configured": env_present, "applied": applied})
+
+
+@route("POST", "/api/mcp/servers/{name}/oauth/start")
+def _server_oauth_start(req: Request) -> Response:
+    denied = _catalog_admin_denied(req)
+    if denied:
+        return denied
+    name = req.params["name"]
+    source = _visible_source(name)
+    if not source or not source.oauth:
+        return Response.json(404, {"error": f"{name} does not support OAuth connect."})
+
+    from kater.connect import oauth_client_configured, resolve_oauth_client
+    from kater.connect_policy import (
+        ConnectOriginError,
+        connect_secret_decision,
+        resolve_connect_base_url,
+    )
+    from kater.mcp_oauth import redirect_uri, slack_app_manifest, start_authorize
+
+    settings = load_settings()
+    try:
+        base = resolve_connect_base_url(req.base_url, settings)
+    except ConnectOriginError as exc:
+        return Response.json(400, {"error": exc.reason})
+    decision = connect_secret_decision(settings)
+    if not decision.allowed:
+        return Response.json(403, decision.as_error())
+
+    callback = redirect_uri(base)
+    if not oauth_client_configured(source):
+        setup: dict[str, Any] = {
+            "redirect_uri": callback,
+            "client_id_env": source.oauth.client_id_env,
+            "client_secret_env": source.oauth.client_secret_env,
+        }
+        if source.oauth.provider == "slack":
+            setup["manifest"] = slack_app_manifest(callback, source)
+        elif source.oauth.provider == "microsoft":
+            setup["notes"] = (
+                "Register a Microsoft Entra app (public client + PKCE). "
+                f"Redirect URI: {callback}. Scopes: " + " ".join(source.oauth.scopes)
+            )
+        return Response.json(
+            409,
+            {
+                "error": "oauth_app_missing",
+                "message": (
+                    f"Create a {source.oauth.provider} app once, then paste "
+                    f"{source.oauth.client_id_env} via Connect."
+                ),
+                "setup": setup,
+            },
+        )
+
+    body = req.json if req.raw_body else {}
+    label = str(body.get("label") or "").strip()
+    client_id, _secret = resolve_oauth_client(source)
+    try:
+        started = start_authorize(source, client_id=client_id, base_url=base, label=label)
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    return Response.json(200, started)
+
+
+_oauth_runtime_env: set[str] = set()
+
+
+def _remember_runtime_env(key: str, value: str) -> None:
+    """Record a credential the gateway itself wrote into the process env."""
+    os.environ[key] = value
+    _oauth_runtime_env.add(key)
+    persisted_env_keys.add(key)
+
+
+def _forget_runtime_env(keys: set[str]) -> None:
+    """Drop gateway-written credentials; leave systemd/secret-manager env alone."""
+    for key in keys:
+        if key in _oauth_runtime_env or key in persisted_env_keys:
+            os.environ.pop(key, None)
+            _oauth_runtime_env.discard(key)
+            persisted_env_keys.discard(key)
+
+
+@route("GET", "/api/mcp/oauth/callback", public=True)
+def _mcp_oauth_callback(req: Request) -> Response:
+    from urllib.parse import urlencode
+
+    from kater.connect import resolve_oauth_client, upsert_connection
+    from kater.connect_policy import (
+        ConnectOriginError,
+        connect_secret_decision,
+        resolve_connect_base_url,
+        safe_catalog_url,
+    )
+    from kater.mcp_oauth import (
+        abandon_pending,
+        callback_html,
+        consume_callback,
+        peek_pending,
+        redirect_uri,
+    )
+
+    settings = load_settings()
+    error = (req.query1("error") or "").strip()
+    catalog = safe_catalog_url(req.base_url, settings)
+    if error:
+        page = callback_html(
+            server="",
+            label="",
+            catalog_url=catalog + "&filter=needs",
+            error=error,
+        )
+        return Response.html(400, page)
+
+    state = (req.query1("state") or "").strip()
+    code = (req.query1("code") or "").strip()
+    if not state or not code:
+        return Response.html(
+            400,
+            callback_html(server="", label="", catalog_url=catalog, error="missing code"),
+        )
+
+    preview = peek_pending(state)
+    server_name = str(preview.get("server") or "")
+    source = _visible_source(server_name) if server_name else None
+    pending_redirect = str(preview.get("redirect_uri") or "")
+    catalog = safe_catalog_url(req.base_url, settings, pending_redirect=pending_redirect or None)
+    if not source or not source.oauth:
+        page = callback_html(
+            server=server_name or "unknown",
+            label="",
+            catalog_url=catalog,
+            error="unknown OAuth session",
+        )
+        return Response.html(400, page)
+
+    decision = connect_secret_decision(settings)
+    if not decision.allowed:
+        abandon_pending(state)
+        page = callback_html(
+            server=source.name,
+            label="",
+            catalog_url=catalog,
+            error="secret storage is not enabled",
+        )
+        return Response.html(403, page)
+
+    try:
+        base = resolve_connect_base_url(
+            req.base_url, settings, pending_redirect=pending_redirect or None
+        )
+    except ConnectOriginError:
+        abandon_pending(state)
+        page = callback_html(
+            server=source.name,
+            label="",
+            catalog_url=catalog,
+            error="invalid connect origin",
+        )
+        return Response.html(400, page)
+    expected_callback = redirect_uri(base)
+    if pending_redirect and pending_redirect != expected_callback:
+        abandon_pending(state)
+        page = callback_html(
+            server=source.name,
+            label="",
+            catalog_url=catalog,
+            error="oauth redirect mismatch",
+        )
+        return Response.html(400, page)
+
+    client_id, client_secret = resolve_oauth_client(source)
+    try:
+        result = consume_callback(
+            state=state,
+            code=code,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_url=source.oauth.token_url,
+            pkce=source.oauth.pkce,
+        )
+    except ValueError as exc:
+        page = callback_html(
+            server=source.name,
+            label="",
+            catalog_url=catalog,
+            error=str(exc),
+        )
+        return Response.html(400, page)
+
+    env = {source.oauth.token_env: result["access_token"]}
+    if result.get("refresh_token") and source.oauth.refresh_env:
+        env[source.oauth.refresh_env] = result["refresh_token"]
+    extra = result.get("extra") or {}
+    if extra.get("team_id"):
+        env["SLACK_TEAM_ID"] = str(extra["team_id"])
+    had_connections = bool(
+        settings.server_overrides.get(source.name)
+        and settings.server_overrides[source.name].connections
+    )
+    conn = upsert_connection(
+        settings,
+        source.name,
+        env,
+        label=str(result.get("label") or extra.get("team") or ""),
+        extra=extra,
+    )
+    if not had_connections:
+        _remember_runtime_env(source.oauth.token_env, result["access_token"])
+    save_settings(settings)
+    try:
+        get_proxy().sync_source(source)
+    except Exception:
+        from kater.api.server import _log
+
+        _log.exception("failed to sync %s after oauth callback", source.name)
+    qs = urlencode({"view": "catalog", "server": source.name, "connected": conn.id})
+    dest = safe_catalog_url(
+        req.base_url, settings, pending_redirect=pending_redirect or None, query=qs
+    )
+    page = callback_html(
+        server=source.name,
+        label=conn.label,
+        catalog_url=dest,
+    )
+    return Response.html(200, page)
+
+
+@route("GET", "/api/mcp/servers/{name}/connections")
+def _server_connections(req: Request) -> Response:
+    source = _visible_source(req.params["name"])
+    if not source:
+        return Response.json(404, {"error": f"Unknown server: {req.params['name']}"})
+    from kater.connect import public_oauth
+
+    oauth = public_oauth(source) or {"connections": []}
+    return Response.json(200, {"name": source.name, "connections": oauth.get("connections") or []})
+
+
+@route("DELETE", "/api/mcp/servers/{name}/connections/{conn_id}")
+def _server_connection_delete(req: Request) -> Response:
+    denied = _catalog_admin_denied(req)
+    if denied:
+        return denied
+    name = req.params["name"]
+    source = _visible_source(name)
+    if not source:
+        return Response.json(404, {"error": f"Unknown server: {name}"})
+    from kater.connect import list_connections, remove_connection, source_is_configured
+
+    settings = load_settings()
+    conn_id = req.params["conn_id"]
+    existing = next((c for c in list_connections(source, settings) if c.id == conn_id), None)
+    removed = remove_connection(settings, name, conn_id, source)
+    if not removed:
+        return Response.json(404, {"error": "Unknown connection"})
+    forget = set(existing.env) if existing else set()
+    forget |= set(source.env)
+    if source.oauth:
+        forget.add(source.oauth.token_env)
+        if source.oauth.refresh_env:
+            forget.add(source.oauth.refresh_env)
+    override = settings.server_overrides.get(name)
+    remaining = {key for conn in (override.connections if override else []) for key in conn.env}
+    _forget_runtime_env(forget - remaining)
+    if override and override.connections:
+        for key, value in override.connections[0].env.items():
+            if value:
+                _remember_runtime_env(key, value)
+    save_settings(settings)
+    try:
+        get_proxy().sync_source(source)
+    except Exception:
+        from kater.api.server import _log
+
+        _log.exception("failed to sync %s after disconnect", name)
+    return Response.json(
+        200,
+        {
+            "name": name,
+            "removed": req.params["conn_id"],
+            "env_configured": source_is_configured(source, settings),
+        },
+    )
 
 
 @route("GET", "/api/tunnel")
@@ -1092,7 +1387,7 @@ def _update_settings(req: Request) -> Response:
     from kater.settings import check_admin
 
     body = req.json
-    settings = load_settings()
+    settings = load_settings().model_copy(deep=True)
     # Sensitive settings mutations (auth mode, CORS, rate limit, api_keys)
     # require the operator/admin credential when KATER_ADMIN_KEY is set, so a
     # compromised tool-credential cannot weaken the gateway.

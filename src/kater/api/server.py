@@ -180,6 +180,15 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self._dispatch("POST")
 
+    def do_DELETE(self) -> None:
+        self._dispatch("DELETE")
+
+    def do_PATCH(self) -> None:
+        self._dispatch("PATCH")
+
+    def do_PUT(self) -> None:
+        self._dispatch("PUT")
+
     def do_HEAD(self) -> None:
         # HEAD is GET-for-routing with no body. Reuse the single pipeline so
         # auth + rate limiting cannot drift from the GET path (previously do_HEAD
@@ -233,9 +242,7 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
             # with a permissive ACAO header and serve it to a different origin.
             if allow != "*":
                 self.send_header("Vary", "Origin")
-        self.send_header(
-            "Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS"
-        )
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
             "Authorization, Content-Type, X-Kater-Context",

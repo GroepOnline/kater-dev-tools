@@ -29,6 +29,22 @@ class McpServerConfig(BaseModel):
     headers_template: dict[str, str] = Field(default_factory=dict)
 
 
+class OAuthConnectConfig(BaseModel):
+    """Outbound OAuth for the catalog Connect button (Kater as OAuth client)."""
+
+    provider: str
+    authorize_url: str
+    token_url: str
+    client_id_env: str
+    client_secret_env: str = ""
+    scopes: list[str] = Field(default_factory=list)
+    pkce: bool = True
+    token_env: str = "ACCESS_TOKEN"
+    refresh_env: str = "REFRESH_TOKEN"
+    resource: str | None = None
+    extra_authorize: dict[str, str] = Field(default_factory=dict)
+
+
 class ToolSource(BaseModel):
     name: str
     description: str
@@ -40,6 +56,7 @@ class ToolSource(BaseModel):
     context_cost: int = 1
     mcp: McpServerConfig | None = None
     homepage: str | None = None
+    oauth: OAuthConnectConfig | None = None
 
 
 DEFAULT_PROFILE = "core"
@@ -51,7 +68,6 @@ CLOUDFLARE_MCP_VERSION = "0.2.0"
 UPSTASH_MCP_VERSION = "0.2.3"
 PLAYWRIGHT_MCP_VERSION = "0.0.76"
 RESEND_MCP_VERSION = "2.9.0"
-SLACK_MCP_VERSION = "2025.4.25"
 FIGMA_MCP_VERSION = "0.13.2"
 POSTGRES_MCP_VERSION = "0.6.2"
 SQLITE_MCP_VERSION = "0.8.0"
@@ -266,17 +282,30 @@ _BUILTIN_TOOL_SOURCES: tuple[ToolSource, ...] = (
     ),
     ToolSource(
         name="slack",
-        description="Slack messaging, channels, and workspace tools.",
-        transport=Transport.STDIO,
+        description=(
+            "Slack workspace via Slack-hosted MCP. Connect signs in with your "
+            "Slack account (user OAuth). Multiple workspaces are allowed."
+        ),
+        transport=Transport.HTTP,
         risk=RiskLevel.HIGH,
         profiles={"email", "ops"},
-        env=["SLACK_BOT_TOKEN"],
+        env=["SLACK_ACCESS_TOKEN"],
         context_cost=4,
-        homepage="https://slack.com",
+        homepage="https://mcp.slack.com/mcp",
+        oauth=OAuthConnectConfig(
+            provider="slack",
+            authorize_url="https://slack.com/oauth/v2_user/authorize",
+            token_url="https://slack.com/api/oauth.v2.user.access",
+            client_id_env="SLACK_MCP_CLIENT_ID",
+            client_secret_env="SLACK_MCP_CLIENT_SECRET",
+            pkce=True,
+            token_env="SLACK_ACCESS_TOKEN",
+            refresh_env="SLACK_REFRESH_TOKEN",
+            resource="https://mcp.slack.com/mcp",
+        ),
         mcp=McpServerConfig(
-            command="npx",
-            args=["-y", f"@modelcontextprotocol/server-slack@{SLACK_MCP_VERSION}"],
-            env_template={"SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}"},
+            url="https://mcp.slack.com/mcp",
+            headers_template={"Authorization": "Bearer ${SLACK_ACCESS_TOKEN}"},
         ),
     ),
     # ── Image / Design ──────────────────────────────────────────────
@@ -497,8 +526,14 @@ _BUILTIN_TOOL_SOURCES: tuple[ToolSource, ...] = (
 def all_tool_sources() -> tuple[ToolSource, ...]:
     from kater.extensions import extension_attr
 
-    extra = extension_attr("TOOL_SOURCES", ())
-    return _BUILTIN_TOOL_SOURCES + tuple(extra)
+    extra = tuple(extension_attr("TOOL_SOURCES", ()))
+    by_name = {source.name: source for source in _BUILTIN_TOOL_SOURCES}
+    order = [source.name for source in _BUILTIN_TOOL_SOURCES]
+    for source in extra:
+        if source.name not in by_name:
+            order.append(source.name)
+        by_name[source.name] = source
+    return tuple(by_name[name] for name in order)
 
 
 # Back-compat alias for code/tests that expect the builtin catalog only.

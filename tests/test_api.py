@@ -37,6 +37,16 @@ def _get(port: int, path: str, headers: dict | None = None) -> dict:
     return json.loads(resp.read())
 
 
+def _delete(port: int, path: str, headers: dict | None = None) -> dict:
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        method="DELETE",
+        headers=headers or {},
+    )
+    resp = urllib.request.urlopen(req)
+    return json.loads(resp.read())
+
+
 def _post(port: int, path: str, body: dict, headers: dict | None = None) -> dict:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
@@ -341,6 +351,13 @@ def test_server_credentials(api_server, monkeypatch) -> None:
         with pytest.raises(urllib.error.HTTPError) as exc:
             _post(_api_port(api_server), "/api/mcp/servers/github/credentials", {"env": {"NOPE": "x"}})
         assert exc.value.code == 400
+
+        removed = _delete(_api_port(api_server), "/api/mcp/servers/github/connections/legacy")
+        assert removed["removed"] == "legacy"
+        assert removed["env_configured"] is False
+        assert "GITHUB_PERSONAL_ACCESS_TOKEN" not in os.environ
+        detail = _get(_api_port(api_server), "/api/mcp/servers/github")
+        assert detail["env_configured"] is False
     finally:
         os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
 
@@ -361,6 +378,30 @@ def test_settings_redacts_server_credentials(api_server, monkeypatch) -> None:
         assert stored["GITHUB_PERSONAL_ACCESS_TOKEN"] == "***"
     finally:
         os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
+
+
+def test_catalog_oauth_start_deny_default_without_client(api_server, monkeypatch) -> None:
+    import os
+
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    monkeypatch.setattr("kater.mcp_oauth.discover_scopes", lambda _source: "users:read")
+    os.environ.pop("SLACK_MCP_CLIENT_ID", None)
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _post(_api_port(api_server), "/api/mcp/servers/slack/oauth/start", {})
+    assert exc.value.code == 409
+    body = json.loads(exc.value.read().decode())
+    assert body["error"] == "oauth_app_missing"
+    assert body["setup"]["client_id_env"] == "SLACK_MCP_CLIENT_ID"
+    assert body["setup"]["client_secret_env"] == "SLACK_MCP_CLIENT_SECRET"
+    dumped = json.dumps(body)
+    assert "kater-test-" not in dumped
+    listed = _get(_api_port(api_server), "/api/mcp/servers/slack/connections")
+    assert listed["connections"] == []
+    catalog = _get(_api_port(api_server), "/api/catalog?q=slack")
+    slack = next(s for s in catalog["servers"] if s["name"] == "slack")
+    assert slack["oauth"]["provider"] == "slack"
+    assert slack["oauth"]["client_configured"] is False
+    assert "token" not in json.dumps(slack["oauth"]["connections"])
 
 
 def test_private_server_hidden_in_public_mode(monkeypatch) -> None:

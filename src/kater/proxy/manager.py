@@ -261,6 +261,7 @@ class ProxyManager:
                     url = url.replace(f"${{{var}}}", env_val)
             if "${" in url and "}" in url:
                 return None
+            # env_template is stdio-only; remote HTTP/SSE auth must use headers_template.
             headers = resolve_remote_headers(source, include_secrets=True, env=overlay)
             if url.rstrip("/").endswith("/mcp"):
                 return StreamableHTTPBackend(

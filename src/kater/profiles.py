@@ -151,7 +151,8 @@ _BUILTIN_TOOL_SOURCES: tuple[ToolSource, ...] = (
         homepage="https://sentry.io",
         mcp=McpServerConfig(
             url="https://mcp.sentry.dev/sse",
-            env_template={"SENTRY_AUTH_TOKEN": "${SENTRY_AUTH_TOKEN}"},
+            # Remote HTTP/SSE backends use headers_template only; env_template is not sent.
+            headers_template={"Authorization": "Bearer ${SENTRY_AUTH_TOKEN}"},
         ),
     ),
     # ── Research / Web ──────────────────────────────────────────────

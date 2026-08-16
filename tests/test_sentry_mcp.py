@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from kater.adapters.external import render_profile_config, scan_adapters
 from kater.profiles import TOOL_SOURCES
 from kater.proxy.manager import ProxyManager

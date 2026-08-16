@@ -20,14 +20,14 @@ reviews:
   path_instructions:
     - path: "**/*.py"
       instructions: >-
-        Gateway/adapters. Flag secret leakage in logs, UDO profile bleed into
-        company-control, and auth-bypass in MCP/SSE paths.
+        Gateway/adapters. Flag secret leakage in logs, profile bleed across
+        company-control vs product planes, and auth-bypass in MCP/SSE paths.
     - path: ".github/**"
       instructions: >-
         Security boundary. Flag new secrets, permission escalation, and mutable
         third-party action refs.
   instructions: |
-    kater-dev-tools is the operator MCP gateway, not Utrecht product. Focus on
+    kater-dev-tools is the operator MCP gateway for company-control. Focus on
     secrets, profile isolation, and auth. Do not block on naming.
 
 chat:

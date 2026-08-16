@@ -7,7 +7,7 @@ LEAK_SAMPLES = {
     "src/kater/evil.py": "BASE = 'https://chefgroep" + ".nl/x'",
     "src/kater/evil2.py": "owner = 'online" + "chefgroep'",
     "src/kater/evil3.py": "DB = 'postgres" + "://user:pass@host/db'",
-    "src/kater/evil4.py": "BASE = 'https://groeponline.nl/x'",
+    "src/kater/evil4.py": "BASE = 'https://chefgroep" + ".online/x'",
     "src/kater/evil5.py": "owner = 'GroepOnline'",
 }
 # Suffixes emitted by scripts/no_org_leak.py (after ``path: ``).

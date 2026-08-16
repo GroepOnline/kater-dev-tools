@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+# CodeRabbit for kater-dev-tools — Kater gateway / MCP adapters.
+
+language: en-US
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: false
+  collapse_walkthrough: true
+  path_filters:
+    - "!**/*.lock"
+    - "!**/node_modules/**"
+    - "!**/.venv/**"
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "**/*.py"
+      instructions: >-
+        Gateway/adapters. Flag secret leakage in logs, profile bleed across
+        company-control vs product planes, and auth-bypass in MCP/SSE paths.
+    - path: ".github/**"
+      instructions: >-
+        Security boundary. Flag new secrets, permission escalation, and mutable
+        third-party action refs.
+  instructions: |
+    kater-dev-tools is the operator MCP gateway for company-control. Focus on
+    secrets, profile isolation, and auth. Do not block on naming.
+
+chat:
+  auto_reply: false

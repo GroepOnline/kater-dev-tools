@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import functools
+import inspect
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -92,6 +95,45 @@ def record_tool_call(
             metadata=metadata,
         )
     )
+
+
+def wrap_tool_handler(
+    name: str,
+    handler: Callable[..., Any],
+    *,
+    profile: str | None = None,
+) -> Callable[..., Any]:
+    """Record a ``tool_call`` telemetry event around a native MCP handler.
+
+    Telemetry failures never propagate: a CallTool must still return its result.
+    Argument values are not copied into metadata (they can contain secrets).
+    """
+
+    @functools.wraps(handler)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        started = time.perf_counter()
+        success = True
+        try:
+            return handler(*args, **kwargs)
+        except Exception:
+            success = False
+            raise
+        finally:
+            try:
+                record_tool_call(
+                    name,
+                    success=success,
+                    duration_ms=(time.perf_counter() - started) * 1000.0,
+                    profile=profile,
+                )
+            except Exception:
+                _log.debug("tool_call telemetry failed for %s", name, exc_info=True)
+
+    try:
+        wrapped.__signature__ = inspect.signature(handler)  # type: ignore[attr-defined]
+    except (TypeError, ValueError):
+        pass
+    return wrapped
 
 
 def record_chain_run(

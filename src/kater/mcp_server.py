@@ -12,6 +12,7 @@ from urllib.parse import parse_qs
 
 from kater.registry import tools_for_profile
 from kater.settings import load_settings, resolve_client_ip
+from kater.telemetry import wrap_tool_handler
 
 _log = logging.getLogger("kater.mcp")
 
@@ -204,7 +205,9 @@ def create_server(*, profile: str = "core") -> Any:
         server = ServerClass("kater-dev-tools")
 
     for tool in tools_for_profile(profile):
-        server.tool(name=tool.name)(tool.handler)
+        server.tool(name=tool.name)(
+            wrap_tool_handler(tool.name, tool.handler, profile=profile)
+        )
 
     return server
 
@@ -225,7 +228,6 @@ def register_proxy_tools(server: Any, *, proxy: Any, profile: str) -> None:
 def _register_proxy_status_tool(
     server: Any, *, proxy: Any | None = None, enabled: bool = False
 ) -> None:
-    @server.tool(name="kater_proxy_status")
     def proxy_status() -> dict:
         if proxy is None:
             return {"enabled": enabled, "backends": 0, "tools": 0}
@@ -234,6 +236,10 @@ def _register_proxy_status_tool(
             "backends": proxy.backend_count(),
             "tools": proxy.tool_count(),
         }
+
+    server.tool(name="kater_proxy_status")(
+        wrap_tool_handler("kater_proxy_status", proxy_status)
+    )
 
 
 def _build_proxy_handler(

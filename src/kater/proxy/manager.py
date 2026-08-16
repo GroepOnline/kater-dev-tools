@@ -37,7 +37,7 @@ from kater.proxy.sse_backend import SSEBackend
 from kater.proxy.stdio_backend import StdioBackend
 from kater.proxy.streamable_http_backend import StreamableHTTPBackend
 from kater.settings import load_settings
-from kater.telemetry import TelemetryEvent, record_event
+from kater.telemetry import TelemetryEvent, record_event, record_tool_call
 
 logger = logging.getLogger("kater.proxy")
 
@@ -417,6 +417,35 @@ class ProxyManager:
         return tools
 
     def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        identity: RequestIdentity | None = None,
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        profile = load_settings().default_profile
+        success = True
+        try:
+            result = self._call_tool_body(name, arguments, identity=identity)
+            if isinstance(result, dict) and result.get("error"):
+                success = False
+            return result
+        except Exception:
+            success = False
+            raise
+        finally:
+            try:
+                record_tool_call(
+                    name,
+                    success=success,
+                    duration_ms=(time.perf_counter() - started) * 1000.0,
+                    profile=profile,
+                )
+            except Exception:
+                logger.debug("tool_call telemetry failed for %s", name, exc_info=True)
+
+    def _call_tool_body(
         self,
         name: str,
         arguments: dict[str, Any],

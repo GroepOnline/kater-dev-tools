@@ -8,7 +8,7 @@ import os
 import re
 from collections.abc import Callable
 from importlib import import_module
-from typing import Any, cast
+from typing import Any, Optional, cast
 from urllib.parse import parse_qs
 
 from kater.registry import tools_for_profile
@@ -203,20 +203,23 @@ def _wrap_native_handler(handler: Callable[..., Any]) -> Callable[..., Any]:
     runs.
     """
     sig = inspect.signature(handler)
-    param_names: list[str] = []
-    for param in sig.parameters.values():
-        if param.kind in (
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        ):
-            continue
-        param_names.append(param.name)
+    params = [
+        param
+        for param in sig.parameters.values()
+        if param.kind
+        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    ]
+    param_names = {param.name for param in params}
+    optional_names = {
+        param.name for param in params if param.default is not inspect.Parameter.empty
+    }
 
     def wrapped(**kwargs: Any) -> Any:
         filtered = {
             name: value
             for name, value in kwargs.items()
-            if name in param_names and value is not None
+            if name in param_names
+            and (value is not None or name not in optional_names)
         }
         return handler(**filtered)
 
@@ -224,15 +227,20 @@ def _wrap_native_handler(handler: Callable[..., Any]) -> Callable[..., Any]:
     wrapped.__qualname__ = getattr(handler, "__qualname__", wrapped.__name__)
     wrapped.__doc__ = handler.__doc__
 
-    parameters = [
-        inspect.Parameter(
-            name=name,
-            kind=inspect.Parameter.KEYWORD_ONLY,
-            default=None,
-            annotation=Any,
+    parameters = []
+    for param in params:
+        annotation = param.annotation
+        if (
+            param.default is not inspect.Parameter.empty
+            and annotation is not inspect.Parameter.empty
+        ):
+            annotation = Optional[annotation]
+        parameters.append(
+            param.replace(
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                annotation=annotation,
+            )
         )
-        for name in param_names
-    ]
     wrapped.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
         parameters=parameters,
         return_annotation=Any,

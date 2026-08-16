@@ -64,7 +64,6 @@ DEFAULT_PROFILE = "core"
 GITHUB_MCP_VERSION = "2025.4.8"
 GITLAB_MCP_VERSION = "2025.4.25"
 FIRECRAWL_MCP_VERSION = "3.22.1"
-CLOUDFLARE_MCP_VERSION = "0.2.0"
 UPSTASH_MCP_VERSION = "0.2.3"
 PLAYWRIGHT_MCP_VERSION = "0.0.76"
 RESEND_MCP_VERSION = "2.9.0"
@@ -217,19 +216,16 @@ _BUILTIN_TOOL_SOURCES: tuple[ToolSource, ...] = (
     ToolSource(
         name="cloudflare",
         description="Cloudflare Workers, R2, D1, KV, Durable Objects, and DNS tools.",
-        transport=Transport.STDIO,
+        transport=Transport.HTTP,
         risk=RiskLevel.HIGH,
         profiles={"cloud", "ops"},
         env=["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
         context_cost=4,
         homepage="https://developers.cloudflare.com",
+        # Remote HTTP uses Authorization header only; do not use npx OAuth stdio.
         mcp=McpServerConfig(
-            command="npx",
-            args=["-y", f"@cloudflare/mcp-server-cloudflare@{CLOUDFLARE_MCP_VERSION}"],
-            env_template={
-                "CLOUDFLARE_ACCOUNT_ID": "${CLOUDFLARE_ACCOUNT_ID}",
-                "CLOUDFLARE_API_TOKEN": "${CLOUDFLARE_API_TOKEN}",
-            },
+            url="https://mcp.cloudflare.com/mcp",
+            headers_template={"Authorization": "Bearer ${CLOUDFLARE_API_TOKEN}"},
         ),
     ),
     ToolSource(

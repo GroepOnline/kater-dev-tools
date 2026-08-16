@@ -352,11 +352,11 @@ def test_server_credentials(api_server, monkeypatch) -> None:
             _post(_api_port(api_server), "/api/mcp/servers/github/credentials", {"env": {"NOPE": "x"}})
         assert exc.value.code == 400
 
-        removed = _delete(9912, "/api/mcp/servers/github/connections/legacy")
+        removed = _delete(_api_port(api_server), "/api/mcp/servers/github/connections/legacy")
         assert removed["removed"] == "legacy"
         assert removed["env_configured"] is False
         assert "GITHUB_PERSONAL_ACCESS_TOKEN" not in os.environ
-        detail = _get(9912, "/api/mcp/servers/github")
+        detail = _get(_api_port(api_server), "/api/mcp/servers/github")
         assert detail["env_configured"] is False
     finally:
         os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
@@ -387,7 +387,7 @@ def test_catalog_oauth_start_deny_default_without_client(api_server, monkeypatch
     monkeypatch.setattr("kater.mcp_oauth.discover_scopes", lambda _source: "users:read")
     os.environ.pop("SLACK_MCP_CLIENT_ID", None)
     with pytest.raises(urllib.error.HTTPError) as exc:
-        _post(9912, "/api/mcp/servers/slack/oauth/start", {})
+        _post(_api_port(api_server), "/api/mcp/servers/slack/oauth/start", {})
     assert exc.value.code == 409
     body = json.loads(exc.value.read().decode())
     assert body["error"] == "oauth_app_missing"
@@ -395,9 +395,9 @@ def test_catalog_oauth_start_deny_default_without_client(api_server, monkeypatch
     assert body["setup"]["client_secret_env"] == "SLACK_MCP_CLIENT_SECRET"
     dumped = json.dumps(body)
     assert "kater-test-" not in dumped
-    listed = _get(9912, "/api/mcp/servers/slack/connections")
+    listed = _get(_api_port(api_server), "/api/mcp/servers/slack/connections")
     assert listed["connections"] == []
-    catalog = _get(9912, "/api/catalog?q=slack")
+    catalog = _get(_api_port(api_server), "/api/catalog?q=slack")
     slack = next(s for s in catalog["servers"] if s["name"] == "slack")
     assert slack["oauth"]["provider"] == "slack"
     assert slack["oauth"]["client_configured"] is False

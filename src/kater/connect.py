@@ -162,14 +162,23 @@ def _match_existing_connection(
     env: dict[str, str],
     *,
     label: str = "",
+    extra: dict[str, Any] | None = None,
 ) -> ServerConnection | None:
-    """Find the account a token refresh should update instead of duplicating."""
+    """Find an account by stable provider identity, with a legacy fallback."""
     if not override.connections:
+        return None
+    identity_keys = ("team_id", "account_id", "tenant_id", "user_id")
+    wanted_identity = next((extra.get(key) for key in identity_keys if extra and extra.get(key)), None)
+    if wanted_identity is not None:
+        for conn in override.connections:
+            if any(conn.extra.get(key) == wanted_identity for key in identity_keys):
+                return conn
+        # Do not merge a new provider account merely because its display name matches.
         return None
     wanted = label.strip()
     if wanted:
         for conn in override.connections:
-            if conn.label == wanted:
+            if conn.label == wanted and not any(conn.extra.get(key) for key in identity_keys):
                 return conn
         return None
     if len(override.connections) == 1:
@@ -195,7 +204,7 @@ def upsert_connection(
     """
     cleaned = {k: v for k, v in env.items() if str(v).strip()}
     override = settings.server_overrides.get(name) or ServerOverride()
-    existing = _match_existing_connection(override, cleaned, label=label)
+    existing = _match_existing_connection(override, cleaned, label=label, extra=extra)
     if existing is None:
         return add_connection(settings, name, cleaned, label=label, extra=extra)
     existing.env = {**existing.env, **cleaned}

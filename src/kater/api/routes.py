@@ -1021,9 +1021,9 @@ def _server_credentials(req: Request) -> Response:
         return Response.json(400, {"error": "Body must include an 'env' object."})
 
     from kater.connect import (
-        add_connection,
         declared_credential_keys,
         source_is_configured,
+        upsert_connection,
     )
 
     declared = declared_credential_keys(source)
@@ -1035,23 +1035,25 @@ def _server_credentials(req: Request) -> Response:
     override = settings.server_overrides.get(name) or ServerOverride()
     applied: list[str] = []
     cleaned: dict[str, str] = {}
+    cleared: set[str] = set()
     for key, value in env.items():
         text = str(value or "").strip()
         if text:
             override.env[key] = text
-            os.environ[key] = text
+            _remember_runtime_env(key, text)
             applied.append(key)
             cleaned[key] = text
         else:
             override.env.pop(key, None)
-            os.environ.pop(key, None)
-            if source.oauth and key == source.oauth.token_env:
-                override.connections = []
+            cleared.add(key)
     settings.server_overrides[name] = override
     label = str(body.get("label") or "").strip()
     token_key = source.oauth.token_env if source.oauth else None
     if token_key and cleaned.get(token_key):
-        add_connection(settings, name, cleaned, label=label or "manual")
+        upsert_connection(settings, name, cleaned, label=label or "manual")
+    elif cleared:
+        # Empty fields clear that env key only. Account removal is DELETE.
+        _forget_runtime_env(cleared)
     save_settings(settings)
 
     env_present = source_is_configured(source, settings)
@@ -1131,11 +1133,27 @@ def _server_oauth_start(req: Request) -> Response:
 _oauth_runtime_env: set[str] = set()
 
 
+def _remember_runtime_env(key: str, value: str) -> None:
+    """Record a credential the gateway itself wrote into the process env."""
+    os.environ[key] = value
+    _oauth_runtime_env.add(key)
+    persisted_env_keys.add(key)
+
+
+def _forget_runtime_env(keys: set[str]) -> None:
+    """Drop gateway-written credentials; leave systemd/secret-manager env alone."""
+    for key in keys:
+        if key in _oauth_runtime_env or key in persisted_env_keys:
+            os.environ.pop(key, None)
+            _oauth_runtime_env.discard(key)
+            persisted_env_keys.discard(key)
+
+
 @route("GET", "/api/mcp/oauth/callback", public=True)
 def _mcp_oauth_callback(req: Request) -> Response:
     from urllib.parse import urlencode
 
-    from kater.connect import add_connection, resolve_oauth_client
+    from kater.connect import resolve_oauth_client, upsert_connection
     from kater.connect_policy import (
         ConnectOriginError,
         connect_secret_decision,
@@ -1174,9 +1192,7 @@ def _mcp_oauth_callback(req: Request) -> Response:
     server_name = str(preview.get("server") or "")
     source = _visible_source(server_name) if server_name else None
     pending_redirect = str(preview.get("redirect_uri") or "")
-    catalog = safe_catalog_url(
-        req.base_url, settings, pending_redirect=pending_redirect or None
-    )
+    catalog = safe_catalog_url(req.base_url, settings, pending_redirect=pending_redirect or None)
     if not source or not source.oauth:
         page = callback_html(
             server=server_name or "unknown",
@@ -1250,7 +1266,7 @@ def _mcp_oauth_callback(req: Request) -> Response:
         settings.server_overrides.get(source.name)
         and settings.server_overrides[source.name].connections
     )
-    conn = add_connection(
+    conn = upsert_connection(
         settings,
         source.name,
         env,
@@ -1258,8 +1274,7 @@ def _mcp_oauth_callback(req: Request) -> Response:
         extra=extra,
     )
     if not had_connections:
-        os.environ[source.oauth.token_env] = result["access_token"]
-        _oauth_runtime_env.add(source.oauth.token_env)
+        _remember_runtime_env(source.oauth.token_env, result["access_token"])
     save_settings(settings)
     try:
         get_proxy().sync_source(source)
@@ -1299,19 +1314,27 @@ def _server_connection_delete(req: Request) -> Response:
     source = _visible_source(name)
     if not source:
         return Response.json(404, {"error": f"Unknown server: {name}"})
-    from kater.connect import remove_connection, source_is_configured
+    from kater.connect import list_connections, remove_connection, source_is_configured
 
     settings = load_settings()
-    removed = remove_connection(settings, name, req.params["conn_id"], source)
+    conn_id = req.params["conn_id"]
+    existing = next((c for c in list_connections(source, settings) if c.id == conn_id), None)
+    removed = remove_connection(settings, name, conn_id, source)
     if not removed:
         return Response.json(404, {"error": "Unknown connection"})
+    forget = set(existing.env) if existing else set()
+    forget |= set(source.env)
+    if source.oauth:
+        forget.add(source.oauth.token_env)
+        if source.oauth.refresh_env:
+            forget.add(source.oauth.refresh_env)
     override = settings.server_overrides.get(name)
-    if not override or not override.connections:
-        token_env = source.oauth.token_env if source.oauth else None
-        if token_env in _oauth_runtime_env or token_env in persisted_env_keys:
-            os.environ.pop(token_env, None)
-            _oauth_runtime_env.discard(token_env)
-            persisted_env_keys.discard(token_env)
+    remaining = {key for conn in (override.connections if override else []) for key in conn.env}
+    _forget_runtime_env(forget - remaining)
+    if override and override.connections:
+        for key, value in override.connections[0].env.items():
+            if value:
+                _remember_runtime_env(key, value)
     save_settings(settings)
     try:
         get_proxy().sync_source(source)

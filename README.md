@@ -127,7 +127,7 @@ All commands support `--json` for structured output.
 | browser | stdio | web |
 | puppeteer | stdio | web |
 | resend | stdio | email, content |
-| slack | stdio | email, ops |
+| slack | http | email, ops |
 | figma | stdio | image, content |
 | postgres | stdio | cloud, ops |
 | sqlite | stdio | code |

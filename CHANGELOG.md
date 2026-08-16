@@ -34,7 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- _Nothing yet._
+- Catalog Connect: HTTP `DELETE` now reaches the API handler; re-saving a token updates the existing account instead of duplicating it; disconnect clears gateway-written process env so the backend does not restart with the revoked token.
+- Slack catalog table lists HTTP (Slack-hosted MCP) instead of stdio. `SLACK_BOT_TOKEN` is now `SLACK_ACCESS_TOKEN`.
 
 ## [1.0.0] - 2025-01-01
 

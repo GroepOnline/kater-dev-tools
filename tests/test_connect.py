@@ -14,6 +14,7 @@ from kater.connect import (
     remove_connection,
     resolve_oauth_client,
     source_is_configured,
+    upsert_connection,
 )
 from kater.profiles import OAuthConnectConfig, RiskLevel, ToolSource, Transport
 from kater.settings import KaterSettings, ServerConnection, ServerOverride
@@ -80,6 +81,47 @@ def test_source_is_configured_from_connection_not_process_env() -> None:
     assert public["connections"] == [{"id": "acct1", "label": "workspace-a", "created_at": 0.0}]
     dumped = str(public)
     assert "kater-test-access-token" not in dumped
+
+
+def test_upsert_connection_refreshes_single_account() -> None:
+    settings = KaterSettings()
+    first = upsert_connection(
+        settings,
+        "demo-oauth",
+        {"DEMO_ACCESS_TOKEN": "kater-test-access-old"},
+        label="manual",
+    )
+    second = upsert_connection(
+        settings,
+        "demo-oauth",
+        {"DEMO_ACCESS_TOKEN": "kater-test-access-new"},
+        label="manual",
+    )
+    conns = settings.server_overrides["demo-oauth"].connections
+    assert len(conns) == 1
+    assert first.id == second.id
+    assert conns[0].env["DEMO_ACCESS_TOKEN"] == "kater-test-access-new"
+    instances = launch_instances(_oauth_source(), settings)
+    assert len(instances) == 1
+    assert instances[0][1]["DEMO_ACCESS_TOKEN"] == "kater-test-access-new"
+
+
+def test_upsert_connection_keeps_distinct_labels() -> None:
+    settings = KaterSettings()
+    upsert_connection(
+        settings,
+        "demo-oauth",
+        {"DEMO_ACCESS_TOKEN": "kater-test-access-a"},
+        label="workspace-a",
+    )
+    upsert_connection(
+        settings,
+        "demo-oauth",
+        {"DEMO_ACCESS_TOKEN": "kater-test-access-b"},
+        label="workspace-b",
+    )
+    labels = [c.label for c in settings.server_overrides["demo-oauth"].connections]
+    assert labels == ["workspace-a", "workspace-b"]
 
 
 def test_add_and_remove_connection_roundtrip() -> None:
@@ -242,9 +284,7 @@ def test_public_origin_requires_https_canonical_url(monkeypatch) -> None:
             pass
 
     monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "https://kater.example.test")
-    assert (
-        resolve_connect_base_url("http://evil.example", settings) == "https://kater.example.test"
-    )
+    assert resolve_connect_base_url("http://evil.example", settings) == "https://kater.example.test"
 
 
 def test_dev_origin_rejects_hostile_host(monkeypatch) -> None:

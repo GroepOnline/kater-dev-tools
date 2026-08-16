@@ -1033,6 +1033,10 @@ def _server_credentials(req: Request) -> Response:
 
     settings = load_settings()
     override = settings.server_overrides.get(name) or ServerOverride()
+    if source.oauth and override.connections:
+        protected = {source.oauth.client_id_env, source.oauth.client_secret_env}
+        if any(not str(value or "").strip() and key in protected for key, value in env.items()):
+            return Response.json(409, {"error": "Cannot clear OAuth client credentials while connections exist."})
     applied: list[str] = []
     cleaned: dict[str, str] = {}
     cleared: set[str] = set()
@@ -1172,6 +1176,9 @@ def _mcp_oauth_callback(req: Request) -> Response:
     error = (req.query1("error") or "").strip()
     catalog = safe_catalog_url(req.base_url, settings)
     if error:
+        state = (req.query1("state") or "").strip()
+        if state:
+            abandon_pending(state)
         page = callback_html(
             server="",
             label="",

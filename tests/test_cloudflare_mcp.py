@@ -29,7 +29,7 @@ def test_render_profile_config_cloudflare_includes_bearer_header(monkeypatch) ->
     config = render_profile_config("cloud")
     cloudflare = config["mcpServers"]["cloudflare"]
 
-    assert cloudflare["type"] == "http"
+    assert cloudflare["type"] == "streamableHttp"
     assert cloudflare["url"] == "https://mcp.cloudflare.com/mcp"
     assert cloudflare["headers"]["Authorization"] == "Bearer cf_api_test"
     assert "env" not in cloudflare
@@ -44,7 +44,7 @@ def test_scan_adapters_cloudflare_configured_with_api_token(monkeypatch) -> None
 
     assert cloudflare.configured is True
     assert cloudflare.launch_hint is not None
-    assert cloudflare.launch_hint["type"] == "http"
+    assert cloudflare.launch_hint["type"] == "streamableHttp"
     assert cloudflare.launch_hint["url"] == "https://mcp.cloudflare.com/mcp"
     assert cloudflare.launch_hint["headers"]["Authorization"] == "Bearer cf_api_test"
 

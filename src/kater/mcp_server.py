@@ -6,6 +6,7 @@ import keyword
 import logging
 import os
 import re
+from collections.abc import Callable
 from importlib import import_module
 from typing import Any, cast
 from urllib.parse import parse_qs
@@ -189,6 +190,54 @@ def _transport_security_settings() -> Any | None:
         allowed_hosts=allowed_hosts,
         allowed_origins=allowed_origins,
     )
+
+
+def _wrap_native_handler(handler: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a native tool handler so MCP CallTool tolerates loose client payloads.
+
+    Cursor and other MCP clients may send ``{}`` for no-arg tools, omit optional
+    fields, pass explicit ``null``, or include unknown extra keys. FastMCP builds
+    a strict Pydantic argument model from the handler signature; matching the
+    proxy-tool pattern (``**kwargs``, keyword-only params defaulting to ``None``,
+    drop ``None`` and ignore extras) avoids JSON-RPC ``-32602`` before the body
+    runs.
+    """
+    sig = inspect.signature(handler)
+    param_names: list[str] = []
+    for param in sig.parameters.values():
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            continue
+        param_names.append(param.name)
+
+    def wrapped(**kwargs: Any) -> Any:
+        filtered = {
+            name: value
+            for name, value in kwargs.items()
+            if name in param_names and value is not None
+        }
+        return handler(**filtered)
+
+    wrapped.__name__ = getattr(handler, "__name__", "wrapped")
+    wrapped.__qualname__ = getattr(handler, "__qualname__", wrapped.__name__)
+    wrapped.__doc__ = handler.__doc__
+
+    parameters = [
+        inspect.Parameter(
+            name=name,
+            kind=inspect.Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=Any,
+        )
+        for name in param_names
+    ]
+    wrapped.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+        parameters=parameters,
+        return_annotation=Any,
+    )
+    return wrapped
 
 
 def create_server(*, profile: str = "core") -> Any:

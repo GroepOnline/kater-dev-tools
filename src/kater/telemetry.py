@@ -109,25 +109,46 @@ def wrap_tool_handler(
     Argument values are not copied into metadata (they can contain secrets).
     """
 
-    @functools.wraps(handler)
-    def wrapped(*args: Any, **kwargs: Any) -> Any:
-        started = time.perf_counter()
-        success = True
-        try:
-            return handler(*args, **kwargs)
-        except Exception:
-            success = False
-            raise
-        finally:
+    if inspect.iscoroutinefunction(handler):
+        @functools.wraps(handler)
+        async def wrapped(*args: Any, **kwargs: Any) -> Any:
+            started = time.perf_counter()
+            success = True
             try:
-                record_tool_call(
-                    name,
-                    success=success,
-                    duration_ms=(time.perf_counter() - started) * 1000.0,
-                    profile=profile,
-                )
+                return await handler(*args, **kwargs)
             except Exception:
-                _log.debug("tool_call telemetry failed for %s", name, exc_info=True)
+                success = False
+                raise
+            finally:
+                try:
+                    record_tool_call(
+                        name,
+                        success=success,
+                        duration_ms=(time.perf_counter() - started) * 1000.0,
+                        profile=profile,
+                    )
+                except Exception:
+                    _log.debug("tool_call telemetry failed for %s", name, exc_info=True)
+    else:
+        @functools.wraps(handler)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            started = time.perf_counter()
+            success = True
+            try:
+                return handler(*args, **kwargs)
+            except Exception:
+                success = False
+                raise
+            finally:
+                try:
+                    record_tool_call(
+                        name,
+                        success=success,
+                        duration_ms=(time.perf_counter() - started) * 1000.0,
+                        profile=profile,
+                    )
+                except Exception:
+                    _log.debug("tool_call telemetry failed for %s", name, exc_info=True)
 
     try:
         wrapped.__signature__ = inspect.signature(handler)  # type: ignore[attr-defined]

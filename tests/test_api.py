@@ -168,7 +168,11 @@ def test_chains(api_server) -> None:
 
 
 def test_chain_run(api_server) -> None:
-    data = _post(_api_port(api_server), "/api/chains/run", {"name": "research_brief", "profile": "research"})
+    data = _post(
+        _api_port(api_server),
+        "/api/chains/run",
+        {"name": "research_brief", "profile": "research"},
+    )
     assert data["chain"] == "research_brief"
     assert len(data["steps"]) == 3
 
@@ -192,7 +196,13 @@ def test_update_settings_auth_partial_patch(api_server) -> None:
     _post(
         _api_port(api_server),
         "/api/settings",
-        {"auth": {"mode": "apikey", "api_keys": ["secret1"], "oauth_issuer": "https://issuer.com"}},
+        {
+            "auth": {
+                "mode": "apikey",
+                "api_keys": ["secret1"],
+                "oauth_issuer": "https://issuer.com",
+            },
+        },
     )
 
     # Then apply partial patch (e.g., just changing mode).
@@ -282,19 +292,35 @@ def test_deploy_render_unknown_format_404(api_server) -> None:
 
 
 def test_auth_blocks_without_key(api_server) -> None:
-    _post(_api_port(api_server), "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
+    _post(
+        _api_port(api_server),
+        "/api/settings",
+        {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}},
+    )
     err = _get_err(_api_port(api_server), "/api/profiles")
     assert err.code == 401
 
 
 def test_auth_allows_with_key(api_server) -> None:
-    _post(_api_port(api_server), "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
-    data = _get(_api_port(api_server), "/api/profiles", headers={"Authorization": "Bearer test-secret"})
+    _post(
+        _api_port(api_server),
+        "/api/settings",
+        {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}},
+    )
+    data = _get(
+        _api_port(api_server),
+        "/api/profiles",
+        headers={"Authorization": "Bearer test-secret"},
+    )
     assert "core" in data["profiles"]
 
 
 def test_auth_health_always_open(api_server) -> None:
-    _post(_api_port(api_server), "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
+    _post(
+        _api_port(api_server),
+        "/api/settings",
+        {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}},
+    )
     for path in ("/health", "/health/live", "/health/ready"):
         data = _get(_api_port(api_server), path)
         assert data["status"] in {"ok", "degraded"}
@@ -349,7 +375,11 @@ def test_server_credentials(api_server, monkeypatch) -> None:
 
         # Only declared credentials are accepted (no arbitrary env injection).
         with pytest.raises(urllib.error.HTTPError) as exc:
-            _post(_api_port(api_server), "/api/mcp/servers/github/credentials", {"env": {"NOPE": "x"}})
+            _post(
+                _api_port(api_server),
+                "/api/mcp/servers/github/credentials",
+                {"env": {"NOPE": "x"}},
+            )
         assert exc.value.code == 400
 
         removed = _delete(_api_port(api_server), "/api/mcp/servers/github/connections/legacy")

@@ -115,9 +115,10 @@ def test_public_admin_cannot_persist_credentials_or_start_oauth(monkeypatch, tmp
     assert "evil" not in json.dumps(start.payload)
 
 
-def test_local_oauth_start_with_opt_in_preserves_pkce(monkeypatch) -> None:
+def test_local_oauth_start_with_opt_in_preserves_pkce(monkeypatch, tmp_path) -> None:
     from urllib.parse import parse_qs, urlparse
 
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
     monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
     monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
@@ -238,3 +239,108 @@ def test_callback_does_not_exchange_when_sink_gate_fails(tmp_path, monkeypatch) 
     assert "kater-test-code" not in body
     assert "kater-test-access" not in body
     assert peek_pending(started["state"]) == {}
+
+
+def test_manual_token_refresh_updates_existing_account(monkeypatch, tmp_path) -> None:
+    import os
+
+    from kater.settings import invalidate_settings_cache, load_settings
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    invalidate_settings_cache()
+    first = call(
+        "POST",
+        "/api/mcp/servers/slack/credentials",
+        body={"env": {"SLACK_ACCESS_TOKEN": "kater-test-access-old"}, "label": "manual"},
+    )
+    assert first.status == 200
+    listed = call("GET", "/api/mcp/servers/slack/connections")
+    assert listed.status == 200
+    assert listed.payload is not None
+    assert len(listed.payload["connections"]) == 1
+    conn_id = listed.payload["connections"][0]["id"]
+
+    second = call(
+        "POST",
+        "/api/mcp/servers/slack/credentials",
+        body={"env": {"SLACK_ACCESS_TOKEN": "kater-test-access-new"}, "label": "manual"},
+    )
+    assert second.status == 200
+    listed = call("GET", "/api/mcp/servers/slack/connections")
+    assert listed.payload is not None
+    assert [c["id"] for c in listed.payload["connections"]] == [conn_id]
+    stored = load_settings().server_overrides["slack"].connections[0].env
+    assert stored["SLACK_ACCESS_TOKEN"] == "kater-test-access-new"
+    os.environ.pop("SLACK_ACCESS_TOKEN", None)
+
+
+def test_empty_token_does_not_wipe_other_accounts(monkeypatch, tmp_path) -> None:
+    from kater.settings import (
+        KaterSettings,
+        ServerConnection,
+        ServerOverride,
+        invalidate_settings_cache,
+        save_settings,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    save_settings(
+        KaterSettings(
+            server_overrides={
+                "slack": ServerOverride(
+                    connections=[
+                        ServerConnection(
+                            id="acct1",
+                            label="workspace-a",
+                            env={"SLACK_ACCESS_TOKEN": "kater-test-access-a"},
+                        ),
+                        ServerConnection(
+                            id="acct2",
+                            label="workspace-b",
+                            env={"SLACK_ACCESS_TOKEN": "kater-test-access-b"},
+                        ),
+                    ]
+                )
+            }
+        )
+    )
+    invalidate_settings_cache()
+    resp = call(
+        "POST",
+        "/api/mcp/servers/slack/credentials",
+        body={"env": {"SLACK_ACCESS_TOKEN": ""}},
+    )
+    assert resp.status == 200
+    listed = call("GET", "/api/mcp/servers/slack/connections")
+    assert listed.payload is not None
+    assert {c["id"] for c in listed.payload["connections"]} == {"acct1", "acct2"}
+
+
+def test_delete_clears_gateway_written_process_env(monkeypatch, tmp_path) -> None:
+    import os
+
+    from kater.settings import invalidate_settings_cache
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    invalidate_settings_cache()
+    posted = call(
+        "POST",
+        "/api/mcp/servers/github/credentials",
+        body={"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
+    )
+    assert posted.status == 200
+    assert os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN") == "kater-test-token"
+    listed = call("GET", "/api/mcp/servers/github/connections")
+    assert listed.payload is not None
+    assert listed.payload["connections"] == []
+    deleted = call("DELETE", "/api/mcp/servers/github/connections/legacy")
+    assert deleted.status == 200
+    assert deleted.payload is not None
+    assert deleted.payload["env_configured"] is False
+    assert "GITHUB_PERSONAL_ACCESS_TOKEN" not in os.environ

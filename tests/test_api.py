@@ -32,6 +32,16 @@ def _get(port: int, path: str, headers: dict | None = None) -> dict:
     return json.loads(resp.read())
 
 
+def _delete(port: int, path: str, headers: dict | None = None) -> dict:
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        method="DELETE",
+        headers=headers or {},
+    )
+    resp = urllib.request.urlopen(req)
+    return json.loads(resp.read())
+
+
 def _post(port: int, path: str, body: dict, headers: dict | None = None) -> dict:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
@@ -336,6 +346,13 @@ def test_server_credentials(api_server, monkeypatch) -> None:
         with pytest.raises(urllib.error.HTTPError) as exc:
             _post(9912, "/api/mcp/servers/github/credentials", {"env": {"NOPE": "x"}})
         assert exc.value.code == 400
+
+        removed = _delete(9912, "/api/mcp/servers/github/connections/legacy")
+        assert removed["removed"] == "legacy"
+        assert removed["env_configured"] is False
+        assert "GITHUB_PERSONAL_ACCESS_TOKEN" not in os.environ
+        detail = _get(9912, "/api/mcp/servers/github")
+        assert detail["env_configured"] is False
     finally:
         os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
 

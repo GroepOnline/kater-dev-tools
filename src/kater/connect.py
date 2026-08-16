@@ -157,6 +157,58 @@ def add_connection(
     return conn
 
 
+def _match_existing_connection(
+    override: ServerOverride,
+    env: dict[str, str],
+    *,
+    label: str = "",
+) -> ServerConnection | None:
+    """Find the account a token refresh should update instead of duplicating."""
+    if not override.connections:
+        return None
+    wanted = label.strip()
+    if wanted:
+        for conn in override.connections:
+            if conn.label == wanted:
+                return conn
+        return None
+    if len(override.connections) == 1:
+        return override.connections[0]
+    for conn in override.connections:
+        if env and all(conn.env.get(key) == value for key, value in env.items()):
+            return conn
+    return None
+
+
+def upsert_connection(
+    settings: KaterSettings,
+    name: str,
+    env: dict[str, str],
+    *,
+    label: str = "",
+    extra: dict[str, Any] | None = None,
+) -> ServerConnection:
+    """Add a connection, or update the matching account on token refresh.
+
+    A second POST of the same server's token must not append a duplicate
+    that leaves the old (possibly revoked) token as ``connections[0]``.
+    """
+    cleaned = {k: v for k, v in env.items() if str(v).strip()}
+    override = settings.server_overrides.get(name) or ServerOverride()
+    existing = _match_existing_connection(override, cleaned, label=label)
+    if existing is None:
+        return add_connection(settings, name, cleaned, label=label, extra=extra)
+    existing.env = {**existing.env, **cleaned}
+    if label.strip():
+        existing.label = label.strip()
+    if extra:
+        existing.extra = {**existing.extra, **extra}
+    if override.connections and override.connections[0].id == existing.id:
+        override.env = {**dict(override.env), **existing.env}
+    settings.server_overrides[name] = override
+    return existing
+
+
 def remove_connection(
     settings: KaterSettings, name: str, conn_id: str, source: ToolSource | None = None
 ) -> bool:
@@ -180,9 +232,7 @@ def remove_connection(
     return True
 
 
-def _preserve_client_env(
-    env: dict[str, str], source: ToolSource | None
-) -> dict[str, str]:
+def _preserve_client_env(env: dict[str, str], source: ToolSource | None) -> dict[str, str]:
     """Keep only OAuth app credentials (client id/secret) from an env map."""
     if not source or not source.oauth:
         return {}

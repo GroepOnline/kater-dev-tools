@@ -228,7 +228,8 @@ class ProxyManager:
         instance_name = backend_name or source.name
 
         def getenv(name: str) -> str | None:
-            return overlay.get(name) or os.environ.get(name)
+            # Deployment-managed environment must win over persisted settings.
+            return os.environ.get(name) or overlay.get(name)
 
         if source.transport == Transport.STDIO:
             if not source.mcp or not source.mcp.command:

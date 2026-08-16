@@ -157,6 +157,13 @@ jobs:
       - name: Sync dependencies (frozen)
         run: uv sync --frozen --dev --extra browser
 
+      # Parity with the coverage job: unit runs @requires_chromium tests when a
+      # browser is present. Without this step, a partial ms-playwright cache
+      # (directory exists, binary missing) makes probe_local lie and the suite
+      # fails instead of skipping.
+      - name: Install Playwright Chromium
+        run: uv run playwright install chromium
+
       # The inner `timeout` is a fast, explicit guard that yields a clean
       # exit 124 if a test wedges; the job-level `timeout-minutes: 15` above is
       # the real backstop against hangs. Keep this comfortably above the actual

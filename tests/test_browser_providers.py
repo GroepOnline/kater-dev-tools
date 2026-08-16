@@ -21,6 +21,7 @@ from kater.browser.providers import (
     browsers_root,
     launch_args,
     probe_cdp,
+    probe_local,
     probe_providers,
     resolve_provider,
 )
@@ -71,6 +72,29 @@ def test_probe_does_not_import_playwright_or_launch(monkeypatch):
 def test_probe_local_reports_missing_chromium(monkeypatch, tmp_path):
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path / "empty"))
     local = probe_providers()[0]
+    assert local.available is False
+    assert "playwright install chromium" in local.detail
+
+
+def test_probe_local_rejects_empty_chromium_directory(monkeypatch, tmp_path):
+    # Regression: a bare chromium_* folder (stale runner cache) used to make
+    # probe_local report available=True and @requires_chromium tests run.
+    root = tmp_path / "ms-playwright"
+    (root / "chromium_headless_shell-1228").mkdir(parents=True)
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(root))
+    local = probe_local()
+    assert local.available is False
+    assert "playwright install chromium" in local.detail
+
+
+def test_probe_local_rejects_non_executable_chrome(monkeypatch, tmp_path):
+    root = tmp_path / "ms-playwright"
+    chrome = root / "chromium-123" / "chrome-linux" / "chrome"
+    chrome.parent.mkdir(parents=True)
+    chrome.write_text("#!/bin/sh\necho stub\n")
+    chrome.chmod(0o644)  # present but not executable
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(root))
+    local = probe_local()
     assert local.available is False
     assert "playwright install chromium" in local.detail
 

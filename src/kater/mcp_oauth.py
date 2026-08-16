@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import secrets
+import sqlite3
 import threading
 import time
 import urllib.error
@@ -31,7 +32,7 @@ from kater.profiles import ToolSource
 _log = logging.getLogger("kater.mcp_oauth")
 _lock = threading.Lock()
 _PENDING_TTL = 600
-_PENDING_NAME = "mcp-oauth-pending.json"
+_PENDING_TABLE = "mcp_oauth_pending"
 
 SLACK_PRM_URL = "https://mcp.slack.com/.well-known/oauth-protected-resource"
 SLACK_DEFAULT_SCOPES = (
@@ -40,29 +41,38 @@ SLACK_DEFAULT_SCOPES = (
 )
 
 
-def _pending_path() -> Path:
-    return Path.cwd() / ".kater" / _PENDING_NAME
+def _pending_db() -> sqlite3.Connection:
+    from kater.settings import load_settings
+    path = load_settings().resolved_db_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path)
+    db.execute(f"CREATE TABLE IF NOT EXISTS {_PENDING_TABLE} (state TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+    db.commit()
+    return db
 
 
 def _load_pending() -> dict[str, Any]:
-    path = _pending_path()
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    with _pending_db() as db:
+        rows = db.execute(f"SELECT state, payload FROM {_PENDING_TABLE}").fetchall()
+    result: dict[str, Any] = {}
+    for state, payload in rows:
+        try:
+            value = json.loads(payload)
+            if isinstance(value, dict):
+                result[state] = value
+        except json.JSONDecodeError:
+            continue
+    return result
 
 
 def _save_pending(data: dict[str, Any]) -> None:
-    path = _pending_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.parent.chmod(0o700)
-    tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    tmp.chmod(0o600)
-    os.replace(tmp, path)
+    with _pending_db() as db:
+        db.execute(f"DELETE FROM {_PENDING_TABLE}")
+        db.executemany(
+            f"INSERT INTO {_PENDING_TABLE} (state, payload) VALUES (?, ?)",
+            [(state, json.dumps(value)) for state, value in data.items()],
+        )
+        db.commit()
 
 
 def _pkce_pair() -> tuple[str, str]:

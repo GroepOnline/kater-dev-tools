@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # No base-branch filter: stacked feature-base PRs must run the same
+  # required Python jobs (ruff, mypy, full pytest) as PRs targeting main.
   pull_request:
-    branches: [main]
   schedule:
     # Nightly 04:17 UTC — runs the full suite on main to catch dependency
     # drift and flakiness without waiting for a PR. Sits just before the
@@ -21,9 +22,16 @@ permissions:
   contents: read
 
 jobs:
+  # INTERIM / P1 (GRO-1209): pr-isolated and heavy are persistent chef-ci
+  # listeners, not ephemeral job sandboxes. Listener credentials remain in
+  # the guest; workspace wipe is not a HOME/process boundary. Do not treat
+  # this lane as production-safe isolation. GitHub-hosted runners stay banned
+  # until Actions spending is restored. PR → pr-isolated; else → heavy.
   # ── validate: lockfile, config, generated files, docs, metadata ────────
   validate:
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -68,7 +76,7 @@ jobs:
       - name: Lint workflow files
         run: |
           for f in .github/workflows/*.yml; do
-            python - "$f" <<'PY'
+            uv run python - "$f" <<'PY'
           import sys, yaml
           with open(sys.argv[1]) as f:
               yaml.safe_load(f)
@@ -98,7 +106,9 @@ jobs:
 
   # ── lint-type: ruff, format, mypy on the 3.11 syntax baseline ──────────
   lint-type:
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -124,7 +134,9 @@ jobs:
   # ── unit: matrix across supported Python versions ─────────────────────
   unit:
     needs: [validate]
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -145,21 +157,31 @@ jobs:
       - name: Sync dependencies (frozen)
         run: uv sync --frozen --dev --extra browser
 
+      # Parity with the coverage job: unit runs @requires_chromium tests when a
+      # browser is present. Without this step, a partial ms-playwright cache
+      # (directory exists, binary missing) makes probe_local lie and the suite
+      # fails instead of skipping.
+      - name: Install Playwright Chromium
+        run: uv run playwright install chromium
+
       # The inner `timeout` is a fast, explicit guard that yields a clean
       # exit 124 if a test wedges; the job-level `timeout-minutes: 15` above is
       # the real backstop against hangs. Keep this comfortably above the actual
-      # suite runtime: 3.11/3.12 finish ~150s and 3.13 ~157s, but 3.14 runs
-      # ~20-30s slower and was tripping a 180s cap even though the full suite
-      # (see the coverage job, with instrumentation) completes in ~185s.
+      # suite runtime. Coverage is owned by the dedicated coverage job — unit
+      # uses --no-cov so pyproject addopts do not pay instrumentation twice.
+      # Self-hosted PR runners were hitting the old 300s cap near the end of
+      # the suite (~1200 tests) even when coverage (with cov) finished cleanly.
       - name: Test
         run: >-
-          timeout 300s uv run pytest -vv --tb=short -ra
+          timeout 480s uv run pytest -vv --tb=short -ra --no-cov
           --ignore=tests/test_computer_acceptance_e2e.py
 
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──
   integration:
     needs: [validate]
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -186,7 +208,9 @@ jobs:
   # auditable skip while the public unit/integration/e2e gates remain required.
   computer-acceptance:
     needs: [validate]
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Explain skipped private acceptance
@@ -199,15 +223,28 @@ jobs:
         run: |
           echo "Private UDO acceptance skipped outside the upstream repository; the public Kater gates remain required." | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Checkout Kater
+      - name: Probe UDO deploy key
+        id: udo
         if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        env:
+          UDO_READ_DEPLOY_KEY: ${{ secrets.UDO_READ_DEPLOY_KEY }}
+        run: |
+          if [ -n "${UDO_READ_DEPLOY_KEY}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Private computer-acceptance skipped: UDO_READ_DEPLOY_KEY is unset on this runner/repo." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout Kater
+        if: steps.udo.outputs.available == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Checkout pinned private contract runtime
+        if: steps.udo.outputs.available == 'true'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
         with:
           repository: ${{ github.repository_owner }}/utrecht-data-os
           ref: 4fc8217eb90d1a6024030620e35f84369bb5c805
@@ -216,30 +253,30 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: steps.udo.outputs.available == 'true'
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: "3.12"
           enable-cache: true
 
       - name: Sync Kater dependencies (frozen)
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: steps.udo.outputs.available == 'true'
         run: uv sync --frozen --dev
 
       - name: Install pinned controller dependencies
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: steps.udo.outputs.available == 'true'
         working-directory: utrecht-data-os/platform/agent-control-plane/apps/session-controller
         run: npm ci --ignore-scripts
 
       - name: Run Computer acceptance lane
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: steps.udo.outputs.available == 'true'
         env:
           COMPUTER_ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/computer-acceptance-evidence.json
           KATER_ACCEPTANCE_CHECKOUT: ${{ github.workspace }}/utrecht-data-os
         run: timeout 180s uv run pytest -vv --tb=short -ra tests/test_computer_acceptance_e2e.py
 
       - name: Publish schema-validated acceptance evidence
-        if: github.event.repository.fork != true && (github.event_name != 'pull_request' || github.actor != 'dependabot[bot]')
+        if: steps.udo.outputs.available == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: computer-acceptance-evidence
@@ -249,7 +286,9 @@ jobs:
   # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
   e2e:
     needs: [unit, integration, computer-acceptance]
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -290,7 +329,9 @@ jobs:
   # ── package: wheel/sdist build + clean-venv install smoke ─────────────
   package:
     needs: [validate]
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -308,15 +349,16 @@ jobs:
 
       - name: Install into a clean venv and smoke
         run: |
-          uv venv /tmp/kater-pkg-test
-          uv pip install --python /tmp/kater-pkg-test dist/*.whl
-          /tmp/kater-pkg-test/bin/kater version
-          /tmp/kater-pkg-test/bin/kater doctor
-          /tmp/kater-pkg-test/bin/kater --help
+          PKG_VENV="${RUNNER_TEMP}/kater-pkg-test"
+          uv venv --clear "$PKG_VENV"
+          uv pip install --python "$PKG_VENV" dist/*.whl
+          "$PKG_VENV/bin/kater" version
+          "$PKG_VENV/bin/kater" doctor
+          "$PKG_VENV/bin/kater" --help
 
       - name: Verify package contents
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import zipfile, glob, sys
           wheels = glob.glob("dist/*.whl")
           assert wheels, "no wheel built"
@@ -331,7 +373,9 @@ jobs:
   #  python + actions, so we don't upload a second SARIF here.)
   security-pr:
     needs: [validate]
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -383,7 +427,9 @@ jobs:
   # ── coverage: project-wide coverage gate (runs the full test suite) ──
   coverage:
     needs: [validate]
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -424,7 +470,9 @@ jobs:
       - package
       - security-pr
       - coverage
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     if: always()
     steps:
@@ -466,7 +514,9 @@ jobs:
       - package
       - security-pr
       - gate
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     if: always()
     permissions:

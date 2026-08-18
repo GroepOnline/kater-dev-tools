@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -58,13 +60,14 @@ def test_print_markdown_lists_expected_kinds_and_paths() -> None:
     assert "| skill | `pr-gate` | `.cursor/skills/pr-gate/SKILL.md` |" in out
     assert "| agent | `pr-gate` | `.cursor/agents/pr-gate.md` |" in out
     assert "| hook | `sessionStart` | `.cursor/hooks.json` |" in out
-    assert "Skills: 10 |" in out
+    assert "Skills: 11 |" in out
     assert "Agents: 4 |" in out
     # kater-project + verify-before-claim (this PR) + the generated taste rule.
     assert "Rules: 3 |" in out
     assert "Commands: 10 |" in out
     assert "Hook events: 4 |" in out
     assert "| rule | `kater-project` |" in out
+    assert "| skill | `ci-fix-loop` |" in out
     assert "| command | `local-verify` |" in out
     assert ".cursor/commands/" in out
 
@@ -199,6 +202,51 @@ def test_workspace_open_returns_plugin_paths_key() -> None:
     assert isinstance(out["pluginPaths"], list)
     # No .cursor/plugins directory exists in this repo, so it must be empty.
     assert out["pluginPaths"] == []
+
+
+def test_collect_plugins_excludes_installed_metadata_dir() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert text.count("! -name installed") >= 2
+
+    plugins = ROOT / ".cursor" / "plugins"
+    snapshot = None
+    if plugins.exists():
+        snapshot = Path(tempfile.mkdtemp(prefix="kater-plugins-snap-"))
+        inner = snapshot / "plugins"
+        shutil.copytree(plugins, inner)
+        snapshot = inner
+    created_root = snapshot is None
+    installed = plugins / "installed"
+    real = plugins / "chefgroep-skills"
+    try:
+        installed.mkdir(parents=True, exist_ok=True)
+        (installed / "manifest.json").write_text("{}\n", encoding="utf-8")
+        real.mkdir(parents=True, exist_ok=True)
+
+        md = subprocess.run(
+            [str(SCRIPT), "--print-markdown"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert "| plugin | `chefgroep-skills` |" in md
+        assert "| plugin | `installed` |" not in md
+
+        opened = json.loads(_run({"hook_event_name": "workspaceOpen"}).stdout)
+        names = {Path(path).name for path in opened["pluginPaths"]}
+        assert "chefgroep-skills" in names
+        assert "installed" not in names
+    finally:
+        if snapshot is not None:
+            shutil.rmtree(plugins, ignore_errors=True)
+            shutil.copytree(snapshot, plugins)
+            shutil.rmtree(snapshot.parent, ignore_errors=True)
+        else:
+            shutil.rmtree(real, ignore_errors=True)
+            shutil.rmtree(installed, ignore_errors=True)
+            if created_root and plugins.is_dir() and not any(plugins.iterdir()):
+                plugins.rmdir()
 
 
 def test_unknown_hook_event_returns_empty_object() -> None:

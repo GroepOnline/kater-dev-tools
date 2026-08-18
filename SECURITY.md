@@ -33,9 +33,11 @@ Kater exposes MCP tools over HTTP/SSE. Treat a public instance like an API gatew
 5. **Restrict CORS** — avoid `*` on public deployments; set `KATER_CORS_ORIGINS`.
 6. **Keep adapter secrets in env** — never commit `.env`; Kater redacts secrets in API/MCP tool responses.
 7. **Bind to loopback behind a tunnel** — Cloudflare Tunnel or Tailscale; do not expose raw ports.
-8. **Set an admin key** — `KATER_ADMIN_KEY` separates tool usage from settings changes. In public mode, settings mutations are blocked without it.
-9. **Keep client registration closed** — public `/register` is disabled unless `KATER_ALLOW_DYNAMIC_REGISTRATION=1` and `KATER_REGISTRATION_TOKEN` is set. Prefer pre-seeded first-party clients/admin bootstrap over anonymous runtime registration.
-10. **Dashboard key** — `KATER_DASHBOARD_KEY` is an optional shortcut that bypasses OAuth token validation for a browser dashboard session in `oauth` mode. Leave unset unless you need it.
+8. **Set an admin key** — `KATER_ADMIN_KEY` separates tool usage from settings and catalog credential changes. In public mode, settings mutations and Catalog Connect mutations (`POST /credentials`, `POST /oauth/start`, `DELETE /connections/{id}`) are blocked without it. Masked `GET /connections` stays authenticated-only.
+9. **Secret storage is deny-default** — public/company-control must not persist raw credential values or OAuth tokens to `.kater/settings.json` (manual `POST /credentials` included). Local 0600 settings persist requires `KATER_CONNECT_ALLOW_LOCAL_SETTINGS=1` and is development-only. ChefVault (`docs/ops/chefvault.md`) is the referenced durable sink; this gateway does not write Vault items, `mcp.json`, or git.
+10. **Public Connect origin is configured, not requested** — set `KATER_CONNECT_PUBLIC_BASE_URL=https://<canonical-host>`. Host / X-Forwarded-Host are not used to build OAuth redirect URLs in public mode. Localhost HTTP is allowed only on loopback.
+11. **Keep client registration closed** — public `/register` is disabled unless `KATER_ALLOW_DYNAMIC_REGISTRATION=1` and `KATER_REGISTRATION_TOKEN` is set. Prefer pre-seeded first-party clients/admin bootstrap over anonymous runtime registration.
+12. **Dashboard key** — `KATER_DASHBOARD_KEY` is an optional shortcut that bypasses OAuth token validation for a browser dashboard session in `oauth` mode. Leave unset unless you need it.
 
 OAuth `redirect_uri` values must be `https` (or `http` for loopback per RFC 8252); dangerous schemes (`javascript:`, `data:`) are rejected at registration.
 

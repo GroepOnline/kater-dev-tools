@@ -9,13 +9,12 @@ import urllib.request
 import pytest
 
 from kater.api import create_api_server
-
-PORT = 9912
+from tests.portutil import free_port
 
 
 @pytest.fixture
 def api_server():
-    server = create_api_server("127.0.0.1", PORT)
+    server = create_api_server("127.0.0.1", free_port())
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.3)
@@ -23,6 +22,10 @@ def api_server():
     server.shutdown()
     server.server_close()
     time.sleep(0.2)
+
+
+def _api_port(server) -> int:
+    return int(server.server_address[1])
 
 
 def _get(port: int, path: str, headers: dict | None = None) -> dict:
@@ -66,13 +69,13 @@ def _post_err(port: int, path: str, payload: dict) -> urllib.error.HTTPError:
 
 
 def test_pr_policy_endpoint(api_server) -> None:
-    data = _get(PORT, "/api/pr/policy")
+    data = _get(_api_port(api_server), "/api/pr/policy")
     assert "policy" in data
     assert data["policy"]["require_approvals"] >= 1
 
 
 def test_pr_audit_endpoint(api_server) -> None:
-    data = _get(PORT, "/api/pr/audit")
+    data = _get(_api_port(api_server), "/api/pr/audit")
     assert "count" in data
     assert "entries" in data
 
@@ -82,7 +85,7 @@ def test_pr_list_clean_response_or_502(api_server) -> None:
     # when gh is unavailable (e.g. CI without GH_TOKEN) it must return a clean
     # 502, never a 500 that leaks internals.
     try:
-        data = _get(PORT, "/api/pr/list?state=open&limit=5")
+        data = _get(_api_port(api_server), "/api/pr/list?state=open&limit=5")
     except urllib.error.HTTPError as err:
         assert err.code == 502
         body = json.loads(err.read())
@@ -93,14 +96,16 @@ def test_pr_list_clean_response_or_502(api_server) -> None:
 
 
 def test_pr_status_bad_number(api_server) -> None:
-    err = _get_err(PORT, "/api/pr/not-a-number/status")
+    err = _get_err(_api_port(api_server), "/api/pr/not-a-number/status")
     assert err.code == 400
 
 
 def test_pr_merge_rejects_without_pass(api_server) -> None:
     # Attempt to merge a non-existent / ungateable PR; the gate should reject
     # with 409 and a machine-readable reason, never perform a merge.
-    err = _post_err(PORT, "/api/pr/999999/merge", {"expected_head_sha": "deadbeef"})
+    err = _post_err(
+        _api_port(api_server), "/api/pr/999999/merge", {"expected_head_sha": "deadbeef"}
+    )
     assert err.code in (409, 502)
     body = json.loads(err.read())
     assert "error" in body

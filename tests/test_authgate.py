@@ -73,6 +73,19 @@ class TestIsPublicPath:
         assert should_proxy_to_api("/health/") is True
         assert should_proxy_to_api("/health") is True
 
+    def test_catalog_oauth_callback_is_public_for_provider_redirect(self, apikey_settings):
+        ctx = AuthContext(settings=apikey_settings, path="/api/mcp/oauth/callback")
+        decision = authenticate(ctx)
+        assert decision.allowed is True
+
+    def test_catalog_oauth_start_is_not_public(self, apikey_settings):
+        ctx = AuthContext(
+            settings=apikey_settings,
+            path="/api/mcp/servers/slack/oauth/start",
+        )
+        decision = authenticate(ctx)
+        assert decision.allowed is False
+
 
 class TestAuthenticate:
     def test_public_path_always_allowed(self, no_auth_settings):

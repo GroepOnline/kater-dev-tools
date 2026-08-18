@@ -133,6 +133,7 @@ class ProxyManager:
         self._aggregator = Aggregator()
         self._router = QuotaAwareRouter()
         self._started = False
+        self._active_profile = "core"
         self._computer_connector: Any | None = None
         settings = load_settings()
         self._failure_threshold = settings.proxy_failure_threshold
@@ -142,8 +143,18 @@ class ProxyManager:
         with self._lock:
             if self._started:
                 return
+            self._active_profile = profile
             self._start_backends(profile)
             self._started = True
+
+    def _source_eligible(self, source: ToolSource, settings: Any) -> bool:
+        enabled_default = not (
+            settings.high_risk_default_disabled and source.risk == RiskLevel.HIGH
+        )
+        if not settings.is_server_enabled(source.name, default=enabled_default):
+            return False
+        profiles = parse_profiles(self._active_profile)
+        return bool("core" in profiles or profiles.intersection(source.profiles))
 
     def stop(self) -> None:
         with self._lock:
@@ -177,17 +188,11 @@ class ProxyManager:
     def _start_backends(self, profile: str) -> None:
         from kater.connect import launch_instances
 
-        profile_names = parse_profiles(profile)
         settings = load_settings()
         for source in all_tool_sources():
             if source.transport == Transport.NATIVE:
                 continue
-            enabled_default = True
-            if settings.high_risk_default_disabled and source.risk == RiskLevel.HIGH:
-                enabled_default = False
-            if not settings.is_server_enabled(source.name, default=enabled_default):
-                continue
-            if not profile_names.intersection(source.profiles) and "core" not in profile_names:
+            if not self._source_eligible(source, settings):
                 continue
             if not source.mcp:
                 continue
@@ -195,7 +200,9 @@ class ProxyManager:
             if not instances:
                 continue
             for backend_name, env_values in instances:
-                backend = self._create_backend(source, env_values=env_values)
+                backend = self._create_backend(
+                    source, env_values=env_values, backend_name=backend_name
+                )
                 if backend is None:
                     continue
                 try:
@@ -215,8 +222,10 @@ class ProxyManager:
         self,
         source: ToolSource,
         env_values: dict[str, str] | None = None,
+        backend_name: str | None = None,
     ) -> BaseBackend | None:
         overlay = env_values or {}
+        instance_name = backend_name or source.name
 
         def getenv(name: str) -> str | None:
             return overlay.get(name) or os.environ.get(name)
@@ -235,7 +244,7 @@ class ProxyManager:
                     env[key] = val
             env.update({k: v for k, v in overlay.items() if v})
             return StdioBackend(
-                name=source.name,
+                name=instance_name,
                 command=source.mcp.command,
                 args=source.mcp.args,
                 env=env,
@@ -252,16 +261,14 @@ class ProxyManager:
                     url = url.replace(f"${{{var}}}", env_val)
             if "${" in url and "}" in url:
                 return None
-            headers = resolve_remote_headers(
-                source, include_secrets=True, env=overlay
-            )
+            headers = resolve_remote_headers(source, include_secrets=True, env=overlay)
             if url.rstrip("/").endswith("/mcp"):
                 return StreamableHTTPBackend(
-                    name=source.name,
+                    name=instance_name,
                     url=url,
                     headers=headers,
                 )
-            return SSEBackend(name=source.name, url=url, headers=headers)
+            return SSEBackend(name=instance_name, url=url, headers=headers)
         return None
 
     def drop_backends_for(self, source_name: str) -> None:
@@ -290,8 +297,12 @@ class ProxyManager:
         if not self._started or not source.mcp:
             return
         settings = load_settings()
+        if not self._source_eligible(source, settings):
+            return
         for backend_name, env_values in launch_instances(source, settings):
-            backend = self._create_backend(source, env_values=env_values)
+            backend = self._create_backend(
+                source, env_values=env_values, backend_name=backend_name
+            )
             if backend is None:
                 continue
             try:

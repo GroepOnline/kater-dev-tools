@@ -25,7 +25,8 @@ permissions:
 jobs:
   release:
     name: Build and publish GitHub Release
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    runs-on: fromJSON('["self-hosted","Linux","X64","heavy"]')
     timeout-minutes: 30
 
     steps:
@@ -85,7 +86,7 @@ jobs:
 
       - name: Test
         run: >-
-          timeout 300s uv run pytest -vv --tb=short -ra
+          timeout 480s uv run pytest -vv --tb=short -ra --no-cov
           --ignore=tests/test_computer_acceptance_e2e.py
 
       - name: Build distributions

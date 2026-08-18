@@ -12,6 +12,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+# Environment keys materialized from persisted settings, rather than supplied externally.
+persisted_env_keys: set[str] = set()
+
 
 class AuthConfig(BaseModel):
     mode: str = "none"  # none | apikey | oauth
@@ -93,8 +96,9 @@ class KaterSettings(BaseModel):
             if override.connections:
                 primary = {**primary, **override.connections[0].env}
             for key, value in primary.items():
-                if value:
-                    os.environ.setdefault(key, value)
+                if value and key not in os.environ:
+                    os.environ[key] = value
+                    persisted_env_keys.add(key)
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
@@ -377,9 +381,9 @@ def check_admin(
     """True if the caller holds the operator/admin credential.
 
     Operators set ``KATER_ADMIN_KEY`` to separate "use tools" from "change
-    settings". When unset, every authenticated caller is treated as admin
-    (single-user local default). When set, sensitive settings mutations
-    (auth mode, api_keys, CORS, rate limit) require this key, so a leaked
+    settings" and catalog credential writes. When unset, every authenticated
+    caller is treated as admin (single-user local default). When set, sensitive
+    settings mutations and ``POST /credentials`` require this key, so a leaked
     tool-credential cannot weaken the gateway.
     """
     admin_key = os.environ.get("KATER_ADMIN_KEY", "")

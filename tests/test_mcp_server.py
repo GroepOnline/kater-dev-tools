@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -140,3 +141,128 @@ def test_mcp_rate_limit_ignores_spoofed_xff_from_public_peer(monkeypatch, tmp_pa
 
     assert seen_clients == ["8.8.8.8"]
     assert sent[0]["status"] == 429
+
+
+def test_build_mcp_app_combines_sse_and_streamable_http() -> None:
+    class _Route:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+    fake_sse_app = Mock()
+    fake_sse_app.routes = [_Route("/sse"), _Route("/messages")]
+    fake_stream_app = Mock()
+    fake_stream_app.routes = [_Route("/mcp")]
+
+    class FakeServer:
+        def sse_app(self, **kwargs: Any) -> Mock:
+            return fake_sse_app
+
+        def streamable_http_app(self, **kwargs: Any) -> Mock:
+            return fake_stream_app
+
+        @property
+        def session_manager(self) -> Mock:
+            return self._session_manager
+
+        def __init__(self) -> None:
+            self._session_manager = Mock()
+            self._session_manager.run.return_value = _FakeAsyncContext()
+
+    fake_server = FakeServer()
+
+    with patch("kater.mcp_server.create_server", return_value=fake_server):
+        app = mcp_server.build_mcp_app(profile="core")
+
+    auth_mw = app._app
+    starlette = auth_mw._app
+    paths = [route.path for route in starlette.routes]
+    assert paths == ["/sse", "/messages", "/mcp"]
+    assert starlette.router.lifespan_context is not None
+
+
+def test_build_mcp_app_sse_only_without_streamable_http() -> None:
+    fake_sse_app = Mock()
+    fake_sse_app.routes = [Mock(path="/sse")]
+
+    class FakeServer:
+        def sse_app(self, **kwargs: Any) -> Mock:
+            return fake_sse_app
+
+    fake_server = FakeServer()
+
+    with patch("kater.mcp_server.create_server", return_value=fake_server):
+        app = mcp_server.build_mcp_app(profile="core")
+
+    auth_mw = app._app
+    assert auth_mw._app is fake_sse_app
+
+
+class _FakeAsyncContext:
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
+def test_build_proxy_handler_allocates_extra_suffixes_on_name_collision() -> None:
+    """When fallback names collide, keep suffixing instead of skipping the tool."""
+    import inspect
+
+    proxy = Mock()
+    proxy.call_tool.return_value = {"ok": True}
+
+    handler = mcp_server._build_proxy_handler(
+        "evil__collide",
+        {
+            "type": "object",
+            "properties": {
+                "from_": {"type": "string"},
+                "arg_from": {"type": "string"},
+                "from": {"type": "string"},
+            },
+        },
+        proxy,
+    )
+
+    sig = inspect.signature(handler)
+    assert list(sig.parameters) == ["from_", "arg_from", "from__"]
+    handler(from_="a", arg_from="b", from__="c")
+    proxy.call_tool.assert_called_once_with(
+        "evil__collide",
+        {"from_": "a", "arg_from": "b", "from": "c"},
+    )
+
+
+def test_build_proxy_handler_reflects_python_keyword_params() -> None:
+    """Schema properties named like Python keywords must not crash registration."""
+    import inspect
+
+    proxy = Mock()
+    proxy.call_tool.return_value = {"ok": True}
+
+    handler = mcp_server._build_proxy_handler(
+        "firecrawl__search",
+        {
+            "type": "object",
+            "properties": {
+                "from": {"type": "string"},
+                "class": {"type": "string"},
+                "query": {"type": "string"},
+            },
+            "required": ["query"],
+        },
+        proxy,
+    )
+
+    sig = inspect.signature(handler)
+    assert list(sig.parameters) == ["from_", "class_", "query"]
+    for param in sig.parameters.values():
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY
+        assert param.annotation is Any
+
+    handler(from_="2024-01-01", class_="article", query="mcp")
+    proxy.call_tool.assert_called_once_with(
+        "firecrawl__search",
+        {"from": "2024-01-01", "class": "article", "query": "mcp"},
+    )

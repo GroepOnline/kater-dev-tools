@@ -78,9 +78,10 @@ def test_export_does_not_leak_api_keys(api_server):
     assert "secret-key-456" not in json.dumps(auth)
 
 
-def test_export_does_not_leak_server_credentials(api_server):
+def test_export_does_not_leak_server_credentials(api_server, monkeypatch):
     import os
 
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     try:
         _post(
             9930,

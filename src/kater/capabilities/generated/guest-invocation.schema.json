@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://onlinechefgroep.nl/schemas/computer-acceptance/guest-invocation.schema.json",
+  "$id": "https://groeponline.nl/schemas/computer-acceptance/guest-invocation.schema.json",
   "title": "GuestInvocationRequest",
   "type": "object",
   "required": ["protocol_version", "request_id", "computer_session_id", "machine_id", "workspace_id", "workspace_generation", "capability_id", "attempt", "deadline_at", "arguments"],

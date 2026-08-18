@@ -183,6 +183,76 @@ def test_settings_change_works_without_admin_key_set(api_server, monkeypatch):
     assert data["cors_origins"] == ["https://local.com"]
 
 
+def test_public_catalog_mutations_require_admin_key(monkeypatch, api_server):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "apikey")
+    monkeypatch.setenv("KATER_API_KEYS", "tool-secret,admin-secret")
+    monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
+    monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "https://kater.example.test")
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    from kater.settings import invalidate_settings_cache
+
+    invalidate_settings_cache()
+
+    tool = {"Authorization": "Bearer tool-secret"}
+    admin = {"Authorization": "Bearer admin-secret"}
+    err = _get_err_post(
+        9970,
+        "/api/mcp/servers/github/credentials",
+        {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
+        headers=tool,
+    )
+    assert err.code == 403
+
+    admin_err = _get_err_post(
+        9970,
+        "/api/mcp/servers/github/credentials",
+        {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
+        headers=admin,
+    )
+    assert admin_err.code == 403
+    assert "secret_sink_required" in admin_err.read().decode()
+
+    start_err = _get_err_post(9970, "/api/mcp/servers/slack/oauth/start", {}, headers=tool)
+    assert start_err.code == 403
+    start_admin = _get_err_post(9970, "/api/mcp/servers/slack/oauth/start", {}, headers=admin)
+    assert start_admin.code == 403
+    assert "secret_sink_required" in start_admin.read().decode()
+
+    listed = json.loads(
+        urllib.request.urlopen(
+            urllib.request.Request(
+                "http://127.0.0.1:9970/api/mcp/servers/github/connections",
+                headers=tool,
+            )
+        ).read()
+    )
+    assert "connections" in listed
+
+
+def test_public_oauth_start_does_not_use_forwarded_host(monkeypatch, api_server):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "apikey")
+    monkeypatch.setenv("KATER_API_KEYS", "admin-secret")
+    monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
+    monkeypatch.delenv("KATER_CONNECT_PUBLIC_BASE_URL", raising=False)
+
+    err = _get_err_post(
+        9970,
+        "/api/mcp/servers/slack/oauth/start",
+        {},
+        headers={
+            "Authorization": "Bearer admin-secret",
+            "Host": "evil.example",
+            "X-Forwarded-Host": "evil.example",
+        },
+    )
+    assert err.code == 400
+    body = err.read().decode()
+    assert "public_base_url_required" in body
+    assert "evil.example" not in body
+
+
 def test_public_settings_change_requires_admin_key(monkeypatch, api_server):
     monkeypatch.setenv("KATER_PUBLIC", "1")
     monkeypatch.setenv("KATER_AUTH_MODE", "apikey")
@@ -207,10 +277,13 @@ def test_public_settings_change_requires_admin_key(monkeypatch, api_server):
     ],
 )
 def test_public_settings_reject_unsafe_downgrades(monkeypatch, api_server, body, expected):
+    from kater.settings import invalidate_settings_cache
+
     monkeypatch.setenv("KATER_PUBLIC", "1")
     monkeypatch.setenv("KATER_AUTH_MODE", "apikey")
     monkeypatch.setenv("KATER_API_KEYS", "admin-secret")
     monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
+    invalidate_settings_cache()
 
     err = _get_err_post(
         9970,

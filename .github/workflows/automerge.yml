@@ -19,7 +19,9 @@ permissions:
 
 jobs:
   automerge:
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners banned until Actions spending restored.
+    # PR → pr-isolated; else → heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]'
       || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')

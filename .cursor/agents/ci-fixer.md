@@ -82,11 +82,9 @@ Subagents: re-verify with `kater-verify`; merge-ready gate with `pr-gate`.
    uvx pre-commit run --all-files
    ```
 
-6. **Push** — only when parent authorized; then:
-
-   ```bash
-   gh pr checks <pr> --repo <repo> --watch
-   ```
+6. **Push** — only when parent authorized; then stop. Notify-first: do **not**
+   `gh pr checks --watch` or poll until green. One-shot `gh pr checks` only after
+   a CI notification or when the parent asks for merge-ready evidence.
 
 7. **Gateway paths** — if change touches CLI/serve/API, run `./scripts/smoke.sh`
    (server stopped) before claiming done.

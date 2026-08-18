@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://onlinechefgroep.nl/schemas/computer-fleet-m0/error-envelope.json",
+  "$id": "https://groeponline.nl/schemas/computer-fleet-m0/error-envelope.json",
   "title": "ErrorEnvelope",
   "type": "object",
   "required": ["code", "message", "retryable"],

@@ -61,7 +61,7 @@ if [[ "${PRINT_MARKDOWN}" -eq 0 && "${WRITE_CACHE}" -eq 0 ]]; then
     workspaceOpen)
       plugin_paths='[]'
       if [[ -d "${ROOT}/.cursor/plugins" ]]; then
-        plugin_paths="$(find "${ROOT}/.cursor/plugins" -mindepth 1 -maxdepth 1 -type d -print | jq -R -s -c 'split("\n")|map(select(length>0))')"
+        plugin_paths="$(find "${ROOT}/.cursor/plugins" -mindepth 1 -maxdepth 1 -type d ! -name installed -print | jq -R -s -c 'split("\n")|map(select(length>0))')"
       fi
       jq -n --argjson pluginPaths "${plugin_paths}" '{pluginPaths: $pluginPaths}'
       exit 0
@@ -149,7 +149,7 @@ collect_plugins() {
   while IFS= read -r path; do
     [[ -z "${path}" ]] && continue
     printf 'plugin\t%s\t%s\n' "$(basename "${path}")" "${path}"
-  done < <(find .cursor/plugins -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+  done < <(find .cursor/plugins -mindepth 1 -maxdepth 1 -type d ! -name installed -print | LC_ALL=C sort)
 }
 
 ARTIFACTS="$(

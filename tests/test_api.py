@@ -9,11 +9,12 @@ import urllib.request
 import pytest
 
 from kater.api import create_api_server
+from tests.portutil import free_port
 
 
 @pytest.fixture
 def api_server():
-    server = create_api_server("127.0.0.1", 9912)
+    server = create_api_server("127.0.0.1", free_port())
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.3)
@@ -23,9 +24,23 @@ def api_server():
     time.sleep(0.2)
 
 
+def _api_port(server) -> int:
+    return int(server.server_address[1])
+
+
 def _get(port: int, path: str, headers: dict | None = None) -> dict:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
+        headers=headers or {},
+    )
+    resp = urllib.request.urlopen(req)
+    return json.loads(resp.read())
+
+
+def _delete(port: int, path: str, headers: dict | None = None) -> dict:
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        method="DELETE",
         headers=headers or {},
     )
     resp = urllib.request.urlopen(req)
@@ -61,9 +76,9 @@ def test_public_path_fails_closed_on_an_invalid_context_token(api_server) -> Non
     ``X-Kater-Context`` must be rejected rather than silently downgraded to
     anonymous access.
     """
-    assert _get(9912, "/health")["status"] == "ok"
+    assert _get(_api_port(api_server), "/health")["status"] == "ok"
 
-    err = _get_err(9912, "/health", headers={"X-Kater-Context": "garbage"})
+    err = _get_err(_api_port(api_server), "/health", headers={"X-Kater-Context": "garbage"})
     assert err.code == 401
     assert json.loads(err.read().decode())["error"] == "Invalid context token."
 
@@ -71,7 +86,7 @@ def test_public_path_fails_closed_on_an_invalid_context_token(api_server) -> Non
 def test_cors_advertises_the_context_header_and_mutating_methods(api_server) -> None:
     """Preflight must allow X-Kater-Context and the PATCH/DELETE routes."""
     req = urllib.request.Request(
-        "http://127.0.0.1:9912/api/profiles",
+        f"http://127.0.0.1:{_api_port(api_server)}/api/profiles",
         method="OPTIONS",
         headers={"Origin": "http://127.0.0.1"},
     )
@@ -88,21 +103,21 @@ def test_cors_advertises_the_context_header_and_mutating_methods(api_server) -> 
 
 
 def test_health(api_server) -> None:
-    data = _get(9912, "/health")
+    data = _get(_api_port(api_server), "/health")
     assert data["status"] == "ok"
     assert "version" in data
     assert data["auth_mode"] == "none"
 
 
 def test_health_live(api_server) -> None:
-    data = _get(9912, "/health/live")
+    data = _get(_api_port(api_server), "/health/live")
     assert data["status"] == "ok"
     assert "version" in data
     assert data["auth_mode"] == "none"
 
 
 def test_health_ready(api_server) -> None:
-    data = _get(9912, "/health/ready")
+    data = _get(_api_port(api_server), "/health/ready")
     assert data["status"] in {"ok", "degraded", "unhealthy"}
     assert data["service"] == "kater"
     assert "components" in data
@@ -111,13 +126,13 @@ def test_health_ready(api_server) -> None:
 
 
 def test_profiles(api_server) -> None:
-    data = _get(9912, "/api/profiles")
+    data = _get(_api_port(api_server), "/api/profiles")
     assert "core" in data["profiles"]
     assert "ops" in data["profiles"]
 
 
 def test_mcp_servers(api_server) -> None:
-    data = _get(9912, "/api/mcp/servers")
+    data = _get(_api_port(api_server), "/api/mcp/servers")
     assert data["total"] > 15
     names = {s["name"] for s in data["servers"]}
     assert "github" in names
@@ -128,7 +143,7 @@ def test_mcp_servers(api_server) -> None:
 
 
 def test_mcp_server_detail(api_server) -> None:
-    data = _get(9912, "/api/mcp/servers/github")
+    data = _get(_api_port(api_server), "/api/mcp/servers/github")
     assert data["name"] == "github"
     assert data["transport"] == "stdio"
     assert data["mcp"]["command"] == "npx"
@@ -136,30 +151,32 @@ def test_mcp_server_detail(api_server) -> None:
 
 
 def test_adapters(api_server) -> None:
-    data = _get(9912, "/api/adapters")
+    data = _get(_api_port(api_server), "/api/adapters")
     assert "adapters" in data
     assert "total" in data
 
 
 def test_doctor(api_server) -> None:
-    data = _get(9912, "/api/doctor")
+    data = _get(_api_port(api_server), "/api/doctor")
     assert "findings" in data
     assert "profiles" in data
 
 
 def test_chains(api_server) -> None:
-    data = _get(9912, "/api/chains")
+    data = _get(_api_port(api_server), "/api/chains")
     assert "chains" in data
 
 
 def test_chain_run(api_server) -> None:
-    data = _post(9912, "/api/chains/run", {"name": "research_brief", "profile": "research"})
+    data = _post(
+        _api_port(api_server), "/api/chains/run", {"name": "research_brief", "profile": "research"}
+    )
     assert data["chain"] == "research_brief"
     assert len(data["steps"]) == 3
 
 
 def test_404(api_server) -> None:
-    err = _get_err(9912, "/api/nonexistent")
+    err = _get_err(_api_port(api_server), "/api/nonexistent")
     assert err.code == 404
 
 
@@ -167,7 +184,7 @@ def test_404(api_server) -> None:
 
 
 def test_get_settings(api_server) -> None:
-    data = _get(9912, "/api/settings")
+    data = _get(_api_port(api_server), "/api/settings")
     assert data["version"] == 2
     assert data["auth"]["mode"] == "none"
 
@@ -175,7 +192,7 @@ def test_get_settings(api_server) -> None:
 def test_update_settings_auth_partial_patch(api_server) -> None:
     # First set full auth config
     _post(
-        9912,
+        _api_port(api_server),
         "/api/settings",
         {"auth": {"mode": "apikey", "api_keys": ["secret1"], "oauth_issuer": "https://issuer.com"}},
     )
@@ -183,7 +200,7 @@ def test_update_settings_auth_partial_patch(api_server) -> None:
     # Then apply partial patch (e.g., just changing mode).
     # Since we set mode=apikey, we need to authenticate with the key!
     data = _post(
-        9912,
+        _api_port(api_server),
         "/api/settings",
         {"auth": {"mode": "oauth"}},
         headers={"Authorization": "Bearer secret1"},
@@ -204,7 +221,7 @@ def test_update_settings_auth_partial_patch(api_server) -> None:
 
 def test_update_settings(api_server) -> None:
     data = _post(
-        9912,
+        _api_port(api_server),
         "/api/settings",
         {
             "cors_origins": ["https://example.com"],
@@ -219,24 +236,24 @@ def test_update_settings(api_server) -> None:
 
 
 def test_disable_server(api_server) -> None:
-    data = _post(9912, "/api/mcp/servers/github/disable", {})
+    data = _post(_api_port(api_server), "/api/mcp/servers/github/disable", {})
     assert data["name"] == "github"
     assert data["enabled"] is False
 
-    detail = _get(9912, "/api/mcp/servers/github")
+    detail = _get(_api_port(api_server), "/api/mcp/servers/github")
     assert detail["enabled"] is False
 
 
 def test_enable_server(api_server) -> None:
-    _post(9912, "/api/mcp/servers/sentry/disable", {})
-    data = _post(9912, "/api/mcp/servers/sentry/enable", {})
+    _post(_api_port(api_server), "/api/mcp/servers/sentry/disable", {})
+    data = _post(_api_port(api_server), "/api/mcp/servers/sentry/enable", {})
     assert data["enabled"] is True
 
 
 def test_toggle_server(api_server) -> None:
-    data = _post(9912, "/api/mcp/servers/exa/toggle", {})
+    data = _post(_api_port(api_server), "/api/mcp/servers/exa/toggle", {})
     assert data["enabled"] is False
-    data = _post(9912, "/api/mcp/servers/exa/toggle", {})
+    data = _post(_api_port(api_server), "/api/mcp/servers/exa/toggle", {})
     assert data["enabled"] is True
 
 
@@ -244,19 +261,19 @@ def test_toggle_server(api_server) -> None:
 
 
 def test_deploy_formats(api_server) -> None:
-    data = _get(9912, "/api/deploy")
+    data = _get(_api_port(api_server), "/api/deploy")
     names = {f["name"] for f in data["formats"]}
     assert "docker" in names
     assert "cloudflare" in names
 
 
 def test_deploy_render(api_server) -> None:
-    data = _get(9912, "/api/deploy/docker")
+    data = _get(_api_port(api_server), "/api/deploy/docker")
     assert data["format"] == "docker-compose"
 
 
 def test_deploy_render_unknown_format_404(api_server) -> None:
-    err = _get_err(9912, "/api/deploy/nonexistent")
+    err = _get_err(_api_port(api_server), "/api/deploy/nonexistent")
     assert err.code == 404
     body = err.read().decode()
     assert "Unknown format" in body
@@ -267,21 +284,35 @@ def test_deploy_render_unknown_format_404(api_server) -> None:
 
 
 def test_auth_blocks_without_key(api_server) -> None:
-    _post(9912, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
-    err = _get_err(9912, "/api/profiles")
+    _post(
+        _api_port(api_server),
+        "/api/settings",
+        {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}},
+    )
+    err = _get_err(_api_port(api_server), "/api/profiles")
     assert err.code == 401
 
 
 def test_auth_allows_with_key(api_server) -> None:
-    _post(9912, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
-    data = _get(9912, "/api/profiles", headers={"Authorization": "Bearer test-secret"})
+    _post(
+        _api_port(api_server),
+        "/api/settings",
+        {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}},
+    )
+    data = _get(
+        _api_port(api_server), "/api/profiles", headers={"Authorization": "Bearer test-secret"}
+    )
     assert "core" in data["profiles"]
 
 
 def test_auth_health_always_open(api_server) -> None:
-    _post(9912, "/api/settings", {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}})
+    _post(
+        _api_port(api_server),
+        "/api/settings",
+        {"auth": {"mode": "apikey", "api_keys": ["test-secret"]}},
+    )
     for path in ("/health", "/health/live", "/health/ready"):
-        data = _get(9912, path)
+        data = _get(_api_port(api_server), path)
         assert data["status"] in {"ok", "degraded"}
         assert data["auth_mode"] == "apikey"
 
@@ -290,70 +321,105 @@ def test_auth_health_always_open(api_server) -> None:
 
 
 def test_catalog(api_server) -> None:
-    data = _get(9912, "/api/catalog")
+    data = _get(_api_port(api_server), "/api/catalog")
     assert data["total"] > 15
     assert "by_transport" in data
     assert "by_risk" in data
     assert "stdio" in data["by_transport"]
     assert "high" in data["by_risk"]
 
-    search = _get(9912, "/api/catalog?q=brave")
+    search = _get(_api_port(api_server), "/api/catalog?q=brave")
     names = {s["name"] for s in search["servers"]}
     assert names == {"brave-search"}
 
-    profile = _get(9912, "/api/catalog?profile=research")
+    profile = _get(_api_port(api_server), "/api/catalog?profile=research")
     for server in profile["servers"]:
         assert "research" in server["profiles"]
 
 
 def test_update_storage_backend(api_server) -> None:
-    updated = _post(9912, "/api/settings", {"storage_backend": "jsonl"})
+    updated = _post(_api_port(api_server), "/api/settings", {"storage_backend": "jsonl"})
     assert updated["storage_backend"] == "jsonl"
-    assert _get(9912, "/api/settings")["storage_backend"] == "jsonl"
+    assert _get(_api_port(api_server), "/api/settings")["storage_backend"] == "jsonl"
 
     with pytest.raises(urllib.error.HTTPError) as exc:
-        _post(9912, "/api/settings", {"storage_backend": "redis"})
+        _post(_api_port(api_server), "/api/settings", {"storage_backend": "redis"})
     assert exc.value.code == 400
 
 
-def test_server_credentials(api_server) -> None:
+def test_server_credentials(api_server, monkeypatch) -> None:
     import os
 
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     try:
         ok = _post(
-            9912,
+            _api_port(api_server),
             "/api/mcp/servers/github/credentials",
             {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "tok123"}},
         )
         assert ok["env_configured"] is True
         assert ok["applied"] == ["GITHUB_PERSONAL_ACCESS_TOKEN"]
         # The server reports configured now that the credential is set.
-        detail = _get(9912, "/api/mcp/servers/github")
+        detail = _get(_api_port(api_server), "/api/mcp/servers/github")
         assert detail["env_configured"] is True
 
         # Only declared credentials are accepted (no arbitrary env injection).
         with pytest.raises(urllib.error.HTTPError) as exc:
-            _post(9912, "/api/mcp/servers/github/credentials", {"env": {"NOPE": "x"}})
+            _post(
+                _api_port(api_server), "/api/mcp/servers/github/credentials", {"env": {"NOPE": "x"}}
+            )
         assert exc.value.code == 400
+
+        removed = _delete(_api_port(api_server), "/api/mcp/servers/github/connections/legacy")
+        assert removed["removed"] == "legacy"
+        assert removed["env_configured"] is False
+        assert "GITHUB_PERSONAL_ACCESS_TOKEN" not in os.environ
+        detail = _get(_api_port(api_server), "/api/mcp/servers/github")
+        assert detail["env_configured"] is False
     finally:
         os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
 
 
-def test_settings_redacts_server_credentials(api_server) -> None:
+def test_settings_redacts_server_credentials(api_server, monkeypatch) -> None:
     import os
 
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     try:
         _post(
-            9912,
+            _api_port(api_server),
             "/api/mcp/servers/github/credentials",
             {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "supersecret-token"}},
         )
-        raw = _get(9912, "/api/settings")
+        raw = _get(_api_port(api_server), "/api/settings")
         assert "supersecret-token" not in json.dumps(raw)
         stored = raw["server_overrides"]["github"]["env"]
         assert stored["GITHUB_PERSONAL_ACCESS_TOKEN"] == "***"
     finally:
         os.environ.pop("GITHUB_PERSONAL_ACCESS_TOKEN", None)
+
+
+def test_catalog_oauth_start_deny_default_without_client(api_server, monkeypatch) -> None:
+    import os
+
+    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
+    monkeypatch.setattr("kater.mcp_oauth.discover_scopes", lambda _source: "users:read")
+    os.environ.pop("SLACK_MCP_CLIENT_ID", None)
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _post(_api_port(api_server), "/api/mcp/servers/slack/oauth/start", {})
+    assert exc.value.code == 409
+    body = json.loads(exc.value.read().decode())
+    assert body["error"] == "oauth_app_missing"
+    assert body["setup"]["client_id_env"] == "SLACK_MCP_CLIENT_ID"
+    assert body["setup"]["client_secret_env"] == "SLACK_MCP_CLIENT_SECRET"
+    dumped = json.dumps(body)
+    assert "kater-test-" not in dumped
+    listed = _get(_api_port(api_server), "/api/mcp/servers/slack/connections")
+    assert listed["connections"] == []
+    catalog = _get(_api_port(api_server), "/api/catalog?q=slack")
+    slack = next(s for s in catalog["servers"] if s["name"] == "slack")
+    assert slack["oauth"]["provider"] == "slack"
+    assert slack["oauth"]["client_configured"] is False
+    assert "token" not in json.dumps(slack["oauth"]["connections"])
 
 
 def test_private_server_hidden_in_public_mode(monkeypatch) -> None:
@@ -374,7 +440,7 @@ def test_private_server_hidden_in_public_mode(monkeypatch) -> None:
 
 
 def test_openapi_spec(api_server) -> None:
-    data = _get(9912, "/api/spec")
+    data = _get(_api_port(api_server), "/api/spec")
     assert data["openapi"] == "3.1.0"
     assert "paths" in data
     assert "/health" in data["paths"]
@@ -409,7 +475,7 @@ def test_openapi_spec_has_no_api_drift() -> None:
 
 
 def test_export(api_server) -> None:
-    data = _get(9912, "/api/export")
+    data = _get(_api_port(api_server), "/api/export")
     assert "version" in data
     assert "exported_at" in data
     assert "auth" in data
@@ -419,7 +485,7 @@ def test_export(api_server) -> None:
 
 
 def test_status(api_server) -> None:
-    data = _get(9912, "/api/status")
+    data = _get(_api_port(api_server), "/api/status")
     assert data["version"] is not None
     assert "servers" in data
     assert "telemetry" in data
@@ -430,7 +496,7 @@ def test_status(api_server) -> None:
 
 
 def test_dashboard_html(api_server) -> None:
-    resp = urllib.request.urlopen("http://127.0.0.1:9912/")
+    resp = urllib.request.urlopen(f"http://127.0.0.1:{_api_port(api_server)}/")
     body = resp.read().decode()
     assert "<!DOCTYPE html>" in body
     assert "server-map" in body

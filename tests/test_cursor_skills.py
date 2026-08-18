@@ -19,6 +19,7 @@ AGENTS_DIR = ROOT / ".cursor/agents"
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 
 EXPECTED_SKILLS = {
+    "ci-fix-loop",
     "kater-dev-tools-ci-fixer",
     "kater-dev-tools-create-skill",
     "kater-dev-tools-create-subagent",

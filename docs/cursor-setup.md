@@ -92,10 +92,20 @@ Full matrix (Cloud VM vs laptop vs Docker): [local-desktop-verify.md](ops/local-
 
 `.cursor/environment.json` provisions:
 
-- `install` — fetch catalog cache, optional index generation, `uv sync --dev`
+- `install` — `uv sync --dev`, then `scripts/sync-chefgroep-skills.sh` (no-op
+  unless `CHEFGROEP_SKILLS_REPO` or `CHEFGROEP_SKILLS_GIT_URL` is set), fetch
+  catalog cache, optional index generation
 - `start` — ensure `uv` on `PATH`; optional non-blocking health probe
 - `terminals` — auto-start `uv run kater serve --profile core --no-proxy` (ports 9090/9091/9092)
 - `ports` — declared MCP, API, and WebSocket ports
+
+PostHog / Harness marketplace plugins are **not** configured here. They come from
+the Cursor user/team plugin set (`source: user`). Disable them in Cursor Plugins
+if Cloud Agents should not load their skills/commands. ChefGroep meta-skills are
+opt-in via `CHEFGROEP_SKILLS_REPO` / `CHEFGROEP_SKILLS_GIT_URL` into
+`.cursor/plugins/chefgroep-skills/` and registered through `workspaceOpen`
+`pluginPaths` (not copied into committed `.cursor/skills`). The Cloud environment
+file stays org-agnostic on purpose.
 
 Catalog cold-start: hooks inject skills/agents after the first `postToolUse`. Until then use
 [`.cursor/INDEX.md`](../.cursor/INDEX.md) or `fetch-cursor-artifacts.sh --print-markdown`.

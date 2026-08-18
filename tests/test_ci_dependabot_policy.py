@@ -21,11 +21,22 @@ def test_dependabot_gets_auditable_private_lane_skip() -> None:
     assert "withholds repository secrets" in block
 
 
+def _named_step(job_block: str, step_name: str) -> str:
+    needle = f"      - name: {step_name}\n"
+    if needle not in job_block:
+        raise AssertionError(f"missing step {step_name!r}")
+    rest = job_block.split(needle, 1)[1]
+    nxt = rest.find("\n      - name: ")
+    return rest if nxt < 0 else rest[:nxt]
+
+
 def test_private_lane_stays_strict_for_trusted_runs() -> None:
     block = _job_block("computer-acceptance", "e2e")
-    # Checkout Kater, checkout UDO, setup uv, sync, npm install, acceptance test,
-    # and evidence upload must all remain behind the same trusted-actor guard.
-    assert block.count(TRUSTED_RUN_GUARD) == 7
+    # Probe runs behind the trusted-actor guard; private steps require its output.
+    assert block.count(TRUSTED_RUN_GUARD) == 1
+    probe = _named_step(block, "Probe UDO deploy key")
+    assert TRUSTED_RUN_GUARD in probe
+    assert block.count("if: steps.udo.outputs.available == 'true'") == 7
     assert "ssh-key: ${{ secrets.UDO_READ_DEPLOY_KEY }}" in block
     assert "tests/test_computer_acceptance_e2e.py" in block
 

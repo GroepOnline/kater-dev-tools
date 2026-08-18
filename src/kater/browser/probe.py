@@ -63,11 +63,57 @@ def probe_steel() -> ProviderInfo:
     )
 
 
-def _has_chromium_build(root: Path) -> bool:
+def _is_launchable(path: Path) -> bool:
+    """True when ``path`` looks like a Chromium binary this host can exec."""
     try:
-        return any(child.name.startswith("chromium") for child in root.iterdir())
+        if not path.is_file():
+            return False
+        # Windows builds ship ``.exe``; execute bit is not meaningful there.
+        if path.suffix.lower() == ".exe":
+            return True
+        return os.access(path, os.X_OK)
     except OSError:
         return False
+
+
+def _has_chromium_build(root: Path) -> bool:
+    """True only when a chromium* tree contains a launchable binary.
+
+    A bare ``chromium_*`` directory (stale / partial Playwright cache) must
+    not count as available — otherwise ``requires_chromium`` tests run and
+    fail with ``Executable doesn't exist``.
+    """
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return False
+    for child in children:
+        if not child.name.startswith("chromium"):
+            continue
+        if not child.is_dir():
+            continue
+        for candidate in (
+            "chrome-linux/chrome",
+            "chrome-linux64/chrome",
+            "chrome-headless-shell-linux64/chrome-headless-shell",
+            "chrome-headless-shell-linux/chrome-headless-shell",
+            "chrome-mac/Chromium",
+            "chrome-mac-arm64/Google Chrome for Testing",
+            "chrome-win/chrome.exe",
+            "chrome-win64/chrome.exe",
+        ):
+            if _is_launchable(child / candidate):
+                return True
+        # Fallback: any nested launchable named chrome / chrome-headless-shell
+        try:
+            for path in child.rglob("*"):
+                name = path.name.lower()
+                if name in {"chrome", "chrome.exe", "chrome-headless-shell", "chromium"}:
+                    if _is_launchable(path):
+                        return True
+        except OSError:
+            continue
+    return False
 
 
 def _playwright_version() -> str | None:

@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from typing import Any
 
 from kater.proxy.models import BackendStatus, ProxiedTool
+
+# Newest-first MCP protocol versions this gateway speaks. 2025-06-18 is the
+# current stable MCP release (streamable HTTP transport, elicitation, form
+# filling); older servers negotiate down from it in the initialize response.
+# The gateway advertises the newest version and accepts any supported version
+# the server answers with, instead of pinning the legacy 2024-11-05.
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+NEWEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 
 
 class BackendOperationalError(Exception):
@@ -29,15 +38,21 @@ class BaseBackend:
         self._tools: list[ProxiedTool] = []
         self._status = BackendStatus(name=self.name)
         self._running = False
+        self._protocol_version: str | None = None
 
     def start(self) -> None:
+        connected = False
         try:
             self._connect()
+            connected = True
             self._running = True
             self._initialize()
             self._refresh_tools()
             self._status.healthy = True
         except Exception as exc:
+            if connected:
+                with contextlib.suppress(Exception):
+                    self._disconnect()
             self._status.error = str(exc)
             self._status.healthy = False
             self._running = False
@@ -84,14 +99,31 @@ class BaseBackend:
         raise NotImplementedError
 
     def _initialize(self) -> None:
-        self._rpc(
+        result = self._rpc(
             "initialize",
             {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": NEWEST_PROTOCOL_VERSION,
                 "capabilities": {},
                 "clientInfo": {"name": "kater-proxy", "version": "1.0"},
             },
         )
+        if "error" in result:
+            raise BackendOperationalError(
+                f"MCP initialize failed: {result['error']}",
+                fallback_safe=False,
+            )
+        negotiated = (result.get("result") or {}).get("protocolVersion")
+        if not isinstance(negotiated, str) or not negotiated:
+            raise BackendOperationalError(
+                "MCP initialize response missing a valid protocol version",
+                fallback_safe=False,
+            )
+        if negotiated not in SUPPORTED_PROTOCOL_VERSIONS:
+            raise BackendOperationalError(
+                f"unsupported MCP protocol version from server: {negotiated}",
+                fallback_safe=False,
+            )
+        self._protocol_version = negotiated
         self._rpc("notifications/initialized")
 
     def _refresh_tools(self) -> None:

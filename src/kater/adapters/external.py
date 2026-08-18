@@ -117,9 +117,7 @@ def resolve_remote_headers(
 ) -> dict[str, str]:
     if not source.mcp:
         return {}
-    return _resolve_env(
-        source.mcp.headers_template, include_secrets=include_secrets, overlay=env
-    )
+    return _resolve_env(source.mcp.headers_template, include_secrets=include_secrets, overlay=env)
 
 
 def _remote_launch_type(url: str) -> str:

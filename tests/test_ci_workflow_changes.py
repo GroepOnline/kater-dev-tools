@@ -30,6 +30,42 @@ def test_automerge_uses_github_script_v9() -> None:
     assert "actions/github-script@v" not in text
 
 
+def test_ci_runs_full_python_jobs_on_stacked_feature_base_prs() -> None:
+    text = CI.read_text(encoding="utf-8")
+    on_block = text.split("\njobs:", 1)[0]
+    pr_block = on_block.split("pull_request:", 1)[1].split("schedule:", 1)[0]
+    assert "branches:" not in pr_block
+    assert "  lint-type:" in text
+    assert "uv run ruff check ." in text
+    assert "uv run mypy" in text
+    assert "timeout 480s uv run pytest" in text
+    assert "GRO-1209" in text
+    assert "INTERIM" in text
+    assert "production-safe isolation" in text
+    assert "  validate:" in text
+    assert "  unit:" in text
+    assert "  gate:" in text
+
+
+def test_no_org_leak_runs_on_stacked_feature_base_prs() -> None:
+    text = NO_ORG_LEAK.read_text(encoding="utf-8")
+    on_block = text.split("\njobs:", 1)[0]
+    pr_block = on_block.split("pull_request:", 1)[1].split("push:", 1)[0]
+    assert "branches:" not in pr_block
+    assert "github.event.pull_request.base.ref" in text
+    assert "PR_BASE_REF" in text
+    assert "GRO-1209" in text
+    assert 'origin "${{ github.event.pull_request.base.ref }}"' not in text
+    assert "format('origin/{0}', github.event.pull_request.base.ref)" not in text
+    assert "head.repo.full_name == github.repository" in text
+    assert "github.event.pull_request.base.sha" in text
+    assert "path: .ci-trusted-scanner" in text
+    assert "path: ${{ runner.temp }}/trusted-scanner" not in text
+    assert '${RUNNER_TEMP}/no_org_leak.py' in text
+    assert "uv run --no-project python" in text
+    assert "rm -rf .ci-trusted-scanner" in text
+
+
 def test_ci_jobs_install_the_browser_extra() -> None:
     text = CI.read_text(encoding="utf-8")
     # lint-type, unit, integration, computer-acceptance, package: 5 occurrences.
@@ -39,8 +75,10 @@ def test_ci_jobs_install_the_browser_extra() -> None:
 def test_unit_matrix_job_uses_kater_checkout_sha_and_longer_timeout() -> None:
     block = _job_block(CI.read_text(encoding="utf-8"), "unit", "integration")
     assert KATER_CHECKOUT_SHA in block
-    assert "timeout 300s uv run pytest" in block
+    assert "timeout 480s uv run pytest" in block
+    assert "--no-cov" in block
     assert "timeout 180s" not in block
+    assert "timeout 300s" not in block
 
 
 def test_computer_acceptance_checks_out_kater_and_the_private_runtime() -> None:
@@ -96,5 +134,5 @@ def test_no_org_leak_workflow_matches_shared_checkout_sha() -> None:
 
 def test_pyproject_pins_newer_uv_build_range() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
-    assert 'requires = ["uv_build>=0.12.0,<0.13"]' in text
+    assert 'requires = ["uv_build>=0.12.2,<0.13"]' in text
     assert "0.11.32" not in text

@@ -10,12 +10,20 @@ from kater.profiles import ToolSource, all_tool_sources
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-def _substitute_env_vars(value: str, *, include_secrets: bool) -> str:
+def _lookup_env(name: str, overlay: dict[str, str] | None = None) -> str | None:
+    if overlay and overlay.get(name):
+        return overlay[name]
+    return os.environ.get(name)
+
+
+def _substitute_env_vars(
+    value: str, *, include_secrets: bool, overlay: dict[str, str] | None = None
+) -> str:
     """Replace every ${VAR} in a string. Keep the placeholder unless
     include_secrets is set and the variable is present in the environment."""
 
     def repl(match: re.Match[str]) -> str:
-        real = os.environ.get(match.group(1))
+        real = _lookup_env(match.group(1), overlay)
         if include_secrets and real:
             return real
         return match.group(0)
@@ -56,7 +64,11 @@ def scan_adapters(
         if not settings.is_server_enabled(source.name, default=True):
             continue
         missing = [var for var in source.env if not os.environ.get(var)]
-        configured = len(missing) == 0
+        from kater.connect import source_is_configured
+
+        configured = source_is_configured(source, settings)
+        if configured:
+            missing = []
         launch = _build_launch_hint(source, include_secrets=include_secrets) if source.mcp else None
         inventory.sources.append(
             McpAdapter(
@@ -97,10 +109,17 @@ def _build_launch_hint(
     return None
 
 
-def resolve_remote_headers(source: ToolSource, *, include_secrets: bool = True) -> dict[str, str]:
+def resolve_remote_headers(
+    source: ToolSource,
+    *,
+    include_secrets: bool = True,
+    env: dict[str, str] | None = None,
+) -> dict[str, str]:
     if not source.mcp:
         return {}
-    return _resolve_env(source.mcp.headers_template, include_secrets=include_secrets)
+    return _resolve_env(
+        source.mcp.headers_template, include_secrets=include_secrets, overlay=env
+    )
 
 
 def _remote_launch_type(url: str) -> str:
@@ -109,19 +128,26 @@ def _remote_launch_type(url: str) -> str:
     return "sse"
 
 
-def _resolve_env(template: dict[str, str], *, include_secrets: bool = True) -> dict[str, str]:
+def _resolve_env(
+    template: dict[str, str],
+    *,
+    include_secrets: bool = True,
+    overlay: dict[str, str] | None = None,
+) -> dict[str, str]:
     resolved: dict[str, str] = {}
     for key, val in template.items():
         match = _ENV_VAR_RE.fullmatch(val)
         if match:
             if include_secrets:
-                real = os.environ.get(match.group(1))
+                real = _lookup_env(match.group(1), overlay)
                 if real:
                     resolved[key] = real
             else:
                 resolved[key] = val
         elif "${" in val:
-            resolved[key] = _substitute_env_vars(val, include_secrets=include_secrets)
+            resolved[key] = _substitute_env_vars(
+                val, include_secrets=include_secrets, overlay=overlay
+            )
         else:
             resolved[key] = val
     return resolved

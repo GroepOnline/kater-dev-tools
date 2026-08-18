@@ -30,6 +30,7 @@ PUBLIC_API_PATHS = frozenset(
         "/token",
         "/register",
         "/revoke",
+        "/api/mcp/oauth/callback",
     }
 )
 PUBLIC_API_PREFIXES = ("/.well-known",)

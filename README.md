@@ -316,4 +316,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Status
 
-v1.0.0 — 417 tests, 29 MCP servers, loopback-by-default with OAuth/API-key auth for public deploys.
+v1.1.0 — see [CHANGELOG.md](CHANGELOG.md). Loopback-by-default; OAuth/API-key auth for public deploys. Package version lives in `pyproject.toml` and `src/kater/__init__.py` (must match). Tags exist only after a bump PR lands on `main`.

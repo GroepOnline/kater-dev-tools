@@ -20,6 +20,9 @@ uv run ruff check .
 3. Add or update tests for behavior changes.
 4. Run lint and tests locally before pushing.
 5. Update README/docs if user-facing behavior changes.
+6. Do **not** bump `pyproject.toml` / `__version__` in a feature PR. After a
+   merge train, open a dedicated bump PR and tag from `main` — see
+   [docs/release.md](docs/release.md).
 
 ## Code style
 

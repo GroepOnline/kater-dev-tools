@@ -35,13 +35,12 @@ Feature PRs never bump the package version. They append under
    git checkout main
    git pull --ff-only origin main
    git tag -a vX.Y.Z -m "vX.Y.Z"
-   GIT_SSH_COMMAND='ssh -F ~/.ssh/config-groeponline -o IdentityFile=~/.ssh/sheesh' \
-     git push origin vX.Y.Z
+   git push origin vX.Y.Z
    ```
 
    Tag push fires `.github/workflows/release.yml`. Merge-ready is not a tag.
 
-GroepOnline had **no git tags** until 1.1.0. Declared `1.0.0` in the package
+The remote had **no git tags** until 1.1.0. Declared `1.0.0` in the package
 sources was changelog history, not a GitHub Release.
 
 ## Channels

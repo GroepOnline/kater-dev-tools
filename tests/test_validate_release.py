@@ -36,9 +36,16 @@ def _current_version() -> str:
     return pyproject
 
 
-def _run(tag: str, extra: str = "--commit HEAD --main-ref HEAD") -> subprocess.CompletedProcess:
+def _run(
+    tag: str,
+    extra: str = "--commit HEAD --main-ref HEAD",
+    artifacts_dir: str | None = None,
+) -> subprocess.CompletedProcess:
+    args = [sys.executable, str(VALIDATOR), tag, *extra.split()]
+    if artifacts_dir is not None:
+        args += ["--artifacts-dir", artifacts_dir]
     return subprocess.run(
-        [sys.executable, str(VALIDATOR), tag, *extra.split()],
+        args,
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -50,8 +57,10 @@ class TestValidateRelease:
         pyproject, init = _package_versions()
         assert pyproject == init
 
-    def test_valid_stable_tag_passes(self) -> None:
-        result = _run(f"v{_current_version()}")
+    def test_valid_stable_tag_passes(self, tmp_path: Path) -> None:
+        # Scan an empty artifacts dir so a stale local `uv build` in dist/
+        # (from a prior version) cannot fail this happy-path assertion.
+        result = _run(f"v{_current_version()}", artifacts_dir=str(tmp_path))
         assert result.returncode == 0, result.stderr
         assert "PASS" in result.stdout
 
@@ -61,9 +70,11 @@ class TestValidateRelease:
         assert "version" in result.stderr.lower() or "ERROR" in result.stderr
 
     def test_dev_tag_matches_development_channel(self) -> None:
+        # A dev tag resolves to the development channel (printed to stdout)
+        # before failing the version-match step (dev tag != package version).
         result = _run(f"v{_current_version()}.dev1")
         assert result.returncode == 1
-        assert "channel" in result.stdout or "channel" in result.stderr or "ERROR" in result.stderr
+        assert "channel: development" in result.stdout
 
     def test_invalid_tag_format_rejected(self) -> None:
         result = _run("v1.0")

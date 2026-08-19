@@ -8,7 +8,7 @@ import os
 import re
 from collections.abc import Callable
 from importlib import import_module
-from typing import Any, Optional, cast
+from typing import Any, cast
 from urllib.parse import parse_qs
 
 from kater.registry import tools_for_profile
@@ -234,7 +234,7 @@ def _wrap_native_handler(handler: Callable[..., Any]) -> Callable[..., Any]:
             param.default is not inspect.Parameter.empty
             and annotation is not inspect.Parameter.empty
         ):
-            annotation = Optional[annotation]
+            annotation = annotation | None
         parameters.append(
             param.replace(
                 kind=inspect.Parameter.KEYWORD_ONLY,

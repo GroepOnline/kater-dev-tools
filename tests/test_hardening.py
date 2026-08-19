@@ -25,13 +25,14 @@ from kater.oauth import (
     register_client,
     render_consent_page,
 )
+from tests.portutil import free_port
 
 KATER_DIR = Path.cwd() / ".kater"
 
 
 @pytest.fixture
 def api_server():
-    server = create_api_server("127.0.0.1", 9970)
+    server = create_api_server("127.0.0.1", free_port())
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.3)
@@ -138,7 +139,7 @@ def test_register_rejects_unsafe_redirect_schemes(uri, ok):
 
 def test_api_register_rejects_javascript_uri(api_server):
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/register",
         json.dumps({"client_name": "x", "redirect_uris": ["javascript:alert(1)"]}),
     )
@@ -152,7 +153,7 @@ def test_settings_change_blocked_without_admin_key(api_server, monkeypatch):
     monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
     # A normal tool-credential must not be able to change settings.
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/api/settings",
         json.dumps({"cors_origins": ["https://evil.com"]}),
         headers={"Authorization": "Bearer not-admin"},
@@ -163,7 +164,7 @@ def test_settings_change_blocked_without_admin_key(api_server, monkeypatch):
 def test_settings_change_allowed_with_admin_key(api_server, monkeypatch):
     monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
     req = urllib.request.Request(
-        "http://127.0.0.1:9970/api/settings",
+        f"http://127.0.0.1:{api_server.server_address[1]}/api/settings",
         data=json.dumps({"cors_origins": ["https://ok.com"]}).encode(),
         headers={
             "Content-Type": "application/json",
@@ -179,7 +180,7 @@ def test_settings_change_allowed_with_admin_key(api_server, monkeypatch):
 def test_settings_change_works_without_admin_key_set(api_server, monkeypatch):
     """No admin key configured -> every authenticated caller is admin (local default)."""
     monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
-    data = _post(9970, "/api/settings", {"cors_origins": ["https://local.com"]})
+    data = _post(api_server.server_address[1], "/api/settings", {"cors_origins": ["https://local.com"]})
     assert data["cors_origins"] == ["https://local.com"]
 
 
@@ -197,7 +198,7 @@ def test_public_catalog_mutations_require_admin_key(monkeypatch, api_server):
     tool = {"Authorization": "Bearer tool-secret"}
     admin = {"Authorization": "Bearer admin-secret"}
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/api/mcp/servers/github/credentials",
         {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
         headers=tool,
@@ -205,7 +206,7 @@ def test_public_catalog_mutations_require_admin_key(monkeypatch, api_server):
     assert err.code == 403
 
     admin_err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/api/mcp/servers/github/credentials",
         {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
         headers=admin,
@@ -213,16 +214,26 @@ def test_public_catalog_mutations_require_admin_key(monkeypatch, api_server):
     assert admin_err.code == 403
     assert "secret_sink_required" in admin_err.read().decode()
 
-    start_err = _get_err_post(9970, "/api/mcp/servers/slack/oauth/start", {}, headers=tool)
+    start_err = _get_err_post(
+        api_server.server_address[1],
+        "/api/mcp/servers/slack/oauth/start",
+        {},
+        headers=tool,
+    )
     assert start_err.code == 403
-    start_admin = _get_err_post(9970, "/api/mcp/servers/slack/oauth/start", {}, headers=admin)
+    start_admin = _get_err_post(
+        api_server.server_address[1],
+        "/api/mcp/servers/slack/oauth/start",
+        {},
+        headers=admin,
+    )
     assert start_admin.code == 403
     assert "secret_sink_required" in start_admin.read().decode()
 
     listed = json.loads(
         urllib.request.urlopen(
             urllib.request.Request(
-                "http://127.0.0.1:9970/api/mcp/servers/github/connections",
+                f"http://127.0.0.1:{api_server.server_address[1]}/api/mcp/servers/github/connections",
                 headers=tool,
             )
         ).read()
@@ -238,7 +249,7 @@ def test_public_oauth_start_does_not_use_forwarded_host(monkeypatch, api_server)
     monkeypatch.delenv("KATER_CONNECT_PUBLIC_BASE_URL", raising=False)
 
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/api/mcp/servers/slack/oauth/start",
         {},
         headers={
@@ -260,7 +271,7 @@ def test_public_settings_change_requires_admin_key(monkeypatch, api_server):
     monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
 
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/api/settings",
         {"cors_origins": ["https://ok.example.com"]},
         headers={"Authorization": "Bearer tool-secret"},
@@ -286,7 +297,7 @@ def test_public_settings_reject_unsafe_downgrades(monkeypatch, api_server, body,
     invalidate_settings_cache()
 
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/api/settings",
         body,
         headers={"Authorization": "Bearer admin-secret"},
@@ -303,7 +314,7 @@ def test_public_settings_unsafe_override_allows_explicit_downgrade(monkeypatch, 
     monkeypatch.setenv("KATER_ALLOW_UNSAFE_PUBLIC_SETTINGS", "1")
 
     data = _post(
-        9970,
+        api_server.server_address[1],
         "/api/settings",
         {"auth": {"mode": "none"}},
         headers={"Authorization": "Bearer admin-secret"},
@@ -386,14 +397,14 @@ def test_register_requires_token_when_set(api_server, monkeypatch):
     monkeypatch.setenv("KATER_REGISTRATION_TOKEN", "secret-reg-token")
     # Without token -> 403.
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/register",
         json.dumps({"client_name": "x", "redirect_uris": ["https://a.com/cb"]}),
     )
     assert err.code == 403
     # With token -> 201.
     data = _post(
-        9970,
+        api_server.server_address[1],
         "/register",
         json.dumps({"client_name": "x", "redirect_uris": ["https://a.com/cb"]}),
         headers={"X-Registration-Token": "secret-reg-token"},
@@ -407,7 +418,7 @@ def test_public_register_disabled_by_default(api_server, monkeypatch):
     monkeypatch.delenv("KATER_REGISTRATION_TOKEN", raising=False)
 
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/register",
         {"client_name": "x", "redirect_uris": ["https://a.com/cb"]},
     )
@@ -421,7 +432,7 @@ def test_public_register_requires_opt_in_and_presented_token(api_server, monkeyp
     monkeypatch.setenv("KATER_REGISTRATION_TOKEN", "secret-reg-token")
 
     err = _get_err_post(
-        9970,
+        api_server.server_address[1],
         "/register",
         {"client_name": "x", "redirect_uris": ["https://a.com/cb"]},
     )
@@ -429,7 +440,7 @@ def test_public_register_requires_opt_in_and_presented_token(api_server, monkeyp
     assert json.loads(err.read())["error"] == "registration_forbidden"
 
     data = _post(
-        9970,
+        api_server.server_address[1],
         "/register",
         {"client_name": "x", "redirect_uris": ["https://a.com/cb"]},
         headers={"X-Registration-Token": "secret-reg-token"},
@@ -443,8 +454,8 @@ def test_public_dashboard_first_party_authorize_does_not_need_registration(api_s
     monkeypatch.delenv("KATER_REGISTRATION_TOKEN", raising=False)
 
     resp = urllib.request.urlopen(
-        "http://127.0.0.1:9970/authorize?client_id=kater-dashboard"
-        "&redirect_uri=http://127.0.0.1:9970/dashboard"
+        f"http://127.0.0.1:{api_server.server_address[1]}/authorize?client_id=kater-dashboard"
+        f"&redirect_uri=http://127.0.0.1:{api_server.server_address[1]}/dashboard"
         "&code_challenge=test&code_challenge_method=S256"
     )
 
@@ -457,7 +468,7 @@ def test_public_dashboard_first_party_authorize_does_not_need_registration(api_s
 def test_authorize_approve_requires_consent_nonce(api_server):
     client = register_client("NoBypass", ["https://app.example.com/cb"])
     err = _get_err(
-        9970,
+        api_server.server_address[1],
         f"/authorize?client_id={client.client_id}"
         f"&redirect_uri=https://app.example.com/cb"
         f"&code_challenge=test&code_challenge_method=S256"
@@ -677,7 +688,7 @@ def test_full_authorize_browser_flow(api_server):
 
     # Register a client.
     reg = _post(
-        9970,
+        api_server.server_address[1],
         "/register",
         {"client_name": "FlowTest", "redirect_uris": ["https://app.example.com/cb"]},
     )
@@ -690,7 +701,7 @@ def test_full_authorize_browser_flow(api_server):
 
     # Hit /authorize without approve → consent page HTML.
     consent_resp = urllib.request.urlopen(
-        f"http://127.0.0.1:9970/authorize?client_id={client_id}"
+        f"http://127.0.0.1:{api_server.server_address[1]}/authorize?client_id={client_id}"
         f"&redirect_uri=https://app.example.com/cb"
         f"&code_challenge={challenge}&code_challenge_method=S256"
         f"&state=xyz123"
@@ -734,7 +745,7 @@ def test_full_authorize_browser_flow(api_server):
 
     # Exchange the code for a token.
     token = _post_raw_form(
-        9970,
+        api_server.server_address[1],
         "/token",
         f"grant_type=authorization_code&code={code}&client_id={client_id}&code_verifier={verifier}",
     )
@@ -855,7 +866,7 @@ def test_cors_vary_origin_header():
 
 def test_security_headers_include_csp_referrer_and_https_hsts(api_server):
     req = urllib.request.Request(
-        "http://127.0.0.1:9970/health",
+        f"http://127.0.0.1:{api_server.server_address[1]}/health",
         headers={"X-Forwarded-Proto": "https"},
     )
     resp = urllib.request.urlopen(req)

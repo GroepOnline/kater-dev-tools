@@ -37,7 +37,12 @@ from kater.proxy.sse_backend import SSEBackend
 from kater.proxy.stdio_backend import StdioBackend
 from kater.proxy.streamable_http_backend import StreamableHTTPBackend
 from kater.settings import load_settings
-from kater.telemetry import TelemetryEvent, record_event, record_tool_call
+from kater.telemetry import (
+    TelemetryEvent,
+    record_event,
+    record_tool_call,
+    result_is_failure,
+)
 
 logger = logging.getLogger("kater.proxy")
 
@@ -428,7 +433,7 @@ class ProxyManager:
         success = True
         try:
             result = self._call_tool_body(name, arguments, identity=identity)
-            if isinstance(result, dict) and result.get("error"):
+            if result_is_failure(result):
                 success = False
             return result
         except Exception:

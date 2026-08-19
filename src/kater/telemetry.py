@@ -97,6 +97,20 @@ def record_tool_call(
     )
 
 
+def result_is_failure(result: Any) -> bool:
+    """Detect a logical failure returned by a tool handler.
+
+    Handlers signal errors by returning a dict with an ``error`` key or an
+    explicit ``ok`` of ``False`` rather than raising, so both telemetry paths
+    treat those as failed calls.
+    """
+    if not isinstance(result, dict):
+        return False
+    if "error" in result:
+        return True
+    return result.get("ok") is False
+
+
 def wrap_tool_handler(
     name: str,
     handler: Callable[..., Any],
@@ -115,7 +129,10 @@ def wrap_tool_handler(
             started = time.perf_counter()
             success = True
             try:
-                return await handler(*args, **kwargs)
+                result = await handler(*args, **kwargs)
+                if result_is_failure(result):
+                    success = False
+                return result
             except Exception:
                 success = False
                 raise
@@ -135,7 +152,10 @@ def wrap_tool_handler(
             started = time.perf_counter()
             success = True
             try:
-                return handler(*args, **kwargs)
+                result = handler(*args, **kwargs)
+                if result_is_failure(result):
+                    success = False
+                return result
             except Exception:
                 success = False
                 raise

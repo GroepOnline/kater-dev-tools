@@ -12,7 +12,6 @@ from kater.api import create_api_server
 from tests.portutil import free_port
 
 
-
 @pytest.fixture
 def api_server():
     server = create_api_server("127.0.0.1", free_port())
@@ -104,7 +103,9 @@ def test_pr_status_bad_number(api_server) -> None:
 def test_pr_merge_rejects_without_pass(api_server) -> None:
     # Attempt to merge a non-existent / ungateable PR; the gate should reject
     # with 409 and a machine-readable reason, never perform a merge.
-    err = _post_err(_api_port(api_server), "/api/pr/999999/merge", {"expected_head_sha": "deadbeef"})
+    err = _post_err(
+        _api_port(api_server), "/api/pr/999999/merge", {"expected_head_sha": "deadbeef"}
+    )
     assert err.code in (409, 502)
     body = json.loads(err.read())
     assert "error" in body

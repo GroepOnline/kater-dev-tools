@@ -485,7 +485,7 @@ def test_gh_environ_keeps_existing_gh_token(monkeypatch) -> None:
 
 def test_pr_client_uses_explicit_repo(monkeypatch) -> None:
     monkeypatch.delenv("KATER_PR_REPO", raising=False)
-    assert _pr_client("GroepOnline/ChefFactory").repo == "GroepOnline/ChefFactory"
+    assert _pr_client("o/r").repo == "o/r"
     assert _pr_client("  ").repo is None
 
 

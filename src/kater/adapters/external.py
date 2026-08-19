@@ -122,7 +122,7 @@ def resolve_remote_headers(
 
 def _remote_launch_type(url: str) -> str:
     if url.rstrip("/").endswith("/mcp"):
-        return "http"
+        return "streamableHttp"
     return "sse"
 
 

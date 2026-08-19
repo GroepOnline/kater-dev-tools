@@ -30,7 +30,7 @@ def test_render_profile_config_linear_includes_bearer_header(monkeypatch) -> Non
     config = render_profile_config("ops")
     linear = config["mcpServers"]["linear"]
 
-    assert linear["type"] == "http"
+    assert linear["type"] == "streamableHttp"
     assert linear["url"] == "https://mcp.linear.app/mcp"
     assert linear["headers"]["Authorization"] == "Bearer lin_api_test"
 

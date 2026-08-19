@@ -6,6 +6,7 @@ from kater.proxy.aggregator import Aggregator
 from kater.proxy.base import BaseBackend, MockBackend
 from kater.proxy.manager import ProxyManager
 from kater.proxy.models import BackendStatus, ProxiedTool
+from kater.storage import query_events
 
 
 class RecordingBackend(BaseBackend):
@@ -265,12 +266,20 @@ def test_proxy_manager_call_tool_with_mock():
 
     result = manager.call_tool("mock__ping", {})
     assert result.get("result") == "pong"
+    events = query_events(event_type="tool_call")
+    assert len(events) == 1
+    assert events[0]["name"] == "mock__ping"
+    assert events[0]["success"] is True
 
 
 def test_proxy_manager_call_tool_unknown_backend():
     manager = ProxyManager()
     result = manager.call_tool("unknown__tool", {})
     assert "error" in result
+    events = query_events(event_type="tool_call")
+    assert len(events) == 1
+    assert events[0]["name"] == "unknown__tool"
+    assert events[0]["success"] is False
 
 
 def test_proxy_manager_call_tool_backend_down():

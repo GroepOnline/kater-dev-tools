@@ -37,6 +37,35 @@ def test_mcp_registers_core_tools() -> None:
     assert "kater_doctor" in registered
 
 
+def test_create_server_native_tools_record_tool_calls() -> None:
+    captured: dict[str, Any] = {}
+
+    def capture(handler):
+        captured[name_box[0]] = handler
+        return handler
+
+    name_box = [""]
+    fake_server = Mock()
+    fake_server.tool.side_effect = lambda **kwargs: (
+        name_box.__setitem__(0, kwargs["name"]) or capture
+    )
+    fake_module = Mock(
+        FastMCP=Mock(return_value=fake_server),
+        TransportSecuritySettings=Mock(side_effect=lambda **kw: kw),
+    )
+
+    with patch("kater.mcp_server.import_module", return_value=fake_module):
+        mcp_server.create_server(profile="core")
+
+    result = captured["kater_profiles"]()
+    assert "profiles" in result
+    from kater.storage import query_events
+
+    events = query_events(event_type="tool_call", name="kater_profiles")
+    assert len(events) == 1
+    assert events[0]["success"] is True
+
+
 def test_create_server_allowlists_tunnel_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_server = Mock()
     fake_server.tool.return_value = lambda handler: handler

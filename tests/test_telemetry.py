@@ -15,6 +15,7 @@ from kater.telemetry import (
     record_server_toggle,
     record_tool_call,
     status_overview,
+    wrap_tool_handler,
 )
 
 
@@ -74,6 +75,37 @@ def test_record_tool_call():
     assert events[0]["name"] == "github"
     assert events[0]["success"] is True
     assert events[0]["duration_ms"] == 42.5
+
+
+def test_wrap_tool_handler_records_success_without_args_in_metadata():
+    def ping(limit: int = 3) -> dict:
+        return {"ok": True, "limit": limit}
+
+    wrapped = wrap_tool_handler("kater_ping", ping, profile="ops")
+    assert wrapped(limit=5) == {"ok": True, "limit": 5}
+    events = query_events(event_type="tool_call")
+    assert len(events) == 1
+    assert events[0]["name"] == "kater_ping"
+    assert events[0]["success"] is True
+    assert events[0]["profile"] == "ops"
+    assert events[0]["duration_ms"] >= 0
+    assert "limit" not in events[0]["metadata"]
+
+
+def test_wrap_tool_handler_records_failure_and_reraises():
+    def boom() -> dict:
+        raise RuntimeError("nope")
+
+    wrapped = wrap_tool_handler("kater_boom", boom, profile="ops")
+    try:
+        wrapped()
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError as exc:
+        assert str(exc) == "nope"
+    events = query_events(event_type="tool_call")
+    assert len(events) == 1
+    assert events[0]["name"] == "kater_boom"
+    assert events[0]["success"] is False
 
 
 def test_record_chain_run():

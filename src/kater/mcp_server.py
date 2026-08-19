@@ -234,7 +234,10 @@ def _wrap_native_handler(handler: Callable[..., Any]) -> Callable[..., Any]:
             param.default is not inspect.Parameter.empty
             and annotation is not inspect.Parameter.empty
         ):
-            annotation = annotation | None
+            # With ``from __future__ import annotations`` the annotation is a
+            # string, so build a union string instead of using the ``|`` operator
+            # which fails at runtime on ``str | None``.
+            annotation = f"{annotation} | None"
         parameters.append(
             param.replace(
                 kind=inspect.Parameter.KEYWORD_ONLY,

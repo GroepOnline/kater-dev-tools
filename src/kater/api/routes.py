@@ -919,8 +919,12 @@ def _pr_merge(req: Request) -> Response:
 
     expected = str(body.get("expected_head_sha", "") or "")
     actor = str(body.get("actor", "") or "")
+    repo = str(body.get("repo", "") or req.query1("repo") or "")
     try:
-        return Response.json(200, pr_merge_tool(number, expected_head_sha=expected, actor=actor))
+        return Response.json(
+            200,
+            pr_merge_tool(number, expected_head_sha=expected, actor=actor, repo=repo),
+        )
     except MergeRejected as exc:
         return Response.json(409, {"error": str(exc), "rejected": True})
     except RuntimeError as exc:

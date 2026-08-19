@@ -13,6 +13,13 @@ _STREAMABLE_ROOT = "/mcp"
 _STREAMABLE_METHODS = frozenset({"POST", "DELETE"})
 
 
+def _has_mcp_session_id(scope: dict[str, Any]) -> bool:
+    for name, value in scope.get("headers") or ():
+        if name.lower() == b"mcp-session-id" and value.strip():
+            return True
+    return False
+
+
 class StreamableHttpOnSseMiddleware:
     """Serve Streamable HTTP on the SSE URL for clients that probe POST first.
 
@@ -21,9 +28,9 @@ class StreamableHttpOnSseMiddleware:
     that probe returns 405, Cursor falls back to a GET SSE session, and a later
     ``tools/call`` on an idle or reconnected session surfaces as JSON-RPC
     ``-32602 Invalid request parameters``. Rewriting POST/DELETE ``/sse`` to
-    ``/mcp`` lets the first probe succeed and keeps ``tools/call`` on a
-    negotiated Streamable HTTP session. GET ``/sse`` stays the legacy SSE
-    stream.
+    ``/mcp``, and GET ``/sse`` when ``mcp-session-id`` is present, keeps
+    Streamable HTTP on one session. Bare GET ``/sse`` stays the legacy SSE
+    stream for clients that have not negotiated Streamable HTTP.
     """
 
     def __init__(self, app: Any) -> None:
@@ -33,7 +40,11 @@ class StreamableHttpOnSseMiddleware:
         if scope.get("type") == "http":
             path = scope.get("path") or ""
             method = (scope.get("method") or "").upper()
-            if path.rstrip("/") == _SSE_ROOT and method in _STREAMABLE_METHODS:
+            rewrite = path.rstrip("/") == _SSE_ROOT and (
+                method in _STREAMABLE_METHODS
+                or (method == "GET" and _has_mcp_session_id(scope))
+            )
+            if rewrite:
                 scope = dict(scope)
                 scope["path"] = _STREAMABLE_ROOT
                 raw = scope.get("raw_path")

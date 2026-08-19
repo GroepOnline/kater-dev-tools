@@ -1002,12 +1002,16 @@ def pr_audit_tool(pr_number: int = 0, limit: int = 100) -> dict[str, Any]:
     return {"count": len(rows), "entries": rows}
 
 
-def pr_merge_tool(number: int, expected_head_sha: str = "", actor: str = "") -> dict[str, Any]:
+def pr_merge_tool(
+    number: int, expected_head_sha: str = "", actor: str = "", repo: str = ""
+) -> dict[str, Any]:
     """Gate-then-merge a PR (§6 write-path). Requires a PASS gate and a nonempty
     pinned expected head SHA; refuses the merge otherwise and records it in
     the audit trail. Empty ``expected_head_sha`` is always a hard reject.
     """
-    return merge_pr(number, expected_head_sha=expected_head_sha, actor=actor)
+    return merge_pr(
+        number, expected_head_sha=expected_head_sha, actor=actor, repo=repo
+    )
 
 
 class MergeRejected(RuntimeError):
@@ -1019,6 +1023,7 @@ def merge_pr(
     *,
     expected_head_sha: str = "",
     actor: str = "",
+    repo: str = "",
     policy: GatePolicy | None = None,
 ) -> dict[str, Any]:
     """Gate-then-merge a PR through the GitHub provider.
@@ -1033,7 +1038,7 @@ def merge_pr(
 
     policy = policy or load_gate_policy()
     pinned = (expected_head_sha or "").strip()
-    client = GitHubPRClient()
+    client = _pr_client(repo)
     pr = client.pull_request(number)
     repo = (getattr(client, "repo", None) or repo_from_url(str(pr.get("url") or "")) or "").strip()
     scope_error = write_scope_rejection(repo, policy)

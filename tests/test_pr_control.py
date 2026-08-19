@@ -688,14 +688,16 @@ def test_merge_pr_includes_match_head_commit_and_handles_failure(monkeypatch) ->
 def test_pr_merge_tool_returns_merge_result(monkeypatch) -> None:
     monkeypatch.setattr(
         "kater.pr_control.merge_pr",
-        lambda number, expected_head_sha="", actor="": {
+        lambda number, expected_head_sha="", actor="", repo="": {
             "merged": True,
             "pr_number": number,
             "head_sha": expected_head_sha or "head000",
+            "repo": repo,
         },
     )
-    out = pr_merge_tool(42, expected_head_sha="head000")
+    out = pr_merge_tool(42, expected_head_sha="head000", repo="o/r")
     assert out["merged"] is True
+    assert out["repo"] == "o/r"
 
 
 # ── §7 audit trail ────────────────────────────────────────────────

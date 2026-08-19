@@ -71,12 +71,12 @@ def test_streamable_http_on_sse_rewrites_post_and_delete_only() -> None:
 
     mw = StreamableHttpOnSseMiddleware(inner)
 
-    async def run(method: str, path: str) -> None:
+    async def run(method: str, path: str, headers: list[tuple[bytes, bytes]] | None = None) -> None:
         scope = {
             "type": "http",
             "method": method,
             "path": path,
-            "headers": [],
+            "headers": headers or [],
             "raw_path": path.encode(),
         }
 
@@ -90,9 +90,16 @@ def test_streamable_http_on_sse_rewrites_post_and_delete_only() -> None:
 
     asyncio.run(run("POST", "/sse"))
     asyncio.run(run("GET", "/sse"))
+    asyncio.run(run("GET", "/sse", [(b"mcp-session-id", b"sess-1")]))
     asyncio.run(run("DELETE", "/sse"))
     asyncio.run(run("POST", "/mcp"))
-    assert seen == ["POST /mcp", "GET /sse", "DELETE /mcp", "POST /mcp"]
+    assert seen == [
+        "POST /mcp",
+        "GET /sse",
+        "GET /mcp",
+        "DELETE /mcp",
+        "POST /mcp",
+    ]
 
 
 def test_post_sse_initialize_is_not_method_not_allowed() -> None:

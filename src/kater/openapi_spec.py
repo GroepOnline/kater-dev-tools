@@ -7,7 +7,7 @@ from kater.api.usage_routes import USAGE_OPENAPI_PATHS
 
 OPENAPI_VERSION = "3.1.0"
 API_TITLE = "Kater MCP Gateway API"
-API_VERSION = "1.0.0"
+API_VERSION = "1.1.0"
 DEFAULT_SERVER = "http://localhost:9091"
 
 _JSON: dict[str, Any] = {"application/json": {}}

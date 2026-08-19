@@ -4,6 +4,45 @@ Kater uses a two-channel release contract enforced by
 [`../release-policy.json`](../release-policy.json) and
 [`../scripts/validate_release.py`](../scripts/validate_release.py).
 
+## After a merge train (the usual path)
+
+Feature PRs never bump the package version. They append under
+`## [Unreleased]` in `CHANGELOG.md`. After a train of merges on `main`:
+
+1. Confirm there is no tag that already covers this work:
+
+   ```bash
+   git fetch --tags origin
+   git ls-remote --tags origin
+   ```
+
+2. Choose the bump from what landed (semver):
+   - **patch** — fixes and docs only
+   - **minor** — additive features (the usual train)
+   - **major** — breaking CLI/API/settings
+
+3. Open **one bump PR** that only:
+   - sets the same version in `pyproject.toml` and `src/kater/__init__.py`
+   - moves `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and leaves an empty Unreleased
+   - updates compare links at the top of `CHANGELOG.md`
+   - updates `SECURITY.md` supported versions if the minor/major changed
+
+4. Merge that PR to `main`. Do not tag from the bump branch.
+
+5. From **updated** `origin/main`, cut the annotated tag and push it:
+
+   ```bash
+   git checkout main
+   git pull --ff-only origin main
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+   Tag push fires `.github/workflows/release.yml`. Merge-ready is not a tag.
+
+The remote had **no git tags** until 1.1.0. Declared `1.0.0` in the package
+sources was changelog history, not a GitHub Release.
+
 ## Channels
 
 | Channel | Tag shape | Prerelease | Notes |
@@ -13,38 +52,28 @@ Kater uses a two-channel release contract enforced by
 
 Both channels tag from `main` only.
 
-## Version management
+## Version sources
 
 Version is the single source of truth in two files that must match exactly:
 
 - `pyproject.toml` — `[project] version = "X.Y.Z"`
 - `src/kater/__init__.py` — `__version__ = "X.Y.Z"`
 
-Bump these together in a PR before tagging. The validator rejects any tag whose
-version does not match both sources.
+The validator rejects any tag whose version does not match both sources.
+Tests in `tests/test_validate_release.py` read those sources; they must not
+hardcode a frozen `v1.0.0`.
 
 ## Cutting a release
 
 ### Automated (tag push)
 
-1. Ensure `main` is up to date and green in CI.
-2. Bump `pyproject.toml` and `src/kater/__init__.py` to the target version.
-3. Push the version bump as a PR and merge to `main`.
-4. Create an annotated tag:
-
-   ```bash
-   git tag -a v1.0.0 -m "v1.0.0"
-   git push origin v1.0.0
-   ```
-
-5. The `release.yml` workflow fires, validates the tag against the contract,
-   runs full Ruff/Mypy/pytest gates, builds the wheel and sdist, and publishes
-   a GitHub Release with the build artifacts attached.
+Follow **After a merge train** above. The bump PR is step 3; the tag is step 5.
 
 ### Manual (workflow_dispatch)
 
 From the Actions tab, run the `Release` workflow with the version input
-(e.g. `1.0.0`). This is useful when the tag push trigger is unavailable.
+(e.g. `1.1.0`). HEAD must already be on `main` at that version. This is useful
+when the tag-push trigger is unavailable.
 
 ## What the validator checks
 
@@ -73,7 +102,7 @@ is commented out. To enable:
 
 If a release is bad:
 
-1. Retag from a new commit: the validator rejects moved tags because ancestry
+1. Do not move the tag. The validator rejects rewritten tags because ancestry
    must point at `main`.
 2. Delete the GitHub Release + tag (requires repo write access).
 3. Revert the version bump in `pyproject.toml` and `__init__.py` via a new PR.

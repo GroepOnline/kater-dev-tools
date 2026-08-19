@@ -104,9 +104,7 @@ def test_pr_merge_rejects_without_pass(api_server) -> None:
     # Attempt to merge a non-existent / ungateable PR; the gate should reject
     # with 409 and a machine-readable reason, never perform a merge.
     err = _post_err(
-        _api_port(api_server),
-        "/api/pr/999999/merge",
-        {"expected_head_sha": "deadbeef"},
+        _api_port(api_server), "/api/pr/999999/merge", {"expected_head_sha": "deadbeef"}
     )
     assert err.code in (409, 502)
     body = json.loads(err.read())

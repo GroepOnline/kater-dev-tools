@@ -49,6 +49,8 @@ from kater.pr_control import (
     GatePolicy,
     GitHubPRClient,
     MergeRejected,
+    _gh_environ,
+    _pr_client,
     count_independent_approvals,
     evaluate_gate,
     gate_for_pr,
@@ -466,6 +468,25 @@ def test_tools_read_only_no_subprocess(monkeypatch) -> None:
     gate_mismatch = pr_gate_tool(42, expected_head_sha="wrong")
     assert gate_mismatch["details"]["head_sha_matches"] is False
     assert not calls  # no subprocess executed during the read path
+
+
+def test_gh_environ_maps_personal_access_token(monkeypatch) -> None:
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "pat_test_value")
+    assert _gh_environ()["GH_TOKEN"] == "pat_test_value"
+
+
+def test_gh_environ_keeps_existing_gh_token(monkeypatch) -> None:
+    monkeypatch.setenv("GH_TOKEN", "keep-me")
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "ignored")
+    assert _gh_environ()["GH_TOKEN"] == "keep-me"
+
+
+def test_pr_client_uses_explicit_repo(monkeypatch) -> None:
+    monkeypatch.delenv("KATER_PR_REPO", raising=False)
+    assert _pr_client("GroepOnline/ChefFactory").repo == "GroepOnline/ChefFactory"
+    assert _pr_client("  ").repo is None
 
 
 def test_policy_defaults_block_drafts_and_require_approval() -> None:

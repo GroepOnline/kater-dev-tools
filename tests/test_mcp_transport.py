@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from unittest.mock import Mock
 
-from kater.mcp.transport import combine_mcp_transports
+from kater.mcp.transport import StreamableHttpOnSseMiddleware, combine_mcp_transports
 
 
 class _FakeAsyncContext:
@@ -59,3 +59,72 @@ def test_combine_mcp_transports_runs_streamable_session_manager() -> None:
             assert server.session_manager is not None
 
     asyncio.run(_run())
+
+
+def test_streamable_http_on_sse_rewrites_post_and_delete_only() -> None:
+    seen: list[str] = []
+
+    async def inner(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        seen.append(f"{scope.get('method')} {scope.get('path')}")
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    mw = StreamableHttpOnSseMiddleware(inner)
+
+    async def run(method: str, path: str) -> None:
+        scope = {
+            "type": "http",
+            "method": method,
+            "path": path,
+            "headers": [],
+            "raw_path": path.encode(),
+        }
+
+        async def receive() -> dict[str, Any]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(_msg: dict[str, Any]) -> None:
+            return None
+
+        await mw(scope, receive, send)
+
+    asyncio.run(run("POST", "/sse"))
+    asyncio.run(run("GET", "/sse"))
+    asyncio.run(run("DELETE", "/sse"))
+    asyncio.run(run("POST", "/mcp"))
+    assert seen == ["POST /mcp", "GET /sse", "DELETE /mcp", "POST /mcp"]
+
+
+def test_post_sse_initialize_is_not_method_not_allowed() -> None:
+    """Cursor POSTs Streamable HTTP to /sse; that must not 405."""
+    from mcp.server.mcpserver import MCPServer
+    from starlette.testclient import TestClient
+
+    server = MCPServer("kater-test")
+
+    @server.tool(name="kater_profiles")
+    def profiles() -> dict[str, Any]:
+        return {"profiles": ["ops"]}
+
+    app = combine_mcp_transports(server, security=None)
+    with TestClient(app, base_url="http://127.0.0.1:9090") as client:
+        resp = client.post(
+            "/sse",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            },
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+    assert resp.status_code != 405
+    assert resp.status_code == 200
+    assert b"kater-test" in resp.content or b"protocolVersion" in resp.content

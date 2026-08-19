@@ -295,3 +295,63 @@ def test_build_proxy_handler_reflects_python_keyword_params() -> None:
         "firecrawl__search",
         {"from": "2024-01-01", "class": "article", "query": "mcp"},
     )
+
+
+def test_wrap_native_handler_accepts_empty_and_extra_args() -> None:
+    """No-arg native tools must accept {}, nulls, and unknown keys."""
+    import inspect
+
+    from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+
+    def no_arg_tool() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    wrapped = mcp_server._wrap_native_handler(no_arg_tool)
+    assert list(inspect.signature(wrapped).parameters) == []
+
+    meta = func_metadata(wrapped)
+    for args in [{}, {"extra": "ignored"}, {"_meta": {}}, {"unused": None}]:
+        validated = meta.validate_arguments(args)
+        assert wrapped(**validated) == {"ok": "yes"}
+
+
+def test_wrap_native_handler_optional_profile_and_null() -> None:
+    """Optional native params tolerate omission, null, and extra keys."""
+    import inspect
+
+    from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+
+    calls: list[str] = []
+
+    def doctor_like(profile: str = "core") -> dict[str, str]:
+        calls.append(profile)
+        return {"profile": profile}
+
+    wrapped = mcp_server._wrap_native_handler(doctor_like)
+    assert list(inspect.signature(wrapped).parameters) == ["profile"]
+
+    meta = func_metadata(wrapped)
+    for args in [{}, {"profile": "ops"}, {"profile": None}, {"extra": 1}]:
+        validated = meta.validate_arguments(args)
+        wrapped(**validated)
+
+    assert calls == ["core", "ops", "core", "core"]
+
+
+def test_native_tools_callable_with_cursor_like_payloads() -> None:
+    """Registered native tools accept loose CallTool argument shapes."""
+    from unittest.mock import Mock
+
+    async def _run() -> None:
+        server = mcp_server.create_server(profile="core")
+        tm = server._tool_manager
+        ctx = Mock()
+
+        await tm.call_tool("kater_profiles", {}, ctx)
+        await tm.call_tool("kater_profiles", {"_meta": {}, "extra": "x"}, ctx)
+
+        await tm.call_tool("kater_doctor", {}, ctx)
+        await tm.call_tool("kater_doctor", {"profile": "ops"}, ctx)
+        await tm.call_tool("kater_doctor", {"profile": None, "extra": "ignored"}, ctx)
+
+    asyncio.run(_run())

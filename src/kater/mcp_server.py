@@ -6,6 +6,7 @@ import keyword
 import logging
 import os
 import re
+from collections.abc import Callable
 from importlib import import_module
 from typing import Any, cast
 from urllib.parse import parse_qs
@@ -189,6 +190,65 @@ def _transport_security_settings() -> Any | None:
         allowed_hosts=allowed_hosts,
         allowed_origins=allowed_origins,
     )
+
+
+def _wrap_native_handler(handler: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a native tool handler so MCP CallTool tolerates loose client payloads.
+
+    Cursor and other MCP clients may send ``{}`` for no-arg tools, omit optional
+    fields, pass explicit ``null``, or include unknown extra keys. FastMCP builds
+    a strict Pydantic argument model from the handler signature; matching the
+    proxy-tool pattern (``**kwargs``, keyword-only params defaulting to ``None``,
+    drop ``None`` and ignore extras) avoids JSON-RPC ``-32602`` before the body
+    runs.
+    """
+    sig = inspect.signature(handler)
+    params = [
+        param
+        for param in sig.parameters.values()
+        if param.kind
+        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    ]
+    param_names = {param.name for param in params}
+    optional_names = {
+        param.name for param in params if param.default is not inspect.Parameter.empty
+    }
+
+    def wrapped(**kwargs: Any) -> Any:
+        filtered = {
+            name: value
+            for name, value in kwargs.items()
+            if name in param_names
+            and (value is not None or name not in optional_names)
+        }
+        return handler(**filtered)
+
+    wrapped.__name__ = getattr(handler, "__name__", "wrapped")
+    wrapped.__qualname__ = getattr(handler, "__qualname__", wrapped.__name__)
+    wrapped.__doc__ = handler.__doc__
+
+    parameters = []
+    for param in params:
+        annotation = param.annotation
+        if (
+            param.default is not inspect.Parameter.empty
+            and annotation is not inspect.Parameter.empty
+        ):
+            # With ``from __future__ import annotations`` the annotation is a
+            # string, so build a union string instead of using the ``|`` operator
+            # which fails at runtime on ``str | None``.
+            annotation = f"{annotation} | None"
+        parameters.append(
+            param.replace(
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                annotation=annotation,
+            )
+        )
+    wrapped.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+        parameters=parameters,
+        return_annotation=Any,
+    )
+    return wrapped
 
 
 def create_server(*, profile: str = "core") -> Any:

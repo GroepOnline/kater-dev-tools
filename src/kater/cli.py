@@ -1073,13 +1073,14 @@ def pr_gate_command(
     expected_head_sha: Annotated[
         str, typer.Option("--expected-head", help="Pin the expected head SHA.")
     ] = "",
+    repo: Annotated[str, typer.Option("--repo", help="owner/name override.")] = "",
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
     """Evaluate the deterministic merge gate for a PR."""
     from kater.pr_control import pr_gate_tool
 
     try:
-        result = pr_gate_tool(number, expected_head_sha=expected_head_sha)
+        result = pr_gate_tool(number, expected_head_sha=expected_head_sha, repo=repo)
     except RuntimeError as exc:
         typer.echo(f"Gate failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -1101,12 +1102,15 @@ def pr_merge_command(
         str, typer.Option("--expected-head", help="Pin the expected head SHA (required).")
     ] = "",
     actor: Annotated[str, typer.Option("--actor", help="Actor label for the audit trail.")] = "",
+    repo: Annotated[str, typer.Option("--repo", help="owner/name override.")] = "",
 ) -> None:
     """Gate-then-merge a PR (squash). Requires PASS and pinned expected head."""
     from kater.pr_control import MergeRejected, pr_merge_tool
 
     try:
-        result = pr_merge_tool(number, expected_head_sha=expected_head_sha, actor=actor)
+        result = pr_merge_tool(
+            number, expected_head_sha=expected_head_sha, actor=actor, repo=repo
+        )
     except MergeRejected as exc:
         typer.echo(f"Merge blocked: {exc}", err=True)
         raise typer.Exit(code=2) from exc

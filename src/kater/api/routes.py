@@ -851,8 +851,9 @@ def _pr_list(req: Request) -> Response:
         limit = int(req.query1("limit") or "30")
     except (ValueError, TypeError):
         limit = 30
+    repo = (req.query1("repo") or "").strip()
     try:
-        return Response.json(200, pr_list_tool(state=state, limit=limit))
+        return Response.json(200, pr_list_tool(state=state, limit=limit, repo=repo))
     except RuntimeError as exc:
         return Response.json(502, {"error": str(exc)})
 
@@ -865,8 +866,9 @@ def _pr_status(req: Request) -> Response:
         number = int(req.params.get("number") or "")
     except (ValueError, TypeError):
         return Response.json(400, {"error": "invalid pr number"})
+    repo = (req.query1("repo") or "").strip()
     try:
-        return Response.json(200, pr_status_tool(number))
+        return Response.json(200, pr_status_tool(number, repo=repo))
     except RuntimeError as exc:
         return Response.json(502, {"error": str(exc)})
 
@@ -880,8 +882,9 @@ def _pr_gate(req: Request) -> Response:
     except (ValueError, TypeError):
         return Response.json(400, {"error": "invalid pr number"})
     expected = (req.query1("expected_head_sha") or "").strip()
+    repo = (req.query1("repo") or "").strip()
     try:
-        return Response.json(200, pr_gate_tool(number, expected_head_sha=expected))
+        return Response.json(200, pr_gate_tool(number, expected_head_sha=expected, repo=repo))
     except RuntimeError as exc:
         return Response.json(502, {"error": str(exc)})
 
@@ -916,8 +919,12 @@ def _pr_merge(req: Request) -> Response:
 
     expected = str(body.get("expected_head_sha", "") or "")
     actor = str(body.get("actor", "") or "")
+    repo = str(body.get("repo", "") or req.query1("repo") or "")
     try:
-        return Response.json(200, pr_merge_tool(number, expected_head_sha=expected, actor=actor))
+        return Response.json(
+            200,
+            pr_merge_tool(number, expected_head_sha=expected, actor=actor, repo=repo),
+        )
     except MergeRejected as exc:
         return Response.json(409, {"error": str(exc), "rejected": True})
     except RuntimeError as exc:

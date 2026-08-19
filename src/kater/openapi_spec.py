@@ -628,6 +628,7 @@ def _build_paths() -> dict[str, Any]:
                     "schema": {"type": "integer", "default": 30},
                     "description": "Max PRs to return.",
                 },
+                _pr_repo_param(),
             ],
             "responses": {"200": _ok(), "502": _error_ref()},
         }
@@ -659,7 +660,7 @@ def _build_paths() -> dict[str, Any]:
     paths["/api/pr/{number}/status"] = {
         "get": {
             "summary": "Show a pull request's merge-readiness summary",
-            "parameters": [_pr_number_param()],
+            "parameters": [_pr_number_param(), _pr_repo_param()],
             "responses": {"200": _ok(), "400": _error_ref(), "502": _error_ref()},
         }
     }
@@ -676,6 +677,7 @@ def _build_paths() -> dict[str, Any]:
                     "schema": {"type": "string"},
                     "description": "Pin the expected head SHA.",
                 },
+                _pr_repo_param(),
             ],
             "responses": {"200": _ok(), "400": _error_ref(), "502": _error_ref()},
         }
@@ -1047,6 +1049,16 @@ def _pr_number_param() -> dict[str, Any]:
         "required": True,
         "schema": {"type": "integer"},
         "description": "Pull request number.",
+    }
+
+
+def _pr_repo_param() -> dict[str, Any]:
+    return {
+        "name": "repo",
+        "in": "query",
+        "required": False,
+        "schema": {"type": "string"},
+        "description": "owner/name override; defaults to KATER_PR_REPO.",
     }
 
 

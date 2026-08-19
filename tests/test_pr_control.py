@@ -49,6 +49,8 @@ from kater.pr_control import (
     GatePolicy,
     GitHubPRClient,
     MergeRejected,
+    _gh_environ,
+    _pr_client,
     count_independent_approvals,
     evaluate_gate,
     gate_for_pr,
@@ -468,6 +470,25 @@ def test_tools_read_only_no_subprocess(monkeypatch) -> None:
     assert not calls  # no subprocess executed during the read path
 
 
+def test_gh_environ_maps_personal_access_token(monkeypatch) -> None:
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "pat_test_value")
+    assert _gh_environ()["GH_TOKEN"] == "pat_test_value"
+
+
+def test_gh_environ_keeps_existing_gh_token(monkeypatch) -> None:
+    monkeypatch.setenv("GH_TOKEN", "keep-me")
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "ignored")
+    assert _gh_environ()["GH_TOKEN"] == "keep-me"
+
+
+def test_pr_client_uses_explicit_repo(monkeypatch) -> None:
+    monkeypatch.delenv("KATER_PR_REPO", raising=False)
+    assert _pr_client("o/r").repo == "o/r"
+    assert _pr_client("  ").repo is None
+
+
 def test_policy_defaults_block_drafts_and_require_approval() -> None:
     policy = GatePolicy()
     assert policy.block_drafts is True
@@ -667,14 +688,16 @@ def test_merge_pr_includes_match_head_commit_and_handles_failure(monkeypatch) ->
 def test_pr_merge_tool_returns_merge_result(monkeypatch) -> None:
     monkeypatch.setattr(
         "kater.pr_control.merge_pr",
-        lambda number, expected_head_sha="", actor="": {
+        lambda number, expected_head_sha="", actor="", repo="": {
             "merged": True,
             "pr_number": number,
             "head_sha": expected_head_sha or "head000",
+            "repo": repo,
         },
     )
-    out = pr_merge_tool(42, expected_head_sha="head000")
+    out = pr_merge_tool(42, expected_head_sha="head000", repo="o/r")
     assert out["merged"] is True
+    assert out["repo"] == "o/r"
 
 
 # ── §7 audit trail ────────────────────────────────────────────────

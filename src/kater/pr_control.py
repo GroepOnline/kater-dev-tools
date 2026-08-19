@@ -498,13 +498,35 @@ def evaluate_gate(
     )
 
 
+def _gh_environ() -> dict[str, str]:
+    """Build an env for ``gh`` that honors Kater's GitHub adapter token.
+
+    ``gh`` reads ``GH_TOKEN`` / ``GITHUB_TOKEN``, not
+    ``GITHUB_PERSONAL_ACCESS_TOKEN``. Company-control Kater often has only the
+    latter in the unit env, so PR tools 401 even when the adapter token is set.
+    """
+    env = os.environ.copy()
+    if env.get("GH_TOKEN") or env.get("GITHUB_TOKEN"):
+        return env
+    pat = (env.get("GITHUB_PERSONAL_ACCESS_TOKEN") or "").strip()
+    if pat:
+        env["GH_TOKEN"] = pat
+    return env
+
+
 def _run_gh(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["gh", *args],
         capture_output=True,
         text=True,
         check=False,
+        env=_gh_environ(),
     )
+
+
+def _pr_client(repo: str = "") -> GitHubPRClient:
+    """PR client pinned to ``repo`` or ``KATER_PR_REPO``."""
+    return GitHubPRClient(repo=repo.strip() or None)
 
 
 def _default_repo() -> str | None:
@@ -903,8 +925,8 @@ def gate_for_pr(
 # ── MCP tool handlers (read-only) ─────────────────────────────────────────
 
 
-def pr_list_tool(state: str = "open", limit: int = 30) -> dict[str, Any]:
-    client = GitHubPRClient()
+def pr_list_tool(state: str = "open", limit: int = 30, repo: str = "") -> dict[str, Any]:
+    client = _pr_client(repo)
     rows = client.list_pull_requests(state=state, limit=limit)
     pulls = []
     for r in rows:
@@ -938,8 +960,8 @@ def pr_list_tool(state: str = "open", limit: int = 30) -> dict[str, Any]:
     }
 
 
-def pr_status_tool(number: int) -> dict[str, Any]:
-    client = GitHubPRClient()
+def pr_status_tool(number: int, repo: str = "") -> dict[str, Any]:
+    client = _pr_client(repo)
     pr = client.pull_request(number)
     summary = _summarize_pr(pr)
     gate = gate_for_pr(client, pr)
@@ -948,7 +970,7 @@ def pr_status_tool(number: int) -> dict[str, Any]:
     return result
 
 
-def pr_gate_tool(number: int, expected_head_sha: str = "") -> dict[str, Any]:
+def pr_gate_tool(number: int, expected_head_sha: str = "", repo: str = "") -> dict[str, Any]:
     """Evaluate the merge-readiness gate for a PR.
 
     ``expected_head_sha`` lets a caller assert they are gating against a known
@@ -956,7 +978,7 @@ def pr_gate_tool(number: int, expected_head_sha: str = "") -> dict[str, Any]:
     path still allows an empty pin and reports ``head_sha_matches`` when one
     is supplied.
     """
-    client = GitHubPRClient()
+    client = _pr_client(repo)
     pr = client.pull_request(number)
     gate = gate_for_pr(client, pr)
     result = gate.as_dict()
@@ -980,12 +1002,16 @@ def pr_audit_tool(pr_number: int = 0, limit: int = 100) -> dict[str, Any]:
     return {"count": len(rows), "entries": rows}
 
 
-def pr_merge_tool(number: int, expected_head_sha: str = "", actor: str = "") -> dict[str, Any]:
+def pr_merge_tool(
+    number: int, expected_head_sha: str = "", actor: str = "", repo: str = ""
+) -> dict[str, Any]:
     """Gate-then-merge a PR (§6 write-path). Requires a PASS gate and a nonempty
     pinned expected head SHA; refuses the merge otherwise and records it in
     the audit trail. Empty ``expected_head_sha`` is always a hard reject.
     """
-    return merge_pr(number, expected_head_sha=expected_head_sha, actor=actor)
+    return merge_pr(
+        number, expected_head_sha=expected_head_sha, actor=actor, repo=repo
+    )
 
 
 class MergeRejected(RuntimeError):
@@ -997,6 +1023,7 @@ def merge_pr(
     *,
     expected_head_sha: str = "",
     actor: str = "",
+    repo: str = "",
     policy: GatePolicy | None = None,
 ) -> dict[str, Any]:
     """Gate-then-merge a PR through the GitHub provider.
@@ -1011,7 +1038,7 @@ def merge_pr(
 
     policy = policy or load_gate_policy()
     pinned = (expected_head_sha or "").strip()
-    client = GitHubPRClient()
+    client = _pr_client(repo)
     pr = client.pull_request(number)
     repo = (getattr(client, "repo", None) or repo_from_url(str(pr.get("url") or "")) or "").strip()
     scope_error = write_scope_rejection(repo, policy)

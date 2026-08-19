@@ -52,6 +52,14 @@ async def mcp_checks() -> None:
             check("MCP tools/list", len(names) > 0, f"{len(names)} tools")
             check("MCP native tools", "kater_profiles" in names)
 
+            profiles = await session.call_tool("kater_profiles", {})
+            profiles_text = profiles.content[0].text if profiles.content else ""
+            check(
+                "MCP tools/call kater_profiles",
+                "profiles" in profiles_text and "Error executing tool" not in profiles_text,
+                profiles_text[:120],
+            )
+
             proxy_enabled = False
             if "kater_proxy_status" in names:
                 payload = json.loads((await session.call_tool("kater_proxy_status", {})).content[0].text)

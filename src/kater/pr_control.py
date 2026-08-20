@@ -446,7 +446,7 @@ def evaluate_gate(
     """
     policy = policy or GatePolicy()
     reasons: list[str] = []
-    state = pr_state.upper()
+    state = str(pr_state or "OPEN").strip().upper()
     landed = state in ("MERGED", "CLOSED")
 
     if landed:
@@ -823,7 +823,7 @@ def _pr_state(pr: dict[str, Any]) -> str:
     """Normalize GitHub PR lifecycle state for gate evaluation."""
     if pr.get("merged") is True:
         return "MERGED"
-    state = str(pr.get("state") or "OPEN").upper()
+    state = str(pr.get("state") or "OPEN").strip().upper()
     if state in ("MERGED", "CLOSED"):
         return state
     return "OPEN"

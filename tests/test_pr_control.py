@@ -4,6 +4,12 @@ from types import SimpleNamespace
 from typing import Any
 
 from kater.pr_control import (
+    REASON_ALREADY_CLOSED as ALREADY_CLOSED,
+)
+from kater.pr_control import (
+    REASON_ALREADY_MERGED as ALREADY_MERGED,
+)
+from kater.pr_control import (
     REASON_BASE_PROTECTED as BASE_PROTECTED,
 )
 from kater.pr_control import (
@@ -142,6 +148,26 @@ def test_gate_flags_each_reason() -> None:
         res = evaluate_gate(**kwargs)
         assert reason in res.reasons
         assert res.verdict == BLOCK
+
+
+def test_gate_unknown_mergeable_not_head_stale_when_merged_or_closed() -> None:
+    for pr_state, reason in (("MERGED", ALREADY_MERGED), ("CLOSED", ALREADY_CLOSED)):
+        res = evaluate_gate(
+            pr_number=1,
+            head_sha="h",
+            base_sha="b",
+            mergeable="UNKNOWN",
+            draft=False,
+            open_threads=0,
+            pending_checks=0,
+            approving_reviews=1,
+            base_protected=False,
+            overlapping_open=0,
+            pr_state=pr_state,
+        )
+        assert HEAD_STALE not in res.reasons
+        assert reason in res.reasons
+        assert res.verdict != BLOCK
 
 
 def test_gate_block_overrides_warn() -> None:
@@ -424,6 +450,20 @@ def test_summarize_pr_aggregates_threads_and_checks() -> None:
     assert summ["approving_reviews"] == 1
     assert summ["head_sha"] == "head000"
     assert summ["base_sha"] == "base000"
+
+
+def test_gate_for_pr_unknown_mergeable_not_head_stale_when_merged() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        if "check-runs" in path:
+            return SimpleNamespace(returncode=0, stdout='{"check_runs":[]}', stderr="")
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    res = gate_for_pr(client, _pr(state="MERGED", mergeable="UNKNOWN"))
+    assert HEAD_STALE not in res.reasons
+    assert ALREADY_MERGED in res.reasons
+    assert res.verdict != BLOCK
 
 
 def test_gate_for_pr_blocks_on_unresolved_threads() -> None:

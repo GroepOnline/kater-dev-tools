@@ -214,14 +214,24 @@ def _wrap_native_handler(handler: Callable[..., Any]) -> Callable[..., Any]:
         param.name for param in params if param.default is not inspect.Parameter.empty
     }
 
-    def wrapped(**kwargs: Any) -> Any:
-        filtered = {
-            name: value
-            for name, value in kwargs.items()
-            if name in param_names
-            and (value is not None or name not in optional_names)
-        }
-        return handler(**filtered)
+    if inspect.iscoroutinefunction(handler):
+        async def wrapped(**kwargs: Any) -> Any:
+            filtered = {
+                name: value
+                for name, value in kwargs.items()
+                if name in param_names
+                and (value is not None or name not in optional_names)
+            }
+            return await handler(**filtered)
+    else:
+        def wrapped(**kwargs: Any) -> Any:
+            filtered = {
+                name: value
+                for name, value in kwargs.items()
+                if name in param_names
+                and (value is not None or name not in optional_names)
+            }
+            return handler(**filtered)
 
     wrapped.__name__ = getattr(handler, "__name__", "wrapped")
     wrapped.__qualname__ = getattr(handler, "__qualname__", wrapped.__name__)

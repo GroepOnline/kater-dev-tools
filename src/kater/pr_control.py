@@ -31,6 +31,8 @@ REASON_BASE_PROTECTED = "BASE_PROTECTED"
 REASON_REPO_DENIED = "REPO_DENIED"
 REASON_MISSING_HEAD_SHA = "MISSING_HEAD_SHA"
 REASON_REQUIRED_CHECK_LOOKUP = "REQUIRED_CHECK_LOOKUP"
+REASON_ALREADY_MERGED = "ALREADY_MERGED"
+REASON_ALREADY_CLOSED = "ALREADY_CLOSED"
 
 _FAILED_CONCLUSIONS = frozenset(
     {"FAILURE", "CANCELLED", "CANCELED", "TIMED_OUT", "STARTUP_FAILURE", "ERROR"}
@@ -422,6 +424,7 @@ def evaluate_gate(
     required_failed: int = 0,
     required_pending: int = 0,
     required_missing: int = 0,
+    pr_state: str = "OPEN",
 ) -> GateResult:
     """Deterministic PR merge-readiness gate.
 
@@ -435,9 +438,21 @@ def evaluate_gate(
     New optional inputs default to PR19-compatible behavior: failed checks,
     P1 latch, independent-approval override, and repo denylist are inert
     unless the caller supplies a non-zero / non-empty value.
+
+    ``pr_state`` defaults to ``OPEN`` for backward compatibility. Landed PRs
+    (``MERGED`` / ``CLOSED``, or ``merged: true`` upstream) skip
+    ``HEAD_STALE`` for ``mergeable == UNKNOWN`` because GitHub often reports
+    unknown mergeability after merge/close.
     """
     policy = policy or GatePolicy()
     reasons: list[str] = []
+    state = str(pr_state or "OPEN").strip().upper()
+    landed = state in ("MERGED", "CLOSED")
+
+    if landed:
+        reasons.append(
+            REASON_ALREADY_MERGED if state == "MERGED" else REASON_ALREADY_CLOSED
+        )
 
     if draft and policy.block_drafts:
         reasons.append(REASON_DRAFT)
@@ -445,7 +460,7 @@ def evaluate_gate(
         reasons.append(REASON_UNRESOLVED_THREAD)
     if mergeable == "CONFLICTING":
         reasons.append(REASON_MERGE_CONFLICT)
-    elif mergeable == "UNKNOWN":
+    elif mergeable == "UNKNOWN" and not landed:
         # Unknown mergeability is treated as stale/unverified rather than green.
         reasons.append(REASON_HEAD_STALE)
     if overlapping_open > 0 and not policy.allow_overlapping_prs:
@@ -804,6 +819,16 @@ def _commit_author_logins(pr: dict[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(logins))
 
 
+def _pr_state(pr: dict[str, Any]) -> str:
+    """Normalize GitHub PR lifecycle state for gate evaluation."""
+    if pr.get("merged") is True:
+        return "MERGED"
+    state = str(pr.get("state") or "OPEN").strip().upper()
+    if state in ("MERGED", "CLOSED"):
+        return state
+    return "OPEN"
+
+
 def _summarize_pr(pr: dict[str, Any], *, policy: GatePolicy | None = None) -> dict[str, Any]:
     policy = policy or GatePolicy()
     threads = pr.get("reviewThreads") or []
@@ -852,6 +877,7 @@ def _summarize_pr(pr: dict[str, Any], *, policy: GatePolicy | None = None) -> di
         "required_missing": check_summary["required_missing"],
         "required_success": check_summary["required_success"],
         "required_names": check_summary["required_names"],
+        "pr_state": _pr_state(pr),
     }
 
 
@@ -909,6 +935,7 @@ def gate_for_pr(
         required_failed=check_summary["required_failed"],
         required_pending=check_summary["required_pending"],
         required_missing=check_summary["required_missing"],
+        pr_state=summary["pr_state"],
     )
     if required_lookup_failed or check_runs_failed:
         if REASON_REQUIRED_CHECK_LOOKUP not in result.reasons:
@@ -951,6 +978,7 @@ def pr_list_tool(state: str = "open", limit: int = 30, repo: str = "") -> dict[s
             required_failed=summary.get("required_failed") or 0,
             required_pending=summary.get("required_pending") or 0,
             required_missing=summary.get("required_missing") or 0,
+            pr_state=summary.get("pr_state") or "OPEN",
         ).as_dict()
         pulls.append(summary)
     return {

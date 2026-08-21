@@ -266,7 +266,11 @@ def create_server(*, profile: str = "core") -> Any:
 
     for tool in tools_for_profile(profile):
         server.tool(name=tool.name)(
-            wrap_tool_handler(tool.name, tool.handler, profile=profile)
+            wrap_tool_handler(
+                tool.name,
+                _wrap_native_handler(tool.handler),
+                profile=profile,
+            )
         )
 
     return server

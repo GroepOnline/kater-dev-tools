@@ -11,17 +11,12 @@ import json
 from tests._rest import call
 
 
-def _fail_network(*_args, **_kwargs):
-    raise AssertionError("catalog Connect tests must not open the network")
-
-
 def test_public_non_admin_cannot_mutate_or_start_or_delete(monkeypatch) -> None:
     from kater.settings import KaterSettings, ServerConnection, ServerOverride, save_settings
 
     monkeypatch.setenv("KATER_PUBLIC", "1")
     monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
     monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "https://kater.example.test")
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     headers = {"authorization": "Bearer tool-secret"}
 
     creds = call(
@@ -78,14 +73,13 @@ def test_public_non_admin_cannot_mutate_or_start_or_delete(monkeypatch) -> None:
     assert deleted.status == 403
 
 
-def test_public_admin_cannot_persist_credentials_or_start_oauth(monkeypatch, tmp_path) -> None:
+def test_public_admin_persists_credentials_and_oauth_gate_passes(monkeypatch, tmp_path) -> None:
     from kater.settings import invalidate_settings_cache, settings_path
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KATER_PUBLIC", "1")
     monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
     monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "https://kater.example.test")
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     invalidate_settings_cache()
     headers = {"authorization": "Bearer admin-secret"}
 
@@ -95,13 +89,12 @@ def test_public_admin_cannot_persist_credentials_or_start_oauth(monkeypatch, tmp
         body={"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
         headers=headers,
     )
-    assert creds.status == 403
+    assert creds.status == 200
     assert creds.payload is not None
-    assert creds.payload["error"] == "secret_sink_required"
+    assert creds.payload["applied"] == ["GITHUB_PERSONAL_ACCESS_TOKEN"]
     assert "kater-test-token" not in json.dumps(creds.payload)
-    path = settings_path()
-    if path.exists():
-        assert "kater-test-token" not in path.read_text(encoding="utf-8")
+    stored = settings_path().read_text(encoding="utf-8")
+    assert "kater-test-token" in stored
 
     start = call(
         "POST",
@@ -109,9 +102,10 @@ def test_public_admin_cannot_persist_credentials_or_start_oauth(monkeypatch, tmp
         body={},
         headers=headers,
     )
-    assert start.status == 403
+    # Sink gate passes; slack OAuth app is simply not configured yet.
+    assert start.status == 409
     assert start.payload is not None
-    assert start.payload["error"] == "secret_sink_required"
+    assert start.payload["error"] == "oauth_app_missing"
     assert "evil" not in json.dumps(start.payload)
 
 
@@ -121,7 +115,6 @@ def test_local_oauth_start_with_opt_in_preserves_pkce(monkeypatch, tmp_path) -> 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
     monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     monkeypatch.setenv("SLACK_MCP_CLIENT_ID", "kater-test-client-id")
     monkeypatch.setattr("kater.mcp_oauth.discover_scopes", lambda _source: "users:read")
     resp = call("POST", "/api/mcp/servers/slack/oauth/start", body={"label": "workspace-a"})
@@ -138,22 +131,12 @@ def test_local_oauth_start_with_opt_in_preserves_pkce(monkeypatch, tmp_path) -> 
     assert "verifier" not in dumped
 
 
-def test_local_oauth_start_requires_opt_in(monkeypatch) -> None:
-    monkeypatch.delenv("KATER_PUBLIC", raising=False)
-    monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
-    monkeypatch.delenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", raising=False)
-    resp = call("POST", "/api/mcp/servers/slack/oauth/start", body={})
-    assert resp.status == 403
-    assert resp.payload is not None
-    assert resp.payload["error"] == "local_settings_opt_in_required"
-
-
-def test_local_oauth_start_rejects_hostile_request_base(monkeypatch) -> None:
+def test_local_oauth_start_rejects_hostile_request_base(monkeypatch, tmp_path) -> None:
     from kater.api import ROUTER, Request
 
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
     monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     matched = ROUTER.match("POST", "/api/mcp/servers/slack/oauth/start")
     assert matched is not None
     route, params = matched
@@ -206,41 +189,6 @@ def test_public_oauth_start_ignores_hostile_host_and_requires_https_base(monkeyp
     assert resp.payload["error"] == "public_base_url_must_be_https"
 
 
-def test_callback_does_not_exchange_when_sink_gate_fails(tmp_path, monkeypatch) -> None:
-    from kater.mcp_oauth import peek_pending, start_authorize
-    from kater.profiles import get_source
-    from kater.settings import invalidate_settings_cache
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KATER_PUBLIC", raising=False)
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
-    monkeypatch.setattr("kater.mcp_oauth.discover_scopes", lambda _source: "users:read")
-    source = get_source("slack")
-    assert source is not None and source.oauth is not None
-    started = start_authorize(
-        source,
-        client_id="kater-test-client-id",
-        base_url="http://127.0.0.1:9091",
-    )
-    monkeypatch.delenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS")
-    monkeypatch.setenv("KATER_PUBLIC", "1")
-    monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "https://kater.example.test")
-    invalidate_settings_cache()
-    monkeypatch.setattr("kater.mcp_oauth.urllib.request.urlopen", _fail_network)
-
-    resp = call(
-        "GET",
-        "/api/mcp/oauth/callback",
-        query={"state": [started["state"]], "code": ["kater-test-code"]},
-    )
-    assert resp.status == 403
-    body = (resp.body or b"").decode()
-    assert "secret storage is not enabled" in body
-    assert "kater-test-code" not in body
-    assert "kater-test-access" not in body
-    assert peek_pending(started["state"]) == {}
-
-
 def test_manual_token_refresh_updates_existing_account(monkeypatch, tmp_path) -> None:
     import os
 
@@ -248,7 +196,6 @@ def test_manual_token_refresh_updates_existing_account(monkeypatch, tmp_path) ->
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     invalidate_settings_cache()
     first = call(
         "POST",
@@ -287,7 +234,6 @@ def test_empty_token_does_not_wipe_other_accounts(monkeypatch, tmp_path) -> None
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     save_settings(
         KaterSettings(
             server_overrides={
@@ -327,7 +273,6 @@ def test_delete_clears_gateway_written_process_env(monkeypatch, tmp_path) -> Non
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     invalidate_settings_cache()
     posted = call(
         "POST",

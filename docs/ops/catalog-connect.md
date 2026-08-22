@@ -4,23 +4,19 @@ Catalog Connect lets an operator link a provider account (Slack, Microsoft, …)
 from the dashboard. This is **not** company-control production-ready token
 storage.
 
-## Secret sink (deny-default)
+## Secret sink
 
-OAuth access and refresh tokens must not be treated as durable company-control
-secrets in `cwd/.kater/settings.json`.
+Dashboard-saved credentials and OAuth tokens persist to the gitignored
+`cwd/.kater/settings.json`, written `0600` with a `0700` directory. Values are
+masked in every API response.
 
 | Mode | Persist to local settings.json | Notes |
 | --- | --- | --- |
-| Local development | Only with `KATER_CONNECT_ALLOW_LOCAL_SETTINGS=1` | File mode `0600`, gitignored. Opt-in required. |
-| Public / `KATER_PUBLIC=1` | Never | Even if the local opt-in env is set. |
-| `KATER_CONNECT_SECRET_SINK=chefvault` | Never | Reference only. This gateway does **not** write Vault items. |
+| Local development | Yes | File mode `0600`, gitignored. |
+| Public / `KATER_PUBLIC=1` | Yes | Admin gate applies; file stays `0600`. |
 
-Company-control materialization stays on the ChefVault broker. See
-[chefvault.md](chefvault.md). Do not put tokens in `mcp.json` or git.
-
-The provider callback will not exchange or store tokens when the sink gate
-fails. Pending PKCE/state files stay `0600` and are abandoned without a token
-request.
+Company-control teams that need a durable shared broker stay on ChefVault.
+See [chefvault.md](chefvault.md). Do not put tokens in `mcp.json` or git.
 
 ## Admin gate
 

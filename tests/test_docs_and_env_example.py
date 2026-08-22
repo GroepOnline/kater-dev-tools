@@ -23,8 +23,7 @@ DOC_SECURITY = ROOT / "SECURITY.md"
 class TestEnvExampleCatalogConnectPolicy:
     def test_documents_connect_secret_and_origin_gates(self) -> None:
         text = ENV_EXAMPLE.read_text(encoding="utf-8")
-        assert "KATER_CONNECT_ALLOW_LOCAL_SETTINGS=0" in text
-        assert "KATER_CONNECT_SECRET_SINK=" in text
+        assert "written 0600" in text
         assert "KATER_CONNECT_PUBLIC_BASE_URL=https://kater.example.com" in text
         assert "docs/ops/chefvault.md" in text
         assert "does not write Vault items" in text
@@ -182,13 +181,13 @@ class TestDocDeployServerMd:
 
 
 class TestDocCatalogConnect:
-    def test_documents_deny_default_sink_and_origin(self) -> None:
+    def test_documents_local_settings_sink_and_origin(self) -> None:
         text = DOC_CATALOG_CONNECT.read_text(encoding="utf-8")
-        assert "KATER_CONNECT_ALLOW_LOCAL_SETTINGS" in text
+        assert "0600" in text
         assert "KATER_CONNECT_PUBLIC_BASE_URL" in text
         assert "check_admin" in text
-        assert "does **not** write Vault items" in text
+        assert "ChefVault" in text
         assert "X-Forwarded-Host" in text
         security = DOC_SECURITY.read_text(encoding="utf-8")
         assert "KATER_CONNECT_PUBLIC_BASE_URL" in security
-        assert "KATER_CONNECT_ALLOW_LOCAL_SETTINGS" in security
+        assert "0600" in security

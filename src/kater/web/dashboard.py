@@ -1810,7 +1810,8 @@ async function api(path, opts = {}) {
     try { data = JSON.parse(text); } catch (e) { data = null; }
   }
   if (!r.ok) {
-    const msg = (data && data.error) ? data.error : ('HTTP ' + r.status);
+    const msg = (data && (data.message || data.error))
+      ? (data.message || data.error) : ('HTTP ' + r.status);
     throw new ApiError(msg, r.status, data);
   }
   return data || {};

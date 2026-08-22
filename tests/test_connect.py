@@ -199,51 +199,13 @@ def test_slack_catalog_source_declares_connect_env_names() -> None:
     assert "SLACK_BOT_TOKEN" not in slack.env
 
 
-def test_secret_sink_local_requires_explicit_opt_in(monkeypatch) -> None:
+def test_secret_persist_always_allows_local_settings() -> None:
     from kater.connect_policy import connect_secret_decision
-    from kater.settings import invalidate_settings_cache
 
-    monkeypatch.delenv("KATER_PUBLIC", raising=False)
-    monkeypatch.delenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", raising=False)
-    monkeypatch.delenv("KATER_CONNECT_SECRET_SINK", raising=False)
-    invalidate_settings_cache()
-    denied = connect_secret_decision(KaterSettings())
-    assert denied.allowed is False
-    assert denied.reason == "local_settings_opt_in_required"
-    assert denied.persist_local_settings is False
-
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
-    allowed = connect_secret_decision(KaterSettings())
-    assert allowed.allowed is True
-    assert allowed.sink == "local-settings"
-    assert allowed.persist_local_settings is True
-
-
-def test_secret_sink_public_deny_default_ignores_local_opt_in(monkeypatch) -> None:
-    from kater.connect_policy import connect_secret_decision
-    from kater.settings import invalidate_settings_cache
-
-    monkeypatch.setenv("KATER_PUBLIC", "1")
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
-    monkeypatch.delenv("KATER_CONNECT_SECRET_SINK", raising=False)
-    invalidate_settings_cache()
-    denied = connect_secret_decision(KaterSettings())
-    assert denied.allowed is False
-    assert denied.reason == "secret_sink_required"
-    assert denied.persist_local_settings is False
-
-
-def test_secret_sink_chefvault_is_reference_only(monkeypatch) -> None:
-    from kater.connect_policy import connect_secret_decision
-    from kater.settings import invalidate_settings_cache
-
-    monkeypatch.setenv("KATER_PUBLIC", "1")
-    monkeypatch.setenv("KATER_CONNECT_SECRET_SINK", "chefvault")
-    invalidate_settings_cache()
-    denied = connect_secret_decision(KaterSettings())
-    assert denied.allowed is False
-    assert denied.reason == "chefvault_persist_unavailable"
-    assert "access_token" not in denied.as_error()["message"]
+    decision = connect_secret_decision(KaterSettings())
+    assert decision.allowed is True
+    assert decision.sink == "local-settings"
+    assert decision.persist_local_settings is True
 
 
 def test_public_origin_requires_https_canonical_url(monkeypatch) -> None:

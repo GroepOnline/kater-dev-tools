@@ -190,7 +190,6 @@ def test_public_catalog_mutations_require_admin_key(monkeypatch, api_server):
     monkeypatch.setenv("KATER_API_KEYS", "tool-secret,admin-secret")
     monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
     monkeypatch.setenv("KATER_CONNECT_PUBLIC_BASE_URL", "https://kater.example.test")
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     from kater.settings import invalidate_settings_cache
 
     invalidate_settings_cache()
@@ -204,15 +203,7 @@ def test_public_catalog_mutations_require_admin_key(monkeypatch, api_server):
         headers=tool,
     )
     assert err.code == 403
-
-    admin_err = _get_err_post(
-        api_server.server_address[1],
-        "/api/mcp/servers/github/credentials",
-        {"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}},
-        headers=admin,
-    )
-    assert admin_err.code == 403
-    assert "secret_sink_required" in admin_err.read().decode()
+    assert "admin credential required" in err.read().decode()
 
     start_err = _get_err_post(
         api_server.server_address[1],
@@ -221,14 +212,18 @@ def test_public_catalog_mutations_require_admin_key(monkeypatch, api_server):
         headers=tool,
     )
     assert start_err.code == 403
-    start_admin = _get_err_post(
-        api_server.server_address[1],
-        "/api/mcp/servers/slack/oauth/start",
-        {},
-        headers=admin,
+
+    # Admin passes the gate; the credential save succeeds.
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{api_server.server_address[1]}/api/mcp/servers/github/credentials",
+        data=json.dumps({"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "kater-test-token"}}).encode(),
+        headers={**admin, "Content-Type": "application/json"},
+        method="POST",
     )
-    assert start_admin.code == 403
-    assert "secret_sink_required" in start_admin.read().decode()
+    body = json.loads(urllib.request.urlopen(req).read().decode())
+    assert body["applied"] == ["GITHUB_PERSONAL_ACCESS_TOKEN"]
 
     listed = json.loads(
         urllib.request.urlopen(

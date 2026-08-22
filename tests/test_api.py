@@ -350,7 +350,6 @@ def test_update_storage_backend(api_server) -> None:
 def test_server_credentials(api_server, monkeypatch) -> None:
     import os
 
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     try:
         ok = _post(
             _api_port(api_server),
@@ -383,7 +382,6 @@ def test_server_credentials(api_server, monkeypatch) -> None:
 def test_settings_redacts_server_credentials(api_server, monkeypatch) -> None:
     import os
 
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     try:
         _post(
             _api_port(api_server),
@@ -401,7 +399,6 @@ def test_settings_redacts_server_credentials(api_server, monkeypatch) -> None:
 def test_catalog_oauth_start_deny_default_without_client(api_server, monkeypatch) -> None:
     import os
 
-    monkeypatch.setenv("KATER_CONNECT_ALLOW_LOCAL_SETTINGS", "1")
     monkeypatch.setattr("kater.mcp_oauth.discover_scopes", lambda _source: "users:read")
     os.environ.pop("SLACK_MCP_CLIENT_ID", None)
     with pytest.raises(urllib.error.HTTPError) as exc:

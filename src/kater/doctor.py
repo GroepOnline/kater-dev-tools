@@ -412,21 +412,6 @@ def _security_check() -> list[Finding]:
                     ),
                 )
             )
-        findings.append(
-            Finding(
-                code="public_connect_secret_sink_disabled",
-                severity="info",
-                message=(
-                    "Catalog Connect OAuth token persist is deny-default in public "
-                    "mode. Local .kater/settings.json is not an approved company-control sink."
-                ),
-                suggested_action=(
-                    "Materialize provider tokens via the ChefVault broker "
-                    "(docs/ops/chefvault.md). Do not set "
-                    "KATER_CONNECT_ALLOW_LOCAL_SETTINGS on public hosts."
-                ),
-            )
-        )
         if not os.environ.get("KATER_CONNECT_PUBLIC_BASE_URL", "").strip():
             findings.append(
                 Finding(

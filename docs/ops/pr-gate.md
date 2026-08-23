@@ -47,9 +47,9 @@ GraphQL `errors[]`, merge conflicts. Writes do not retry.
 
 ## Live deploy (after merge; not this PR)
 
-1. Merge this change to `GroepOnline/kater-dev-tools` `main`.
-2. Pull the exact SHA on `chef-control-az-01` `/opt/chef/services/kater`.
-3. Restart `chef-kater-shadow`.
-4. Prove `/health` and one `kater_pr_gate` against a real GroepOnline PR.
+1. Merge this change to this repository's `main`.
+2. Pull the exact SHA on the company-control host Kater checkout.
+3. Restart the Kater shadow service unit.
+4. Prove `/health` and one `kater_pr_gate` against a real PR in this repository.
 5. Stamp inventory `desired_sha` / `deployed_sha`.
-6. Confirm az-01 egress to `api.github.com:443`. Retries do not fix a DROP.
+6. Confirm the control host can reach `api.github.com:443`. Retries do not fix a DROP.

@@ -19,9 +19,8 @@ jobs:
   # PR scanner code is pinned to the trusted base SHA; forks never run here.
   no-org-leak:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    # GitHub-hosted runners banned until Actions spending restored.
     # PR → pr-isolated; else → heavy.
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       PR_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}

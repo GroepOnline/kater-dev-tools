@@ -17,7 +17,6 @@ concurrency:
 
 jobs:
   eval:
-    # GitHub-hosted runners banned until Actions spending restored.
     runs-on: fromJSON('["self-hosted","Linux","X64","heavy"]')
     timeout-minutes: 10
     permissions:

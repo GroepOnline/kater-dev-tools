@@ -37,8 +37,9 @@ class _ClickHouseHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self) -> None:
-        if self.path.startswith("/?"):
-            query = self.path.split("query=", 1)[-1]
+        if self.path == "/":
+            length = int(self.headers.get("Content-Length") or 0)
+            query = self.rfile.read(length).decode() if length else ""
             self.send_response(200)
             self.end_headers()
             self.wfile.write(json.dumps({"query": query}).encode())

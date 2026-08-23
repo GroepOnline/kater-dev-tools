@@ -27,13 +27,13 @@ from kater.pr_control import (
     REASON_FAILED_CHECKS as FAILED_CHECKS,
 )
 from kater.pr_control import (
+    REASON_GATE_INCOMPLETE as GATE_INCOMPLETE,
+)
+from kater.pr_control import (
     REASON_HEAD_STALE as HEAD_STALE,
 )
 from kater.pr_control import (
     REASON_MERGE_CONFLICT as MERGE_CONFLICT,
-)
-from kater.pr_control import (
-    REASON_GATE_INCOMPLETE as GATE_INCOMPLETE,
 )
 from kater.pr_control import (
     REASON_NO_REVIEWS as NO_REVIEWS,

@@ -33,6 +33,9 @@ from kater.pr_control import (
     REASON_MERGE_CONFLICT as MERGE_CONFLICT,
 )
 from kater.pr_control import (
+    REASON_GATE_INCOMPLETE as GATE_INCOMPLETE,
+)
+from kater.pr_control import (
     REASON_NO_REVIEWS as NO_REVIEWS,
 )
 from kater.pr_control import (
@@ -58,6 +61,9 @@ from kater.pr_control import (
 )
 from kater.pr_control import (
     VERDICT_PASS as PASS,
+)
+from kater.pr_control import (
+    VERDICT_UNKNOWN as UNKNOWN,
 )
 from kater.pr_control import (
     GatePolicy,
@@ -1341,5 +1347,27 @@ def test_list_pull_requests_uses_rest_when_repo_set() -> None:
     rows = client.list_pull_requests(limit=5)
     assert len(rows) == 1
     assert rows[0]["headRefOid"] == "head000"
+    assert rows[0]["gateFieldsIncomplete"] is True
     assert any("pulls" in c for c in captured)
     assert not any(c.startswith("pr list") for c in captured)
+
+
+def test_list_gate_unknown_when_rest_reviews_checks_not_fetched(monkeypatch) -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return _ok([_rest_pr_payload()])
+
+    monkeypatch.setattr(
+        "kater.pr_control._pr_client",
+        lambda repo="": GitHubPRClient(
+            repo="o/r",
+            runner=fake_runner,
+            transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+        ),
+    )
+    listing = pr_list_tool(state="open", limit=5, repo="o/r")
+    assert listing["count"] == 1
+    gate = listing["pulls"][0]["gate"]
+    assert gate["verdict"] == UNKNOWN
+    assert GATE_INCOMPLETE in gate["reasons"]
+    assert NO_REVIEWS not in gate["reasons"]
+    assert gate["details"].get("advisory") is True

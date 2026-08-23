@@ -5,7 +5,7 @@ import logging
 import os
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -27,6 +27,7 @@ _log = logging.getLogger("kater.pr_control")
 VERDICT_PASS = "PASS"
 VERDICT_WARN = "WARN"
 VERDICT_BLOCK = "BLOCK"
+VERDICT_UNKNOWN = "UNKNOWN"
 
 REASON_HEAD_STALE = "HEAD_STALE"
 REASON_MERGE_CONFLICT = "MERGE_CONFLICT"
@@ -43,6 +44,7 @@ REASON_MISSING_HEAD_SHA = "MISSING_HEAD_SHA"
 REASON_REQUIRED_CHECK_LOOKUP = "REQUIRED_CHECK_LOOKUP"
 REASON_ALREADY_MERGED = "ALREADY_MERGED"
 REASON_ALREADY_CLOSED = "ALREADY_CLOSED"
+REASON_GATE_INCOMPLETE = "GATE_INCOMPLETE"
 
 _FAILED_CONCLUSIONS = frozenset(
     {"FAILURE", "CANCELLED", "CANCELED", "TIMED_OUT", "STARTUP_FAILURE", "ERROR"}
@@ -901,6 +903,13 @@ def normalize_rest_pull(
     if "headRefOid" in raw and "headRefName" in raw and reviews is None and commits is None:
         return dict(raw)
 
+    gate_fields_incomplete = reviews is None and commits is None and not (
+        raw.get("reviewDecision")
+        or raw.get("latestReviews")
+        or raw.get("reviews")
+        or raw.get("statusCheckRollup")
+    )
+
     user = raw.get("user") or raw.get("author") or {}
     head_raw = raw.get("head")
     base_raw = raw.get("base")
@@ -946,6 +955,7 @@ def normalize_rest_pull(
         "latestReviews": mapped_reviews,
         "author": author,
         "labels": raw.get("labels") or [],
+        "gateFieldsIncomplete": gate_fields_incomplete,
     }
 
 
@@ -1123,6 +1133,69 @@ def gate_for_pr(
     return result
 
 
+def _list_gate_for_pr(pr: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    """Advisory list-view gate: never BLOCK/PASS on unfetched review/check fields."""
+    policy = load_gate_policy()
+    if not pr.get("gateFieldsIncomplete"):
+        return evaluate_gate(
+            pr_number=summary["number"],
+            head_sha=summary["head_sha"],
+            base_sha=summary["base_sha"],
+            mergeable=summary["mergeable"],
+            draft=summary["draft"],
+            open_threads=summary["open_threads"],
+            pending_checks=summary["pending_checks"],
+            approving_reviews=summary["approving_reviews"],
+            base_protected=False,
+            overlapping_open=0,
+            policy=policy,
+            failed_checks=summary.get("failed_checks") or 0,
+            p1_latch_open=bool(summary.get("p1_latch_open")),
+            independent_approvals=summary.get("independent_approvals"),
+            repo=summary.get("repo") or "",
+            required_failed=summary.get("required_failed") or 0,
+            required_pending=summary.get("required_pending") or 0,
+            required_missing=summary.get("required_missing") or 0,
+            pr_state=summary.get("pr_state") or "OPEN",
+        ).as_dict()
+
+    # REST list rows omit reviews/commits/check-runs. Still surface draft/conflict/
+    # repo/lifecycle signals from fields we did fetch; never infer review/check state.
+    list_policy = replace(
+        policy,
+        require_approvals=0,
+        block_failed_checks=False,
+        require_required_checks=False,
+    )
+    result = evaluate_gate(
+        pr_number=summary["number"],
+        head_sha=summary["head_sha"],
+        base_sha=summary["base_sha"],
+        mergeable=summary["mergeable"],
+        draft=summary["draft"],
+        open_threads=summary["open_threads"],
+        pending_checks=0,
+        approving_reviews=0,
+        base_protected=False,
+        overlapping_open=0,
+        policy=list_policy,
+        failed_checks=0,
+        p1_latch_open=bool(summary.get("p1_latch_open")),
+        independent_approvals=None,
+        repo=summary.get("repo") or "",
+        required_failed=0,
+        required_pending=0,
+        required_missing=0,
+        pr_state=summary.get("pr_state") or "OPEN",
+    )
+    if REASON_GATE_INCOMPLETE not in result.reasons:
+        result.reasons.append(REASON_GATE_INCOMPLETE)
+    if result.verdict == VERDICT_PASS:
+        result.verdict = VERDICT_UNKNOWN
+    result.details["advisory"] = True
+    return result.as_dict()
+
+
 # ── MCP tool handlers (read-only) ─────────────────────────────────────────
 
 
@@ -1134,26 +1207,7 @@ def pr_list_tool(state: str = "open", limit: int = 30, repo: str = "") -> dict[s
         summary = _summarize_pr(r)
         # List view skips the per-PR base-protection lookup (one extra API call
         # each) to stay cheap; the single-PR gate/status paths still check it.
-        summary["gate"] = evaluate_gate(
-            pr_number=summary["number"],
-            head_sha=summary["head_sha"],
-            base_sha=summary["base_sha"],
-            mergeable=summary["mergeable"],
-            draft=summary["draft"],
-            open_threads=summary["open_threads"],
-            pending_checks=summary["pending_checks"],
-            approving_reviews=summary["approving_reviews"],
-            base_protected=False,
-            overlapping_open=0,
-            failed_checks=summary.get("failed_checks") or 0,
-            p1_latch_open=bool(summary.get("p1_latch_open")),
-            independent_approvals=summary.get("independent_approvals"),
-            repo=summary.get("repo") or "",
-            required_failed=summary.get("required_failed") or 0,
-            required_pending=summary.get("required_pending") or 0,
-            required_missing=summary.get("required_missing") or 0,
-            pr_state=summary.get("pr_state") or "OPEN",
-        ).as_dict()
+        summary["gate"] = _list_gate_for_pr(r, summary)
         pulls.append(summary)
     return {
         "state": state,

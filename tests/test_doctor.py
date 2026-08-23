@@ -47,6 +47,59 @@ def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
     assert all(f.code.startswith("browser_lane_") for f in report.findings)
 
 
+def test_doctor_ops_skips_high_risk_missing_env_warnings(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    for var in (
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "GITLAB_PERSONAL_ACCESS_TOKEN",
+        "LINEAR_API_KEY",
+        "SENTRY_AUTH_TOKEN",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "SLACK_BOT_TOKEN",
+        "NOTION_TOKEN",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"ops"}, cursor_mcp_path=mcp_path)
+    missing_sources = {f.source for f in report.findings if f.code == "missing_env"}
+    assert "github" not in missing_sources
+    assert "gitlab" not in missing_sources
+    assert "slack" not in missing_sources
+    assert "notion" not in missing_sources
+    assert any(
+        f.code in {"adapter_ready", "adapter_not_configured"} for f in report.findings
+    )
+
+
+def test_browser_lane_unsupported_when_not_expected(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_BROWSER_ENABLE", raising=False)
+    monkeypatch.delenv("KATER_BROWSER_CDP_URL", raising=False)
+    monkeypatch.delenv("KATER_BROWSER_STEEL_URL", raising=False)
+    monkeypatch.setattr("kater.browser.providers.probe_providers", lambda: [])
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
+    codes = {f.code for f in report.findings if f.code.startswith("browser_lane_")}
+    assert codes == {"browser_lane_unsupported"}
+
+
+def test_browser_lane_unavailable_when_expected(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KATER_BROWSER_ENABLE", "1")
+    monkeypatch.setattr("kater.browser.providers.probe_providers", lambda: [])
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
+    codes = {f.code for f in report.findings if f.code.startswith("browser_lane_")}
+    assert codes == {"browser_lane_unavailable"}
+
+
 def test_doctor_reports_context_bloat(tmp_path) -> None:
     mcp_path = tmp_path / "mcp.json"
     mcp_path.write_text(

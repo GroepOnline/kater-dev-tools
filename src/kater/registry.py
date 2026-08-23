@@ -57,18 +57,28 @@ def chains_list_tool(profile: str = "core") -> dict[str, Any]:
 
 def adapter_inventory_tool(profile: str = "core") -> dict[str, Any]:
     inventory = scan_adapters({profile})
+    connectors: list[dict[str, Any]] = []
+    try:
+        from kater.connectors.registry import inventory as connector_inventory
+        from kater.connectors.seed import seed_builtin_connectors
+
+        seed_builtin_connectors()
+        connectors = [view.as_dict() for view in connector_inventory(profile)]
+    except Exception:
+        connectors = []
     return {
         "profile": profile,
         "adapters": [
             {
                 "name": a.source.name,
-                "transport": a.source.transport,
+                "transport": getattr(a.source.transport, "value", a.source.transport),
                 "configured": a.configured,
                 "missing_env": a.missing_env,
-                "risk": a.source.risk,
+                "risk": getattr(a.source.risk, "value", a.source.risk),
             }
             for a in inventory.sources
         ],
+        "connectors": connectors,
     }
 
 

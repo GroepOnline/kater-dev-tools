@@ -208,6 +208,20 @@ def chain_run_command(
         record_chain_run(chain_name, steps=0, success=False, profile=profile)
         typer.echo(f"Error: chain '{chain_name}' not found for profile '{profile}'.", err=True)
         raise typer.Exit(code=1)
+    from kater.connectors.auth import redact_text
+    from kater.connectors.chain_guard import assert_chain_runnable
+    from kater.connectors.errors import ConnectorError
+
+    try:
+        assert_chain_runnable(chain.steps, profile=profile)
+    except ConnectorError as exc:
+        from kater.telemetry import record_chain_run
+
+        record_chain_run(
+            chain.name, steps=len(chain.steps), success=False, profile=profile, error=exc.code
+        )
+        typer.echo(redact_text(str(exc)), err=True)
+        raise typer.Exit(code=1) from exc
     result: dict[str, Any] = {
         "chain": chain.name,
         "description": chain.description,
@@ -266,32 +280,29 @@ def adapters_command(
     json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
 ) -> None:
     """Scan configured external MCP adapters for a profile."""
-    from kater.adapters.external import scan_adapters
+    from kater.registry import adapter_inventory_tool
 
-    inventory = scan_adapters({profile})
-    payload: dict[str, Any] = {
-        "profile": profile,
-        "adapters": [
-            {
-                "name": a.source.name,
-                "transport": a.source.transport.value,
-                "configured": a.configured,
-                "missing_env": a.missing_env,
-                "risk": a.source.risk.value,
-            }
-            for a in inventory.sources
-        ],
-        "total": len(inventory.sources),
-        "configured": sum(1 for a in inventory.sources if a.configured),
-    }
+    payload = adapter_inventory_tool(profile)
+    adapters = payload.get("adapters") or []
+    payload["total"] = len(adapters)
+    payload["configured"] = sum(1 for a in adapters if a.get("configured"))
     if json_output:
         _print_json(payload)
         return
     msg = f"Profile: {profile} — {payload['configured']}/{payload['total']} adapters configured"
     typer.echo(msg)
-    for a in payload["adapters"]:
+    for a in adapters:
         status = "+" if a["configured"] else "-"
-        typer.echo(f"  [{status}] {a['name']} ({a['transport']})")
+        transport = a.get("transport", "")
+        if hasattr(transport, "value"):
+            transport = transport.value
+        typer.echo(f"  [{status}] {a['name']} ({transport})")
+    connectors = payload.get("connectors") or []
+    if connectors:
+        typer.echo(f"Connectors: {len(connectors)}")
+        for row in connectors:
+            health = (row.get("health") or {}).get("state", "?")
+            typer.echo(f"  [{health}] {row.get('id')} ({row.get('type')})")
 
 
 # ── init ───────────────────────────────────────────────────────────

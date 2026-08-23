@@ -275,6 +275,8 @@ uv run pytest -v
 
 - **Cursor agents** — MCP wiring, hooks, and Cloud vs desktop verify:
   [docs/cursor-setup.md](docs/cursor-setup.md), [AGENTS.md](AGENTS.md)
+- **Connectors** — vendor MCP/API catalog behind the 17 native tools:
+  [docs/connectors.md](docs/connectors.md)
 
 ## Architecture
 
@@ -296,6 +298,7 @@ src/kater/
 │   └── models.py       proxy data models
 ├── web/dashboard.py    Web dashboard (inline HTML/CSS/JS, per-view seams)
 ├── profiles.py         MCP server catalog (29+)
+├── connectors/         Persistent connector catalog (not extra native tools)
 ├── settings.py         Auth, CORS, storage, ListenConfig (bind SSOT)
 ├── storage.py          SQLite + JSONL telemetry
 ├── telemetry.py        Event recording + evals

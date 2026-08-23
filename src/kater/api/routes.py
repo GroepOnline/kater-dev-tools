@@ -968,6 +968,23 @@ def _chain_run(req: Request) -> Response:
     profile = body.get("profile", os.environ.get("KATER_PROFILE", "core"))
     for c in list_chains(profile):
         if c.name == name:
+            from kater.connectors.auth import redact_text
+            from kater.connectors.chain_guard import assert_chain_runnable
+            from kater.connectors.errors import ConnectorError
+
+            try:
+                assert_chain_runnable(c.steps, profile=profile)
+            except ConnectorError as exc:
+                record_chain_run(
+                    c.name,
+                    steps=len(c.steps),
+                    success=False,
+                    profile=profile,
+                    error=exc.code,
+                )
+                payload = exc.as_dict()
+                payload["message"] = redact_text(str(payload.get("message") or exc))
+                return Response.json(409, payload)
             record_chain_run(c.name, steps=len(c.steps), profile=profile)
             return Response.json(
                 200,

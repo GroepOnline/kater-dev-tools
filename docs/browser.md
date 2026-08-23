@@ -8,6 +8,13 @@ Kater’s browser lane is not a single browser. Pick a backend with
 > just by configuring a provider: you must also set `KATER_BROWSER_ENABLE` to a
 > truthy value (`1`, `true`, `yes`, or `on`) to surface the browser MCP tools.
 
+Company-control hosts (`chef-control-az-01` / `chef-kater-shadow`) do **not**
+install Playwright or Chromium. Doctor reports `browser_lane_unsupported` unless
+`KATER_BROWSER_ENABLE`, `KATER_BROWSER_CDP_URL`, or `KATER_BROWSER_STEEL_URL`
+says a browser was expected. Operator browse stays on the ChefGroep browser MCP
+(Lightpanda). Native `kater_browser_*` tools remain in the 17-tool gateway
+surface; opening a session still fails closed until a provider exists.
+
 ## local (default)
 
 Playwright Chromium runs in-process. Install with

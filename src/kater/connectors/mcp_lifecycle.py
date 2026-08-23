@@ -170,7 +170,7 @@ def discover_mcp(transport: ConnectorTransport | dict[str, Any]) -> list[Connect
     else:
         transport_obj = transport
     probe = ConnectorRecord(
-        id="_discover",
+        id="discover",
         display_name="discover",
         type=ConnectorType.MCP,
         version="0",

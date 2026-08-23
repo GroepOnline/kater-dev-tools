@@ -29,7 +29,7 @@ DEFAULT_CLICKHOUSE_OPERATIONS: dict[str, dict[str, Any]] = {
     "clickhouse.ping": {"method": "GET", "path": "/ping", "mutation": False},
     "clickhouse.query": {
         "method": "POST",
-        "path": "/?query={query}",
+        "path": "/",
         "mutation": False,
     },
 }

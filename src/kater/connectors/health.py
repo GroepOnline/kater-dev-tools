@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from kater.connectors.auth import binding_is_satisfied, missing_auth_names
+from kater.connectors.auth import missing_auth_names
 from kater.connectors.models import (
     ConnectorHealth,
     ConnectorRecord,
@@ -35,18 +35,6 @@ def evaluate_health(
             connector_id=record.id,
             state=HealthState.UNSUPPORTED,
             detail="connector is out of scope for this runtime",
-            capabilities=capability_ids,
-        )
-
-    if (
-        record.origin == "seed"
-        and record.status is ConnectorStatus.DISABLED
-        and not binding_is_satisfied(record.auth_binding, connector_id=record.id)
-    ):
-        return ConnectorHealth(
-            connector_id=record.id,
-            state=HealthState.DISABLED,
-            detail="seed connector disabled pending configuration",
             capabilities=capability_ids,
         )
 

@@ -100,6 +100,15 @@ def probe(connector_id: str) -> ConnectorHealth:
     return evaluate_health(_require(connector_id))
 
 
+def _mark_operator_managed(record: ConnectorRecord) -> None:
+    if record.metadata.get("operator_managed") is True:
+        return
+    metadata = {**record.metadata, "operator_managed": True}
+    upsert_connector(
+        ConnectorRecord.from_mapping({**record.as_dict(), "metadata": metadata})
+    )
+
+
 def enable(
     connector_id: str,
     *,
@@ -108,11 +117,13 @@ def enable(
 ) -> ConnectorRecord:
     set_profile_permission(connector_id, profile, level)
     set_status(connector_id, ConnectorStatus.ENABLED)
+    _mark_operator_managed(_require(connector_id))
     return _require(connector_id)
 
 
 def disable(connector_id: str) -> ConnectorRecord:
     set_status(connector_id, ConnectorStatus.DISABLED)
+    _mark_operator_managed(_require(connector_id))
     return _require(connector_id)
 
 
@@ -125,8 +136,9 @@ def _effective_capability(
     if capability is None:
         return None
     if capability_id == "clickhouse.query":
-        query = str((arguments or {}).get("query") or "").strip().upper()
-        if query.startswith(("INSERT", "ALTER", "DROP")):
+        from kater.connectors.api import clickhouse_query_is_mutation
+
+        if clickhouse_query_is_mutation(str((arguments or {}).get("query") or "")):
             return ConnectorCapability(
                 id=capability.id,
                 description=capability.description,

@@ -96,13 +96,43 @@ def _resolve_headers(record: ConnectorRecord) -> dict[str, str]:
     return headers
 
 
+_SQL_LINE_COMMENT = re.compile(r"--[^\n]*")
+_SQL_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+# Statements we can positively prove are read-only. Everything else is treated
+# as mutating and requires WRITE. Fail closed.
+_CLICKHOUSE_READ_ONLY_STARTS = (
+    "SELECT",
+    "WITH",
+    "SHOW",
+    "DESCRIBE",
+    "DESC",
+    "EXPLAIN",
+    "EXISTS",
+    "CHECK",
+)
+
+
+def clickhouse_query_is_mutation(query: str) -> bool:
+    """Fail-closed ClickHouse classifier.
+
+    Strips leading comments/whitespace, then treats the statement as mutating
+    unless it clearly begins with a known read-only keyword (SELECT, WITH, SHOW,
+    ...). Unknown or destructive statements (DELETE, TRUNCATE, CREATE, RENAME,
+    GRANT, INSERT, ALTER, DROP, ...) are mutations.
+    """
+    stripped = _SQL_BLOCK_COMMENT.sub(" ", str(query or ""))
+    stripped = _SQL_LINE_COMMENT.sub(" ", stripped)
+    stripped = stripped.strip()
+    if not stripped:
+        # An empty / comment-only statement is not a proven read; fail closed.
+        return True
+    first = stripped.split(None, 1)[0].upper().rstrip("(")
+    return first not in _CLICKHOUSE_READ_ONLY_STARTS
+
+
 def _operation_mutation(capability_id: str, op: dict[str, Any], arguments: dict[str, Any]) -> bool:
     if capability_id == "clickhouse.query":
-        query = str(arguments.get("query") or "").strip()
-        upper = query.upper()
-        if upper.startswith(("INSERT", "ALTER", "DROP")):
-            return True
-        return False
+        return clickhouse_query_is_mutation(str(arguments.get("query") or ""))
     return bool(op.get("mutation", False))
 
 

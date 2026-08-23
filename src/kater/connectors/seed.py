@@ -184,20 +184,36 @@ def _upsert_seed(record: ConnectorRecord) -> None:
         return
     if existing.origin != "seed":
         return
+    # Preserve operator intent: once a connector has been explicitly enabled or
+    # disabled via the registry, keep its status/permissions on re-seed. Rows the
+    # operator never touched are recomputed from the current env so adding an env
+    # var later can enable the connector without a manual step.
+    if existing.metadata.get("operator_managed") is True:
+        upsert_connector(
+            replace(
+                record,
+                status=existing.status,
+                permissions=existing.permissions,
+                profiles=existing.profiles or record.profiles,
+                metadata={**record.metadata, "operator_managed": True},
+            )
+        )
+        return
     upsert_connector(
         replace(
             record,
-            status=existing.status,
-            permissions=existing.permissions,
             profiles=existing.profiles or record.profiles,
         )
     )
 
 
+_SEEDED_SOURCES = _IN_SCOPE | _OUT_OF_SCOPE
+
+
 def seed_builtin_connectors() -> int:
     count = 0
     for source in all_tool_sources():
-        if source.name == "kater":
+        if source.name not in _SEEDED_SOURCES:
             continue
         if source.transport is Transport.NATIVE:
             continue

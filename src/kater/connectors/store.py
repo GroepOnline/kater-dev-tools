@@ -6,6 +6,8 @@ import json
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -62,6 +64,17 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def _transaction() -> Iterator[sqlite3.Connection]:
+    """Open a connection, commit on success, roll back on error, always close."""
+    conn = _connect()
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
 def _invalidate_cache() -> None:
     global _cache
     _cache = None
@@ -77,7 +90,7 @@ def clear_connector_state() -> None:
     """Test helper: remove all persisted connector rows and cache."""
     with _lock:
         _invalidate_cache()
-        with _connect() as db:
+        with _transaction() as db:
             db.execute("DELETE FROM connectors")
 
 
@@ -167,7 +180,7 @@ def _row_to_record(row: sqlite3.Row) -> ConnectorRecord:
 
 def _persist(record: ConnectorRecord) -> ConnectorRecord:
     now = time.time()
-    with _lock, _connect() as db:
+    with _lock, _transaction() as db:
         db.execute(
             """INSERT INTO connectors
                (id, display_name, type, version, transport_json, capabilities_json,
@@ -199,7 +212,7 @@ def create_connector(record: ConnectorRecord) -> ConnectorRecord:
         prepared = record
     else:
         prepared = replace(record, status=ConnectorStatus.DISABLED)
-    with _lock, _connect() as db:
+    with _lock, _transaction() as db:
         existing = db.execute(
             "SELECT id FROM connectors WHERE id = ?",
             (prepared.id,),
@@ -224,7 +237,7 @@ def upsert_connector(record: ConnectorRecord) -> ConnectorRecord:
 
 
 def get_connector(connector_id: str) -> ConnectorRecord | None:
-    with _lock, _connect() as db:
+    with _lock, _transaction() as db:
         row = db.execute(
             "SELECT * FROM connectors WHERE id = ?",
             (connector_id,),
@@ -235,13 +248,13 @@ def get_connector(connector_id: str) -> ConnectorRecord | None:
 
 
 def list_connectors() -> list[ConnectorRecord]:
-    with _lock, _connect() as db:
+    with _lock, _transaction() as db:
         rows = db.execute("SELECT * FROM connectors ORDER BY id").fetchall()
     return [_row_to_record(row) for row in rows]
 
 
 def delete_connector(connector_id: str) -> None:
-    with _lock, _connect() as db:
+    with _lock, _transaction() as db:
         cursor = db.execute("DELETE FROM connectors WHERE id = ?", (connector_id,))
         if cursor.rowcount < 1:
             raise ConnectorNotFoundError(connector_id)

@@ -29,8 +29,8 @@ def test_ensure_migrated_records_browser_and_automations_versions(tmp_path) -> N
     finally:
         conn.close()
 
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
-        assert {
+    assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert {
         "browser_sessions",
         "browser_actions",
         "automations",

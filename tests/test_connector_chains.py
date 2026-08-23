@@ -11,7 +11,11 @@ from kater.connectors.chain_guard import (
     invoke_chain_capability,
     validate_chain_steps,
 )
-from kater.connectors.errors import ConnectorCapabilityError, ConnectorPolicyError
+from kater.connectors.errors import (
+    ConnectorCapabilityError,
+    ConnectorPolicyError,
+    ConnectorUnavailableError,
+)
 from kater.connectors.models import (
     AuthBindingKind,
     AuthBindingRef,
@@ -76,6 +80,18 @@ def test_chain_blocked_by_policy():
     steps = [ChainStep(tool="github.pull_requests.read", reason="check pr")]
 
     with pytest.raises(ConnectorPolicyError):
+        validate_chain_steps(steps, profile="ops")
+
+
+def test_chain_blocked_when_connector_disabled():
+    record = _github_record()
+    record = ConnectorRecord.from_mapping(
+        {**record.as_dict(), "status": ConnectorStatus.DISABLED.value}
+    )
+    upsert_connector(record)
+    steps = [ChainStep(tool="github_pr_status", reason="check pr")]
+
+    with pytest.raises(ConnectorUnavailableError):
         validate_chain_steps(steps, profile="ops")
 
 

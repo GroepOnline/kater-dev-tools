@@ -74,6 +74,25 @@ def test_doctor_ops_skips_high_risk_missing_env_warnings(monkeypatch, tmp_path) 
     )
 
 
+def test_doctor_ops_adapter_ready_when_linear_and_sentry_configured(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LINEAR_API_KEY", "lin-test")
+    monkeypatch.setenv("SENTRY_AUTH_TOKEN", "sentry-test")
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"ops"}, cursor_mcp_path=mcp_path)
+    ready = {f.source for f in report.findings if f.code == "adapter_ready"}
+    assert "linear" in ready
+    assert "sentry" in ready
+    assert not any(
+        f.code == "missing_env" and f.source in {"linear", "sentry"}
+        for f in report.findings
+    )
+
+
 def test_browser_lane_unsupported_when_not_expected(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KATER_BROWSER_ENABLE", raising=False)

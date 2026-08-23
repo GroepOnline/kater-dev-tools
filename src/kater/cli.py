@@ -1055,9 +1055,17 @@ def pr_list_command(
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
     """List pull requests with merge-readiness summary."""
+    from kater.github_transport import github_error_payload
     from kater.pr_control import pr_list_tool
 
-    result = pr_list_tool(state=state, limit=limit)
+    try:
+        result = pr_list_tool(state=state, limit=limit)
+    except RuntimeError as exc:
+        if json_output:
+            _print_json(github_error_payload(exc))
+        else:
+            typer.echo(f"List failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     if json_output:
         _print_json(result)
         return
@@ -1077,12 +1085,16 @@ def pr_gate_command(
     json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
 ) -> None:
     """Evaluate the deterministic merge gate for a PR."""
+    from kater.github_transport import github_error_payload
     from kater.pr_control import pr_gate_tool
 
     try:
         result = pr_gate_tool(number, expected_head_sha=expected_head_sha, repo=repo)
     except RuntimeError as exc:
-        typer.echo(f"Gate failed: {exc}", err=True)
+        if json_output:
+            _print_json(github_error_payload(exc))
+        else:
+            typer.echo(f"Gate failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     if json_output:
         _print_json(result)
@@ -1105,17 +1117,16 @@ def pr_merge_command(
     repo: Annotated[str, typer.Option("--repo", help="owner/name override.")] = "",
 ) -> None:
     """Gate-then-merge a PR (squash). Requires PASS and pinned expected head."""
+    from kater.github_transport import github_error_payload
     from kater.pr_control import MergeRejected, pr_merge_tool
 
     try:
-        result = pr_merge_tool(
-            number, expected_head_sha=expected_head_sha, actor=actor, repo=repo
-        )
+        result = pr_merge_tool(number, expected_head_sha=expected_head_sha, actor=actor, repo=repo)
     except MergeRejected as exc:
         typer.echo(f"Merge blocked: {exc}", err=True)
         raise typer.Exit(code=2) from exc
     except RuntimeError as exc:
-        typer.echo(f"Merge failed: {exc}", err=True)
+        typer.echo(f"Merge failed: {github_error_payload(exc)['error']}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Merged PR #{result['pr_number']} (head {result['head_sha']}).")
 

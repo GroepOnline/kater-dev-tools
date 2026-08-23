@@ -39,6 +39,7 @@ class DoctorReport(BaseModel):
     sources: list[dict[str, Any]]
     findings: list[Finding] = Field(default_factory=list)
     fix_actions: list[FixAction] = Field(default_factory=list)
+    github_identity: dict[str, Any] | None = None
 
 
 def parse_profiles(value: str | None) -> set[str]:
@@ -122,11 +123,14 @@ def run_doctor(
     findings.extend(_security_check())
     findings.extend(_browser_lane_check())
     fix_actions = _build_fix_actions(findings) if include_fix_plan else []
+    from kater.github_transport import github_token_identity
+
     return DoctorReport(
         profiles=sorted(selected_profiles),
         sources=[source.model_dump(mode="json") for source in sources],
         findings=findings,
         fix_actions=fix_actions,
+        github_identity=github_token_identity(),
     )
 
 
@@ -190,9 +194,7 @@ def _find_context_bloat(
     entries = _mcp_server_entries(config)
     configured = set(entries.keys())
     catalog_names = _catalog_source_names()
-    gateway_names = {
-        name for name, entry in entries.items() if is_gateway_server(name, entry)
-    }
+    gateway_names = {name for name, entry in entries.items() if is_gateway_server(name, entry)}
     non_gateway = configured - gateway_names
     proxyable_outside = sorted(name for name in non_gateway if name in catalog_names)
     satellite_names = sorted(name for name in non_gateway if name not in catalog_names)
@@ -299,9 +301,7 @@ def _browser_lane_check() -> list[Finding]:
                 "(install kater[browser] + playwright install chromium, "
                 "or set KATER_BROWSER_CDP_URL / KATER_BROWSER_STEEL_URL)."
             ),
-            suggested_action=(
-                "uv sync --extra browser && playwright install chromium"
-            ),
+            suggested_action=("uv sync --extra browser && playwright install chromium"),
         )
     )
     return findings

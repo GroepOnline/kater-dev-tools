@@ -16,6 +16,9 @@ import os
 
 # Load optional private deployment extensions before Kater profile catalog import.
 os.environ.setdefault("KATER_EXTENSIONS_MODULE", "tests.fixtures.private_extension")
+# Keep injected-runner retries deterministic and silent in unit tests.
+os.environ.setdefault("KATER_GH_BACKOFF_SEC", "0")
+os.environ.setdefault("KATER_GH_TIMEOUT_SEC", "2")
 
 import shutil
 from pathlib import Path

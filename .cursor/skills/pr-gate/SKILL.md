@@ -25,7 +25,8 @@ Skill for merge-ready PR evaluation on the current git repository.
 
 Verdicts: `PASS`, `WARN`, `BLOCK`. Write actions (merge) require `PASS` on a
 **nonempty** pinned `expected_head_sha`. Empty SHA is always a hard reject on
-the write path.
+the write path. A nonempty pin that does not match the live head BLOCKs the
+read gate (`HEAD_STALE`) as well; merge still uses `--match-head-commit`.
 
 Common block reasons: `HEAD_STALE`, `UNRESOLVED_THREAD`, `PENDING_CHECKS`,
 `FAILED_CHECKS`, `P1_LATCH`, `DRAFT`, `MERGE_CONFLICT`, `OVERLAPPING_PR`,

@@ -832,6 +832,12 @@ def _spec(_: Request) -> Response:
     return Response.json(200, generate_spec())
 
 
+def _pr_transport_error(exc: Exception) -> Response:
+    from kater.github_transport import github_error_payload
+
+    return Response.json(502, github_error_payload(exc))
+
+
 # ── PR control-plane API (§3/§4/§6/§7) ────────────────────────────
 
 
@@ -855,7 +861,7 @@ def _pr_list(req: Request) -> Response:
     try:
         return Response.json(200, pr_list_tool(state=state, limit=limit, repo=repo))
     except RuntimeError as exc:
-        return Response.json(502, {"error": str(exc)})
+        return _pr_transport_error(exc)
 
 
 @route("GET", "/api/pr/{number}/status")
@@ -870,7 +876,7 @@ def _pr_status(req: Request) -> Response:
     try:
         return Response.json(200, pr_status_tool(number, repo=repo))
     except RuntimeError as exc:
-        return Response.json(502, {"error": str(exc)})
+        return _pr_transport_error(exc)
 
 
 @route("GET", "/api/pr/{number}/gate")
@@ -886,7 +892,7 @@ def _pr_gate(req: Request) -> Response:
     try:
         return Response.json(200, pr_gate_tool(number, expected_head_sha=expected, repo=repo))
     except RuntimeError as exc:
-        return Response.json(502, {"error": str(exc)})
+        return _pr_transport_error(exc)
 
 
 @route("GET", "/api/pr/audit")
@@ -928,7 +934,7 @@ def _pr_merge(req: Request) -> Response:
     except MergeRejected as exc:
         return Response.json(409, {"error": str(exc), "rejected": True})
     except RuntimeError as exc:
-        return Response.json(502, {"error": str(exc)})
+        return _pr_transport_error(exc)
 
 
 @route("GET", "/api/export")

@@ -5,9 +5,19 @@ import logging
 import os
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlsplit
+
+from kater.github_transport import (
+    GitHubTransportError,
+    TransportConfig,
+    classify_github_failure,
+    load_transport_config,
+    parse_json_body,
+    redact_secrets,
+    run_github_command,
+)
 
 _log = logging.getLogger("kater.pr_control")
 
@@ -17,6 +27,7 @@ _log = logging.getLogger("kater.pr_control")
 VERDICT_PASS = "PASS"
 VERDICT_WARN = "WARN"
 VERDICT_BLOCK = "BLOCK"
+VERDICT_UNKNOWN = "UNKNOWN"
 
 REASON_HEAD_STALE = "HEAD_STALE"
 REASON_MERGE_CONFLICT = "MERGE_CONFLICT"
@@ -33,6 +44,7 @@ REASON_MISSING_HEAD_SHA = "MISSING_HEAD_SHA"
 REASON_REQUIRED_CHECK_LOOKUP = "REQUIRED_CHECK_LOOKUP"
 REASON_ALREADY_MERGED = "ALREADY_MERGED"
 REASON_ALREADY_CLOSED = "ALREADY_CLOSED"
+REASON_GATE_INCOMPLETE = "GATE_INCOMPLETE"
 
 _FAILED_CONCLUSIONS = frozenset(
     {"FAILURE", "CANCELLED", "CANCELED", "TIMED_OUT", "STARTUP_FAILURE", "ERROR"}
@@ -450,9 +462,7 @@ def evaluate_gate(
     landed = state in ("MERGED", "CLOSED")
 
     if landed:
-        reasons.append(
-            REASON_ALREADY_MERGED if state == "MERGED" else REASON_ALREADY_CLOSED
-        )
+        reasons.append(REASON_ALREADY_MERGED if state == "MERGED" else REASON_ALREADY_CLOSED)
 
     if draft and policy.block_drafts:
         reasons.append(REASON_DRAFT)
@@ -530,12 +540,14 @@ def _gh_environ() -> dict[str, str]:
 
 
 def _run_gh(args: list[str]) -> subprocess.CompletedProcess[str]:
+    timeout = load_transport_config().timeout_sec
     return subprocess.run(
         ["gh", *args],
         capture_output=True,
         text=True,
         check=False,
         env=_gh_environ(),
+        timeout=timeout,
     )
 
 
@@ -557,19 +569,36 @@ def _default_repo() -> str | None:
 
 @dataclass
 class GitHubPRClient:
-    """Read-only GitHub provider backed by the `gh` CLI.
+    """GitHub provider backed by the `gh` CLI.
 
     Network and auth are isolated behind ``runner`` so the client is testable
-    without a live GitHub connection. Only GET-style operations are used; no
-    writes occur here.
+    without a live GitHub connection. Read calls retry transient transport
+    errors; write/merge calls do not.
     """
 
     repo: str | None = None
     runner: Callable[[list[str]], subprocess.CompletedProcess[str]] = _run_gh
+    transport: TransportConfig | None = None
 
     def __post_init__(self) -> None:
         if self.repo is None:
             self.repo = _default_repo()
+        if self.transport is None:
+            self.transport = load_transport_config()
+
+    def _config(self) -> TransportConfig:
+        return getattr(self, "transport", None) or load_transport_config()
+
+    def exec_command(
+        self, args: list[str], *, mutate: bool = False
+    ) -> subprocess.CompletedProcess[str]:
+        runner = getattr(self, "runner", None) or _run_gh
+        return run_github_command(
+            args,
+            invoke=runner,
+            mutate=mutate,
+            config=self._config(),
+        )
 
     def _target(self, ref: str) -> str:
         repo = getattr(self, "repo", None)
@@ -580,12 +609,13 @@ class GitHubPRClient:
         if params:
             for key, value in params.items():
                 args += ["-f", f"{key}={value}"]
-        proc = self.runner(args)
-        if proc.returncode != 0:
-            raise RuntimeError(f"gh api {path} failed: {proc.stderr.strip()}")
-        return json.loads(proc.stdout)
+        proc = self.exec_command(args)
+        return parse_json_body(proc, args)
 
     def list_pull_requests(self, *, state: str = "open", limit: int = 30) -> list[dict[str, Any]]:
+        repo = getattr(self, "repo", None)
+        if repo:
+            return self._list_pull_requests_rest(state=state, limit=limit)
         args = [
             "pr",
             "list",
@@ -600,18 +630,43 @@ class GitHubPRClient:
                 "url,labels,author,latestReviews"
             ),
         ]
-        repo = getattr(self, "repo", None)
-        if repo:
-            args += ["--repo", repo]
-        proc = self.runner(args)
-        if proc.returncode != 0:
-            raise RuntimeError(f"gh pr list failed: {proc.stderr.strip()}")
-        return json.loads(proc.stdout)
+        proc = self.exec_command(args)
+        rows = parse_json_body(proc, args)
+        if not isinstance(rows, list):
+            raise classify_github_failure(args=args, malformed=True, stdout=proc.stdout)
+        return [normalize_rest_pull(row) if isinstance(row, dict) else row for row in rows]
+
+    def _list_pull_requests_rest(
+        self, *, state: str = "open", limit: int = 30
+    ) -> list[dict[str, Any]]:
+        per_page = max(1, min(int(limit), 100))
+        data = self._api(
+            f"repos/{self.repo}/pulls",
+            params={"state": state, "per_page": str(per_page)},
+        )
+        if not isinstance(data, list):
+            raise classify_github_failure(
+                args=["api", f"repos/{self.repo}/pulls"],
+                malformed=True,
+                stdout=json.dumps(data)[:200] if data is not None else "",
+            )
+        return [normalize_rest_pull(row) for row in data if isinstance(row, dict)]
 
     def pull_request(self, number: int) -> dict[str, Any]:
-        # NOTE: `reviewThreads` and `baseRefOid` are intentionally absent from
-        # the --json field list: `gh pr view` does not expose them (fails with
-        # "Unknown JSON field"). Both are fetched via GraphQL below.
+        repo = getattr(self, "repo", None)
+        if repo:
+            pr = self._pull_request_rest(number)
+        else:
+            pr = self._pull_request_graphql_cli(number)
+        extras = self._graphql_extras(number, url=pr.get("url") or "")
+        pr["reviewThreads"] = extras["reviewThreads"]
+        if not pr.get("baseRefOid"):
+            pr["baseRefOid"] = extras["baseRefOid"]
+        return pr
+
+    def _pull_request_graphql_cli(self, number: int) -> dict[str, Any]:
+        # ``reviewThreads`` / ``baseRefOid`` are not valid ``gh pr view --json``
+        # fields ("Unknown JSON field"). Threads stay on the GraphQL extras hop.
         args = [
             "pr",
             "view",
@@ -626,14 +681,45 @@ class GitHubPRClient:
         repo = getattr(self, "repo", None)
         if repo:
             args += ["--repo", repo]
-        proc = self.runner(args)
-        if proc.returncode != 0:
-            raise RuntimeError(f"gh pr view {number} failed: {proc.stderr.strip()}")
-        pr: dict[str, Any] = json.loads(proc.stdout)
-        extras = self._graphql_extras(number, url=pr.get("url") or "")
-        pr["reviewThreads"] = extras["reviewThreads"]
-        pr["baseRefOid"] = extras["baseRefOid"]
-        return pr
+        proc = self.exec_command(args)
+        raw = parse_json_body(proc, args)
+        if not isinstance(raw, dict):
+            raise classify_github_failure(args=args, malformed=True, stdout=proc.stdout)
+        return raw
+
+    def _pull_request_rest(self, number: int) -> dict[str, Any]:
+        raw = self._api(f"repos/{self.repo}/pulls/{number}")
+        if not isinstance(raw, dict):
+            raise classify_github_failure(
+                args=["api", f"repos/{self.repo}/pulls/{number}"],
+                malformed=True,
+            )
+        reviews = self._api(f"repos/{self.repo}/pulls/{number}/reviews")
+        if not isinstance(reviews, list):
+            raise classify_github_failure(
+                args=["api", f"repos/{self.repo}/pulls/{number}/reviews"],
+                malformed=True,
+            )
+        commits = self._api(f"repos/{self.repo}/pulls/{number}/commits")
+        if not isinstance(commits, list):
+            raise classify_github_failure(
+                args=["api", f"repos/{self.repo}/pulls/{number}/commits"],
+                malformed=True,
+            )
+        return normalize_rest_pull(raw, reviews=reviews, commits=commits)
+
+    def pull_merge_evidence(self, number: int) -> dict[str, Any]:
+        """Read merged/head only. Used to reconcile a timed-out write."""
+        repo = getattr(self, "repo", None)
+        if repo:
+            raw = self._api(f"repos/{self.repo}/pulls/{number}")
+            if not isinstance(raw, dict):
+                raise classify_github_failure(
+                    args=["api", f"repos/{self.repo}/pulls/{number}"],
+                    malformed=True,
+                )
+            return normalize_rest_pull(raw)
+        return self._pull_request_graphql_cli(number)
 
     def review_threads(self, number: int, *, url: str = "") -> list[dict[str, Any]]:
         """Fetch review-thread resolution state via the GraphQL API."""
@@ -680,12 +766,8 @@ class GitHubPRClient:
             args = list(base_args)
             if after:
                 args += ["-f", f"after={after}"]
-            proc = self.runner(args)
-            if proc.returncode != 0:
-                raise RuntimeError(
-                    f"gh api graphql reviewThreads for PR {number} failed: {proc.stderr.strip()}"
-                )
-            data = json.loads(proc.stdout)
+            proc = self.exec_command(args)
+            data = parse_json_body(proc, args)
             if data.get("errors"):
                 raise RuntimeError(
                     f"GraphQL errors for PR {number}: {json.dumps(data['errors'])[:500]}"
@@ -715,12 +797,15 @@ class GitHubPRClient:
         return {"baseRefOid": base_oid, "reviewThreads": threads}
 
     def is_base_protected(self, base_ref: str) -> bool:
+        """True when branch protection exists. Only HTTP 404 means unprotected."""
         if not getattr(self, "repo", None):
             return False
         try:
             data = self._api(f"repos/{self.repo}/branches/{base_ref}/protection")
-        except RuntimeError:
-            return False
+        except GitHubTransportError as exc:
+            if exc.is_not_found:
+                return False
+            raise
         return bool(data)
 
     def required_status_contexts(self, base_ref: str) -> list[str]:
@@ -731,6 +816,10 @@ class GitHubPRClient:
             data = self._api(
                 f"repos/{self.repo}/branches/{base_ref}/protection/required_status_checks"
             )
+        except GitHubTransportError as exc:
+            if exc.is_not_found:
+                return []
+            raise
         except RuntimeError as exc:
             msg = str(exc).lower()
             if "404" in msg or "not found" in msg:
@@ -778,6 +867,96 @@ class GitHubPRClient:
         except RuntimeError:
             return None
         return runs
+
+
+def _mergeable_from_rest(raw: dict[str, Any]) -> str:
+    if raw.get("mergeable") is False or str(raw.get("mergeable_state") or "").lower() == "dirty":
+        return "CONFLICTING"
+    existing = str(raw.get("mergeable") or "").upper()
+    if existing in {"MERGEABLE", "CONFLICTING", "UNKNOWN"}:
+        return existing
+    state = str(raw.get("mergeable_state") or "").lower()
+    if state == "clean" or raw.get("mergeable") is True:
+        return "MERGEABLE"
+    return "UNKNOWN"
+
+
+def _normalize_rest_review(review: dict[str, Any]) -> dict[str, Any]:
+    user = review.get("user") or review.get("author") or {}
+    login = user.get("login") if isinstance(user, dict) else user
+    return {
+        "author": {"login": login or ""},
+        "state": review.get("state") or review.get("decision") or "",
+        "authorAssociation": (
+            review.get("author_association") or review.get("authorAssociation") or ""
+        ),
+    }
+
+
+def normalize_rest_pull(
+    raw: dict[str, Any],
+    *,
+    reviews: list[Any] | None = None,
+    commits: list[Any] | None = None,
+) -> dict[str, Any]:
+    """Map a GitHub REST PR (plus optional reviews/commits) to gate fields."""
+    if "headRefOid" in raw and "headRefName" in raw and reviews is None and commits is None:
+        return dict(raw)
+
+    gate_fields_incomplete = reviews is None and commits is None and not (
+        raw.get("reviewDecision")
+        or raw.get("latestReviews")
+        or raw.get("reviews")
+        or raw.get("statusCheckRollup")
+    )
+
+    user = raw.get("user") or raw.get("author") or {}
+    head_raw = raw.get("head")
+    base_raw = raw.get("base")
+    head = head_raw if isinstance(head_raw, dict) else {}
+    base = base_raw if isinstance(base_raw, dict) else {}
+    mapped_reviews = raw.get("latestReviews") or raw.get("reviews") or []
+    if reviews is not None:
+        mapped_reviews = [
+            _normalize_rest_review(row) if isinstance(row, dict) else row for row in reviews
+        ]
+    mapped_commits: list[dict[str, Any]] = []
+    if commits:
+        for row in commits:
+            if not isinstance(row, dict):
+                continue
+            author = row.get("author")
+            authors = []
+            if isinstance(author, dict) and author.get("login"):
+                authors.append({"login": str(author["login"])})
+            mapped_commits.append({"oid": str(row.get("sha") or ""), "authors": authors})
+    elif isinstance(raw.get("commits"), list):
+        mapped_commits = [c for c in raw["commits"] if isinstance(c, dict)]
+
+    author = {"login": str(user.get("login") or "")} if isinstance(user, dict) else user
+    return {
+        "number": raw.get("number"),
+        "title": raw.get("title"),
+        "url": raw.get("html_url") or raw.get("url") or "",
+        "headRefName": head.get("ref") or raw.get("headRefName") or "",
+        "baseRefName": base.get("ref") or raw.get("baseRefName") or "",
+        "state": (
+            "MERGED" if raw.get("merged") is True else str(raw.get("state") or "OPEN").upper()
+        ),
+        "merged": bool(raw.get("merged")),
+        "isDraft": bool(raw.get("draft") if raw.get("draft") is not None else raw.get("isDraft")),
+        "mergeable": _mergeable_from_rest(raw),
+        "reviewDecision": raw.get("reviewDecision") or "",
+        "statusCheckRollup": raw.get("statusCheckRollup") or [],
+        "commits": mapped_commits,
+        "headRefOid": head.get("sha") or raw.get("headRefOid") or "",
+        "baseRefOid": base.get("sha") or raw.get("baseRefOid") or "",
+        "reviews": mapped_reviews,
+        "latestReviews": mapped_reviews,
+        "author": author,
+        "labels": raw.get("labels") or [],
+        "gateFieldsIncomplete": gate_fields_incomplete,
+    }
 
 
 def _label_list(pr: dict[str, Any]) -> list[Any]:
@@ -890,7 +1069,12 @@ def gate_for_pr(
 ) -> GateResult:
     policy = policy or GatePolicy()
     summary = _summarize_pr(pr, policy=policy)
-    base_protected = client.is_base_protected(summary["base_ref"] or "")
+    protection_lookup_failed = False
+    try:
+        base_protected = client.is_base_protected(summary["base_ref"] or "")
+    except GitHubTransportError:
+        base_protected = False
+        protection_lookup_failed = True
     repo = (getattr(client, "repo", None) or summary.get("repo") or "").strip()
     required_names = tuple(policy.required_check_names)
     required_lookup_failed = False
@@ -937,7 +1121,7 @@ def gate_for_pr(
         required_missing=check_summary["required_missing"],
         pr_state=summary["pr_state"],
     )
-    if required_lookup_failed or check_runs_failed:
+    if required_lookup_failed or check_runs_failed or protection_lookup_failed:
         if REASON_REQUIRED_CHECK_LOOKUP not in result.reasons:
             result.reasons.append(REASON_REQUIRED_CHECK_LOOKUP)
         result.verdict = _collapse(
@@ -947,6 +1131,69 @@ def gate_for_pr(
             required_incomplete=check_summary["required_pending"] > 0,
         )
     return result
+
+
+def _list_gate_for_pr(pr: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    """Advisory list-view gate: never BLOCK/PASS on unfetched review/check fields."""
+    policy = load_gate_policy()
+    if not pr.get("gateFieldsIncomplete"):
+        return evaluate_gate(
+            pr_number=summary["number"],
+            head_sha=summary["head_sha"],
+            base_sha=summary["base_sha"],
+            mergeable=summary["mergeable"],
+            draft=summary["draft"],
+            open_threads=summary["open_threads"],
+            pending_checks=summary["pending_checks"],
+            approving_reviews=summary["approving_reviews"],
+            base_protected=False,
+            overlapping_open=0,
+            policy=policy,
+            failed_checks=summary.get("failed_checks") or 0,
+            p1_latch_open=bool(summary.get("p1_latch_open")),
+            independent_approvals=summary.get("independent_approvals"),
+            repo=summary.get("repo") or "",
+            required_failed=summary.get("required_failed") or 0,
+            required_pending=summary.get("required_pending") or 0,
+            required_missing=summary.get("required_missing") or 0,
+            pr_state=summary.get("pr_state") or "OPEN",
+        ).as_dict()
+
+    # REST list rows omit reviews/commits/check-runs. Still surface draft/conflict/
+    # repo/lifecycle signals from fields we did fetch; never infer review/check state.
+    list_policy = replace(
+        policy,
+        require_approvals=0,
+        block_failed_checks=False,
+        require_required_checks=False,
+    )
+    result = evaluate_gate(
+        pr_number=summary["number"],
+        head_sha=summary["head_sha"],
+        base_sha=summary["base_sha"],
+        mergeable=summary["mergeable"],
+        draft=summary["draft"],
+        open_threads=summary["open_threads"],
+        pending_checks=0,
+        approving_reviews=0,
+        base_protected=False,
+        overlapping_open=0,
+        policy=list_policy,
+        failed_checks=0,
+        p1_latch_open=bool(summary.get("p1_latch_open")),
+        independent_approvals=None,
+        repo=summary.get("repo") or "",
+        required_failed=0,
+        required_pending=0,
+        required_missing=0,
+        pr_state=summary.get("pr_state") or "OPEN",
+    )
+    if REASON_GATE_INCOMPLETE not in result.reasons:
+        result.reasons.append(REASON_GATE_INCOMPLETE)
+    if result.verdict == VERDICT_PASS:
+        result.verdict = VERDICT_UNKNOWN
+    result.details["advisory"] = True
+    return result.as_dict()
 
 
 # ── MCP tool handlers (read-only) ─────────────────────────────────────────
@@ -960,26 +1207,7 @@ def pr_list_tool(state: str = "open", limit: int = 30, repo: str = "") -> dict[s
         summary = _summarize_pr(r)
         # List view skips the per-PR base-protection lookup (one extra API call
         # each) to stay cheap; the single-PR gate/status paths still check it.
-        summary["gate"] = evaluate_gate(
-            pr_number=summary["number"],
-            head_sha=summary["head_sha"],
-            base_sha=summary["base_sha"],
-            mergeable=summary["mergeable"],
-            draft=summary["draft"],
-            open_threads=summary["open_threads"],
-            pending_checks=summary["pending_checks"],
-            approving_reviews=summary["approving_reviews"],
-            base_protected=False,
-            overlapping_open=0,
-            failed_checks=summary.get("failed_checks") or 0,
-            p1_latch_open=bool(summary.get("p1_latch_open")),
-            independent_approvals=summary.get("independent_approvals"),
-            repo=summary.get("repo") or "",
-            required_failed=summary.get("required_failed") or 0,
-            required_pending=summary.get("required_pending") or 0,
-            required_missing=summary.get("required_missing") or 0,
-            pr_state=summary.get("pr_state") or "OPEN",
-        ).as_dict()
+        summary["gate"] = _list_gate_for_pr(r, summary)
         pulls.append(summary)
     return {
         "state": state,
@@ -1002,17 +1230,30 @@ def pr_gate_tool(number: int, expected_head_sha: str = "", repo: str = "") -> di
     """Evaluate the merge-readiness gate for a PR.
 
     ``expected_head_sha`` lets a caller assert they are gating against a known
-    head before acting. Write-tools must require a nonempty SHA; this read
-    path still allows an empty pin and reports ``head_sha_matches`` when one
-    is supplied.
+    head before acting. Write-tools must require a nonempty SHA. A nonempty
+    pin that does not match the live head BLOCKs the read gate with
+    ``HEAD_STALE``; the merge path still pins ``--match-head-commit``.
     """
     client = _pr_client(repo)
     pr = client.pull_request(number)
     gate = gate_for_pr(client, pr)
     result = gate.as_dict()
-    if expected_head_sha:
-        head = result["details"].get("head_sha", "")
-        result["details"]["head_sha_matches"] = head == expected_head_sha if head else None
+    pinned = (expected_head_sha or "").strip()
+    if pinned:
+        head = str(result["details"].get("head_sha") or "")
+        matches = head == pinned if head else None
+        result["details"]["head_sha_matches"] = matches
+        result["details"]["expected_head_sha"] = pinned
+        if matches is not True:
+            if REASON_HEAD_STALE not in result["reasons"]:
+                result["reasons"].append(REASON_HEAD_STALE)
+            policy = load_gate_policy()
+            result["verdict"] = _collapse(
+                result["verdict"],
+                result["reasons"],
+                policy,
+                required_incomplete=bool(result["details"].get("required_pending")),
+            )
     return result
 
 
@@ -1037,9 +1278,7 @@ def pr_merge_tool(
     pinned expected head SHA; refuses the merge otherwise and records it in
     the audit trail. Empty ``expected_head_sha`` is always a hard reject.
     """
-    return merge_pr(
-        number, expected_head_sha=expected_head_sha, actor=actor, repo=repo
-    )
+    return merge_pr(number, expected_head_sha=expected_head_sha, actor=actor, repo=repo)
 
 
 class MergeRejected(RuntimeError):
@@ -1140,8 +1379,20 @@ def merge_pr(
     # re-read client.repo after the gate passed.
     if repo:
         args += ["--repo", repo]
-    result = client.runner(args)
-    if result.returncode != 0:
+    try:
+        result = client.exec_command(args, mutate=True)
+    except GitHubTransportError as exc:
+        if exc.retryable:
+            return _reconcile_timed_out_merge(
+                client,
+                number=number,
+                pinned=pinned,
+                actor=actor,
+                verdict=verdict,
+                reasons=reasons,
+                gate=gate,
+                write_error=exc,
+            )
         record_gate_audit(
             action="merge_failed",
             pr_number=number,
@@ -1150,9 +1401,22 @@ def merge_pr(
             expected_head_sha=pinned,
             applied_head_sha=head,
             actor=actor or None,
-            detail=result.stderr.strip()[:500],
+            detail=redact_secrets(str(exc))[:500],
         )
-        raise RuntimeError(f"gh pr merge failed: {result.stderr.strip()}")
+        raise RuntimeError(f"gh pr merge failed: {exc}") from exc
+    if result.returncode != 0:
+        detail = redact_secrets(result.stderr.strip())[:500]
+        record_gate_audit(
+            action="merge_failed",
+            pr_number=number,
+            verdict=verdict,
+            reasons=reasons,
+            expected_head_sha=pinned,
+            applied_head_sha=head,
+            actor=actor or None,
+            detail=detail,
+        )
+        raise RuntimeError(f"gh pr merge failed: {detail}")
 
     record_gate_audit(
         action="merge_applied",
@@ -1165,3 +1429,68 @@ def merge_pr(
         detail="squash merge",
     )
     return {"merged": True, "pr_number": number, "head_sha": head, "gate": gate.as_dict()}
+
+
+def _reconcile_timed_out_merge(
+    client: GitHubPRClient,
+    *,
+    number: int,
+    pinned: str,
+    actor: str,
+    verdict: str,
+    reasons: list[str],
+    gate: GateResult,
+    write_error: GitHubTransportError,
+) -> dict[str, Any]:
+    """After a merge timeout, prove merged + exact pin via a bounded read."""
+    from kater.storage import record_gate_audit
+
+    try:
+        evidence = client.pull_merge_evidence(number)
+    except GitHubTransportError as exc:
+        record_gate_audit(
+            action="merge_failed",
+            pr_number=number,
+            verdict=verdict,
+            reasons=reasons,
+            expected_head_sha=pinned,
+            applied_head_sha=None,
+            actor=actor or None,
+            detail=redact_secrets(f"merge write timed out; reconcile failed: {exc}")[:500],
+        )
+        raise RuntimeError(f"gh pr merge timed out and reconcile failed: {exc}") from exc
+
+    head = str(evidence.get("headRefOid") or "")
+    merged = evidence.get("merged") is True or _pr_state(evidence) == "MERGED"
+    if merged and head and head == pinned:
+        record_gate_audit(
+            action="merge_applied",
+            pr_number=number,
+            verdict=verdict,
+            reasons=reasons,
+            expected_head_sha=pinned,
+            applied_head_sha=head,
+            actor=actor or None,
+            detail="squash merge (reconciled after write timeout)",
+        )
+        return {
+            "merged": True,
+            "reconciled": True,
+            "pr_number": number,
+            "head_sha": head,
+            "gate": gate.as_dict(),
+        }
+
+    record_gate_audit(
+        action="merge_failed",
+        pr_number=number,
+        verdict=verdict,
+        reasons=reasons,
+        expected_head_sha=pinned,
+        applied_head_sha=head or None,
+        actor=actor or None,
+        detail=redact_secrets(f"merge write timed out; not proven merged at pin {pinned}")[:500],
+    )
+    raise RuntimeError(
+        f"gh pr merge timed out; PR not proven merged at pinned head {pinned} ({write_error})"
+    )

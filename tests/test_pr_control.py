@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import json
+import subprocess
 from types import SimpleNamespace
 from typing import Any
 
+from kater.github_transport import (
+    ERROR_AUTH_PERMANENT,
+    ERROR_TRANSIENT_NETWORK,
+    GitHubTransportError,
+    TransportConfig,
+)
 from kater.pr_control import (
     REASON_ALREADY_CLOSED as ALREADY_CLOSED,
 )
@@ -17,6 +25,9 @@ from kater.pr_control import (
 )
 from kater.pr_control import (
     REASON_FAILED_CHECKS as FAILED_CHECKS,
+)
+from kater.pr_control import (
+    REASON_GATE_INCOMPLETE as GATE_INCOMPLETE,
 )
 from kater.pr_control import (
     REASON_HEAD_STALE as HEAD_STALE,
@@ -50,6 +61,9 @@ from kater.pr_control import (
 )
 from kater.pr_control import (
     VERDICT_PASS as PASS,
+)
+from kater.pr_control import (
+    VERDICT_UNKNOWN as UNKNOWN,
 )
 from kater.pr_control import (
     GatePolicy,
@@ -507,6 +521,8 @@ def test_tools_read_only_no_subprocess(monkeypatch) -> None:
     assert gate["details"]["head_sha_matches"] is True
     gate_mismatch = pr_gate_tool(42, expected_head_sha="wrong")
     assert gate_mismatch["details"]["head_sha_matches"] is False
+    assert gate_mismatch["verdict"] == BLOCK
+    assert HEAD_STALE in gate_mismatch["reasons"]
     assert not calls  # no subprocess executed during the read path
 
 
@@ -1072,3 +1088,286 @@ def test_pr_gate_skill_is_notify_first() -> None:
     assert "notify-first" in skill
     assert FAILED_CHECKS in skill
     assert P1_LATCH in skill
+
+
+GRAPHQL_DIAL = "Post https://api.github.com/graphql: dial tcp 4.225.11.201:443: i/o timeout"
+
+
+def _rest_pr_payload(*, merged: bool = False, sha: str = "head000") -> dict[str, Any]:
+    return {
+        "number": 42,
+        "title": "demo pr",
+        "html_url": "https://github.com/o/r/pull/42",
+        "draft": False,
+        "state": "closed" if merged else "open",
+        "merged": merged,
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "head": {"ref": "feat/x", "sha": sha},
+        "base": {"ref": "main", "sha": "base000"},
+        "user": {"login": "alice"},
+        "labels": [],
+    }
+
+
+def _ok(payload: Any) -> Any:
+    return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+
+def _fail(stderr: str, code: int = 1) -> Any:
+    return SimpleNamespace(returncode=code, stdout="", stderr=stderr)
+
+
+def test_pull_request_retries_transient_then_rest_success() -> None:
+    calls: list[str] = []
+
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        calls.append(path)
+        if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
+            if sum(1 for c in calls if c.endswith("/pulls/42")) < 3:
+                return _fail(GRAPHQL_DIAL)
+            return _ok(_rest_pr_payload())
+        if path.endswith("/reviews"):
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED"}])
+        if path.endswith("/commits"):
+            return _ok([{"sha": "head000", "author": {"login": "alice"}}])
+        if args[1] == "graphql":
+            return _ok(
+                json.loads(_graphql_threads_payload([{"isResolved": True, "isOutdated": False}]))
+            )
+        return _fail("unexpected")
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=2, sleeper=lambda _: None, rng=lambda: 0.5),
+    )
+    pr = client.pull_request(42)
+    assert pr["headRefOid"] == "head000"
+    assert pr["reviewThreads"] == [{"isResolved": True, "isOutdated": False}]
+    assert sum(1 for c in calls if c.endswith("/pulls/42")) == 3
+
+
+def test_pull_request_transport_exhaustion_is_not_pass() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return _fail(GRAPHQL_DIAL)
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=1, sleeper=lambda _: None),
+    )
+    try:
+        client.pull_request(42)
+    except GitHubTransportError as exc:
+        assert exc.error_class == ERROR_TRANSIENT_NETWORK
+        assert exc.as_dict()["ok"] is False
+    else:
+        raise AssertionError("expected GitHubTransportError")
+
+
+def test_pull_request_permanent_auth_does_not_fallback_to_view() -> None:
+    calls: list[str] = []
+
+    def fake_runner(args: list[str]) -> Any:
+        calls.append(" ".join(args[:3]))
+        if args[:2] == ["pr", "view"]:
+            return _ok(_pr())
+        return _fail("HTTP 401: Bad credentials")
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=2, sleeper=lambda _: None),
+    )
+    try:
+        client.pull_request(42)
+    except GitHubTransportError as exc:
+        assert exc.error_class == ERROR_AUTH_PERMANENT
+    else:
+        raise AssertionError("expected GitHubTransportError")
+    assert not any(c.startswith("pr view") for c in calls)
+
+
+def test_graphql_extras_fail_closed_after_retry_wrapper() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        if args[1] == "graphql":
+            return _fail(GRAPHQL_DIAL)
+        if args[1].endswith("/pulls/42"):
+            return _ok(_rest_pr_payload())
+        if args[1].endswith("/reviews") or args[1].endswith("/commits"):
+            return _ok([])
+        return _fail("unexpected")
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=1, sleeper=lambda _: None),
+    )
+    try:
+        client.pull_request(42)
+    except GitHubTransportError as exc:
+        assert "graphql" in exc.command or exc.transport == "graphql"
+    else:
+        raise AssertionError("expected fail-closed extras")
+
+
+def test_is_base_protected_timeout_is_not_false() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return _fail(GRAPHQL_DIAL)
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+    )
+    try:
+        result = client.is_base_protected("main")
+    except GitHubTransportError as exc:
+        assert exc.retryable is True
+    else:
+        raise AssertionError(f"timeout must not return {result!r}")
+
+
+def test_gate_for_pr_protection_timeout_blocks() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        if "protection" in path and "required_status_checks" not in path:
+            return _fail(GRAPHQL_DIAL)
+        if "check-runs" in path:
+            return _ok({"check_runs": []})
+        if "required_status_checks" in path:
+            return _fail("HTTP 404: Not Found")
+        return _ok({})
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+    )
+    res = gate_for_pr(client, _pr())
+    assert res.verdict == BLOCK
+    assert REQUIRED_CHECK_LOOKUP in res.reasons
+
+
+def test_merge_pr_timeout_does_not_retry_write_and_reconciles(monkeypatch) -> None:
+    _enable_company_control_plane(monkeypatch)
+    merge_calls = {"n": 0}
+    state = {"merged": False}
+
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        if args[:2] == ["pr", "merge"]:
+            merge_calls["n"] += 1
+            state["merged"] = True
+            raise subprocess.TimeoutExpired(cmd=["gh", *args], timeout=2)
+        if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
+            return _ok(_rest_pr_payload(merged=state["merged"]))
+        if path.endswith("/reviews"):
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED"}])
+        if path.endswith("/commits"):
+            return _ok([])
+        if path.endswith("/check-runs"):
+            return _ok({"check_runs": []})
+        if "required_status_checks" in path or path.endswith("/protection"):
+            return _fail("HTTP 404: Not Found")
+        if args[1] == "graphql":
+            return _ok(json.loads(_graphql_threads_payload([])))
+        return _fail(f"unexpected {args}")
+
+    client_transport = TransportConfig(extra_retries=2, sleeper=lambda _: None, rng=lambda: 0.5)
+
+    def make_client(repo: str = "") -> GitHubPRClient:
+        return GitHubPRClient(repo=repo or "o/r", runner=fake_runner, transport=client_transport)
+
+    monkeypatch.setattr("kater.pr_control._pr_client", make_client)
+    audit: list[dict[str, Any]] = []
+    monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: audit.append(kw) or 1)
+
+    result = merge_pr(42, expected_head_sha="head000", actor="ci-bot", repo="o/r")
+    assert result["merged"] is True
+    assert result.get("reconciled") is True
+    assert merge_calls["n"] == 1
+    assert audit[-1]["action"] == "merge_applied"
+
+
+def test_merge_pr_timeout_reconcile_unproven_fails_closed(monkeypatch) -> None:
+    _enable_company_control_plane(monkeypatch)
+
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        if args[:2] == ["pr", "merge"]:
+            raise subprocess.TimeoutExpired(cmd=["gh", *args], timeout=2)
+        if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
+            return _ok(_rest_pr_payload(merged=False))
+        if path.endswith("/reviews"):
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED"}])
+        if path.endswith("/commits"):
+            return _ok([])
+        if path.endswith("/check-runs"):
+            return _ok({"check_runs": []})
+        if "required_status_checks" in path or path.endswith("/protection"):
+            return _fail("HTTP 404: Not Found")
+        if args[1] == "graphql":
+            return _ok(json.loads(_graphql_threads_payload([])))
+        return _fail(f"unexpected {args}")
+
+    monkeypatch.setattr(
+        "kater.pr_control._pr_client",
+        lambda repo="": GitHubPRClient(
+            repo=repo or "o/r",
+            runner=fake_runner,
+            transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+        ),
+    )
+    audit: list[dict[str, Any]] = []
+    monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: audit.append(kw) or 1)
+    try:
+        merge_pr(42, expected_head_sha="head000", actor="ci-bot", repo="o/r")
+    except RuntimeError as exc:
+        assert "not proven merged" in str(exc)
+    else:
+        raise AssertionError("expected fail-closed merge timeout")
+    assert audit[-1]["action"] == "merge_failed"
+
+
+def test_list_pull_requests_uses_rest_when_repo_set() -> None:
+    captured: list[str] = []
+
+    def fake_runner(args: list[str]) -> Any:
+        captured.append(" ".join(args[:3]))
+        return _ok([_rest_pr_payload()])
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+    )
+    rows = client.list_pull_requests(limit=5)
+    assert len(rows) == 1
+    assert rows[0]["headRefOid"] == "head000"
+    assert rows[0]["gateFieldsIncomplete"] is True
+    assert any("pulls" in c for c in captured)
+    assert not any(c.startswith("pr list") for c in captured)
+
+
+def test_list_gate_unknown_when_rest_reviews_checks_not_fetched(monkeypatch) -> None:
+    def fake_runner(args: list[str]) -> Any:
+        return _ok([_rest_pr_payload()])
+
+    monkeypatch.setattr(
+        "kater.pr_control._pr_client",
+        lambda repo="": GitHubPRClient(
+            repo="o/r",
+            runner=fake_runner,
+            transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+        ),
+    )
+    listing = pr_list_tool(state="open", limit=5, repo="o/r")
+    assert listing["count"] == 1
+    gate = listing["pulls"][0]["gate"]
+    assert gate["verdict"] == UNKNOWN
+    assert GATE_INCOMPLETE in gate["reasons"]
+    assert NO_REVIEWS not in gate["reasons"]
+    assert gate["details"].get("advisory") is True

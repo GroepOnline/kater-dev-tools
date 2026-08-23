@@ -206,32 +206,42 @@ def _wrap_native_handler(handler: Callable[..., Any]) -> Callable[..., Any]:
     params = [
         param
         for param in sig.parameters.values()
-        if param.kind
-        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        if param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
     ]
     param_names = {param.name for param in params}
     optional_names = {
         param.name for param in params if param.default is not inspect.Parameter.empty
     }
 
-    if inspect.iscoroutinefunction(handler):
-        async def wrapped(**kwargs: Any) -> Any:
-            filtered = {
-                name: value
-                for name, value in kwargs.items()
-                if name in param_names
-                and (value is not None or name not in optional_names)
-            }
+    async def wrapped_async(**kwargs: Any) -> Any:
+        from kater.github_transport import GitHubTransportError, github_error_payload
+
+        filtered = {
+            name: value
+            for name, value in kwargs.items()
+            if name in param_names and (value is not None or name not in optional_names)
+        }
+        try:
             return await handler(**filtered)
-    else:
-        def wrapped(**kwargs: Any) -> Any:
-            filtered = {
-                name: value
-                for name, value in kwargs.items()
-                if name in param_names
-                and (value is not None or name not in optional_names)
-            }
+        except GitHubTransportError as exc:
+            return github_error_payload(exc)
+
+    def wrapped_sync(**kwargs: Any) -> Any:
+        from kater.github_transport import GitHubTransportError, github_error_payload
+
+        filtered = {
+            name: value
+            for name, value in kwargs.items()
+            if name in param_names and (value is not None or name not in optional_names)
+        }
+        try:
             return handler(**filtered)
+        except GitHubTransportError as exc:
+            return github_error_payload(exc)
+
+    wrapped: Callable[..., Any] = (
+        wrapped_async if inspect.iscoroutinefunction(handler) else wrapped_sync
+    )
 
     wrapped.__name__ = getattr(handler, "__name__", "wrapped")
     wrapped.__qualname__ = getattr(handler, "__qualname__", wrapped.__name__)
@@ -366,9 +376,7 @@ def _build_proxy_handler(
         # level (every parameter is keyword-only), which also matches how the
         # previous exec-based handler behaved once you read its generated code.
         args = {
-            param_map[safe_name]: value
-            for safe_name, value in kwargs.items()
-            if value is not None
+            param_map[safe_name]: value for safe_name, value in kwargs.items() if value is not None
         }
         return proxy.call_tool(tool_name, args)
 

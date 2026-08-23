@@ -13,15 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- _Nothing yet._
+- Bounded GitHub transport for PR-gate tools: typed errors, secret redaction,
+  configurable subprocess timeout, and a strict read-only retry budget
+  (`docs/ops/pr-gate.md`).
 
 ### Changed
 
-- _Nothing yet._
+- `kater_pr_gate` treats a nonempty `expected_head_sha` mismatch as `HEAD_STALE`
+  BLOCK. Merge still requires the same exact-head pin.
+- PR body/list I/O prefers GitHub REST (`gh api`) when `KATER_PR_REPO` is set.
+  GraphQL stays only for `reviewThreads`.
+- Doctor reports GitHub token env precedence and a SHA-256 fingerprint only.
+  Never the token value.
 
 ### Fixed
 
-- _Nothing yet._
+- PR-gate `gh` calls no longer run as one-shot unbounded subprocesses.
+- Branch-protection lookup no longer fail-opens on timeout/5xx/429.
+- Merge writes never retry; a write timeout is reconciled by a bounded read
+  and only reports success when `merged=true` at the original pin.
 
 ## [1.1.0] - 2026-08-18
 

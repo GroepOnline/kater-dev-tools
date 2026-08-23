@@ -42,6 +42,10 @@ browser = ["playwright>=1.62.0"]
 requires = ["uv_build>=0.12.2,<0.13"]
 build-backend = "uv_build"
 
+[tool.uv]
+# CI pip-audit scans the venv bootstrap pip; keep it on a patched release.
+constraint-dependencies = ["pip>=26.2"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",

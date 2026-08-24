@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from kater.doctor import is_gateway_server, run_doctor
+from kater.doctor import _connector_health_check, is_gateway_server, run_doctor
 
 
 def test_is_gateway_server_matches_hostname_not_path() -> None:
@@ -24,6 +24,37 @@ def test_is_gateway_server_matches_hostname_not_path() -> None:
         "remote-with-localhost-path",
         {"type": "sse", "url": "https://example.com/path/localhost/sse"},
     )
+
+
+def test_connector_doctor_does_not_claim_unprobed_http_is_healthy(monkeypatch) -> None:
+    from kater.connectors.models import (
+        AuthBindingKind,
+        AuthBindingRef,
+        ConnectorRecord,
+        ConnectorStatus,
+        ConnectorTransport,
+        ConnectorType,
+        PermissionLevel,
+    )
+
+    record = ConnectorRecord(
+        id="remote.api",
+        display_name="Remote API",
+        type=ConnectorType.API,
+        version="1.0.0",
+        transport=ConnectorTransport(kind="http", endpoint="https://example.invalid"),
+        auth_binding=AuthBindingRef(kind=AuthBindingKind.NONE),
+        profiles=frozenset({"ops"}),
+        permissions={"ops": PermissionLevel.READ},
+        status=ConnectorStatus.ENABLED,
+        origin="seed",
+    )
+    monkeypatch.setattr("kater.connectors.seed.seed_builtin_connectors", lambda: None)
+    monkeypatch.setattr("kater.connectors.store.list_connectors", lambda: [record])
+
+    findings = _connector_health_check({"ops"})
+    assert [finding.code for finding in findings] == ["connector_configured"]
+    assert "not probed" in findings[0].message
 
 
 def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
@@ -69,14 +100,10 @@ def test_doctor_ops_skips_high_risk_missing_env_warnings(monkeypatch, tmp_path) 
     assert "gitlab" not in missing_sources
     assert "slack" not in missing_sources
     assert "notion" not in missing_sources
-    assert any(
-        f.code in {"adapter_ready", "adapter_not_configured"} for f in report.findings
-    )
+    assert any(f.code in {"adapter_ready", "adapter_not_configured"} for f in report.findings)
 
 
-def test_doctor_ops_adapter_ready_when_linear_and_sentry_configured(
-    monkeypatch, tmp_path
-) -> None:
+def test_doctor_ops_adapter_ready_when_linear_and_sentry_configured(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LINEAR_API_KEY", "lin-test")
     monkeypatch.setenv("SENTRY_AUTH_TOKEN", "sentry-test")
@@ -88,8 +115,7 @@ def test_doctor_ops_adapter_ready_when_linear_and_sentry_configured(
     assert "linear" in ready
     assert "sentry" in ready
     assert not any(
-        f.code == "missing_env" and f.source in {"linear", "sentry"}
-        for f in report.findings
+        f.code == "missing_env" and f.source in {"linear", "sentry"} for f in report.findings
     )
 
 

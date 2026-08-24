@@ -143,9 +143,7 @@ def _source_expected_enabled(source: ToolSource) -> bool:
     if source.transport is Transport.NATIVE:
         return False
     settings = load_settings()
-    enabled_default = not (
-        settings.high_risk_default_disabled and source.risk == RiskLevel.HIGH
-    )
+    enabled_default = not (settings.high_risk_default_disabled and source.risk == RiskLevel.HIGH)
     return settings.is_server_enabled(source.name, default=enabled_default)
 
 
@@ -224,7 +222,9 @@ def _connector_health_check(selected_profiles: set[str]) -> list[Finding]:
     for record in records:
         if record.profiles and not record.profiles.intersection(selected_profiles):
             continue
-        health = evaluate_health(record)
+        applicable_profiles = sorted(record.profiles.intersection(selected_profiles))
+        profile = applicable_profiles[0] if applicable_profiles else None
+        health = evaluate_health(record, profile=profile)
         if record.metadata.get("unsupported_runtime") is True:
             code, severity = "connector_unsupported", "info"
             message = f"{record.id} is unsupported on this runtime."
@@ -232,8 +232,12 @@ def _connector_health_check(selected_profiles: set[str]) -> list[Finding]:
             code, severity = "connector_out_of_scope", "info"
             message = f"{record.id} is out of scope and stays disabled."
         elif health.state is HealthState.HEALTHY:
-            code, severity = "connector_ready", "info"
-            message = f"{record.id} connector is healthy."
+            if record.transport.kind in {"http", "sse"}:
+                code, severity = "connector_configured", "info"
+                message = f"{record.id} connector is configured; live reachability was not probed."
+            else:
+                code, severity = "connector_ready", "info"
+                message = f"{record.id} connector is healthy."
         elif health.state is HealthState.DISABLED:
             code, severity = "connector_disabled", "info"
             message = f"{record.id} connector is disabled."

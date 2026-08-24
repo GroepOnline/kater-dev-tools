@@ -17,6 +17,7 @@ from kater.connectors.models import (
     HealthState,
     PermissionLevel,
 )
+from kater.connectors.registry import inventory, probe
 from kater.connectors.store import (
     clear_connector_state,
     create_connector,
@@ -143,14 +144,34 @@ def test_restart_reload_preserves_state_without_health(tmp_path) -> None:
 
     db_path = tmp_path / ".kater" / "kater.db"
     conn = sqlite3.connect(db_path)
-    columns = {
-        row[1] for row in conn.execute("PRAGMA table_info(connectors)").fetchall()
-    }
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(connectors)").fetchall()}
     conn.close()
     assert "health" not in columns
 
     health = evaluate_health(loaded, profile="core")
     assert health.state is HealthState.DISABLED
+
+
+def test_registry_health_respects_requested_profile() -> None:
+    record = ConnectorRecord(
+        id="profile.scoped",
+        display_name="Profile Scoped",
+        type=ConnectorType.INTERNAL,
+        version="1.0.0",
+        transport=ConnectorTransport(kind="native"),
+        capabilities=(ConnectorCapability(id="profile.read"),),
+        auth_binding=AuthBindingRef(kind=AuthBindingKind.NONE),
+        profiles=frozenset({"ops"}),
+        permissions={"ops": PermissionLevel.DISABLED},
+        status=ConnectorStatus.ENABLED,
+        origin="seed",
+    )
+    upsert_connector(record)
+
+    views = inventory("ops")
+    assert len(views) == 1
+    assert views[0].health.state is HealthState.POLICY_BLOCKED
+    assert probe(record.id, profile="ops").state is HealthState.POLICY_BLOCKED
 
 
 def test_enabled_stdio_mcp_is_healthy_without_http_endpoint() -> None:

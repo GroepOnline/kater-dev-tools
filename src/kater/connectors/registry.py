@@ -96,17 +96,20 @@ def bind_auth(connector_id: str, binding: AuthBindingRef) -> ConnectorRecord:
     return upsert_connector(updated)
 
 
-def probe(connector_id: str) -> ConnectorHealth:
-    return evaluate_health(_require(connector_id))
+def probe(connector_id: str, *, profile: str | None = None) -> ConnectorHealth:
+    """Return configuration health scoped to an optional permission profile.
+
+    Transport reachability is not implied here; callers with a real probe result should call
+    ``evaluate_health`` with ``probe_ok`` explicitly.
+    """
+    return evaluate_health(_require(connector_id), profile=profile)
 
 
 def _mark_operator_managed(record: ConnectorRecord) -> None:
     if record.metadata.get("operator_managed") is True:
         return
     metadata = {**record.metadata, "operator_managed": True}
-    upsert_connector(
-        ConnectorRecord.from_mapping({**record.as_dict(), "metadata": metadata})
-    )
+    upsert_connector(ConnectorRecord.from_mapping({**record.as_dict(), "metadata": metadata}))
 
 
 def enable(
@@ -205,7 +208,7 @@ def inventory(profile: str) -> list[ConnectorView]:
     for record in list_connectors():
         if record.profiles and profile not in record.profiles:
             continue
-        health = evaluate_health(record)
+        health = evaluate_health(record, profile=profile)
         configured = binding_is_satisfied(record.auth_binding, connector_id=record.id)
         missing = tuple(missing_auth_names(record.auth_binding, connector_id=record.id))
         views.append(

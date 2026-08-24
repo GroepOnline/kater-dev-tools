@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `kater_pr_gate` treats a nonempty `expected_head_sha` mismatch as `HEAD_STALE`
   BLOCK. Merge still requires the same exact-head pin.
+- Independent APPROVE on a nonempty pin must cover that review commit OID.
+  Empty review lists no longer inherit GitHub `reviewDecision`. `gate_for_pr`
+  loads the same overlay policy as merge.
 - PR body/list I/O prefers GitHub REST (`gh api`) when `KATER_PR_REPO` is set.
   GraphQL stays only for `reviewThreads`.
 - Doctor reports GitHub token env precedence and a SHA-256 fingerprint only.

@@ -103,6 +103,13 @@ def _pr(**overrides: Any) -> dict[str, Any]:
         "commits": [{"oid": "abc123"}],
         "baseRefOid": "base000",
         "headRefOid": "head000",
+        "latestReviews": [
+            {
+                "author": {"login": "reviewer"},
+                "state": "APPROVED",
+                "commit": {"oid": "head000"},
+            }
+        ],
     }
     base.update(overrides)
     return base
@@ -608,6 +615,21 @@ def test_load_gate_policy_reads_file(tmp_path) -> None:
     assert policy.block_drafts is False
 
 
+def test_gate_for_pr_loads_overlay_policy(tmp_path, monkeypatch) -> None:
+    (tmp_path / "gate-policy.json").write_text(
+        '{"require_approvals": 3}', encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    def fake_runner(args: list[str]) -> Any:
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    client = GitHubPRClient(repo="o/r", runner=fake_runner)
+    res = gate_for_pr(client, _pr())
+    assert res.verdict == BLOCK
+    assert NO_REVIEWS in res.reasons
+
+
 def test_pr_policy_tool_returns_policy() -> None:
     result = pr_policy_tool()
     assert "policy" in result
@@ -673,10 +695,13 @@ def test_merge_pr_refuses_head_sha_mismatch(monkeypatch) -> None:
     try:
         merge_pr(42, expected_head_sha="stale-sha", actor="ci-bot")
     except MergeRejected as exc:
-        assert "expected head" in str(exc)
+        assert "BLOCK" in str(exc)
+        assert HEAD_STALE in str(exc) or "HEAD_STALE" in str(exc)
     else:
         raise AssertionError("expected MergeRejected")
-    assert audit[0]["detail"] == "expected head SHA mismatch"
+    assert audit[0]["action"] == "merge_rejected"
+    assert audit[0]["verdict"] == BLOCK
+    assert HEAD_STALE in (audit[0].get("reasons") or [])
 
 
 def test_merge_pr_applies_on_pass(monkeypatch) -> None:
@@ -939,6 +964,45 @@ def test_count_independent_approvals_honor_allowlist() -> None:
     assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 1
 
 
+def test_count_independent_approvals_pins_review_commit_oid() -> None:
+    policy = GatePolicy()
+    reviews = [
+        {
+            "author": {"login": "bob"},
+            "state": "APPROVED",
+            "commit": {"oid": "old000"},
+        },
+        {
+            "author": {"login": "carol"},
+            "state": "APPROVED",
+            "commit": {"oid": "head000"},
+        },
+    ]
+    assert (
+        count_independent_approvals(
+            reviews, author_login="alice", policy=policy, expected_head_sha="head000"
+        )
+        == 1
+    )
+    assert (
+        count_independent_approvals(
+            reviews, author_login="alice", policy=policy, expected_head_sha="other"
+        )
+        == 0
+    )
+    # Unpinned read path still counts login-level APPROVE without an OID.
+    assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 2
+
+
+def test_summarize_pr_does_not_credit_review_decision_without_reviews() -> None:
+    from kater.pr_control import _summarize_pr
+
+    pr = _pr(reviewDecision="APPROVED", reviews=[], latestReviews=[])
+    summ = _summarize_pr(pr)
+    assert summ["approving_reviews"] == 1
+    assert summ["independent_approvals"] == 0
+
+
 def test_summarize_pr_flags_p1_label_and_failed_check() -> None:
     from kater.pr_control import _summarize_pr
 
@@ -1129,7 +1193,7 @@ def test_pull_request_retries_transient_then_rest_success() -> None:
                 return _fail(GRAPHQL_DIAL)
             return _ok(_rest_pr_payload())
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED"}])
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "commit_id": "head000"}])
         if path.endswith("/commits"):
             return _ok([{"sha": "head000", "author": {"login": "alice"}}])
         if args[1] == "graphql":
@@ -1265,7 +1329,7 @@ def test_merge_pr_timeout_does_not_retry_write_and_reconciles(monkeypatch) -> No
         if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
             return _ok(_rest_pr_payload(merged=state["merged"]))
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED"}])
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "commit_id": "head000"}])
         if path.endswith("/commits"):
             return _ok([])
         if path.endswith("/check-runs"):
@@ -1302,7 +1366,7 @@ def test_merge_pr_timeout_reconcile_unproven_fails_closed(monkeypatch) -> None:
         if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
             return _ok(_rest_pr_payload(merged=False))
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED"}])
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "commit_id": "head000"}])
         if path.endswith("/commits"):
             return _ok([])
         if path.endswith("/check-runs"):

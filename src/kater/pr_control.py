@@ -333,14 +333,33 @@ def _review_is_bot(review: dict[str, Any], login: str) -> bool:
     return _is_bot_login(login)
 
 
+def _review_commit_oid(review: dict[str, Any]) -> str:
+    """Commit SHA this review covers, if GitHub included one."""
+    commit = review.get("commit")
+    if isinstance(commit, dict):
+        oid = str(commit.get("oid") or commit.get("sha") or "").strip()
+        if oid:
+            return oid
+    for key in ("commit_id", "commitId", "commitOid"):
+        value = str(review.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def count_independent_approvals(
     reviews: list[dict[str, Any]],
     *,
     author_login: str,
     policy: GatePolicy,
     fixer_logins: tuple[str, ...] = (),
+    expected_head_sha: str = "",
 ) -> int:
-    """Count APPROVED reviews that are not author/bot/fixer (allowlist-aware)."""
+    """Count APPROVED reviews that are not author/bot/fixer (allowlist-aware).
+
+    When ``expected_head_sha`` is nonempty, only APPROVE covering that exact
+    commit OID counts. Missing review commit metadata fails closed.
+    """
     latest_state: dict[str, str] = {}
     latest_review: dict[str, dict[str, Any]] = {}
     for review in reviews:
@@ -357,6 +376,7 @@ def count_independent_approvals(
     deny = _login_set(policy.independent_reviewer_denylist)
     fixers = _login_set(policy.fixer_logins) | _login_set(fixer_logins)
     author = _normalize_login(author_login)
+    pin = (expected_head_sha or "").strip()
     count = 0
     for login, state in latest_state.items():
         if state != "APPROVED":
@@ -369,6 +389,8 @@ def count_independent_approvals(
         if policy.reject_bot_approval and (login in deny or _review_is_bot(review, login)):
             continue
         if policy.reject_fixer_approval and login in fixers:
+            continue
+        if pin and _review_commit_oid(review) != pin:
             continue
         count += 1
     return count
@@ -884,13 +906,18 @@ def _mergeable_from_rest(raw: dict[str, Any]) -> str:
 def _normalize_rest_review(review: dict[str, Any]) -> dict[str, Any]:
     user = review.get("user") or review.get("author") or {}
     login = user.get("login") if isinstance(user, dict) else user
-    return {
+    oid = _review_commit_oid(review)
+    mapped = {
         "author": {"login": login or ""},
         "state": review.get("state") or review.get("decision") or "",
         "authorAssociation": (
             review.get("author_association") or review.get("authorAssociation") or ""
         ),
     }
+    if oid:
+        mapped["commit_id"] = oid
+        mapped["commit"] = {"oid": oid}
+    return mapped
 
 
 def normalize_rest_pull(
@@ -975,8 +1002,21 @@ def _author_login(pr: dict[str, Any]) -> str:
     return ""
 
 
-def _review_list(pr: dict[str, Any]) -> list[dict[str, Any]]:
-    reviews = pr.get("latestReviews") or pr.get("reviews") or []
+def _review_list(pr: dict[str, Any], *, prefer_full: bool = False) -> list[dict[str, Any]]:
+    """Return review objects. Prefer full ``reviews`` (commit OIDs) when nonempty."""
+    del prefer_full  # pin vs unpinned uses the same source list; OID filter is separate
+    full = pr.get("reviews")
+    latest = pr.get("latestReviews")
+    if isinstance(full, list) and full:
+        reviews: Any = full
+    elif isinstance(latest, list) and latest:
+        reviews = latest
+    elif isinstance(full, list):
+        reviews = full
+    elif isinstance(latest, list):
+        reviews = latest
+    else:
+        reviews = full or latest or []
     if isinstance(reviews, dict):
         reviews = reviews.get("nodes") or []
     return [r for r in reviews if isinstance(r, dict)] if isinstance(reviews, list) else []
@@ -1008,8 +1048,14 @@ def _pr_state(pr: dict[str, Any]) -> str:
     return "OPEN"
 
 
-def _summarize_pr(pr: dict[str, Any], *, policy: GatePolicy | None = None) -> dict[str, Any]:
+def _summarize_pr(
+    pr: dict[str, Any],
+    *,
+    policy: GatePolicy | None = None,
+    expected_head_sha: str = "",
+) -> dict[str, Any]:
     policy = policy or GatePolicy()
+    pin = (expected_head_sha or "").strip()
     threads = pr.get("reviewThreads") or []
     open_threads = sum(1 for t in threads if not t.get("isResolved"))
     checks = [c for c in (pr.get("statusCheckRollup") or []) if isinstance(c, dict)]
@@ -1018,16 +1064,15 @@ def _summarize_pr(pr: dict[str, Any], *, policy: GatePolicy | None = None) -> di
     failed_checks = check_summary["failed"]
     decision = (pr.get("reviewDecision") or "").upper()
     approving = 1 if decision == "APPROVED" else 0
-    reviews = _review_list(pr)
+    reviews = _review_list(pr, prefer_full=bool(pin))
     author_login = _author_login(pr)
-    independent: int | None = None
-    if reviews:
-        independent = count_independent_approvals(
-            reviews,
-            author_login=author_login,
-            policy=policy,
-            fixer_logins=_commit_author_logins(pr),
-        )
+    independent = count_independent_approvals(
+        reviews,
+        author_login=author_login,
+        policy=policy,
+        fixer_logins=_commit_author_logins(pr),
+        expected_head_sha=pin,
+    )
     commits = pr.get("commits") or []
     head_sha = pr.get("headRefOid") or (commits[-1].get("oid") if commits else "")
     base_sha = pr.get("baseRefOid") or ""
@@ -1066,9 +1111,11 @@ def gate_for_pr(
     *,
     overlapping_open: int = 0,
     policy: GatePolicy | None = None,
+    expected_head_sha: str = "",
 ) -> GateResult:
-    policy = policy or GatePolicy()
-    summary = _summarize_pr(pr, policy=policy)
+    policy = policy or load_gate_policy()
+    pin = (expected_head_sha or "").strip()
+    summary = _summarize_pr(pr, policy=policy, expected_head_sha=pin)
     protection_lookup_failed = False
     try:
         base_protected = client.is_base_protected(summary["base_ref"] or "")
@@ -1130,6 +1177,19 @@ def gate_for_pr(
             policy,
             required_incomplete=check_summary["required_pending"] > 0,
         )
+    if pin:
+        result.details["expected_head_sha"] = pin
+        matches = head_sha == pin if head_sha else None
+        result.details["head_sha_matches"] = matches
+        if matches is not True:
+            if REASON_HEAD_STALE not in result.reasons:
+                result.reasons.append(REASON_HEAD_STALE)
+            result.verdict = _collapse(
+                result.verdict,
+                result.reasons,
+                policy,
+                required_incomplete=check_summary["required_pending"] > 0,
+            )
     return result
 
 
@@ -1232,29 +1292,11 @@ def pr_gate_tool(number: int, expected_head_sha: str = "", repo: str = "") -> di
     ``expected_head_sha`` lets a caller assert they are gating against a known
     head before acting. Write-tools must require a nonempty SHA. A nonempty
     pin that does not match the live head BLOCKs the read gate with
-    ``HEAD_STALE``; the merge path still pins ``--match-head-commit``.
+    ``HEAD_STALE``. Independent APPROVE must cover that same commit OID.
     """
     client = _pr_client(repo)
     pr = client.pull_request(number)
-    gate = gate_for_pr(client, pr)
-    result = gate.as_dict()
-    pinned = (expected_head_sha or "").strip()
-    if pinned:
-        head = str(result["details"].get("head_sha") or "")
-        matches = head == pinned if head else None
-        result["details"]["head_sha_matches"] = matches
-        result["details"]["expected_head_sha"] = pinned
-        if matches is not True:
-            if REASON_HEAD_STALE not in result["reasons"]:
-                result["reasons"].append(REASON_HEAD_STALE)
-            policy = load_gate_policy()
-            result["verdict"] = _collapse(
-                result["verdict"],
-                result["reasons"],
-                policy,
-                required_incomplete=bool(result["details"].get("required_pending")),
-            )
-    return result
+    return gate_for_pr(client, pr, expected_head_sha=expected_head_sha).as_dict()
 
 
 def pr_policy_tool(policy_path: str = "") -> dict[str, Any]:
@@ -1335,7 +1377,7 @@ def merge_pr(
         )
         raise MergeRejected("expected_head_sha is required for merge")
 
-    gate = gate_for_pr(client, pr, policy=policy)
+    gate = gate_for_pr(client, pr, policy=policy, expected_head_sha=pinned)
     reasons = gate.reasons
     verdict = gate.verdict
     head = str(gate.details.get("head_sha") or "")

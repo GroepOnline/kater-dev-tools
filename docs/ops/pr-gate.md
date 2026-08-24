@@ -39,7 +39,9 @@ GraphQL `errors[]`, merge conflicts. Writes do not retry.
 - Protection: only HTTP 404 means unprotected. Timeout/429/5xx become
   `REQUIRED_CHECK_LOOKUP` (BLOCK), never `base_protected=False`.
 - Nonempty `expected_head_sha` mismatch BLOCKs the read gate (`HEAD_STALE`).
-  Merge still pins `--match-head-commit` to that SHA.
+  Merge still pins `--match-head-commit` to that SHA. Independent APPROVE
+  must cover that same commit OID; `reviewDecision` is not a substitute for
+  an empty review list.
 - Merge timeout: bounded read. Success only if `merged=true` **and** the
   original pin is still the PR head. Otherwise fail closed.
 - MCP/API/CLI errors are structured and redacted. Doctor may show token env

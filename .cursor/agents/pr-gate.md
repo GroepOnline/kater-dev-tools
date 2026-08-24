@@ -74,7 +74,8 @@ gh repo view --json nameWithOwner -q .nameWithOwner
 5. **Gate** — summarize verdict against `src/kater/pr_control.py` reason codes
    (`FAILED_CHECKS`, `P1_LATCH`, independent approval, company-control repo).
    Write/merge paths need a nonempty `expected_head_sha`. A nonempty pin that
-   does not match the live head BLOCKs the read gate (`HEAD_STALE`).
+   does not match the live head BLOCKs the read gate (`HEAD_STALE`). Independent
+   APPROVE must cover that SHA's commit OID.
 
 ## Return format (mandatory)
 

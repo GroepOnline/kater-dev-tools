@@ -115,3 +115,15 @@ def test_invoke_chain_capability_delegates_to_registry():
         )
     assert result == {"ok": True}
     mocked.assert_called_once()
+
+
+def test_invoke_chain_capability_rejects_connector_mismatch():
+    upsert_connector(_github_record(permission=PermissionLevel.READ))
+
+    with pytest.raises(ConnectorCapabilityError):
+        invoke_chain_capability(
+            "clickhouse",
+            "github.pull_requests.read",
+            {},
+            profile="ops",
+        )

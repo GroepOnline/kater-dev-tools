@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import threading
@@ -112,6 +113,19 @@ def test_api_auth_missing(clickhouse_server):
         api_connector.invoke(record, "clickhouse.ping", {})
 
 
+def test_multi_statement_write_query_blocked_on_read_profile(clickhouse_server):
+    record = _clickhouse_record(clickhouse_server)
+    upsert_connector(record)
+
+    with pytest.raises(ConnectorPolicyError):
+        registry.invoke(
+            "clickhouse",
+            "clickhouse.query",
+            {"query": "SELECT 1; INSERT INTO t VALUES (1)"},
+            profile="ops",
+        )
+
+
 def test_write_query_blocked_on_read_profile(clickhouse_server):
     record = _clickhouse_record(clickhouse_server)
     upsert_connector(record)
@@ -157,3 +171,26 @@ def test_secret_not_in_error_text(clickhouse_server, monkeypatch):
         api_connector.invoke(record, "clickhouse.ping", {})
     assert "ch-test-value" not in str(exc.value)
     assert "[REDACTED]" in str(exc.value) or "***" in str(exc.value) or "boom" in str(exc.value)
+
+
+def test_http_error_does_not_include_upstream_headers(clickhouse_server, monkeypatch):
+    record = _clickhouse_record(clickhouse_server)
+    headers = {"Set-Cookie": "session=upstream-secret", "X-Vendor-Token": "opaque-secret"}
+    error = api_connector.urllib.error.HTTPError(
+        url=f"{clickhouse_server}/",
+        code=429,
+        msg="rate limited",
+        hdrs=headers,
+        fp=io.BytesIO(b"try later"),
+    )
+
+    def _fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(api_connector.urllib.request, "urlopen", _fail)
+    with pytest.raises(Exception) as exc:
+        api_connector.invoke(record, "clickhouse.query", {"query": "SELECT 1"})
+    text = str(exc.value)
+    assert "upstream-secret" not in text
+    assert "opaque-secret" not in text
+    assert "HTTP 429: try later" in text

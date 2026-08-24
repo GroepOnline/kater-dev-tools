@@ -88,6 +88,12 @@ def invoke_chain_capability(
     *,
     profile: str,
 ) -> dict[str, Any]:
+    ref = chain_step_refs(capability_id)
+    if ref is None or ref[0] != connector_id:
+        raise ConnectorCapabilityError(
+            f"capability {capability_id!r} does not belong to connector {connector_id!r}",
+            connector_id=connector_id,
+        )
     validate_chain_steps(
         [ChainStep(tool=capability_id, reason="chain invoke")],
         profile=profile,

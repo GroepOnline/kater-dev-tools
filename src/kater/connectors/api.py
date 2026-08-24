@@ -126,7 +126,11 @@ def clickhouse_query_is_mutation(query: str) -> bool:
     if not stripped:
         # An empty / comment-only statement is not a proven read; fail closed.
         return True
-    first = stripped.split(None, 1)[0].upper().rstrip("(")
+    statements = [statement.strip() for statement in stripped.split(";") if statement.strip()]
+    if len(statements) != 1:
+        # Multiple statements are not safely classifiable by one leading keyword.
+        return True
+    first = statements[0].split(None, 1)[0].upper().rstrip("(")
     return first not in _CLICKHOUSE_READ_ONLY_STARTS
 
 
@@ -183,10 +187,9 @@ def invoke(
                 "mutation": _operation_mutation(capability_id, op, arguments or {}),
             }
     except urllib.error.HTTPError as exc:
-        err_headers = redact_text(str(dict(exc.headers.items()) if exc.headers else {}))
         detail = redact_text(exc.read().decode(errors="replace") if exc.fp else str(exc))
         raise ConnectorUnavailableError(
-            f"HTTP {exc.code}: {detail} (headers={err_headers})",
+            f"HTTP {exc.code}: {detail}",
             connector_id=record.id,
         ) from exc
     except ConnectorAuthError:

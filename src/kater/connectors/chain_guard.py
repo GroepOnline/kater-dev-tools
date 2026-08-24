@@ -98,4 +98,4 @@ def invoke_chain_capability(
         [ChainStep(tool=capability_id, reason="chain invoke")],
         profile=profile,
     )
-    return registry.invoke(connector_id, capability_id, arguments, profile=profile)
+    return registry.invoke(connector_id, ref[1], arguments, profile=profile)

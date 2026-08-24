@@ -104,6 +104,34 @@ def test_api_ping_and_query(clickhouse_server):
     assert "SELECT" in query["body"]
 
 
+def test_unresolved_header_template_is_not_sent(clickhouse_server, monkeypatch):
+    monkeypatch.delenv("OPTIONAL_TENANT", raising=False)
+    record = ConnectorRecord(
+        id="header-proof",
+        display_name="Header proof",
+        type=ConnectorType.API,
+        version="1.0.0",
+        transport=ConnectorTransport(
+            kind="http",
+            endpoint=clickhouse_server,
+            headers_template={"X-Tenant": "${OPTIONAL_TENANT}"},
+        ),
+        capabilities=(ConnectorCapability(id="header-proof.ping", description="ping"),),
+        auth_binding=AuthBindingRef(kind=AuthBindingKind.NONE),
+        profiles=frozenset({"ops"}),
+        permissions={"ops": PermissionLevel.READ},
+        status=ConnectorStatus.ENABLED,
+        metadata={
+            "operations": {
+                "header-proof.ping": {"method": "GET", "path": "/ping"}
+            }
+        },
+    )
+
+    headers = api_connector._resolve_headers(record)
+    assert "X-Tenant" not in headers
+
+
 def test_api_auth_missing(clickhouse_server):
     os.environ.pop("CLICKHOUSE_TOKEN", None)
     record = _clickhouse_record(clickhouse_server, auth_value=None)
@@ -111,6 +139,19 @@ def test_api_auth_missing(clickhouse_server):
 
     with pytest.raises(ConnectorAuthError):
         api_connector.invoke(record, "clickhouse.ping", {})
+
+
+def test_semicolon_inside_sql_literal_stays_read_only(clickhouse_server):
+    record = _clickhouse_record(clickhouse_server)
+    upsert_connector(record)
+
+    result = registry.invoke(
+        "clickhouse",
+        "clickhouse.query",
+        {"query": "SELECT 'a;b'"},
+        profile="ops",
+    )
+    assert result["status"] == 200
 
 
 def test_multi_statement_write_query_blocked_on_read_profile(clickhouse_server):

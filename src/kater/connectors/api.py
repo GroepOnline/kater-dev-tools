@@ -80,7 +80,9 @@ def _resolve_headers(record: ConnectorRecord) -> dict[str, str]:
     headers = _resolve_env(transport.headers_template, include_secrets=True)
     for key, value in transport.headers_template.items():
         if key not in headers and "${" in value:
-            headers[key] = _substitute_env_vars(value, include_secrets=True)
+            resolved = _substitute_env_vars(value, include_secrets=True)
+            if "${" not in resolved:
+                headers[key] = resolved
     binding = record.auth_binding
     if binding.kind is AuthBindingKind.ENV and binding.ref:
         token_names = [name.strip() for name in binding.ref.split(",") if name.strip()]
@@ -96,8 +98,6 @@ def _resolve_headers(record: ConnectorRecord) -> dict[str, str]:
     return headers
 
 
-_SQL_LINE_COMMENT = re.compile(r"--[^\n]*")
-_SQL_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 # Statements we can positively prove are read-only. Everything else is treated
 # as mutating and requires WRITE. Fail closed.
 _CLICKHOUSE_READ_ONLY_STARTS = (
@@ -112,23 +112,75 @@ _CLICKHOUSE_READ_ONLY_STARTS = (
 )
 
 
-def clickhouse_query_is_mutation(query: str) -> bool:
-    """Fail-closed ClickHouse classifier.
+def _clickhouse_statements(query: str) -> list[str]:
+    """Split SQL statements while ignoring comments and quoted semicolons.
 
-    Strips leading comments/whitespace, then treats the statement as mutating
-    unless it clearly begins with a known read-only keyword (SELECT, WITH, SHOW,
-    ...). Unknown or destructive statements (DELETE, TRUNCATE, CREATE, RENAME,
-    GRANT, INSERT, ALTER, DROP, ...) are mutations.
+    This is deliberately a small conservative scanner, not a SQL parser. It only
+    needs to distinguish top-level statement separators from content inside
+    ClickHouse string/identifier quotes. Unterminated quotes fail closed by
+    returning an extra sentinel statement.
     """
-    stripped = _SQL_BLOCK_COMMENT.sub(" ", str(query or ""))
-    stripped = _SQL_LINE_COMMENT.sub(" ", stripped)
-    stripped = stripped.strip()
-    if not stripped:
-        # An empty / comment-only statement is not a proven read; fail closed.
-        return True
-    statements = [statement.strip() for statement in stripped.split(";") if statement.strip()]
+    text = str(query or "")
+    statements: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if quote is not None:
+            current.append(ch)
+            if ch == "\\" and i + 1 < len(text):
+                current.append(text[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                if i + 1 < len(text) and text[i + 1] == quote:
+                    current.append(text[i + 1])
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+        if ch in {"'", '"', "`"}:
+            quote = ch
+            current.append(ch)
+            i += 1
+            continue
+        if ch == "-" and nxt == "-":
+            i += 2
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            current.append(" ")
+            continue
+        if ch == "/" and nxt == "*":
+            end = text.find("*/", i + 2)
+            if end < 0:
+                return ["", "unterminated-comment"]
+            current.append(" ")
+            i = end + 2
+            continue
+        if ch == ";":
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    if quote is not None:
+        return ["", "unterminated-quote"]
+    statement = "".join(current).strip()
+    if statement:
+        statements.append(statement)
+    return statements
+
+
+def clickhouse_query_is_mutation(query: str) -> bool:
+    """Fail closed unless there is exactly one positively identified read statement."""
+    statements = _clickhouse_statements(query)
     if len(statements) != 1:
-        # Multiple statements are not safely classifiable by one leading keyword.
         return True
     first = statements[0].split(None, 1)[0].upper().rstrip("(")
     return first not in _CLICKHOUSE_READ_ONLY_STARTS

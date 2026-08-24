@@ -60,6 +60,32 @@ def test_metadata_secret_keys_rejected() -> None:
         )
 
 
+def test_none_auth_binding_rejects_nonempty_ref() -> None:
+    with pytest.raises(ValueError, match="must not carry a ref"):
+        AuthBindingRef(kind=AuthBindingKind.NONE, ref="live-secret")
+
+
+def test_mixed_literal_secret_template_rejected() -> None:
+    with pytest.raises(ValueError, match="complete"):
+        ConnectorTransport(
+            kind="http",
+            endpoint="https://example.invalid",
+            headers_template={"Authorization": "Bearer live-secret ${EXAMPLE_TOKEN}"},
+        )
+
+
+def test_nested_metadata_secret_keys_rejected() -> None:
+    with pytest.raises(ValueError, match=r"metadata\.nested\.api_key"):
+        ConnectorRecord(
+            id="proof.api",
+            display_name="Proof",
+            type=ConnectorType.API,
+            version="1.0.0",
+            transport=_transport(),
+            metadata={"nested": {"api_key": "live-secret"}},
+        )
+
+
 def test_new_connector_defaults_disabled() -> None:
     record = ConnectorRecord(
         id="clickhouse",

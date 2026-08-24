@@ -119,6 +119,25 @@ def looks_like_secret_key(key: str) -> bool:
         return True
     return any(token in lowered.split("_") for token in _SECRET_KEYS)
 
+_SAFE_SECRET_TEMPLATE = re.compile(
+    r"^(?:[A-Za-z][A-Za-z0-9_-]*\s+)?\$\{[A-Z_][A-Z0-9_]*\}$"
+)
+
+
+def _metadata_secret_paths(value: Any, path: str = "metadata") -> list[str]:
+    """Return nested metadata paths whose keys can carry credentials."""
+    found: list[str] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if looks_like_secret_key(str(key)):
+                found.append(child_path)
+            found.extend(_metadata_secret_paths(child, child_path))
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            found.extend(_metadata_secret_paths(child, f"{path}[{index}]"))
+    return found
+
 
 @dataclass(frozen=True, slots=True)
 class AuthBindingRef:
@@ -135,6 +154,8 @@ class AuthBindingRef:
         if not isinstance(self.kind, AuthBindingKind):
             raise ValueError("kind must be an AuthBindingKind")
         if self.kind is AuthBindingKind.NONE:
+            if (self.ref or "").strip():
+                raise ValueError("auth binding kind none must not carry a ref")
             return
         if not (self.ref or "").strip():
             raise ValueError("auth binding ref is required unless kind is none")
@@ -195,9 +216,14 @@ class ConnectorTransport:
         if kind == "stdio" and not (self.command or "").strip():
             raise ValueError("stdio transport requires a command")
         for key, value in {**self.headers_template, **self.env_template}.items():
-            if looks_like_secret_key(key) and value and "${" not in value:
+            if (
+                looks_like_secret_key(key)
+                and value
+                and not _SAFE_SECRET_TEMPLATE.fullmatch(value.strip())
+            ):
                 raise ValueError(
-                    f"template {key!r} must use a ${{ENV}} placeholder, not a literal secret"
+                    f"template {key!r} must be a complete ${{ENV}} placeholder "
+                    "(optionally with an auth scheme)"
                 )
 
     def as_dict(self) -> dict[str, Any]:
@@ -312,12 +338,9 @@ class ConnectorRecord:
             raise ValueError("auth_binding is required")
         if self.status not in ConnectorStatus:
             raise ValueError(f"unknown status: {self.status!r}")
-        forbidden = {key for key in self.metadata if looks_like_secret_key(str(key))}
+        forbidden = _metadata_secret_paths(self.metadata)
         if forbidden:
             raise ValueError(f"metadata must not contain secret keys: {sorted(forbidden)}")
-        for key, value in self.metadata.items():
-            if isinstance(value, str) and looks_like_secret_key(str(key)):
-                raise ValueError(f"metadata {key!r} looks like a secret")
         caps = tuple(self.capabilities)
         ids = [cap.id for cap in caps]
         if len(ids) != len(set(ids)):

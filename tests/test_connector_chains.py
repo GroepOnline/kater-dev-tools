@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from unittest.mock import patch
 
 import pytest
@@ -32,6 +31,7 @@ from kater.connectors.store import clear_connector_state, upsert_connector
 @pytest.fixture(autouse=True)
 def connector_db(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "gh_test")
     (tmp_path / ".kater").mkdir()
     clear_connector_state()
     yield
@@ -39,7 +39,6 @@ def connector_db(tmp_path, monkeypatch):
 
 
 def _github_record(*, permission: PermissionLevel = PermissionLevel.READ) -> ConnectorRecord:
-    os.environ["GITHUB_PERSONAL_ACCESS_TOKEN"] = "gh_test"
     return ConnectorRecord(
         id="github",
         display_name="GitHub",
@@ -115,6 +114,25 @@ def test_invoke_chain_capability_delegates_to_registry():
         )
     assert result == {"ok": True}
     mocked.assert_called_once()
+
+
+def test_invoke_chain_capability_canonicalizes_legacy_alias():
+    upsert_connector(_github_record(permission=PermissionLevel.READ))
+
+    with patch("kater.connectors.registry.invoke", return_value={"ok": True}) as mocked:
+        result = invoke_chain_capability(
+            "github",
+            "github_pr_status",
+            {"owner": "o", "repo": "r"},
+            profile="ops",
+        )
+    assert result == {"ok": True}
+    mocked.assert_called_once_with(
+        "github",
+        "github.pull_requests.read",
+        {"owner": "o", "repo": "r"},
+        profile="ops",
+    )
 
 
 def test_invoke_chain_capability_rejects_connector_mismatch():

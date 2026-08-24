@@ -24,6 +24,8 @@ def _clean_env(monkeypatch):
         "SENTRY_AUTH_TOKEN",
         "CLOUDFLARE_API_TOKEN",
         "CLOUDFLARE_ACCOUNT_ID",
+        "CLICKHOUSE_URL",
+        "CLICKHOUSE_TOKEN",
     ):
         monkeypatch.delenv(var, raising=False)
 

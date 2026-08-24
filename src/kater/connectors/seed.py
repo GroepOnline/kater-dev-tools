@@ -103,9 +103,17 @@ def _permissions_for(name: str, *, env_ok: bool) -> dict[str, PermissionLevel]:
     if not env_ok:
         return {}
     if name == "sentry":
-        return {"ops": PermissionLevel.READ, "analysis": PermissionLevel.READ}
+        return {
+            "ops": PermissionLevel.READ,
+            "analysis": PermissionLevel.READ,
+            "code": PermissionLevel.READ,
+        }
     if name in _IN_SCOPE:
-        return {"ops": PermissionLevel.WRITE, "analysis": PermissionLevel.READ}
+        return {
+            "ops": PermissionLevel.WRITE,
+            "analysis": PermissionLevel.READ,
+            "code": PermissionLevel.READ,
+        }
     return {}
 
 
@@ -129,7 +137,7 @@ def _record_from_source(source: ToolSource) -> ConnectorRecord:
     caps = _BUILTIN_CAPABILITIES.get(source.name, ())
     profiles = frozenset(source.profiles)
     if source.name in _IN_SCOPE:
-        profiles = frozenset(set(source.profiles) | {"analysis"})
+        profiles = frozenset(set(source.profiles) | {"analysis", "code"})
     return ConnectorRecord(
         id=source.name,
         display_name=source.name,

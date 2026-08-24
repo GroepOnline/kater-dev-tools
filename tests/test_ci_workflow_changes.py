@@ -136,4 +136,11 @@ def test_pyproject_pins_newer_uv_build_range() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
     assert 'requires = ["uv_build>=0.12.4,<0.13"]' in text
     assert "0.11.32" not in text
+<<<<<<< HEAD
     assert "0.12.2" not in text
+||||||| 295b2ff
+    assert 'requires = ["uv_build>=0.12.2,<0.13"]' in text
+    assert "0.11.32" not in text
+=======
+    assert "0.12.2" not in text
+>>>>>>> origin/main

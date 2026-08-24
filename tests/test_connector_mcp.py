@@ -31,6 +31,26 @@ def _mcp_record(**overrides) -> ConnectorRecord:
     return ConnectorRecord.from_mapping(data)
 
 
+def test_transport_headers_omit_unresolved_placeholders(monkeypatch):
+    monkeypatch.delenv("OPTIONAL_MCP_TOKEN", raising=False)
+    transport = ConnectorTransport(
+        kind="http",
+        endpoint="https://example.invalid/mcp",
+        headers_template={
+            "Authorization": "Bearer ${OPTIONAL_MCP_TOKEN}",
+            "X-Optional": "${OPTIONAL_MCP_TOKEN}",
+        },
+    )
+
+    assert mcp_lifecycle._resolve_transport_headers(transport) == {}
+
+    monkeypatch.setenv("OPTIONAL_MCP_TOKEN", "resolved-token")
+    assert mcp_lifecycle._resolve_transport_headers(transport) == {
+        "Authorization": "Bearer resolved-token",
+        "X-Optional": "resolved-token",
+    }
+
+
 def test_mcp_discovery_success_with_fake_backend():
     tools = [{"name": "search_issues", "description": "Search issues"}]
     backend = MockBackend(tools=tools)

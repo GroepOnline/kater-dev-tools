@@ -35,10 +35,16 @@ def _remote_launch_type(url: str) -> str:
 
 
 def _resolve_transport_headers(transport: ConnectorTransport) -> dict[str, str]:
-    resolved = _resolve_env(transport.headers_template, include_secrets=True)
+    resolved = {
+        key: value
+        for key, value in _resolve_env(transport.headers_template, include_secrets=True).items()
+        if "${" not in value
+    }
     for key, value in transport.headers_template.items():
         if key not in resolved and "${" in value:
-            resolved[key] = _substitute_env_vars(value, include_secrets=True)
+            substituted = _substitute_env_vars(value, include_secrets=True)
+            if "${" not in substituted:
+                resolved[key] = substituted
     return resolved
 
 

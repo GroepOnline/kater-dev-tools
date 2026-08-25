@@ -58,9 +58,10 @@ def _internal_record(
 
 def test_list_is_readable_without_admin():
     upsert_connector(_internal_record())
-    resp = call("GET", "/api/connectors?profile=ops")
+    resp = call("GET", "/api/connectors", query={"profile": ["ops"]})
     assert resp.status == 200
     assert resp.payload is not None
+    assert resp.payload["profile"] == "ops"
     ids = {row["id"] for row in resp.payload["connectors"]}
     assert "httptest" in ids
 

@@ -38,6 +38,11 @@ class ServerOverride(BaseModel):
     args_override: list[str] | None = None
     url_override: str | None = None
     connections: list[ServerConnection] = Field(default_factory=list)
+    # How Kater invokes this connector's backend. ``None`` inherits the global
+    # ``connector_invocation_mode``. Values: "stateless" (new backend per call,
+    # the safe default) or "pooled" (reuse a warm backend with a TTL). Pooling is
+    # an outbound optimization only; the native MCP surface stays stateless.
+    invocation_mode: str | None = None
 
 
 class KaterSettings(BaseModel):
@@ -58,6 +63,14 @@ class KaterSettings(BaseModel):
     # Proxy circuit-breaker tuning (magic numbers were previously hardcoded).
     proxy_failure_threshold: int = 5
     proxy_recovery_timeout: float = 30.0
+    # Default strategy for invoking connector backends. "stateless" opens a fresh
+    # backend per call (safe default, no state between calls besides the SQLite
+    # catalog). "pooled" reuses a warm backend within a TTL to cut per-call
+    # startup cost. On company-control ``--no-proxy`` deploys pooling is forced
+    # off so the outbound surface keeps the stateless invariant.
+    connector_invocation_mode: str = "stateless"
+    # How long (seconds) a pooled connector backend may stay warm while idle.
+    connector_pool_ttl_seconds: float = 60.0
 
     @property
     def resolved_db_path(self) -> Path:
@@ -80,6 +93,29 @@ class KaterSettings(BaseModel):
         if override:
             return override.env
         return {}
+
+    def connector_invocation(self, name: str) -> str:
+        """Resolve the invocation strategy for one connector.
+
+        Precedence: per-connector override -> global default. Public /
+        company-control deploys (``KATER_PUBLIC`` or a non-loopback host) always
+        fall back to "stateless" so the outbound surface keeps no warm state
+        between calls, regardless of what is configured.
+        """
+        from kater.profiles import is_public_mode
+
+        override = self.server_overrides.get(name)
+        mode = (
+            override.invocation_mode
+            if override and override.invocation_mode
+            else self.connector_invocation_mode
+        )
+        mode = (mode or "stateless").strip().lower()
+        if mode not in {"stateless", "pooled"}:
+            mode = "stateless"
+        if mode == "pooled" and is_public_mode():
+            return "stateless"
+        return mode
 
     def apply_credentials_to_env(self) -> None:
         """Load persisted per-server credentials into the process environment.

@@ -204,11 +204,13 @@ def invalidate_settings_cache(project_dir: Path | None = None) -> None:
 
 
 def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
-    """Env wins for security-sensitive fields on public deployments."""
-    host = os.environ.get("KATER_HOST", settings.host)
-    if not _is_public_deploy(host):
-        return settings
+    """Apply explicit runtime auth, plus public-deployment security overrides.
 
+    Auth is also authoritative on loopback. Fleet units intentionally bind to
+    loopback behind an SSH forward and must be able to override stale persisted
+    dashboard settings without rewriting the state file during every deploy.
+    """
+    host = os.environ.get("KATER_HOST", settings.host)
     auth_mode = os.environ.get("KATER_AUTH_MODE", "").strip()
     if auth_mode:
         settings.auth.mode = auth_mode
@@ -228,6 +230,10 @@ def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
             settings.auth.oauth_audience = os.environ.get(
                 "KATER_OAUTH_AUDIENCE", settings.auth.oauth_audience
             )
+
+    if not _is_public_deploy(host):
+        settings.host = host
+        return settings
 
     rate_raw = os.environ.get("KATER_RATE_LIMIT", "").strip()
     if rate_raw:

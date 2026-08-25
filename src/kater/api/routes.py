@@ -32,7 +32,7 @@ from kater.chains import list_chains
 if TYPE_CHECKING:
     pass
 from kater.deploy import list_deploy_formats, render_deploy
-from kater.doctor import run_doctor
+from kater.doctor import parse_profiles, run_doctor
 from kater.profiles import get_source, list_profiles
 from kater.proxy import get_proxy
 from kater.registry import tools_for_profile
@@ -569,9 +569,9 @@ def _adapters(_: Request) -> Response:
 
 
 @route("GET", "/api/doctor")
-def _doctor(_: Request) -> Response:
-    profile = os.environ.get("KATER_PROFILE", "core")
-    return Response.json(200, run_doctor(profiles={profile}).model_dump(mode="json"))
+def _doctor(req: Request) -> Response:
+    profile = req.query1("profile") or os.environ.get("KATER_PROFILE", "core")
+    return Response.json(200, run_doctor(profiles=parse_profiles(profile)).model_dump(mode="json"))
 
 
 @route("GET", "/api/chains")

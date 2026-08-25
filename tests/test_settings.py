@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import stat
 from pathlib import Path
 
@@ -38,6 +39,19 @@ def test_settings_roundtrip(tmp_path: Path):
     assert loaded.auth.mode == "apikey"
     assert "test123" in loaded.auth.api_keys
     assert loaded.is_server_enabled("sentry") is False
+
+
+def test_explicit_local_auth_env_overrides_persisted_mode(tmp_path: Path, monkeypatch):
+    """A loopback fleet unit must be able to override stale persisted auth."""
+    save_settings(KaterSettings(auth=AuthConfig(mode="oauth")), tmp_path)
+    monkeypatch.setenv("KATER_HOST", "127.0.0.1")
+    monkeypatch.setenv("KATER_PUBLIC", "0")
+    monkeypatch.setenv("KATER_AUTH_MODE", "none")
+
+    loaded = load_settings(tmp_path)
+
+    assert loaded.auth.mode == "none"
+    assert os.environ["KATER_AUTH_MODE"] == "none"
 
 
 def test_save_settings_uses_owner_only_permissions(tmp_path: Path):

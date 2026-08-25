@@ -162,6 +162,15 @@ def test_doctor(api_server) -> None:
     assert "profiles" in data
 
 
+def test_doctor_honors_query_profile_with_multi_profile_runtime(api_server, monkeypatch) -> None:
+    monkeypatch.setenv("KATER_PROFILE", "ops,cloud,research,code,web")
+
+    data = _get(_api_port(api_server), "/api/doctor?profile=ops")
+
+    assert data["profiles"] == ["ops"]
+    assert len(data["sources"]) > 1
+
+
 def test_chains(api_server) -> None:
     data = _get(_api_port(api_server), "/api/chains")
     assert "chains" in data

@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub-mapped commit authors are not auto-classified as fixers. Independent
   review is author ≠ reviewer ≠ policy `fixer_logins`, pinned to the exact
   head SHA. The SSH push login may differ from the PR author.
+- Default policy no longer blocks a protected base. GitHub branch protection
+  is expected; `block_base_protected` remains an opt-in overlay. Required
+  checks, independent APPROVE, P1, and the head pin are unchanged.
 - PR body/list I/O prefers GitHub REST (`gh api`) when `KATER_PR_REPO` is set.
   GraphQL stays only for `reviewThreads`.
 - Doctor reports GitHub token env precedence and a SHA-256 fingerprint only.

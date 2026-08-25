@@ -102,12 +102,14 @@ class GatePolicy:
 
     Defaults encode a conservative-but-mergeable policy: require at least one
     *independent* approving review, block drafts, failed required checks, and
-    an open P1 latch, and deny private-data-plane repositories.
+    an open P1 latch, and deny private-data-plane repositories. A protected
+    base is expected (GitHub rulesets/branch protection) and does not block
+    unless ``block_base_protected`` is opted in.
     """
 
     require_approvals: int = 1
     block_drafts: bool = True
-    block_base_protected: bool = True
+    block_base_protected: bool = False
     allow_overlapping_prs: bool = False
     allow_pending_checks: bool = True
     allow_unresolved_threads: bool = False
@@ -545,6 +547,7 @@ def evaluate_gate(
             "independent_approvals": approvals,
             "overlapping_open": overlapping_open,
             "p1_latch_open": p1_latch_open,
+            "base_protected": base_protected,
             "repo": repo,
             "required_failed": required_failed,
             "required_pending": required_pending,

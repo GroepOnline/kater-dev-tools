@@ -36,8 +36,10 @@ GraphQL `errors[]`, merge conflicts. Writes do not retry.
 ## Fail-closed guarantees
 
 - No PASS cache. Audit trail stays append-only.
-- Protection: only HTTP 404 means unprotected. Timeout/429/5xx become
-  `REQUIRED_CHECK_LOOKUP` (BLOCK), never `base_protected=False`.
+- Protection lookup: only HTTP 404 means unprotected. Timeout/429/5xx become
+  `REQUIRED_CHECK_LOOKUP` (BLOCK), never `base_protected=False`. A protected
+  base is recorded in details and does not BLOCK unless policy
+  `block_base_protected` is true.
 - Nonempty `expected_head_sha` mismatch BLOCKs the read gate (`HEAD_STALE`).
   Merge still pins `--match-head-commit` to that SHA. Independent APPROVE
   must cover that same commit OID; `reviewDecision` is not a substitute for

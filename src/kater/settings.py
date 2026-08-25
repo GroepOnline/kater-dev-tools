@@ -209,6 +209,8 @@ def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
     Auth is also authoritative on loopback. Fleet units intentionally bind to
     loopback behind an SSH forward and must be able to override stale persisted
     dashboard settings without rewriting the state file during every deploy.
+    Public exposure without an explicit auth override must never inherit a
+    persisted ``none`` mode: use the same OAuth-safe default as a fresh deploy.
     """
     host = os.environ.get("KATER_HOST", settings.host)
     auth_mode = os.environ.get("KATER_AUTH_MODE", "").strip()
@@ -234,6 +236,14 @@ def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
     if not _is_public_deploy(host):
         settings.host = host
         return settings
+
+    if not auth_mode and settings.auth.mode == "none":
+        settings.auth = AuthConfig(
+            mode="oauth",
+            oauth_issuer=os.environ.get("KATER_OAUTH_ISSUER"),
+            oauth_audience=os.environ.get("KATER_OAUTH_AUDIENCE"),
+            oauth_jwks_url=os.environ.get("KATER_OAUTH_JWKS_URL"),
+        )
 
     rate_raw = os.environ.get("KATER_RATE_LIMIT", "").strip()
     if rate_raw:

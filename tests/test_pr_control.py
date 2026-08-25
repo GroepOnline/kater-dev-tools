@@ -206,10 +206,10 @@ def test_gate_block_overrides_warn() -> None:
     )
     assert res.verdict == BLOCK
     assert MERGE_CONFLICT in res.reasons
-    # Blocking reasons (conflict, missing approval, protected base) dominate
-    # the non-blocking pending-checks reason under the default policy.
+    # Blocking reasons (conflict, missing approval) dominate the
+    # non-blocking pending-checks reason under the default policy.
     assert NO_REVIEWS in res.reasons
-    assert BASE_PROTECTED in res.reasons
+    assert BASE_PROTECTED not in res.reasons
 
 
 def test_gate_details_recorded() -> None:
@@ -556,7 +556,7 @@ def test_policy_defaults_block_drafts_and_require_approval() -> None:
     policy = GatePolicy()
     assert policy.block_drafts is True
     assert policy.require_approvals == 1
-    assert policy.block_base_protected is True
+    assert policy.block_base_protected is False
     res = evaluate_gate(
         pr_number=1,
         head_sha="h",
@@ -994,6 +994,232 @@ def test_count_independent_approvals_pins_review_commit_oid() -> None:
     assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 2
 
 
+def test_default_policy_does_not_block_protected_base() -> None:
+    res = evaluate_gate(**_clean_gate_kwargs(base_protected=True))
+    assert BASE_PROTECTED not in res.reasons
+    assert res.verdict == PASS
+    assert res.details["base_protected"] is True
+
+
+def test_opt_in_policy_blocks_protected_base() -> None:
+    res = evaluate_gate(
+        **_clean_gate_kwargs(
+            base_protected=True,
+            policy=GatePolicy(block_base_protected=True),
+        )
+    )
+    assert BASE_PROTECTED in res.reasons
+    assert res.verdict == BLOCK
+
+
+def test_unprotected_base_does_not_emit_base_protected() -> None:
+    res = evaluate_gate(**_clean_gate_kwargs(base_protected=False))
+    assert BASE_PROTECTED not in res.reasons
+    assert res.verdict == PASS
+    assert res.details["base_protected"] is False
+
+
+def test_summarize_pr_push_identity_approve_counts_when_not_author() -> None:
+    from kater.pr_control import _summarize_pr
+
+    head = "head000"
+    pr = _pr(
+        author={"login": "api-author"},
+        headRefOid=head,
+        reviewDecision="APPROVED",
+        commits=[
+            {
+                "oid": head,
+                "authors": [{"login": "ssh-pusher"}, {"login": "cursoragent"}],
+            }
+        ],
+        reviews=[
+            {
+                "author": {"login": "ssh-pusher"},
+                "state": "APPROVED",
+                "commit": {"oid": head},
+            }
+        ],
+        latestReviews=[
+            {
+                "author": {"login": "ssh-pusher"},
+                "state": "APPROVED",
+                "commit": {"oid": ""},
+            }
+        ],
+    )
+    summ = _summarize_pr(pr, expected_head_sha=head)
+    assert summ["approving_reviews"] == 1
+    assert summ["independent_approvals"] == 1
+    assert summ["commit_author_logins"] == ["ssh-pusher", "cursoragent"]
+
+
+def test_summarize_pr_named_fixer_and_bot_still_rejected() -> None:
+    from kater.pr_control import _summarize_pr
+
+    head = "head000"
+    policy = GatePolicy(fixer_logins=("agent-fixer",))
+    pr = _pr(
+        author={"login": "api-author"},
+        headRefOid=head,
+        reviewDecision="APPROVED",
+        commits=[{"oid": head, "authors": [{"login": "agent-fixer"}]}],
+        reviews=[
+            {
+                "author": {"login": "agent-fixer"},
+                "state": "APPROVED",
+                "commit": {"oid": head},
+            },
+            {
+                "author": {"login": "cursoragent"},
+                "state": "APPROVED",
+                "commit": {"oid": head},
+            },
+        ],
+    )
+    summ = _summarize_pr(pr, policy=policy, expected_head_sha=head)
+    assert summ["independent_approvals"] == 0
+
+
+def test_commit_check_runs_uses_get_query_string() -> None:
+    captured: list[list[str]] = []
+
+    def fake_runner(args: list[str]) -> Any:
+        captured.append(args)
+        path = args[1] if len(args) > 1 else ""
+        if "check-runs" in path:
+            return SimpleNamespace(returncode=0, stdout='{"check_runs":[]}', stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+    )
+    assert client.commit_check_runs("abc123") == []
+    assert captured
+    args = captured[0]
+    assert not any(str(a).startswith("-f") for a in args)
+    assert "check-runs?per_page=100" in args[1]
+
+
+def test_gate_for_pr_does_not_lookup_fail_when_check_runs_are_get() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        if any(str(a).startswith("-f") and "per_page" in str(a) for a in args):
+            return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
+        path = args[1] if len(args) > 1 else ""
+        if "check-runs" in path:
+            payload = {
+                "check_runs": [
+                    {
+                        "name": "python-lint",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ]
+            }
+            return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+    )
+    pr = _pr(
+        author={"login": "api-author"},
+        headRefOid="head000",
+        reviewDecision="APPROVED",
+        commits=[{"oid": "head000", "authors": [{"login": "ssh-pusher"}]}],
+        reviews=[
+            {
+                "author": {"login": "ssh-pusher"},
+                "state": "APPROVED",
+                "commit": {"oid": "head000"},
+            }
+        ],
+    )
+    res = gate_for_pr(client, pr, expected_head_sha="head000")
+    assert REQUIRED_CHECK_LOOKUP not in res.reasons
+    assert NO_REVIEWS not in res.reasons
+    assert res.verdict == PASS
+
+
+def test_gate_for_pr_protected_base_passes_by_default() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        if "required_status_checks" in path:
+            return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
+        if path.endswith("/protection") or (
+            "/protection" in path and "required_status_checks" not in path
+        ):
+            return SimpleNamespace(returncode=0, stdout='{"url":"https://example.test"}', stderr="")
+        if "check-runs" in path:
+            payload = {
+                "check_runs": [
+                    {"name": "ci", "status": "completed", "conclusion": "success"}
+                ]
+            }
+            return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+    )
+    pr = _pr(
+        author={"login": "api-author"},
+        headRefOid="head000",
+        reviewDecision="APPROVED",
+        reviews=[
+            {
+                "author": {"login": "ssh-pusher"},
+                "state": "APPROVED",
+                "commit": {"oid": "head000"},
+            }
+        ],
+    )
+    res = gate_for_pr(client, pr, expected_head_sha="head000")
+    assert BASE_PROTECTED not in res.reasons
+    assert res.verdict == PASS
+
+
+def test_gate_for_pr_protected_base_blocks_when_opted_in() -> None:
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        if "required_status_checks" in path:
+            return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
+        if "/protection" in path:
+            return SimpleNamespace(returncode=0, stdout='{"url":"https://example.test"}', stderr="")
+        if "check-runs" in path:
+            return SimpleNamespace(returncode=0, stdout='{"check_runs":[]}', stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+    )
+    pr = _pr(
+        author={"login": "api-author"},
+        headRefOid="head000",
+        reviewDecision="APPROVED",
+        reviews=[
+            {
+                "author": {"login": "ssh-pusher"},
+                "state": "APPROVED",
+                "commit": {"oid": "head000"},
+            }
+        ],
+    )
+    res = gate_for_pr(
+        client, pr, expected_head_sha="head000", policy=GatePolicy(block_base_protected=True)
+    )
+    assert BASE_PROTECTED in res.reasons
+    assert res.verdict == BLOCK
+
+
 def test_summarize_pr_does_not_credit_review_decision_without_reviews() -> None:
     from kater.pr_control import _summarize_pr
 
@@ -1332,7 +1558,7 @@ def test_merge_pr_timeout_does_not_retry_write_and_reconciles(monkeypatch) -> No
             return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "commit_id": "head000"}])
         if path.endswith("/commits"):
             return _ok([])
-        if path.endswith("/check-runs"):
+        if "check-runs" in path:
             return _ok({"check_runs": []})
         if "required_status_checks" in path or path.endswith("/protection"):
             return _fail("HTTP 404: Not Found")
@@ -1369,7 +1595,7 @@ def test_merge_pr_timeout_reconcile_unproven_fails_closed(monkeypatch) -> None:
             return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "commit_id": "head000"}])
         if path.endswith("/commits"):
             return _ok([])
-        if path.endswith("/check-runs"):
+        if "check-runs" in path:
             return _ok({"check_runs": []})
         if "required_status_checks" in path or path.endswith("/protection"):
             return _fail("HTTP 404: Not Found")

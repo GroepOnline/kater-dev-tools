@@ -36,11 +36,13 @@ Merge-ready also requires:
 
 - Required checks **SUCCESS on the exact head SHA** (`FAILED_CHECKS` otherwise)
 - No open P1 in the same change-scope (`P1_LATCH`; default labels `P1` / `p1-latch`)
-- Independent approval: bot, PR author, and fixer logins do not count
-  (policy allowlist/denylist). When `expected_head_sha` is nonempty, only
-  APPROVE covering that commit OID counts; empty review lists do not fall
-  back to GitHub `reviewDecision`.
+- Independent approval: bot, PR author, and policy `fixer_logins` do not count
+  (policy allowlist/denylist). GitHub-mapped commit authors are not auto-fixers.
+  When `expected_head_sha` is nonempty, only APPROVE covering that commit OID
+  counts; empty review lists do not fall back to GitHub `reviewDecision`.
 - Explicit company-control repository; private-data-plane names are denied
+- A protected base is expected and does not block unless policy
+  `block_base_protected` is opted in
 
 ## Steps
 

@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Independent APPROVE on a nonempty pin must cover that review commit OID.
   Empty review lists no longer inherit GitHub `reviewDecision`. `gate_for_pr`
   loads the same overlay policy as merge.
+- GitHub-mapped commit authors are not auto-classified as fixers. Independent
+  review is author ≠ reviewer ≠ policy `fixer_logins`, pinned to the exact
+  head SHA. The SSH push login may differ from the PR author.
 - PR body/list I/O prefers GitHub REST (`gh api`) when `KATER_PR_REPO` is set.
   GraphQL stays only for `reviewThreads`.
 - Doctor reports GitHub token env precedence and a SHA-256 fingerprint only.
@@ -35,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Branch-protection lookup no longer fail-opens on timeout/5xx/429.
 - Merge writes never retry; a write timeout is reconciled by a bounded read
   and only reports success when `merged=true` at the original pin.
+- `gh api` GET query parameters are placed in the URL. Field flags (`-f`)
+  switched the method to POST and 404'd commit check-runs, which the gate
+  reported as `REQUIRED_CHECK_LOOKUP` even when Actions were green.
 
 ## [1.1.0] - 2026-08-18
 

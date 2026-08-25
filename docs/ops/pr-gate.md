@@ -41,7 +41,10 @@ GraphQL `errors[]`, merge conflicts. Writes do not retry.
 - Nonempty `expected_head_sha` mismatch BLOCKs the read gate (`HEAD_STALE`).
   Merge still pins `--match-head-commit` to that SHA. Independent APPROVE
   must cover that same commit OID; `reviewDecision` is not a substitute for
-  an empty review list.
+  an empty review list. GitHub-mapped commit authors are not auto-fixers:
+  author ≠ reviewer ≠ policy `fixer_logins`.
+- REST GET query parameters go in the URL. `gh api -f` would POST and 404
+  check-runs (`REQUIRED_CHECK_LOOKUP`).
 - Merge timeout: bounded read. Success only if `merged=true` **and** the
   original pin is still the PR head. Otherwise fail closed.
 - MCP/API/CLI errors are structured and redacted. Doctor may show token env

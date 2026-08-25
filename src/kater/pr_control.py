@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from kater.github_transport import (
     GitHubTransportError,
@@ -72,6 +72,9 @@ _DEFAULT_BOT_DENYLIST = (
     "copilot[bot]",
     "codesmith-bot",
     "cursor[bot]",
+    "cursoragent",
+    "devin-ai-integration",
+    "devin-ai-integration[bot]",
 )
 _DEFAULT_P1_LABELS = ("P1", "p1", "p1-latch")
 _DEFAULT_DENIED_REPO_MARKERS = ("utrecht",)
@@ -359,6 +362,11 @@ def count_independent_approvals(
 
     When ``expected_head_sha`` is nonempty, only APPROVE covering that exact
     commit OID counts. Missing review commit metadata fails closed.
+
+    ``fixer_logins`` is the caller/policy set only. GitHub-mapped commit
+    authors are not auto-unioned: the SSH push identity is often a different
+    login from the PR author, and treating it as a fixer self-rejects the
+    independent reviewer.
     """
     latest_state: dict[str, str] = {}
     latest_review: dict[str, dict[str, Any]] = {}
@@ -627,10 +635,14 @@ class GitHubPRClient:
         return f"{repo}#{ref}" if repo else ref
 
     def _api(self, path: str, *, params: dict[str, str] | None = None) -> Any:
-        args = ["api", path, "-H", "Accept: application/vnd.github+json"]
+        # ``gh api -f k=v`` switches the method to POST. GET endpoints such as
+        # commit check-runs then 404, which the gate reports as
+        # REQUIRED_CHECK_LOOKUP. Keep reads as GET by putting query params in
+        # the path.
         if params:
-            for key, value in params.items():
-                args += ["-f", f"{key}={value}"]
+            encoded = urlencode(params)
+            path = f"{path}&{encoded}" if "?" in path else f"{path}?{encoded}"
+        args = ["api", path, "-H", "Accept: application/vnd.github+json"]
         proc = self.exec_command(args)
         return parse_json_body(proc, args)
 
@@ -906,9 +918,12 @@ def _mergeable_from_rest(raw: dict[str, Any]) -> str:
 def _normalize_rest_review(review: dict[str, Any]) -> dict[str, Any]:
     user = review.get("user") or review.get("author") or {}
     login = user.get("login") if isinstance(user, dict) else user
+    is_bot = False
+    if isinstance(user, dict):
+        is_bot = user.get("type") == "Bot" or user.get("is_bot") is True
     oid = _review_commit_oid(review)
     mapped = {
-        "author": {"login": login or ""},
+        "author": {"login": login or "", "is_bot": is_bot},
         "state": review.get("state") or review.get("decision") or "",
         "authorAssociation": (
             review.get("author_association") or review.get("authorAssociation") or ""
@@ -1066,11 +1081,11 @@ def _summarize_pr(
     approving = 1 if decision == "APPROVED" else 0
     reviews = _review_list(pr, prefer_full=bool(pin))
     author_login = _author_login(pr)
+    commit_authors = _commit_author_logins(pr)
     independent = count_independent_approvals(
         reviews,
         author_login=author_login,
         policy=policy,
-        fixer_logins=_commit_author_logins(pr),
         expected_head_sha=pin,
     )
     commits = pr.get("commits") or []
@@ -1094,6 +1109,7 @@ def _summarize_pr(
         "approving_reviews": approving,
         "independent_approvals": independent,
         "author_login": author_login,
+        "commit_author_logins": list(commit_authors),
         "p1_latch_open": p1_latch_open(_label_list(pr), policy),
         "repo": repo,
         "required_failed": check_summary["required_failed"],

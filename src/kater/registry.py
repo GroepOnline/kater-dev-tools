@@ -55,17 +55,51 @@ def chains_list_tool(profile: str = "core") -> dict[str, Any]:
     return {"chains": [chain.model_dump(mode="json") for chain in chains]}
 
 
+# Machine-readable guidance so agents can discover the connector control plane
+# without a new native tool. Connectors stay behind the 17 kater_* tools: agents
+# invoke a capability through chains, and operators manage the catalog via the
+# `kater connector` CLI or the admin-gated /api/connectors routes.
+_CONNECTOR_HELP: dict[str, Any] = {
+    "summary": (
+        "Connectors are vendor integrations behind the 17 native kater_* tools; "
+        "they are never extra native tools."
+    ),
+    "invoke_via": "chains (kater_chains) — a chain step names a connector capability id",
+    "capability_id_format": "{connector_id}.{area}.{action} (e.g. github.pull_requests.read)",
+    "manage": {
+        "cli": "kater connector list|validate|enable|disable|invoke",
+        "http": "GET /api/connectors ; POST /api/connectors/{id}/{action} (admin-gated)",
+    },
+    "health_states": [
+        "healthy",
+        "degraded",
+        "unavailable",
+        "disabled",
+        "unsupported",
+        "auth_missing",
+        "policy_blocked",
+    ],
+    "notes": "Health is recomputed live, never stored. Disabled/out-of-scope is not broken.",
+}
+
+
 def adapter_inventory_tool(profile: str = "core") -> dict[str, Any]:
     inventory = scan_adapters({profile})
     connectors: list[dict[str, Any]] = []
+    connectors_error: str | None = None
     try:
         from kater.connectors.registry import inventory as connector_inventory
         from kater.connectors.seed import seed_builtin_connectors
 
         seed_builtin_connectors()
         connectors = [view.as_dict() for view in connector_inventory(profile)]
-    except Exception:
+    except Exception as exc:
+        # Fail closed but visible: an agent should see *that* the catalog is
+        # unavailable, not a silently empty list. Redact so no secret leaks.
+        from kater.connectors.auth import redact_text
+
         connectors = []
+        connectors_error = redact_text(str(exc)) or "connector catalog unavailable"
     return {
         "profile": profile,
         "adapters": [
@@ -79,6 +113,8 @@ def adapter_inventory_tool(profile: str = "core") -> dict[str, Any]:
             for a in inventory.sources
         ],
         "connectors": connectors,
+        "connectors_error": connectors_error,
+        "connector_help": _CONNECTOR_HELP,
     }
 
 
@@ -225,7 +261,10 @@ def build_native_tools() -> list[NativeTool]:
         ),
         NativeTool(
             name="kater_adapters",
-            description="Scan which external MCP adapters are configured.",
+            description=(
+                "Inventory external MCP adapters and the connector catalog "
+                "(health, capabilities, and how to invoke/manage connectors)."
+            ),
             profile="core",
             risk="low",
             handler=adapter_inventory_tool,

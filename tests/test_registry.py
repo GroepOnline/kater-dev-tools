@@ -31,6 +31,29 @@ def test_adapter_inventory_tool_returns_adapters_for_core() -> None:
     assert "connectors" in result
 
 
+def test_adapter_inventory_tool_exposes_connector_help_for_agents() -> None:
+    result = adapter_inventory_tool("core")
+    # A healthy catalog reports no error and ships machine-readable guidance so
+    # agents can discover how to invoke/manage connectors behind the 17 tools.
+    assert result["connectors_error"] is None
+    help_block = result["connector_help"]
+    assert "chains" in help_block["invoke_via"]
+    assert help_block["manage"]["cli"].startswith("kater connector")
+    assert "policy_blocked" in help_block["health_states"]
+
+
+def test_adapter_inventory_tool_surfaces_connector_error_redacted(monkeypatch) -> None:
+    def _boom() -> int:
+        raise RuntimeError("catalog exploded Bearer super-secret-token")
+
+    monkeypatch.setattr("kater.connectors.seed.seed_builtin_connectors", _boom)
+    result = adapter_inventory_tool("core")
+    # Fail closed but visible, and never leak a secret in the surfaced error.
+    assert result["connectors"] == []
+    assert result["connectors_error"]
+    assert "super-secret-token" not in result["connectors_error"]
+
+
 def test_native_gateway_surface_is_seventeen_without_extensions(monkeypatch) -> None:
     monkeypatch.delenv("KATER_EXTENSIONS_MODULE", raising=False)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)

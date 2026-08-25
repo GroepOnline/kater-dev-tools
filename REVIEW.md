@@ -26,6 +26,19 @@ package (3.11–3.14). Standard checks: `uv run ruff check .`, `uv run mypy`,
   off** on public / company-control deploys (`is_public_mode()`), so the surface
   keeps no warm state between calls. Flag any pooling that leaks across the
   native surface or ignores the public-mode override.
+- **All four connector types stay invokable.** `registry.invoke`
+  (`src/kater/connectors/registry.py`) must route every `ConnectorType`: `api`
+  and `mcp` directly, `bridge` through the MCP lifecycle (remote HTTP to an
+  internal MCP bridge), and `internal` through the handler registry
+  (`src/kater/connectors/internal.py`). An `internal` connector with no
+  registered handler must fail closed (`no_internal_handler`), never pretend to
+  succeed. Flag a new type that lands without an invoke path and a fail-closed
+  default.
+- **Agents discover connectors, never new tools.** `adapter_inventory_tool`
+  (`src/kater/registry.py`) is how agents see the catalog: it must keep emitting
+  `connectors`, a redacted `connectors_error` (fail closed but visible, never a
+  silently empty list), and the `connector_help` guidance block. Do not move
+  connector discovery into a new native tool.
 
 ## Security
 

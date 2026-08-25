@@ -1060,7 +1060,7 @@ def _connectors_list(req: Request) -> Response:
     from kater.connectors.registry import inventory
     from kater.connectors.seed import seed_builtin_connectors
 
-    profile = req.query("profile") or "core"
+    profile = req.query1("profile") or "core"
     seed_builtin_connectors()
     views = [view.as_dict() for view in inventory(profile)]
     return Response.json(200, {"profile": profile, "total": len(views), "connectors": views})
@@ -1073,7 +1073,10 @@ def _connector_action(req: Request) -> Response:
         return denied
     connector_id = req.params["connector_id"]
     action = req.params["action"]
-    body = req.json if req.json else {}
+    try:
+        body = req.json or {}
+    except ValueError:
+        return Response.json(400, {"error": "invalid JSON body"})
     from kater.connectors.errors import ConnectorError
     from kater.connectors.models import PermissionLevel
     from kater.connectors.seed import seed_builtin_connectors

@@ -18,10 +18,12 @@ profiles_app = typer.Typer(help="Inspect profiles.")
 mcp_app = typer.Typer(help="MCP server management.")
 chain_app = typer.Typer(help="Tool chain execution.")
 tunnel_app = typer.Typer(help="Tunnel management (Cloudflare / Tailscale).")
+connector_app = typer.Typer(help="Connector catalog management (behind the 17 native tools).")
 app.add_typer(profiles_app, name="profiles")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(chain_app, name="chain")
 app.add_typer(tunnel_app, name="tunnel")
+app.add_typer(connector_app, name="connector")
 
 
 def _print_json(payload: object) -> None:
@@ -440,7 +442,10 @@ def connector_validate_command(
     if json_output:
         _print_json(record.as_dict())
         return
-    typer.echo(f"Validated {record.id}: {len(record.capabilities)} capabilities, {record.status.value}")
+    typer.echo(
+        f"Validated {record.id}: {len(record.capabilities)} capabilities, "
+        f"{record.status.value}"
+    )
 
 
 @connector_app.command("enable")

@@ -193,6 +193,37 @@ Discover → register (disabled) → validate → bind-auth → probe → enable
 Do not call `register_proxy_tools()` for imported servers on company-control
 `--no-proxy` deploys; that would leak vendor tools into the Cursor session.
 
+## Invocation mode
+
+How Kater reaches an **outbound** MCP backend when invoking a connector is
+configurable. This never changes the native surface: Cursor always sees the 17
+stateless `kater_*` tools.
+
+| Mode | Behaviour |
+|---|---|
+| `stateless` (default) | Open a fresh backend per call, `start()` → `call_tool()` → `stop()`. Nothing is kept between calls besides the SQLite catalog. |
+| `pooled` | Reuse a warm backend within a TTL to skip the MCP `initialize` cost on every call. Outbound optimization only. |
+
+Configure in `.kater/settings.json`:
+
+```json
+{
+  "connector_invocation_mode": "stateless",
+  "connector_pool_ttl_seconds": 60.0,
+  "server_overrides": {
+    "github": { "invocation_mode": "pooled" }
+  }
+}
+```
+
+Precedence is per-connector `invocation_mode` → global
+`connector_invocation_mode`. On public / company-control deploys
+(`KATER_PUBLIC` or a non-loopback host, i.e. `--no-proxy`) pooling is **forced
+off**: the resolver returns `stateless` regardless of configuration, so the
+outbound surface keeps no warm state between calls. A poisoned or idle pooled
+backend is dropped and rebuilt on the next call. `discover` is always stateless
+(a lifecycle action, not a hot path).
+
 ## Disable / remove
 
 - `disable` keeps the row, health becomes `disabled`, invoke fails closed

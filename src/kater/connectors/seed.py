@@ -207,6 +207,19 @@ def _upsert_seed(record: ConnectorRecord) -> None:
             )
         )
         return
+    if existing.status is ConnectorStatus.VALIDATED:
+        # Validation is lifecycle progress, not derived seed state. Keep the discovered
+        # capability contract and validated status across startup/doctor reseeds while
+        # still allowing untouched env-derived permissions to be recomputed.
+        upsert_connector(
+            replace(
+                record,
+                status=ConnectorStatus.VALIDATED,
+                capabilities=existing.capabilities,
+                profiles=existing.profiles or record.profiles,
+            )
+        )
+        return
     upsert_connector(
         replace(
             record,

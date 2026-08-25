@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
-from kater.connectors.models import ConnectorStatus, PermissionLevel
+from kater.connectors.models import ConnectorCapability, ConnectorStatus, PermissionLevel
 from kater.connectors.seed import seed_builtin_connectors
-from kater.connectors.store import clear_connector_state, get_connector, list_connectors
+from kater.connectors.store import (
+    clear_connector_state,
+    get_connector,
+    list_connectors,
+    upsert_connector,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -71,3 +78,28 @@ def test_clickhouse_proof_is_disabled_and_unsupported_without_url():
     assert clickhouse.metadata.get("shape") == "clickhouse"
     assert clickhouse.metadata.get("unsupported_runtime") is True
     assert clickhouse.origin == "seed"
+
+
+def test_reseed_preserves_validated_discovered_capabilities(monkeypatch):
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "gh_test")
+    seed_builtin_connectors()
+    github = get_connector("github")
+    discovered = ConnectorCapability(
+        id="github.search_pull_requests",
+        description="Discovered upstream MCP tool",
+        discovered=True,
+    )
+    upsert_connector(
+        replace(
+            github,
+            status=ConnectorStatus.VALIDATED,
+            capabilities=(discovered,),
+        )
+    )
+
+    seed_builtin_connectors()
+
+    reseeded = get_connector("github")
+    assert reseeded.status is ConnectorStatus.VALIDATED
+    assert reseeded.capabilities == (discovered,)
+    assert reseeded.metadata.get("operator_managed") is not True

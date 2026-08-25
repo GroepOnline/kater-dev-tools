@@ -242,7 +242,7 @@ def _connector_health_check(selected_profiles: set[str]) -> list[Finding]:
             code, severity = "connector_out_of_scope", "info"
             message = f"{record.id} is out of scope and stays disabled."
         elif health.state is HealthState.HEALTHY:
-            if record.transport.kind in {"http", "sse"}:
+            if record.transport.kind in {"http", "sse", "bridge"}:
                 code, severity = "connector_configured", "info"
                 message = f"{record.id} connector is configured; live reachability was not probed."
             else:

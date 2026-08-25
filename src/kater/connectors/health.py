@@ -59,6 +59,7 @@ def evaluate_health(
     if record.metadata.get("unsupported_runtime") is True and record.type in {
         ConnectorType.API,
         ConnectorType.MCP,
+        ConnectorType.BRIDGE,
     }:
         return ConnectorHealth(
             connector_id=record.id,

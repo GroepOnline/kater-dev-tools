@@ -57,6 +57,41 @@ Vendor-specific behaviour belongs in endpoint config, auth scheme, capability
 lists, transforms, and safety rules. Lifecycle, health, policy, and registry
 behaviour stay generic.
 
+Every connector type is invokable through the same facade
+(`kater.connectors.registry.invoke`): `api` and `mcp` route directly, `bridge`
+speaks MCP over remote HTTP and reuses the MCP lifecycle, and `internal`
+dispatches to a native handler registered via
+`kater.connectors.internal.register_internal_handler`. An `internal` connector
+with no registered handler fails closed (`no_internal_handler`).
+
+## Agent discovery
+
+Agents never get a new native tool per connector. They discover the catalog
+through the existing `kater_adapters` tool (`kater.registry.adapter_inventory_tool`),
+whose payload includes:
+
+- `connectors` — the live inventory (record + recomputed health + `missing_auth`)
+- `connectors_error` — a redacted string when the catalog could not be read
+  (fail closed but visible; `null` when healthy — never a silently empty list)
+- `connector_help` — machine-readable guidance:
+
+```json
+{
+  "invoke_via": "chains (kater_chains) — a chain step names a connector capability id",
+  "capability_id_format": "{connector_id}.{area}.{action} (e.g. github.pull_requests.read)",
+  "manage": {
+    "cli": "kater connector list|validate|enable|disable|invoke",
+    "http": "GET /api/connectors ; POST /api/connectors/{id}/{action} (admin-gated)"
+  },
+  "health_states": ["healthy", "degraded", "unavailable", "disabled",
+                    "unsupported", "auth_missing", "policy_blocked"]
+}
+```
+
+So an agent that wants a connector capability names it in a chain step; an
+operator that manages the catalog uses the `kater connector` CLI or the
+admin-gated `/api/connectors` routes. Neither path adds a Cursor-visible tool.
+
 ## How to add a connector
 
 Preferred lifecycle (register and grant-write are separate actions):

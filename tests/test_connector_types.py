@@ -53,6 +53,19 @@ def test_bridge_transport_requires_endpoint() -> None:
         ConnectorTransport(kind="bridge", endpoint="")
 
 
+def test_bridge_unsupported_runtime_reports_unsupported() -> None:
+    # Regression: a bridge is a remote MCP; the unsupported_runtime health check
+    # must cover BRIDGE alongside API/MCP, not report it as healthy.
+    from kater.connectors.health import evaluate_health
+    from kater.connectors.models import HealthState
+
+    record = ConnectorRecord.from_mapping(
+        {**_bridge_record().as_dict(), "metadata": {"unsupported_runtime": True}}
+    )
+    health = evaluate_health(record, profile="ops")
+    assert health.state is HealthState.UNSUPPORTED
+
+
 def test_bridge_invoke_routes_through_mcp_backend() -> None:
     record = _bridge_record()
     upsert_connector(record)
@@ -116,3 +129,19 @@ def test_internal_handler_receives_route_stripped_arguments() -> None:
     registry.invoke("gateway", "gateway.ping", {"a": 1, "_kater_route": "x"}, profile="ops")
 
     assert seen == {"a": 1}
+
+
+def test_every_connector_type_has_an_invoke_path() -> None:
+    # Guard: a new ConnectorType must land with a real invoke route, never fall
+    # through to the generic "invoke not available for connector type" error in
+    # registry.invoke. This test fails the moment a type is added without wiring.
+    import inspect
+
+    from kater.connectors import registry as registry_module
+    from kater.connectors.models import ConnectorType
+
+    source = inspect.getsource(registry_module.invoke)
+    for connector_type in ConnectorType:
+        assert f"ConnectorType.{connector_type.name}" in source, (
+            f"{connector_type.name} has no branch in registry.invoke"
+        )

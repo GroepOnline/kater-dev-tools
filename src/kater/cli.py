@@ -389,6 +389,143 @@ def mcp_list_command(
     typer.echo(table.render())
 
 
+# ── connector catalog (behind the 17 native tools) ─────────────────
+
+
+def _connector_seed_once() -> None:
+    """Best-effort seed so builtin rows exist before a catalog command runs."""
+    from kater.connectors.seed import seed_builtin_connectors
+
+    seed_builtin_connectors()
+
+
+@connector_app.command("list")
+def connector_list_command(
+    profile: Annotated[
+        str, typer.Option("--profile", help="Profile whose connectors to show.")
+    ] = DEFAULT_PROFILE,
+    json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
+) -> None:
+    """List connectors in the catalog with live (recomputed) health."""
+    from kater.connectors.registry import inventory
+
+    _connector_seed_once()
+    views = [view.as_dict() for view in inventory(profile)]
+    if json_output:
+        _print_json({"profile": profile, "total": len(views), "connectors": views})
+        return
+    if not views:
+        typer.echo(f"No connectors visible for profile '{profile}'.")
+        return
+    for row in views:
+        health = (row.get("health") or {}).get("state", "?")
+        typer.echo(f"  [{health}] {row.get('id')} ({row.get('type')})")
+
+
+@connector_app.command("validate")
+def connector_validate_command(
+    connector_id: Annotated[str, typer.Argument(help="Connector id to validate.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
+) -> None:
+    """Discover capabilities and mark the connector validated."""
+    from kater.connectors.errors import ConnectorError
+    from kater.connectors.registry import validate
+
+    _connector_seed_once()
+    try:
+        record = validate(connector_id)
+    except ConnectorError as exc:
+        typer.echo(exc.code + ": " + str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _print_json(record.as_dict())
+        return
+    typer.echo(f"Validated {record.id}: {len(record.capabilities)} capabilities, {record.status.value}")
+
+
+@connector_app.command("enable")
+def connector_enable_command(
+    connector_id: Annotated[str, typer.Argument(help="Connector id to enable.")],
+    profile: Annotated[str, typer.Option("--profile", help="Profile to grant.")] = DEFAULT_PROFILE,
+    level: Annotated[
+        str, typer.Option("--level", help="Permission: read | write | admin.")
+    ] = "read",
+    json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
+) -> None:
+    """Grant a profile permission and enable the connector."""
+    from kater.connectors.errors import ConnectorError
+    from kater.connectors.models import PermissionLevel
+    from kater.connectors.registry import enable
+
+    _connector_seed_once()
+    try:
+        permission = PermissionLevel(level.strip().lower())
+    except ValueError as exc:
+        typer.echo(f"invalid level '{level}': use read | write | admin", err=True)
+        raise typer.Exit(code=1) from exc
+    try:
+        record = enable(connector_id, profile=profile, level=permission)
+    except ConnectorError as exc:
+        typer.echo(exc.code + ": " + str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _print_json(record.as_dict())
+        return
+    typer.echo(f"Enabled {record.id} for {profile}={permission.value}")
+
+
+@connector_app.command("disable")
+def connector_disable_command(
+    connector_id: Annotated[str, typer.Argument(help="Connector id to disable.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
+) -> None:
+    """Disable the connector (row and auth refs stay; invoke fails closed)."""
+    from kater.connectors.errors import ConnectorError
+    from kater.connectors.registry import disable
+
+    _connector_seed_once()
+    try:
+        record = disable(connector_id)
+    except ConnectorError as exc:
+        typer.echo(exc.code + ": " + str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        _print_json(record.as_dict())
+        return
+    typer.echo(f"Disabled {record.id}")
+
+
+@connector_app.command("invoke")
+def connector_invoke_command(
+    connector_id: Annotated[str, typer.Argument(help="Connector id.")],
+    capability_id: Annotated[str, typer.Argument(help="Capability id to invoke.")],
+    profile: Annotated[str, typer.Option("--profile", help="Calling profile.")] = DEFAULT_PROFILE,
+    args_json: Annotated[
+        str, typer.Option("--args", help="JSON object of arguments.")
+    ] = "{}",
+) -> None:
+    """Invoke one connector capability in-process (redacts secrets on error)."""
+    from kater.connectors.auth import redact_text
+    from kater.connectors.errors import ConnectorError
+    from kater.connectors.registry import invoke
+
+    _connector_seed_once()
+    try:
+        arguments = json.loads(args_json or "{}")
+    except json.JSONDecodeError as exc:
+        typer.echo(f"invalid --args JSON: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not isinstance(arguments, dict):
+        typer.echo("--args must be a JSON object", err=True)
+        raise typer.Exit(code=1)
+    try:
+        result = invoke(connector_id, capability_id, arguments, profile=profile)
+    except ConnectorError as exc:
+        typer.echo(redact_text(exc.code + ": " + str(exc)), err=True)
+        raise typer.Exit(code=1) from exc
+    _print_json(result)
+
+
 @mcp_app.command("status")
 def mcp_status_command(
     name: Annotated[str, typer.Argument(help="Server name to check.")],

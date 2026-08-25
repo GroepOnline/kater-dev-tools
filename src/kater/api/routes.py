@@ -1032,6 +1032,89 @@ def _server_action(req: Request) -> Response:
     return Response.json(400, {"error": f"Unknown action: {action}"})
 
 
+# ── connector catalog (behind the 17 native tools) ─────────────────
+
+
+def _connector_error_response(exc: Exception) -> Response:
+    """Map a ConnectorError to an admin-safe, redacted HTTP response."""
+    from kater.connectors.auth import redact_text
+    from kater.connectors.errors import ConnectorError
+
+    if not isinstance(exc, ConnectorError):
+        return Response.json(500, {"error": "connector_error", "message": "internal error"})
+    status = {
+        "connector_not_found": 404,
+        "duplicate_connector": 409,
+        "auth_missing": 409,
+        "policy_blocked": 403,
+        "capability_missing": 404,
+        "invalid_connector": 400,
+    }.get(exc.code, 409)
+    payload = exc.as_dict()
+    payload["message"] = redact_text(str(payload.get("message") or exc))
+    return Response.json(status, payload)
+
+
+@route("GET", "/api/connectors")
+def _connectors_list(req: Request) -> Response:
+    from kater.connectors.registry import inventory
+    from kater.connectors.seed import seed_builtin_connectors
+
+    profile = req.query("profile") or "core"
+    seed_builtin_connectors()
+    views = [view.as_dict() for view in inventory(profile)]
+    return Response.json(200, {"profile": profile, "total": len(views), "connectors": views})
+
+
+@route("POST", "/api/connectors/{connector_id}/{action}")
+def _connector_action(req: Request) -> Response:
+    denied = _catalog_admin_denied(req)
+    if denied:
+        return denied
+    connector_id = req.params["connector_id"]
+    action = req.params["action"]
+    body = req.json if req.json else {}
+    from kater.connectors.errors import ConnectorError
+    from kater.connectors.models import PermissionLevel
+    from kater.connectors.seed import seed_builtin_connectors
+
+    seed_builtin_connectors()
+    try:
+        if action == "validate":
+            from kater.connectors.registry import validate
+
+            return Response.json(200, validate(connector_id).as_dict())
+        if action == "enable":
+            from kater.connectors.registry import enable
+
+            profile = str(body.get("profile") or "core")
+            level_raw = str(body.get("level") or "read").strip().lower()
+            try:
+                level = PermissionLevel(level_raw)
+            except ValueError:
+                return Response.json(400, {"error": f"invalid level: {level_raw!r}"})
+            return Response.json(200, enable(connector_id, profile=profile, level=level).as_dict())
+        if action == "disable":
+            from kater.connectors.registry import disable
+
+            return Response.json(200, disable(connector_id).as_dict())
+        if action == "invoke":
+            from kater.connectors.registry import invoke
+
+            capability_id = str(body.get("capability") or "")
+            if not capability_id:
+                return Response.json(400, {"error": "body must include 'capability'"})
+            arguments = body.get("arguments") or {}
+            if not isinstance(arguments, dict):
+                return Response.json(400, {"error": "'arguments' must be an object"})
+            profile = str(body.get("profile") or "core")
+            result = invoke(connector_id, capability_id, arguments, profile=profile)
+            return Response.json(200, result)
+    except ConnectorError as exc:
+        return _connector_error_response(exc)
+    return Response.json(400, {"error": f"Unknown action: {action}"})
+
+
 @route("POST", "/api/mcp/servers/{name}/credentials")
 def _server_credentials(req: Request) -> Response:
     # Store the credentials a server needs to connect. Only env vars the server

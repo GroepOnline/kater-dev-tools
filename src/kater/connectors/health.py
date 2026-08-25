@@ -69,7 +69,7 @@ def evaluate_health(
 
     if (
         record.status is ConnectorStatus.ENABLED
-        and record.transport.kind in {"http", "sse"}
+        and record.transport.kind in {"http", "sse", "bridge"}
         and not (record.transport.endpoint or "").strip()
     ):
         return ConnectorHealth(

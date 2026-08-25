@@ -211,7 +211,7 @@ class ConnectorTransport:
         object.__setattr__(self, "kind", kind)
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
-        if kind in {"http", "sse"} and not (self.endpoint or "").strip():
+        if kind in {"http", "sse", "bridge"} and not (self.endpoint or "").strip():
             raise ValueError(f"{kind} transport requires an endpoint")
         if kind == "stdio" and not (self.command or "").strip():
             raise ValueError("stdio transport requires a command")

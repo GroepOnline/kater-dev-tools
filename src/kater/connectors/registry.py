@@ -61,7 +61,8 @@ def register(spec: dict[str, Any]) -> ConnectorRecord:
 
 def validate(connector_id: str) -> ConnectorRecord:
     record = _require(connector_id)
-    if record.type is ConnectorType.MCP:
+    if record.type in {ConnectorType.MCP, ConnectorType.BRIDGE}:
+        # A bridge speaks MCP over remote HTTP, so tools are discovered the same way.
         capabilities = mcp_lifecycle.discover(record)
     elif record.type is ConnectorType.API:
         capabilities = api_connector.discover(record)
@@ -174,10 +175,16 @@ def invoke(
         mutation=capability.mutation,
     )
     try:
-        if record.type is ConnectorType.MCP:
+        # bridge is remote HTTP to an internal MCP bridge; it speaks the same
+        # MCP protocol, so it routes through the MCP lifecycle path.
+        if record.type in {ConnectorType.MCP, ConnectorType.BRIDGE}:
             return mcp_lifecycle.invoke(record, capability_id, arguments)
         if record.type is ConnectorType.API:
             return api_connector.invoke(record, capability_id, arguments)
+        if record.type is ConnectorType.INTERNAL:
+            from kater.connectors import internal as internal_connector
+
+            return internal_connector.invoke(record, capability_id, arguments)
         raise ConnectorUnavailableError(
             f"invoke not available for connector type {record.type.value!r}",
             connector_id=connector_id,

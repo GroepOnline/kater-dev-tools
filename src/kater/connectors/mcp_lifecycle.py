@@ -102,7 +102,9 @@ def _create_backend(record: ConnectorRecord) -> BaseBackend:
             _resolve_transport_env(transport),
             timeout,
         )
-    if kind in {"http", "sse"}:
+    if kind in {"http", "sse", "bridge"}:
+        # A bridge is remote HTTP to an internal MCP bridge; it speaks the same
+        # streamable-HTTP / SSE MCP protocol as a plain http/sse connector.
         endpoint = (transport.endpoint or "").strip()
         if not endpoint:
             raise ConnectorValidationError(
@@ -139,9 +141,9 @@ def _tool_name_from_capability(record: ConnectorRecord, capability_id: str) -> s
 
 
 def discover(record: ConnectorRecord) -> list[ConnectorCapability]:
-    if record.type is not ConnectorType.MCP:
+    if record.type not in {ConnectorType.MCP, ConnectorType.BRIDGE}:
         raise ConnectorValidationError(
-            "discover applies to MCP connectors only",
+            "discover applies to MCP and bridge connectors only",
             connector_id=record.id,
         )
     backend = _create_backend(record)

@@ -41,6 +41,7 @@ class _BackendPool:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._entries: dict[str, _PooledBackend] = {}
+        self._invocation_locks: dict[str, threading.RLock] = {}
 
     def acquire(
         self,
@@ -70,6 +71,15 @@ class _BackendPool:
                 self._entries[connector_id] = entry
             entry.last_used = now
             return entry.backend
+
+    def invocation_lock(self, connector_id: str) -> threading.RLock:
+        """Return the stable per-connector lock that serializes use of a warm backend."""
+        with self._lock:
+            lock = self._invocation_locks.get(connector_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._invocation_locks[connector_id] = lock
+            return lock
 
     def _drop_locked(self, connector_id: str) -> None:
         entry = self._entries.pop(connector_id, None)
@@ -120,18 +130,22 @@ def provide_backend(
     settings = load_settings()
     mode = settings.connector_invocation(record.id)
     if mode == "pooled":
-        backend = _POOL.acquire(
-            record.id,
-            factory,
-            ttl_seconds=settings.connector_pool_ttl_seconds,
-        )
-        try:
-            yield backend
-        except Exception:
-            # A failure may mean the warm session is now poisoned; drop it so the
-            # next call rebuilds instead of reusing a broken backend.
-            _POOL.drop(record.id)
-            raise
+        # One warm MCP session may not support overlapping tools/call exchanges. Keep
+        # pooling for setup latency, but serialize leases per connector so responses
+        # from concurrent requests cannot interleave on the same backend transport.
+        with _POOL.invocation_lock(record.id):
+            backend = _POOL.acquire(
+                record.id,
+                factory,
+                ttl_seconds=settings.connector_pool_ttl_seconds,
+            )
+            try:
+                yield backend
+            except Exception:
+                # A failure may mean the warm session is now poisoned; drop it so the
+                # next call rebuilds instead of reusing a broken backend.
+                _POOL.drop(record.id)
+                raise
         return
     # Stateless (default): fresh backend per call, always stopped.
     backend = factory()

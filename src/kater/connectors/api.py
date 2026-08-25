@@ -226,10 +226,11 @@ def invoke(
     body: bytes | None = None
     if method in {"POST", "PUT", "PATCH"}:
         if capability_id == "clickhouse.query" and "query" in (arguments or {}):
-            body = str(arguments["query"]).encode()
+            body = str(arguments["query"]).encode("utf-8")
+            headers["Content-Type"] = "text/plain; charset=utf-8"
         else:
-            body = json.dumps(arguments or {}).encode()
-        headers.setdefault("Content-Type", "application/json")
+            body = json.dumps(arguments or {}).encode("utf-8")
+            headers.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(  # noqa: S310 - operator-configured endpoint
         url, data=body, headers=headers, method=method
     )

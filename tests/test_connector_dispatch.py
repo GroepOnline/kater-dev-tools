@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from unittest.mock import patch
 
 import pytest
@@ -87,6 +88,44 @@ def test_pooled_reuses_one_warm_backend(tmp_path, monkeypatch):
     assert len(made) == 1
     assert made[0].starts == 1
     assert made[0].stops == 0
+
+
+def test_pooled_serializes_concurrent_leases(tmp_path):
+    save_settings(KaterSettings(connector_invocation_mode="pooled"), tmp_path)
+    record = _mcp_record()
+    made: list[_CountingBackend] = []
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_entered = threading.Event()
+
+    def factory() -> _CountingBackend:
+        backend = _CountingBackend()
+        made.append(backend)
+        return backend
+
+    def first() -> None:
+        with dispatch.provide_backend(record, factory):
+            first_entered.set()
+            assert release_first.wait(timeout=2)
+
+    def second() -> None:
+        with dispatch.provide_backend(record, factory):
+            second_entered.set()
+
+    first_thread = threading.Thread(target=first)
+    second_thread = threading.Thread(target=second)
+    first_thread.start()
+    assert first_entered.wait(timeout=2)
+    second_thread.start()
+    assert not second_entered.wait(timeout=0.1)
+    release_first.set()
+    first_thread.join(timeout=2)
+    second_thread.join(timeout=2)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert second_entered.is_set()
+    assert len(made) == 1
 
 
 def test_pooled_backend_expires_after_ttl(tmp_path, monkeypatch):

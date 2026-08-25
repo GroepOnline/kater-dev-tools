@@ -44,7 +44,11 @@ class _ClickHouseHandler(BaseHTTPRequestHandler):
             query = self.rfile.read(length).decode() if length else ""
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(json.dumps({"query": query}).encode())
+            payload = {
+                "query": query,
+                "content_type": self.headers.get("Content-Type"),
+            }
+            self.wfile.write(json.dumps(payload).encode())
             return
         self.send_response(404)
         self.end_headers()
@@ -102,7 +106,9 @@ def test_api_ping_and_query(clickhouse_server):
 
     query = api_connector.invoke(record, "clickhouse.query", {"query": "SELECT 1"})
     assert query["status"] == 200
-    assert "SELECT" in query["body"]
+    payload = json.loads(query["body"])
+    assert payload["query"] == "SELECT 1"
+    assert payload["content_type"] == "text/plain; charset=utf-8"
 
 
 def test_unresolved_header_template_is_not_sent(clickhouse_server, monkeypatch):

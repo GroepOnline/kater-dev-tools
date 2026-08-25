@@ -7,6 +7,7 @@ from typing import Any
 
 from kater.adapters.external import _resolve_env, _substitute_env_vars
 from kater.connectors.auth import redact_mapping, redact_text
+from kater.connectors.dispatch import provide_backend
 from kater.connectors.errors import (
     ConnectorCapabilityError,
     ConnectorUnavailableError,
@@ -200,22 +201,24 @@ def invoke(
         )
     tool_name = _tool_name_from_capability(record, capability_id)
     payload = {key: value for key, value in dict(arguments or {}).items() if key != "_kater_route"}
-    backend = _create_backend(record)
+    # provide_backend owns start/stop: stateless opens a fresh backend per call,
+    # pooled reuses a warm one within its TTL. Either way this call is a single,
+    # self-contained tools/call — no state is assumed to carry across calls.
     try:
-        backend.start()
-        if not backend.is_healthy():
-            detail = redact_text(backend.status.error or "backend unhealthy")
-            raise ConnectorUnavailableError(
-                f"MCP invoke failed: {detail}",
-                connector_id=record.id,
-            )
-        result = backend.call_tool(tool_name, payload)
-        if isinstance(result, dict) and "error" in result:
-            raise ConnectorUnavailableError(
-                redact_text(str(redact_mapping(result))),
-                connector_id=record.id,
-            )
-        return result if isinstance(result, dict) else {"result": result}
+        with provide_backend(record, lambda: _create_backend(record)) as backend:
+            if not backend.is_healthy():
+                detail = redact_text(backend.status.error or "backend unhealthy")
+                raise ConnectorUnavailableError(
+                    f"MCP invoke failed: {detail}",
+                    connector_id=record.id,
+                )
+            result = backend.call_tool(tool_name, payload)
+            if isinstance(result, dict) and "error" in result:
+                raise ConnectorUnavailableError(
+                    redact_text(str(redact_mapping(result))),
+                    connector_id=record.id,
+                )
+            return result if isinstance(result, dict) else {"result": result}
     except ConnectorCapabilityError:
         raise
     except ConnectorUnavailableError:
@@ -230,5 +233,3 @@ def invoke(
             redact_text(str(exc)),
             connector_id=record.id,
         ) from exc
-    finally:
-        backend.stop()

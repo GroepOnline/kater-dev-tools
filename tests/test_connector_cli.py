@@ -82,13 +82,13 @@ def test_connector_enable_rejects_invalid_level():
         app, ["connector", "enable", "clitest", "--profile", "ops", "--level", "superuser"]
     )
     assert result.exit_code == 1
-    assert "invalid level" in result.stdout
+    assert "invalid level" in result.output
 
 
 def test_connector_enable_unknown_connector_fails_closed():
     result = runner.invoke(app, ["connector", "enable", "nope", "--profile", "ops"])
     assert result.exit_code == 1
-    assert "connector_not_found" in result.stdout
+    assert "connector_not_found" in result.output
 
 
 def test_connector_invoke_rejects_non_object_args():
@@ -98,7 +98,7 @@ def test_connector_invoke_rejects_non_object_args():
         ["connector", "invoke", "clitest", "clitest.read", "--profile", "ops", "--args", "[1,2]"],
     )
     assert result.exit_code == 1
-    assert "must be a JSON object" in result.stdout
+    assert "must be a JSON object" in result.output
 
 
 def test_connector_invoke_internal_without_handler_fails_closed():
@@ -113,4 +113,4 @@ def test_connector_invoke_internal_without_handler_fails_closed():
         ["connector", "invoke", "clitest", "clitest.read", "--profile", "ops"],
     )
     assert result.exit_code == 1
-    assert "no_internal_handler" in result.stdout
+    assert "no_internal_handler" in result.output

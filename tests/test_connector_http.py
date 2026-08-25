@@ -148,5 +148,5 @@ def test_invoke_internal_without_handler_fails_closed_and_redacted():
     )
     assert resp.status == 409
     assert resp.payload is not None
-    assert resp.payload["error"] == "unavailable"
+    assert resp.payload["error"] == "no_internal_handler"
     assert "Bearer admin-secret" not in json.dumps(resp.payload)

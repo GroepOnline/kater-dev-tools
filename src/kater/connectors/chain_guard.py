@@ -6,9 +6,10 @@ from typing import Any
 
 from kater.chains import ChainStep
 from kater.connectors import registry
-from kater.connectors.auth import assert_auth
+from kater.connectors.auth import assert_auth, redact_text
 from kater.connectors.errors import (
     ConnectorCapabilityError,
+    ConnectorError,
     ConnectorNotFoundError,
     ConnectorUnavailableError,
 )
@@ -77,7 +78,15 @@ def assert_chain_runnable(steps: list[ChainStep], *, profile: str) -> None:
     """Seed builtins, then fail closed before a chain recipe is returned."""
     from kater.connectors.seed import seed_builtin_connectors
 
-    seed_builtin_connectors()
+    try:
+        seed_builtin_connectors()
+    except ConnectorError:
+        raise
+    except Exception as exc:
+        raise ConnectorUnavailableError(
+            f"connector catalog seed failed: {redact_text(str(exc))}",
+            code="catalog_seed_failed",
+        ) from exc
     validate_chain_steps(steps, profile=profile)
 
 

@@ -6,6 +6,7 @@ import pytest
 
 from kater.chains import ChainStep
 from kater.connectors.chain_guard import (
+    assert_chain_runnable,
     chain_step_refs,
     invoke_chain_capability,
     validate_chain_steps,
@@ -145,3 +146,12 @@ def test_invoke_chain_capability_rejects_connector_mismatch():
             {},
             profile="ops",
         )
+
+
+def test_assert_chain_runnable_wraps_unexpected_seed_failure():
+    steps = [ChainStep(tool="firecrawl_search", reason="find")]
+    with patch("kater.connectors.seed.seed_builtin_connectors", side_effect=ValueError("bad seed")):
+        with pytest.raises(ConnectorUnavailableError) as exc_info:
+            assert_chain_runnable(steps, profile="research")
+    assert exc_info.value.code == "catalog_seed_failed"
+    assert "bad seed" in str(exc_info.value)

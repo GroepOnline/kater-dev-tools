@@ -54,6 +54,42 @@ def test_explicit_local_auth_env_overrides_persisted_mode(tmp_path: Path, monkey
     assert os.environ["KATER_AUTH_MODE"] == "none"
 
 
+def test_public_deploy_does_not_inherit_persisted_none_auth(tmp_path: Path, monkeypatch):
+    """Persisted local state must not silently disable auth after public exposure."""
+    save_settings(KaterSettings(auth=AuthConfig(mode="none")), tmp_path)
+    monkeypatch.setenv("KATER_HOST", "0.0.0.0")
+    monkeypatch.setenv("KATER_PUBLIC", "0")
+    monkeypatch.delenv("KATER_AUTH_MODE", raising=False)
+
+    loaded = load_settings(tmp_path)
+
+    assert loaded.auth.mode == "oauth"
+
+
+def test_public_tunnel_does_not_inherit_persisted_none_auth(tmp_path: Path, monkeypatch):
+    """KATER_PUBLIC also makes loopback-backed tunnel deployments fail closed."""
+    save_settings(KaterSettings(auth=AuthConfig(mode="none")), tmp_path)
+    monkeypatch.setenv("KATER_HOST", "127.0.0.1")
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.delenv("KATER_AUTH_MODE", raising=False)
+
+    loaded = load_settings(tmp_path)
+
+    assert loaded.auth.mode == "oauth"
+
+
+def test_explicit_public_none_auth_remains_operator_authoritative(tmp_path: Path, monkeypatch):
+    """An explicit runtime auth mode remains authoritative even for public mode."""
+    save_settings(KaterSettings(auth=AuthConfig(mode="oauth")), tmp_path)
+    monkeypatch.setenv("KATER_HOST", "127.0.0.1")
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setenv("KATER_AUTH_MODE", "none")
+
+    loaded = load_settings(tmp_path)
+
+    assert loaded.auth.mode == "none"
+
+
 def test_save_settings_uses_owner_only_permissions(tmp_path: Path):
     import os
 

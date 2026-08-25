@@ -23,6 +23,7 @@ from kater.connectors.store import (
     create_connector,
     get_connector,
     list_connectors,
+    list_connectors_with_errors,
     reload_store,
     set_profile_permission,
     set_status,
@@ -216,6 +217,24 @@ def test_malformed_row_raises_validation_error(tmp_path) -> None:
     with pytest.raises(ConnectorValidationError):
         get_connector(record.id)
 
+
+
+def test_best_effort_list_isolates_malformed_row(tmp_path) -> None:
+    create_connector(_sample_record("alpha.good"))
+    create_connector(_sample_record("broken.row"))
+    db_path = tmp_path / ".kater" / "kater.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE connectors SET transport_json = ? WHERE id = ?",
+        ("not-json", "broken.row"),
+    )
+    conn.commit()
+    conn.close()
+
+    records, errors = list_connectors_with_errors()
+    assert [record.id for record in records] == ["alpha.good"]
+    assert len(errors) == 1
+    assert errors[0].connector_id == "broken.row"
 
 def test_list_connectors_returns_persisted_rows() -> None:
     create_connector(_sample_record("alpha.demo"))

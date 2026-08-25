@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from kater.connectors import mcp_lifecycle
-from kater.connectors.errors import ConnectorUnavailableError
+from kater.connectors.errors import ConnectorCapabilityError, ConnectorUnavailableError
 from kater.connectors.models import (
     ConnectorCapability,
     ConnectorRecord,
@@ -75,6 +75,15 @@ def test_mcp_discovery_failure_raises_unavailable():
         with pytest.raises(ConnectorUnavailableError):
             mcp_lifecycle.discover(record)
 
+
+
+def test_seeded_alias_capability_is_not_guessed_as_upstream_tool() -> None:
+    record = _mcp_record(
+        capabilities=[ConnectorCapability(id="testmcp.pull_requests.read").as_dict()]
+    )
+
+    with pytest.raises(ConnectorCapabilityError, match="not a discovered MCP tool"):
+        mcp_lifecycle.invoke(record, "testmcp.pull_requests.read", {})
 
 def test_invoke_does_not_add_native_tools(monkeypatch):
     monkeypatch.delenv("KATER_EXTENSIONS_MODULE", raising=False)

@@ -10,6 +10,7 @@ from kater.connectors.auth import (
     missing_auth_names,
     redact_mapping,
     redact_text,
+    resolve_auth_values,
 )
 from kater.connectors.errors import ConnectorAuthError
 from kater.connectors.models import (
@@ -62,6 +63,9 @@ def test_auth_satisfied_from_settings_override(tmp_path, monkeypatch) -> None:
     save_settings(settings, tmp_path)
     record = _record()
     assert binding_is_satisfied(record.auth_binding, connector_id=record.id) is True
+    assert resolve_auth_values(record.auth_binding, connector_id=record.id) == {
+        "MISSING_TOKEN": "from-settings"
+    }
 
 
 def test_redact_bearer_tokens() -> None:

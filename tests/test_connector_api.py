@@ -22,6 +22,7 @@ from kater.connectors.models import (
     PermissionLevel,
 )
 from kater.connectors.store import clear_connector_state, upsert_connector
+from kater.settings import KaterSettings, ServerOverride, save_settings
 
 
 class _ClickHouseHandler(BaseHTTPRequestHandler):
@@ -130,6 +131,37 @@ def test_unresolved_header_template_is_not_sent(clickhouse_server, monkeypatch):
 
     headers = api_connector._resolve_headers(record)
     assert "X-Tenant" not in headers
+
+
+def test_api_auth_resolves_single_ref_from_settings(clickhouse_server, monkeypatch, tmp_path):
+    monkeypatch.delenv("CLICKHOUSE_TOKEN", raising=False)
+    save_settings(
+        KaterSettings(
+            server_overrides={
+                "clickhouse": ServerOverride(env={"CLICKHOUSE_TOKEN": "settings-token"})
+            }
+        ),
+        tmp_path,
+    )
+    record = _clickhouse_record(clickhouse_server, auth_value=None)
+
+    headers = api_connector._resolve_headers(record)
+    assert headers["Authorization"] == "Bearer settings-token"
+
+
+def test_api_auth_multiple_refs_require_explicit_header_template(clickhouse_server, monkeypatch):
+    monkeypatch.setenv("TOKEN_A", "a")
+    monkeypatch.setenv("TOKEN_B", "b")
+    record = _clickhouse_record(clickhouse_server, auth_value=None)
+    record = ConnectorRecord.from_mapping(
+        {
+            **record.as_dict(),
+            "auth_binding": {"kind": "env", "ref": "TOKEN_A,TOKEN_B"},
+        }
+    )
+
+    with pytest.raises(ConnectorAuthError, match="explicit Authorization header template"):
+        api_connector._resolve_headers(record)
 
 
 def test_api_auth_missing(clickhouse_server):

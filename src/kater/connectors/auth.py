@@ -40,6 +40,27 @@ def _stored_env_for_connector(connector_id: str) -> dict[str, str]:
     return env
 
 
+def resolve_auth_values(
+    binding: AuthBindingRef,
+    *,
+    connector_id: str | None = None,
+) -> dict[str, str]:
+    """Resolve referenced auth values from process/settings without persisting them."""
+    if binding.kind is AuthBindingKind.NONE:
+        return {}
+    names = _env_names_from_binding(binding)
+    if not names:
+        return {}
+    stored = _stored_env_for_connector(connector_id or "") if connector_id else {}
+    settings_env = load_settings().get_server_env(connector_id) if connector_id else {}
+    values: dict[str, str] = {}
+    for name in names:
+        value = os.environ.get(name) or stored.get(name) or settings_env.get(name) or ""
+        if value:
+            values[name] = value
+    return values
+
+
 def _env_has_value(name: str, *, connector_id: str | None = None) -> bool:
     if os.environ.get(name):
         return True

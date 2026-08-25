@@ -7,7 +7,7 @@ gateway exposes a **stable native tool surface** (today: 17 `kater_*` tools).
 GitHub, Linear, Sentry, Cloudflare, ClickHouse, a downstream MCP server, or
 any future API sit **behind** that surface as connectors.
 
-```
+```text
 Cursor / ChatGPT / Agent
         |
         v
@@ -61,7 +61,7 @@ behaviour stay generic.
 
 Preferred lifecycle (register and grant-write are separate actions):
 
-```
+```text
 register  →  disabled (default)
           →  validate
           →  bind-auth (reference only)
@@ -118,7 +118,7 @@ Connector existence is not access.
 
 Enforcement is server-side in `kater.connectors.policy`. Example:
 
-```
+```text
 ops:       github=write  sentry=read  cloudflare=write
 analysis:  github=read   sentry=read  cloudflare=read
 ```
@@ -127,7 +127,7 @@ analysis:  github=read   sentry=read  cloudflare=read
 
 Prefer machine-readable ids over labels:
 
-```
+```text
 github.repo.read
 github.issues.read
 github.issues.write

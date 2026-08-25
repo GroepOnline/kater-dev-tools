@@ -253,6 +253,20 @@ def list_connectors() -> list[ConnectorRecord]:
     return [_row_to_record(row) for row in rows]
 
 
+def list_connectors_with_errors() -> tuple[list[ConnectorRecord], list[ConnectorValidationError]]:
+    """Read every connector while isolating malformed persisted rows for diagnostics."""
+    with _lock, _transaction() as db:
+        rows = db.execute("SELECT * FROM connectors ORDER BY id").fetchall()
+    records: list[ConnectorRecord] = []
+    errors: list[ConnectorValidationError] = []
+    for row in rows:
+        try:
+            records.append(_row_to_record(row))
+        except ConnectorValidationError as exc:
+            errors.append(exc)
+    return records, errors
+
+
 def delete_connector(connector_id: str) -> None:
     with _lock, _transaction() as db:
         cursor = db.execute("DELETE FROM connectors WHERE id = ?", (connector_id,))

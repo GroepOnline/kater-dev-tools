@@ -119,16 +119,18 @@ def _create_backend(record: ConnectorRecord) -> BaseBackend:
 
 
 def _tool_name_from_capability(record: ConnectorRecord, capability_id: str) -> str:
+    cap = record.capability(capability_id)
+    if cap is None or not cap.discovered:
+        raise ConnectorCapabilityError(
+            f"capability {capability_id!r} is not a discovered MCP tool on connector {record.id!r}",
+            connector_id=record.id,
+        )
     prefix = f"{record.id}."
     if capability_id.startswith(prefix):
         return capability_id[len(prefix) :]
-    cap = record.capability(capability_id)
-    if cap and cap.discovered:
-        if capability_id.startswith(prefix):
-            return capability_id[len(prefix) :]
-        parts = capability_id.split(".", 1)
-        if len(parts) == 2:
-            return parts[1]
+    parts = capability_id.split(".", 1)
+    if len(parts) == 2:
+        return parts[1]
     raise ConnectorCapabilityError(
         f"capability {capability_id!r} is not invokable on connector {record.id!r}",
         connector_id=record.id,

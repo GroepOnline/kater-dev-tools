@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -208,17 +209,26 @@ def _connector_health_check(selected_profiles: set[str]) -> list[Finding]:
         from kater.connectors.health import evaluate_health
         from kater.connectors.models import HealthState
         from kater.connectors.seed import seed_builtin_connectors
-        from kater.connectors.store import list_connectors
+        from kater.connectors.store import list_connectors_with_errors
     except Exception:
         return []
 
     try:
         seed_builtin_connectors()
-        records = list_connectors()
+        records, record_errors = list_connectors_with_errors()
     except Exception:
         return []
 
-    findings: list[Finding] = []
+    findings: list[Finding] = [
+        Finding(
+            code="connector_invalid",
+            severity="warning",
+            source=error.connector_id,
+            message=f"Persisted connector row is invalid: {error}",
+            suggested_action="Repair or re-register only the invalid connector row.",
+        )
+        for error in record_errors
+    ]
     for record in records:
         if record.profiles and not record.profiles.intersection(selected_profiles):
             continue
@@ -401,15 +411,16 @@ def _browser_lane_check() -> list[Finding]:
             )
         )
         return findings
+    company_control = socket.gethostname() in {"chef-control-az-01", "chef-kater-shadow"}
+    message = "Native Kater browser is unsupported on this runtime."
+    if company_control:
+        message += " Company-control browse uses the ChefGroep browser MCP, not Playwright."
     findings.append(
         Finding(
             code="browser_lane_unsupported",
             severity="info",
             source="browser",
-            message=(
-                "Native Kater browser is unsupported on this runtime. "
-                "Company-control browse uses the ChefGroep browser MCP, not Playwright."
-            ),
+            message=message,
             suggested_action=(
                 "Leave kater[browser] uninstalled here, or set KATER_BROWSER_CDP_URL / "
                 "KATER_BROWSER_ENABLE if this host should drive a browser."

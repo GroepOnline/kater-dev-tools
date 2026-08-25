@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import urllib.error
 import urllib.parse
@@ -11,7 +10,7 @@ import urllib.request
 from typing import Any
 
 from kater.adapters.external import _resolve_env, _substitute_env_vars
-from kater.connectors.auth import redact_text
+from kater.connectors.auth import redact_text, resolve_auth_values
 from kater.connectors.errors import (
     ConnectorAuthError,
     ConnectorCapabilityError,
@@ -84,17 +83,22 @@ def _resolve_headers(record: ConnectorRecord) -> dict[str, str]:
             if "${" not in resolved:
                 headers[key] = resolved
     binding = record.auth_binding
-    if binding.kind is AuthBindingKind.ENV and binding.ref:
+    if binding.kind is not AuthBindingKind.NONE and binding.ref and "Authorization" not in headers:
         token_names = [name.strip() for name in binding.ref.split(",") if name.strip()]
+        values = resolve_auth_values(binding, connector_id=record.id)
+        missing = [name for name in token_names if name not in values]
+        if missing:
+            raise ConnectorAuthError(
+                f"missing auth refs: {', '.join(missing)}",
+                connector_id=record.id,
+            )
+        if len(token_names) > 1:
+            raise ConnectorAuthError(
+                "multiple auth refs require an explicit Authorization header template",
+                connector_id=record.id,
+            )
         if token_names:
-            token = os.environ.get(token_names[0], "")
-            if not token:
-                raise ConnectorAuthError(
-                    f"missing auth env: {token_names[0]}",
-                    connector_id=record.id,
-                )
-            if "Authorization" not in headers:
-                headers["Authorization"] = f"Bearer {token}"
+            headers["Authorization"] = f"Bearer {values[token_names[0]]}"
     return headers
 
 

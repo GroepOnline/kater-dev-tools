@@ -50,12 +50,51 @@ def test_connector_doctor_does_not_claim_unprobed_http_is_healthy(monkeypatch) -
         origin="seed",
     )
     monkeypatch.setattr("kater.connectors.seed.seed_builtin_connectors", lambda: None)
-    monkeypatch.setattr("kater.connectors.store.list_connectors", lambda: [record])
+    monkeypatch.setattr(
+        "kater.connectors.store.list_connectors_with_errors", lambda: ([record], [])
+    )
 
     findings = _connector_health_check({"ops"})
     assert [finding.code for finding in findings] == ["connector_configured"]
     assert "not probed" in findings[0].message
 
+
+
+def test_connector_doctor_surfaces_invalid_row_without_dropping_valid_connectors(
+    monkeypatch,
+) -> None:
+    from kater.connectors.errors import ConnectorValidationError
+    from kater.connectors.models import (
+        AuthBindingKind,
+        AuthBindingRef,
+        ConnectorRecord,
+        ConnectorStatus,
+        ConnectorTransport,
+        ConnectorType,
+        PermissionLevel,
+    )
+
+    record = ConnectorRecord(
+        id="valid.internal",
+        display_name="Valid internal",
+        type=ConnectorType.INTERNAL,
+        version="1",
+        transport=ConnectorTransport(kind="native"),
+        auth_binding=AuthBindingRef(kind=AuthBindingKind.NONE),
+        profiles=frozenset({"ops"}),
+        permissions={"ops": PermissionLevel.READ},
+        status=ConnectorStatus.ENABLED,
+    )
+    error = ConnectorValidationError("malformed JSON", connector_id="broken.row")
+    monkeypatch.setattr("kater.connectors.seed.seed_builtin_connectors", lambda: None)
+    monkeypatch.setattr(
+        "kater.connectors.store.list_connectors_with_errors",
+        lambda: ([record], [error]),
+    )
+
+    findings = _connector_health_check({"ops"})
+    assert [finding.code for finding in findings] == ["connector_invalid", "connector_ready"]
+    assert findings[0].source == "broken.row"
 
 def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
     for var in (
@@ -129,8 +168,25 @@ def test_browser_lane_unsupported_when_not_expected(monkeypatch, tmp_path) -> No
     mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
 
     report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
-    codes = {f.code for f in report.findings if f.code.startswith("browser_lane_")}
-    assert codes == {"browser_lane_unsupported"}
+    browser = [f for f in report.findings if f.code == "browser_lane_unsupported"]
+    assert len(browser) == 1
+    assert "Company-control" not in browser[0].message
+
+
+def test_browser_lane_company_control_guidance(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_BROWSER_ENABLE", raising=False)
+    monkeypatch.delenv("KATER_BROWSER_CDP_URL", raising=False)
+    monkeypatch.delenv("KATER_BROWSER_STEEL_URL", raising=False)
+    monkeypatch.setattr("kater.browser.providers.probe_providers", lambda: [])
+    monkeypatch.setattr("socket.gethostname", lambda: "chef-control-az-01")
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
+    browser = [f for f in report.findings if f.code == "browser_lane_unsupported"]
+    assert len(browser) == 1
+    assert "Company-control browse uses the ChefGroep browser MCP" in browser[0].message
 
 
 def test_browser_lane_unavailable_when_expected(monkeypatch, tmp_path) -> None:

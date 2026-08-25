@@ -321,6 +321,24 @@ _AUTOMATION_DEFAULTS_ADOPTED_V8 = (
          AND NOT EXISTS (SELECT 1 FROM automation_meta WHERE key = 'defaults_seeded')""",
 )
 
+_CONNECTORS_V9 = (
+    """CREATE TABLE IF NOT EXISTS connectors (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        version TEXT NOT NULL,
+        transport_json TEXT NOT NULL,
+        capabilities_json TEXT NOT NULL,
+        auth_binding_json TEXT NOT NULL,
+        profiles_json TEXT NOT NULL,
+        permissions_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        metadata_json TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        updated_at REAL NOT NULL
+    )""",
+)
+
 #: Ordered, append-only. Add new versions at the end; never edit a released one.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="baseline", statements=_BASELINE),
@@ -335,6 +353,7 @@ MIGRATIONS: tuple[Migration, ...] = (
         name="automation_defaults_adopted",
         statements=_AUTOMATION_DEFAULTS_ADOPTED_V8,
     ),
+    Migration(version=9, name="connectors", statements=_CONNECTORS_V9),
 )
 
 _CREATE_SCHEMA_TABLE = f"""CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (

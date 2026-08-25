@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from kater.doctor import is_gateway_server, run_doctor
+from kater.doctor import _connector_health_check, is_gateway_server, run_doctor
 
 
 def test_is_gateway_server_matches_hostname_not_path() -> None:
@@ -26,6 +26,76 @@ def test_is_gateway_server_matches_hostname_not_path() -> None:
     )
 
 
+def test_connector_doctor_does_not_claim_unprobed_http_is_healthy(monkeypatch) -> None:
+    from kater.connectors.models import (
+        AuthBindingKind,
+        AuthBindingRef,
+        ConnectorRecord,
+        ConnectorStatus,
+        ConnectorTransport,
+        ConnectorType,
+        PermissionLevel,
+    )
+
+    record = ConnectorRecord(
+        id="remote.api",
+        display_name="Remote API",
+        type=ConnectorType.API,
+        version="1.0.0",
+        transport=ConnectorTransport(kind="http", endpoint="https://example.invalid"),
+        auth_binding=AuthBindingRef(kind=AuthBindingKind.NONE),
+        profiles=frozenset({"ops"}),
+        permissions={"ops": PermissionLevel.READ},
+        status=ConnectorStatus.ENABLED,
+        origin="seed",
+    )
+    monkeypatch.setattr("kater.connectors.seed.seed_builtin_connectors", lambda: None)
+    monkeypatch.setattr(
+        "kater.connectors.store.list_connectors_with_errors", lambda: ([record], [])
+    )
+
+    findings = _connector_health_check({"ops"})
+    assert [finding.code for finding in findings] == ["connector_configured"]
+    assert "not probed" in findings[0].message
+
+
+
+def test_connector_doctor_surfaces_invalid_row_without_dropping_valid_connectors(
+    monkeypatch,
+) -> None:
+    from kater.connectors.errors import ConnectorValidationError
+    from kater.connectors.models import (
+        AuthBindingKind,
+        AuthBindingRef,
+        ConnectorRecord,
+        ConnectorStatus,
+        ConnectorTransport,
+        ConnectorType,
+        PermissionLevel,
+    )
+
+    record = ConnectorRecord(
+        id="valid.internal",
+        display_name="Valid internal",
+        type=ConnectorType.INTERNAL,
+        version="1",
+        transport=ConnectorTransport(kind="native"),
+        auth_binding=AuthBindingRef(kind=AuthBindingKind.NONE),
+        profiles=frozenset({"ops"}),
+        permissions={"ops": PermissionLevel.READ},
+        status=ConnectorStatus.ENABLED,
+    )
+    error = ConnectorValidationError("malformed JSON", connector_id="broken.row")
+    monkeypatch.setattr("kater.connectors.seed.seed_builtin_connectors", lambda: None)
+    monkeypatch.setattr(
+        "kater.connectors.store.list_connectors_with_errors",
+        lambda: ([record], [error]),
+    )
+
+    findings = _connector_health_check({"ops"})
+    assert [finding.code for finding in findings] == ["connector_invalid", "connector_ready"]
+    assert findings[0].source == "broken.row"
+
 def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
     for var in (
         "LINEAR_API_KEY",
@@ -45,6 +115,90 @@ def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
     # Informational browser-lane probe is allowed; no warnings/errors on core.
     assert all(f.severity == "info" for f in report.findings)
     assert all(f.code.startswith("browser_lane_") for f in report.findings)
+
+
+def test_doctor_ops_skips_high_risk_missing_env_warnings(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    for var in (
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "GITLAB_PERSONAL_ACCESS_TOKEN",
+        "LINEAR_API_KEY",
+        "SENTRY_AUTH_TOKEN",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "SLACK_BOT_TOKEN",
+        "NOTION_TOKEN",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"ops"}, cursor_mcp_path=mcp_path)
+    missing_sources = {f.source for f in report.findings if f.code == "missing_env"}
+    assert "github" not in missing_sources
+    assert "gitlab" not in missing_sources
+    assert "slack" not in missing_sources
+    assert "notion" not in missing_sources
+    assert any(f.code in {"adapter_ready", "adapter_not_configured"} for f in report.findings)
+
+
+def test_doctor_ops_adapter_ready_when_linear_and_sentry_configured(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LINEAR_API_KEY", "lin-test")
+    monkeypatch.setenv("SENTRY_AUTH_TOKEN", "sentry-test")
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"ops"}, cursor_mcp_path=mcp_path)
+    ready = {f.source for f in report.findings if f.code == "adapter_ready"}
+    assert "linear" in ready
+    assert "sentry" in ready
+    assert not any(
+        f.code == "missing_env" and f.source in {"linear", "sentry"} for f in report.findings
+    )
+
+
+def test_browser_lane_unsupported_when_not_expected(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_BROWSER_ENABLE", raising=False)
+    monkeypatch.delenv("KATER_BROWSER_CDP_URL", raising=False)
+    monkeypatch.delenv("KATER_BROWSER_STEEL_URL", raising=False)
+    monkeypatch.setattr("kater.browser.providers.probe_providers", lambda: [])
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
+    browser = [f for f in report.findings if f.code == "browser_lane_unsupported"]
+    assert len(browser) == 1
+    assert "Company-control" not in browser[0].message
+
+
+def test_browser_lane_company_control_guidance(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KATER_BROWSER_ENABLE", raising=False)
+    monkeypatch.delenv("KATER_BROWSER_CDP_URL", raising=False)
+    monkeypatch.delenv("KATER_BROWSER_STEEL_URL", raising=False)
+    monkeypatch.setattr("kater.browser.providers.probe_providers", lambda: [])
+    monkeypatch.setattr("socket.gethostname", lambda: "chef-control-az-01")
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
+    browser = [f for f in report.findings if f.code == "browser_lane_unsupported"]
+    assert len(browser) == 1
+    assert "Company-control browse uses the ChefGroep browser MCP" in browser[0].message
+
+
+def test_browser_lane_unavailable_when_expected(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KATER_BROWSER_ENABLE", "1")
+    monkeypatch.setattr("kater.browser.providers.probe_providers", lambda: [])
+    mcp_path = tmp_path / "mcp.json"
+    mcp_path.write_text(json.dumps({"mcpServers": {"kater": {}}}), encoding="utf-8")
+
+    report = run_doctor(profiles={"core"}, cursor_mcp_path=mcp_path)
+    codes = {f.code for f in report.findings if f.code.startswith("browser_lane_")}
+    assert codes == {"browser_lane_unavailable"}
 
 
 def test_doctor_reports_context_bloat(tmp_path) -> None:

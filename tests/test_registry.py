@@ -28,6 +28,17 @@ def test_adapter_inventory_tool_returns_adapters_for_core() -> None:
     result = adapter_inventory_tool("core")
     assert result["profile"] == "core"
     assert "adapters" in result
+    assert "connectors" in result
+
+
+def test_native_gateway_surface_is_seventeen_without_extensions(monkeypatch) -> None:
+    monkeypatch.delenv("KATER_EXTENSIONS_MODULE", raising=False)
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
+    names = [tool.name for tool in build_native_tools()]
+    assert len(names) == 17
+    assert "kater_github" not in names
+    assert "kater_connectors" not in names
+    assert names.count("kater_profiles") == 1
 
 
 def test_config_render_tool_returns_mcp_config_without_secrets() -> None:

@@ -76,6 +76,13 @@ class KaterRuntime:
             _log.warning("schema migrate failed: %s", exc)
 
         try:
+            from kater.connectors.seed import seed_builtin_connectors
+
+            seed_builtin_connectors()
+        except Exception as exc:
+            _log.warning("connector seed failed: %s", exc)
+
+        try:
             from kater.automations import get_engine
 
             get_engine().ensure_defaults()

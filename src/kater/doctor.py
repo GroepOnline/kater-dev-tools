@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -12,6 +13,7 @@ from kater.profiles import (
     DEFAULT_PROFILE,
     RiskLevel,
     ToolSource,
+    Transport,
     all_tool_sources,
     sources_for_profiles,
 )
@@ -119,6 +121,7 @@ def run_doctor(
     effective_mcp_path = resolve_cursor_mcp(cursor_mcp_path)
     findings = _find_missing_env(sources)
     findings.extend(_adapter_config_check(selected_profiles))
+    findings.extend(_connector_health_check(selected_profiles))
     findings.extend(_find_context_bloat(cursor_mcp_path=effective_mcp_path, selected=sources))
     findings.extend(_security_check())
     findings.extend(_browser_lane_check())
@@ -134,9 +137,22 @@ def run_doctor(
     )
 
 
+def _source_expected_enabled(source: ToolSource) -> bool:
+    """Match proxy eligibility: HIGH-risk adapters stay optional unless enabled."""
+    from kater.settings import load_settings
+
+    if source.transport is Transport.NATIVE:
+        return False
+    settings = load_settings()
+    enabled_default = not (settings.high_risk_default_disabled and source.risk == RiskLevel.HIGH)
+    return settings.is_server_enabled(source.name, default=enabled_default)
+
+
 def _find_missing_env(sources: list[ToolSource]) -> list[Finding]:
     findings: list[Finding] = []
     for source in sources:
+        if not _source_expected_enabled(source):
+            continue
         missing = [name for name in source.env if not os.environ.get(name)]
         if missing:
             findings.append(
@@ -184,6 +200,84 @@ def _adapter_config_check(selected_profiles: set[str]) -> list[Finding]:
                     suggested_action="Use kater config --profile ... to generate the MCP config.",
                 )
             )
+    return findings
+
+
+def _connector_health_check(selected_profiles: set[str]) -> list[Finding]:
+    """Recompute connector-catalog health. Disabled / out-of-scope is not broken."""
+    try:
+        from kater.connectors.health import evaluate_health
+        from kater.connectors.models import HealthState
+        from kater.connectors.seed import seed_builtin_connectors
+        from kater.connectors.store import list_connectors_with_errors
+    except Exception:
+        return []
+
+    try:
+        seed_builtin_connectors()
+        records, record_errors = list_connectors_with_errors()
+    except Exception:
+        return []
+
+    findings: list[Finding] = [
+        Finding(
+            code="connector_invalid",
+            severity="warning",
+            source=error.connector_id,
+            message=f"Persisted connector row is invalid: {error}",
+            suggested_action="Repair or re-register only the invalid connector row.",
+        )
+        for error in record_errors
+    ]
+    for record in records:
+        if record.profiles and not record.profiles.intersection(selected_profiles):
+            continue
+        applicable_profiles = sorted(record.profiles.intersection(selected_profiles))
+        profile = applicable_profiles[0] if applicable_profiles else None
+        health = evaluate_health(record, profile=profile)
+        if record.metadata.get("unsupported_runtime") is True:
+            code, severity = "connector_unsupported", "info"
+            message = f"{record.id} is unsupported on this runtime."
+        elif record.metadata.get("scope") == "out_of_scope":
+            code, severity = "connector_out_of_scope", "info"
+            message = f"{record.id} is out of scope and stays disabled."
+        elif health.state is HealthState.HEALTHY:
+            if record.transport.kind in {"http", "sse"}:
+                code, severity = "connector_configured", "info"
+                message = f"{record.id} connector is configured; live reachability was not probed."
+            else:
+                code, severity = "connector_ready", "info"
+                message = f"{record.id} connector is healthy."
+        elif health.state is HealthState.DISABLED:
+            code, severity = "connector_disabled", "info"
+            message = f"{record.id} connector is disabled."
+        elif health.state is HealthState.AUTH_MISSING:
+            code, severity = "connector_auth_missing", "warning"
+            message = f"{record.id} is enabled but missing auth refs: {health.detail}"
+        elif health.state is HealthState.UNAVAILABLE:
+            code, severity = "connector_unavailable", "warning"
+            message = f"{record.id} is unavailable: {health.detail}"
+        elif health.state is HealthState.DEGRADED:
+            code, severity = "connector_degraded", "warning"
+            message = f"{record.id} is degraded: {health.detail}"
+        elif health.state is HealthState.POLICY_BLOCKED:
+            code, severity = "connector_policy_blocked", "info"
+            message = f"{record.id} is blocked for the selected profile."
+        elif health.state is HealthState.UNSUPPORTED:
+            code, severity = "connector_unsupported", "info"
+            message = f"{record.id} is unsupported: {health.detail}"
+        else:
+            code, severity = "connector_health", "info"
+            message = f"{record.id} health is {health.state.value}."
+        findings.append(
+            Finding(
+                code=code,
+                severity=severity,
+                source=record.id,
+                message=message,
+                suggested_action=None,
+            )
+        )
     return findings
 
 
@@ -270,6 +364,18 @@ def _find_context_bloat(
     return findings
 
 
+def _browser_expected() -> bool:
+    from kater.settings import _env_truthy
+
+    if _env_truthy("KATER_BROWSER_ENABLE"):
+        return True
+    if os.environ.get("KATER_BROWSER_CDP_URL", "").strip():
+        return True
+    if os.environ.get("KATER_BROWSER_STEEL_URL", "").strip():
+        return True
+    return False
+
+
 def _browser_lane_check() -> list[Finding]:
     """Surface native browser provider readiness without launching a browser."""
     from kater.browser.providers import probe_providers
@@ -291,17 +397,34 @@ def _browser_lane_check() -> list[Finding]:
             )
         )
         return findings
+    if _browser_expected():
+        findings.append(
+            Finding(
+                code="browser_lane_unavailable",
+                severity="info",
+                source="browser",
+                message=(
+                    "A native browser provider was expected but none is available "
+                    "(Playwright/Chromium, KATER_BROWSER_CDP_URL, or KATER_BROWSER_STEEL_URL)."
+                ),
+                suggested_action=("uv sync --extra browser && playwright install chromium"),
+            )
+        )
+        return findings
+    company_control = socket.gethostname() in {"chef-control-az-01", "chef-kater-shadow"}
+    message = "Native Kater browser is unsupported on this runtime."
+    if company_control:
+        message += " Company-control browse uses the ChefGroep browser MCP, not Playwright."
     findings.append(
         Finding(
-            code="browser_lane_unavailable",
+            code="browser_lane_unsupported",
             severity="info",
             source="browser",
-            message=(
-                "No native browser provider is available "
-                "(install kater[browser] + playwright install chromium, "
-                "or set KATER_BROWSER_CDP_URL / KATER_BROWSER_STEEL_URL)."
+            message=message,
+            suggested_action=(
+                "Leave kater[browser] uninstalled here, or set KATER_BROWSER_CDP_URL / "
+                "KATER_BROWSER_ENABLE if this host should drive a browser."
             ),
-            suggested_action=("uv sync --extra browser && playwright install chromium"),
         )
     )
     return findings

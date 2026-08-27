@@ -1134,7 +1134,6 @@ def test_reviewer_installation_evidence_is_repo_scoped() -> None:
         "orgs/acme/installations": {
             "installations": [{"id": 23, "app_slug": "reviewer-app", "app_id": 17}]
         },
-        "user/installations/23/repositories": {"repositories": [{"full_name": "acme/repo"}]},
     }
     client = GitHubPRClient(
         repo="acme/repo",
@@ -1146,7 +1145,8 @@ def test_reviewer_installation_evidence_is_repo_scoped() -> None:
             stderr="",
         ),
     )
-    assert client.trusted_reviewer_app_identities().identities == {"reviewer-app:17:23"}
+    review = {"author": {"login": "reviewer-app[bot]"}, "state": "APPROVED"}
+    assert client.trusted_reviewer_app_identities([review]).identities == {"reviewer-app:17:23"}
 
 
 def test_reviewer_lookup_failure_blocks_gate() -> None:

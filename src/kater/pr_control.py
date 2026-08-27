@@ -760,7 +760,9 @@ class GitHubPRClient:
             pr["baseRefOid"] = extras["baseRefOid"]
         return pr
 
-    def trusted_reviewer_app_identities(self) -> ReviewerAppLookup:
+    def trusted_reviewer_app_identities(
+        self, reviews: list[dict[str, Any]] | None = None
+    ) -> ReviewerAppLookup:
         """Return provider-verified App identities installed for this repo.
 
         Missing/failed provider evidence is deliberately empty (fail closed).
@@ -788,49 +790,22 @@ class GitHubPRClient:
                 if len(batch) < 100:
                     break
                 page += 1
-            # Verify that each candidate installation is actually attached to
-            # this repository; org installation listing alone is insufficient.
-            verified_installations: set[str] = set()
-            for item in installations:
-                if not isinstance(item, dict):
-                    continue
-                installation_id = str(item.get("id") or "").strip()
-                if not installation_id:
-                    continue
-                repos: list[Any] = []
-                repo_page = 1
-                while True:
-                    if repo_page > 100:
-                        return ReviewerAppLookup(frozenset(), True)
-                    payload = self._api(
-                        f"user/installations/{installation_id}/repositories",
-                        params={"per_page": "100", "page": str(repo_page)},
-                    )
-                    if not isinstance(payload, dict) or not isinstance(
-                        payload.get("repositories"), list
-                    ):
-                        return ReviewerAppLookup(frozenset(), True)
-                    batch = payload["repositories"]
-                    repos.extend(batch)
-                    if len(batch) < 100:
-                        break
-                    repo_page += 1
-                if not any(isinstance(r, dict) and r.get("full_name") == repo for r in repos):
-                    continue
-                verified_installations.add(installation_id)
+            approved = {str(r.get("author", {}).get("login", "")).lower()
+                        for r in (reviews or []) if isinstance(r, dict)
+                        and str(r.get("state", "")).upper() == "APPROVED"}
             result: set[str] = set()
             for item in installations:
                 if not isinstance(item, dict):
                     continue
                 installation_id = str(item.get("id") or "").strip()
-                if installation_id not in verified_installations:
-                    continue
                 app = item.get("app_slug") or item.get("app")
                 slug = str(app.get("slug") if isinstance(app, dict) else app or "").strip().lower()
                 app_id = str(
                     item.get("app_id") or (app.get("id") if isinstance(app, dict) else "")
                 ).strip()
                 if not (slug and app_id and installation_id):
+                    continue
+                if f"{slug}[bot]" not in approved:
                     continue
                 # App slugs are globally unique and the review itself proves
                 # this installation reached the target repository; no
@@ -1288,7 +1263,7 @@ def gate_for_pr(
         for entry in policy.independent_reviewer_allowlist
     )
     reviewer_lookup = (
-        client.trusted_reviewer_app_identities()
+        client.trusted_reviewer_app_identities(_review_list(pr))
         if needs_app_lookup
         else ReviewerAppLookup(frozenset())
     )

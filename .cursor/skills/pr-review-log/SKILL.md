@@ -25,10 +25,10 @@ last_reviewed: '2026-08-27'
 
 # pr-review-log
 
-Reusable review + logging skill. The portable source of truth lives under
-`.reviews/skills/pr-review-log/SKILL.md`; this copy is the Cursor-indexed twin.
-Keep them in sync and regenerate the index after any edit
-(`python3 scripts/generate_cursor_index.py`).
+Reusable review + logging skill. `.cursor/skills/pr-review-log/SKILL.md` is the
+repository source of truth. `.reviews/skills/pr-review-log/SKILL.md` is a portable
+mirror checked byte-for-byte by `scripts/check_cursor_artifacts.sh`; regenerate
+the Cursor index after any source edit (`python3 scripts/generate_cursor_index.py`).
 
 ## Procedure
 

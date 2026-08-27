@@ -65,6 +65,7 @@ from kater.pr_control import (
 from kater.pr_control import (
     VERDICT_UNKNOWN as UNKNOWN,
 )
+from kater.pr_control import REASON_REVIEWER_APP_LOOKUP as REVIEWER_APP_LOOKUP
 from kater.pr_control import (
     GatePolicy,
     GitHubPRClient,
@@ -1042,6 +1043,27 @@ def test_reviewer_installation_evidence_is_repo_scoped() -> None:
         stderr=""
     ))
     assert client.trusted_reviewer_app_identities().identities == {"reviewer-app:17:23"}
+
+
+def test_reviewer_lookup_failure_blocks_gate() -> None:
+    policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
+    client = GitHubPRClient(repo="acme/repo", runner=lambda args: SimpleNamespace(
+        returncode=1, stdout="", stderr="HTTP 403: forbidden"
+    ))
+    result = gate_for_pr(client, _pr(), policy=policy, expected_head_sha="a" * 40)
+    assert result.verdict == BLOCK
+    assert REVIEWER_APP_LOOKUP in result.reasons
+
+
+def test_reviewer_installation_pagination_is_bounded() -> None:
+    def runner(args: list[str]) -> Any:
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"installations": [{"id": 1}] * 100}),
+            stderr="",
+        )
+    client = GitHubPRClient(repo="acme/repo", runner=runner)
+    assert client.trusted_reviewer_app_identities().failed is True
 
 
 def test_count_independent_approvals_pins_review_commit_oid() -> None:

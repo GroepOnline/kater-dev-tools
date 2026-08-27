@@ -37,8 +37,10 @@ the Cursor index after any source edit (`python3 scripts/generate_cursor_index.p
 2. **Find the real bug.** Prefer CI signal over prose: check failing checks and
    their logs. A red test usually names the exact cause.
 3. **Fix the root cause.**
-   - If a code change broke a test that asserts old behavior, update the test to
-     assert the new intended behavior (mirror the existing pattern in that file).
+   - If a test fails after a code change, first verify whether an explicit
+     contract, requirement, or PR objective changed the expected behavior.
+     Update the test only when that evidence confirms a behavior change;
+     otherwise fix the implementation.
    - Fix causes, not symptoms. Keep edits minimal and match surrounding style.
 4. **Sweep related staleness.** Stale comments, mirrored constants, sibling
    workflows — fix the whole class, not just the one instance.

@@ -25,3 +25,6 @@ htmlcov/
 
 # Advisory lock sidecars for the agent-taste signals registry
 .agents/registry/*.lock
+
+# Compound Engineering checkout-local settings (tracked: config.yaml + example)
+.compound-engineering/*.local.yaml

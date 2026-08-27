@@ -30,6 +30,7 @@
 | `kater-e2e` | `.cursor/skills/kater-e2e/SKILL.md` | End-to-end gateway proof: REST, MCP SSE initialize/tools, WebSocket handshake. |
 | `kater-gateway` | `.cursor/skills/kater-gateway/SKILL.md` | Start, configure, and verify the Kater MCP gateway locally or in cloud. |
 | `pr-gate` | `.cursor/skills/pr-gate/SKILL.md` | Evaluate and fix one PR until merge-ready using Kater PR gate rules and gh. |
+| `pr-review-log` | `.cursor/skills/pr-review-log/SKILL.md` | Review a PR, fix root-cause bugs, and record review + continual-learning + session log. |
 
 ## Agents
 

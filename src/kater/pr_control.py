@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -20,6 +21,7 @@ from kater.github_transport import (
 )
 
 _log = logging.getLogger("kater.pr_control")
+_SHA40 = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 
 # Machine-readable gate verdicts and reason codes. Write-tools (merge) must
 # require the recorded head SHA and only act on a PASS; WARN/BLOCK are
@@ -411,6 +413,10 @@ def count_independent_approvals(
             app_identity = next(
                 (v for v in trusted_apps if v.startswith(slug_prefix)), ""
             )
+        # App approvals are independent evidence only when pinned to a real
+        # commit; never credit an App on a missing/short caller-supplied pin.
+        if app_identity and not _SHA40.fullmatch(pin):
+            app_identity = ""
         if allow and login not in allow and app_identity not in allow:
             continue
         if policy.reject_author_approval and author and login == author:
@@ -738,6 +744,8 @@ class GitHubPRClient:
             installations: list[Any] = []
             page = 1
             while True:
+                if page > 100:
+                    return ReviewerAppLookup(frozenset(), True)
                 payload = self._api(
                     f"orgs/{owner}/installations",
                     params={"per_page": "100", "page": str(page)},
@@ -763,6 +771,8 @@ class GitHubPRClient:
                 repos: list[Any] = []
                 repo_page = 1
                 while True:
+                    if repo_page > 100:
+                        return ReviewerAppLookup(frozenset(), True)
                     payload = self._api(
                         f"user/installations/{installation_id}/repositories",
                         params={"per_page": "100", "page": str(repo_page)},

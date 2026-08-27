@@ -989,11 +989,11 @@ def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
     review = {
         "author": {"login": "reviewer-app[bot]", "is_bot": False},
         "state": "APPROVED",
-        "commit_id": "head",
+        "commit_id": "a" * 40,
     }
     assert count_independent_approvals(
         [review], author_login="alice", policy=policy,
-        expected_head_sha="head", trusted_reviewer_apps={"reviewer-app:17:23"}
+        expected_head_sha="a" * 40, trusted_reviewer_apps={"reviewer-app:17:23"}
     ) == 1
     assert count_independent_approvals(
         [review], author_login="alice", policy=policy,
@@ -1001,7 +1001,7 @@ def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
     ) == 0
     assert count_independent_approvals(
         [review], author_login="alice", policy=policy,
-        expected_head_sha="head", trusted_reviewer_apps=set()
+        expected_head_sha="a" * 40, trusted_reviewer_apps=set()
     ) == 0
 
 

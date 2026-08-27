@@ -54,6 +54,9 @@ from kater.pr_control import (
     REASON_REQUIRED_CHECK_LOOKUP as REQUIRED_CHECK_LOOKUP,
 )
 from kater.pr_control import (
+    REASON_REVIEWER_APP_LOOKUP as REVIEWER_APP_LOOKUP,
+)
+from kater.pr_control import (
     REASON_UNRESOLVED_THREAD as UNRESOLVED_THREAD,
 )
 from kater.pr_control import (
@@ -65,7 +68,6 @@ from kater.pr_control import (
 from kater.pr_control import (
     VERDICT_UNKNOWN as UNKNOWN,
 )
-from kater.pr_control import REASON_REVIEWER_APP_LOOKUP as REVIEWER_APP_LOOKUP
 from kater.pr_control import (
     GatePolicy,
     GitHubPRClient,

@@ -985,6 +985,28 @@ def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
     ) == 0
 
 
+def test_reviewer_app_identity_not_credited_to_matching_human_login() -> None:
+    # A human whose GitHub login equals the App slug must not inherit App credit.
+    policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
+    review = {
+        "author": {"login": "reviewer-app", "is_bot": False},
+        "state": "APPROVED",
+        "commit_id": "head",
+    }
+    assert count_independent_approvals(
+        [review], author_login="alice", policy=policy,
+        expected_head_sha="head", trusted_reviewer_apps={"reviewer-app:17:23"}
+    ) == 0
+
+
+def test_reviewer_allowlist_login_tolerates_leading_at() -> None:
+    policy = GatePolicy(independent_reviewer_allowlist=("@alice",))
+    review = {"author": {"login": "alice"}, "state": "APPROVED"}
+    assert count_independent_approvals(
+        [review], author_login="bob", policy=policy
+    ) == 1
+
+
 def test_reviewer_installation_evidence_is_repo_scoped() -> None:
     responses = {
         "orgs/acme/installations": {

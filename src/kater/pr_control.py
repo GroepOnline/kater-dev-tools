@@ -1260,7 +1260,7 @@ def gate_for_pr(
     policy = policy or load_gate_policy()
     pin = (expected_head_sha or "").strip()
     # Human-only allowlists do not require installation/API evidence.
-    needs_app_lookup = any(
+    needs_app_lookup = bool(pin) and any(
         str(entry).strip().count(":") >= 2
         for entry in policy.independent_reviewer_allowlist
     )
@@ -1327,7 +1327,7 @@ def gate_for_pr(
         required_missing=check_summary["required_missing"],
         pr_state=summary["pr_state"],
     )
-    if reviewer_lookup.failed:
+    if reviewer_lookup.failed and summary["independent_approvals"] < policy.require_approvals:
         result.reasons.append(REASON_REVIEWER_APP_LOOKUP)
         result.verdict = VERDICT_BLOCK
     if required_lookup_failed or check_runs_failed or protection_lookup_failed:

@@ -72,6 +72,7 @@ from kater.pr_control import (
     GatePolicy,
     GitHubPRClient,
     MergeRejected,
+    ReviewerAppLookup,
     _gh_environ,
     _pr_client,
     count_independent_approvals,
@@ -1267,6 +1268,51 @@ def test_reviewer_lookup_failure_blocks_gate() -> None:
     result = gate_for_pr(client, _pr(), policy=policy, expected_head_sha="a" * 40)
     assert result.verdict == BLOCK
     assert REVIEWER_APP_LOOKUP in result.reasons
+
+
+def test_mixed_app_lookup_failure_accepts_allowlisted_human_approval() -> None:
+    class Client(GitHubPRClient):
+        def trusted_reviewer_app_identities(self, reviews=None):
+            return ReviewerAppLookup(frozenset(), True)
+
+        def is_base_protected(self, branch: str) -> bool:
+            return False
+
+        def required_status_contexts(self, branch: str) -> list[str]:
+            return []
+
+        def commit_check_runs(self, sha: str) -> list[dict[str, Any]]:
+            return []
+
+    policy = GatePolicy(
+        independent_reviewer_allowlist=("reviewer", "reviewer-app:17:23")
+    )
+    client = Client(repo="acme/repo", runner=lambda args: None)
+    result = gate_for_pr(client, _pr(), policy=policy, expected_head_sha="a" * 40)
+    assert result.verdict == PASS
+    assert REVIEWER_APP_LOOKUP not in result.reasons
+
+
+def test_pinless_gate_skips_reviewer_app_lookup() -> None:
+    class Client(GitHubPRClient):
+        def trusted_reviewer_app_identities(self, reviews=None):
+            raise AssertionError("pinless gate must not query reviewer App installations")
+
+        def is_base_protected(self, branch: str) -> bool:
+            return False
+
+        def required_status_contexts(self, branch: str) -> list[str]:
+            return []
+
+        def commit_check_runs(self, sha: str) -> list[dict[str, Any]]:
+            return []
+
+    policy = GatePolicy(
+        independent_reviewer_allowlist=("reviewer", "reviewer-app:17:23")
+    )
+    client = Client(repo="acme/repo", runner=lambda args: None)
+    result = gate_for_pr(client, _pr(), policy=policy)
+    assert REVIEWER_APP_LOOKUP not in result.reasons
 
 
 def test_reviewer_installation_pagination_is_bounded() -> None:

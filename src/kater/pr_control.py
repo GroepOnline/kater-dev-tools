@@ -795,7 +795,8 @@ class GitHubPRClient:
             approved = {
                 _normalize_login(_review_login(r))
                 for r in (reviews or [])
-                if isinstance(r, dict) and str(r.get("state", "")).upper() == "APPROVED"
+                if isinstance(r, dict)
+                and str(r.get("state") or r.get("decision") or "").upper() == "APPROVED"
             }
             result: set[str] = set()
             for item in installations:

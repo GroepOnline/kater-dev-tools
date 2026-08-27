@@ -1257,6 +1257,10 @@ def test_installed_app_without_matching_approved_review_is_ignored() -> None:
     assert client.trusted_reviewer_app_identities([ghost]).identities == {
         "reviewer-app:17:23"
     }
+    decision_only = {"author": {"login": "reviewer-app[bot]"}, "decision": "APPROVED"}
+    assert client.trusted_reviewer_app_identities([decision_only]).identities == {
+        "reviewer-app:17:23"
+    }
 
 
 def test_uppercase_sha_pin_is_normalized_for_review_and_gate() -> None:

@@ -30,6 +30,7 @@ EXPECTED_SKILLS = {
     "kater-dev-tools-local-verify",
     "kater-dev-tools-parallel-lanes",
     "pr-gate",
+    "pr-review-log",
 }
 EXPECTED_AGENTS = {"ci-fixer", "kater-verify", "parallel-lane", "pr-gate"}
 

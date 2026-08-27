@@ -404,16 +404,20 @@ def count_independent_approvals(
     for login, state in latest_state.items():
         if state != "APPROVED":
             continue
-        if allow and login not in allow and not any(
-            value.startswith(f"{login.removesuffix('[bot]')}:") and value in allow
-            for value in trusted_apps
-        ):
+        # An App identity is only credited to its exact "<slug>[bot]" login.
+        # A trusted "slug:app_id:installation_id" triple matches only when the
+        # reviewing login is that bot; non-bot logins never map to an App.
+        app_identity = ""
+        if login.endswith("[bot]"):
+            slug_prefix = f"{login.removesuffix('[bot]')}:"
+            app_identity = next(
+                (v for v in trusted_apps if v.startswith(slug_prefix)), ""
+            )
+        if allow and login not in allow and app_identity not in allow:
             continue
         if policy.reject_author_approval and author and login == author:
             continue
         review = latest_review[login]
-        app_identity = f"{login.removesuffix('[bot]')}:" if login.endswith('[bot]') else ""
-        app_identity = next((v for v in trusted_apps if v.startswith(app_identity)), "")
         if policy.reject_bot_approval and (
             login in deny or app_identity in deny
             or (_review_is_bot(review, login) and app_identity not in allow)
@@ -444,6 +448,7 @@ def _collapse(
         REASON_REPO_DENIED,
         REASON_MISSING_HEAD_SHA,
         REASON_REQUIRED_CHECK_LOOKUP,
+        REASON_REVIEWER_APP_LOOKUP,
     }
     if policy.block_drafts:
         blocking_here.add(REASON_DRAFT)

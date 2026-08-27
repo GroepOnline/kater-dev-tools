@@ -1,12 +1,11 @@
 # .reviews/skills
 
-Portable, repo-agnostic skills kept **outside** `.cursor/skills/` on purpose.
+Portable mirrors of repo skills for reuse outside this repository.
 
-`.cursor/skills/` is coupled to a generated index (`.cursor/INDEX.md`,
-`.cursor/skills/.index.yaml` via `scripts/generate_cursor_index.py`) and guarded
-in CI by `scripts/check_cursor_artifacts.sh` and `tests/test_cursor_skills.py`.
-Skills here have no such coupling, so they can be copied into any repo as a
-starting point.
+`.cursor/skills/` is the repository source of truth and is coupled to the generated
+Cursor index. `scripts/check_cursor_artifacts.sh` requires each mirrored skill here
+to stay byte-for-byte identical to its `.cursor/skills/` source, preventing the two
+locations from drifting while keeping a portable copy available.
 
 ## How to reuse a skill elsewhere
 

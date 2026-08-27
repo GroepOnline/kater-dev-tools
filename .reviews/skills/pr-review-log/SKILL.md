@@ -25,10 +25,10 @@ last_reviewed: '2026-08-27'
 
 # pr-review-log
 
-Reusable review + logging skill. Portable: this lives under `.reviews/skills/`
-so it does not depend on the generated `.cursor/` index. To activate it in a
-repo, copy this folder to `.cursor/skills/pr-review-log/` and regenerate the
-index (`python3 scripts/generate_cursor_index.py`) — see the README below.
+Reusable review + logging skill. `.cursor/skills/pr-review-log/SKILL.md` is the
+repository source of truth. `.reviews/skills/pr-review-log/SKILL.md` is a portable
+mirror checked byte-for-byte by `scripts/check_cursor_artifacts.sh`; regenerate
+the Cursor index after any source edit (`python3 scripts/generate_cursor_index.py`).
 
 ## Procedure
 

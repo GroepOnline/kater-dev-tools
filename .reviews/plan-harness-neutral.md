@@ -33,8 +33,8 @@ separate, dedicated PR. This file records both so the next session can pick up.
       not scanned by the `validate` JSON/YAML check (`.github/workflows/ci.yml:49-70`
       covers only `*.json` and `.github/**/*.yml`).
 - [x] Promote `pr-review-log` to `.cursor/skills/pr-review-log/SKILL.md` with a
-      cross-link, keeping the portable copy under `.reviews/skills/` as the
-      harness-neutral source.
+      cross-link, keeping `.cursor/skills/` authoritative and the portable copy under
+      `.reviews/skills/` as a CI-checked mirror.
 
 ## Next PR — de-`.cursor`-ification (harness-neutral)
 

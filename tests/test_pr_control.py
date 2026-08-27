@@ -105,12 +105,12 @@ def _pr(**overrides: Any) -> dict[str, Any]:
         "reviewThreads": [],
         "commits": [{"oid": "abc123"}],
         "baseRefOid": "base000",
-        "headRefOid": "head000",
+        "headRefOid": "a" * 40,
         "latestReviews": [
             {
                 "author": {"login": "reviewer"},
-                "state": "APPROVED",
-                "commit": {"oid": "head000"},
+                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "commit": {"oid": "a" * 40},
             }
         ],
     }
@@ -472,7 +472,7 @@ def test_summarize_pr_aggregates_threads_and_checks() -> None:
     assert summ["open_threads"] == 2
     assert summ["pending_checks"] == 2
     assert summ["approving_reviews"] == 1
-    assert summ["head_sha"] == "head000"
+    assert summ["head_sha"] == "a" * 40
     assert summ["base_sha"] == "base000"
 
 
@@ -526,7 +526,7 @@ def test_tools_read_only_no_subprocess(monkeypatch) -> None:
     assert listing["count"] == 1
     status = pr_status_tool(42)
     assert status["gate"]["verdict"] == PASS
-    gate = pr_gate_tool(42, expected_head_sha="head000")
+    gate = pr_gate_tool(42, expected_head_sha="a" * 40)
     assert gate["verdict"] == PASS
     assert gate["details"]["head_sha_matches"] is True
     gate_mismatch = pr_gate_tool(42, expected_head_sha="wrong")
@@ -674,7 +674,7 @@ def test_merge_pr_refuses_non_pass_gate(monkeypatch) -> None:
 
     monkeypatch.setattr("kater.storage.record_gate_audit", fake_audit)
     try:
-        merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+        merge_pr(42, expected_head_sha="a" * 40, actor="ci-bot")
     except MergeRejected as exc:
         assert "BLOCK" in str(exc)
     else:
@@ -724,7 +724,7 @@ def test_merge_pr_applies_on_pass(monkeypatch) -> None:
     )
     audit: list[dict[str, Any]] = []
     monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: 1 and audit.append(kw))
-    result = merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+    result = merge_pr(42, expected_head_sha="a" * 40, actor="ci-bot")
     assert result["merged"] is True
     assert any("merge" in a and "--squash" in a for a in records)
     assert audit[-1]["action"] == "merge_applied"
@@ -751,7 +751,7 @@ def test_merge_pr_includes_match_head_commit_and_handles_failure(monkeypatch) ->
 
     # Merge failure is surfaced as RuntimeError.
     try:
-        merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+        merge_pr(42, expected_head_sha="a" * 40, actor="ci-bot")
     except RuntimeError as exc:
         assert "merge conflict" in str(exc)
     else:
@@ -760,7 +760,7 @@ def test_merge_pr_includes_match_head_commit_and_handles_failure(monkeypatch) ->
     # --match-head-commit was included in the gh command.
     merge_calls = [a for a in records if "merge" in a]
     assert merge_calls, "gh pr merge was never called"
-    assert any("--match-head-commit" in a and "head000" in a for a in merge_calls), (
+    assert any("--match-head-commit" in a and "a" * 40 in a for a in merge_calls), (
         f"--match-head-commit head000 not found in args: {merge_calls}"
     )
 
@@ -775,11 +775,11 @@ def test_pr_merge_tool_returns_merge_result(monkeypatch) -> None:
         lambda number, expected_head_sha="", actor="", repo="": {
             "merged": True,
             "pr_number": number,
-            "head_sha": expected_head_sha or "head000",
+            "head_sha": expected_head_sha or "a" * 40,
             "repo": repo,
         },
     )
-    out = pr_merge_tool(42, expected_head_sha="head000", repo="o/r")
+    out = pr_merge_tool(42, expected_head_sha="a" * 40, repo="o/r")
     assert out["merged"] is True
     assert out["repo"] == "o/r"
 
@@ -947,10 +947,10 @@ def test_count_independent_approvals_rejects_author_bot_fixer() -> None:
         fixer_logins=("agent-fixer",),
     )
     reviews = [
-        {"author": {"login": "alice"}, "state": "APPROVED"},
-        {"author": {"login": "bob"}, "state": "APPROVED"},
-        {"author": {"login": "dependabot[bot]"}, "state": "APPROVED"},
-        {"author": {"login": "agent-fixer"}, "state": "APPROVED"},
+        {"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
+        {"author": {"login": "bob"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
+        {"author": {"login": "dependabot[bot]"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
+        {"author": {"login": "agent-fixer"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
     ]
     assert (
         count_independent_approvals(reviews, author_login="alice", policy=policy, fixer_logins=())
@@ -961,8 +961,8 @@ def test_count_independent_approvals_rejects_author_bot_fixer() -> None:
 def test_count_independent_approvals_honor_allowlist() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-one",))
     reviews = [
-        {"author": {"login": "reviewer-one"}, "state": "APPROVED"},
-        {"author": {"login": "other-human"}, "state": "APPROVED"},
+        {"author": {"login": "reviewer-one"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
+        {"author": {"login": "other-human"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
     ]
     assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 1
 
@@ -970,20 +970,20 @@ def test_count_independent_approvals_honor_allowlist() -> None:
 def test_app_allowlist_never_maps_human_slug_or_unrelated_human() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     reviews = [
-        {"author": {"login": "reviewer-app"}, "state": "APPROVED", "commit_id": "head"},
-        {"author": {"login": "someone"}, "state": "APPROVED", "commit_id": "head"},
+        {"author": {"login": "reviewer-app"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40},
+        {"author": {"login": "someone"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40},
     ]
     assert count_independent_approvals(
         reviews, author_login="alice", policy=policy,
-        expected_head_sha="head", trusted_reviewer_apps={"reviewer-app:17:23"},
+        expected_head_sha="a" * 40, trusted_reviewer_apps={"reviewer-app:17:23"},
     ) == 0
 
 
 def test_at_allowlist_entries_are_normalized() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("@alice",))
     assert count_independent_approvals(
-        [{"author": {"login": "alice"}, "state": "APPROVED", "commit_id": "head"}],
-        author_login="other", policy=policy, expected_head_sha="head",
+        [{"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40}],
+        author_login="other", policy=policy, expected_head_sha="a" * 40,
     ) == 1
 
 
@@ -991,7 +991,7 @@ def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     review = {
         "author": {"login": "reviewer-app[bot]", "is_bot": False},
-        "state": "APPROVED",
+        "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
         "commit_id": "a" * 40,
     }
     assert count_independent_approvals(
@@ -1013,18 +1013,18 @@ def test_reviewer_app_identity_not_credited_to_matching_human_login() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     review = {
         "author": {"login": "reviewer-app", "is_bot": False},
-        "state": "APPROVED",
-        "commit_id": "head",
+        "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+        "commit_id": "a" * 40,
     }
     assert count_independent_approvals(
         [review], author_login="alice", policy=policy,
-        expected_head_sha="head", trusted_reviewer_apps={"reviewer-app:17:23"}
+        expected_head_sha="a" * 40, trusted_reviewer_apps={"reviewer-app:17:23"}
     ) == 0
 
 
 def test_reviewer_allowlist_login_tolerates_leading_at() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("@alice",))
-    review = {"author": {"login": "alice"}, "state": "APPROVED"}
+    review = {"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"}
     assert count_independent_approvals(
         [review], author_login="bob", policy=policy
     ) == 1
@@ -1073,18 +1073,18 @@ def test_count_independent_approvals_pins_review_commit_oid() -> None:
     reviews = [
         {
             "author": {"login": "bob"},
-            "state": "APPROVED",
+            "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
             "commit": {"oid": "old000"},
         },
         {
             "author": {"login": "carol"},
-            "state": "APPROVED",
-            "commit": {"oid": "head000"},
+            "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit": {"oid": "a" * 40},
         },
     ]
     assert (
         count_independent_approvals(
-            reviews, author_login="alice", policy=policy, expected_head_sha="head000"
+            reviews, author_login="alice", policy=policy, expected_head_sha="a" * 40
         )
         == 1
     )
@@ -1126,7 +1126,7 @@ def test_unprotected_base_does_not_emit_base_protected() -> None:
 def test_summarize_pr_push_identity_approve_counts_when_not_author() -> None:
     from kater.pr_control import _summarize_pr
 
-    head = "head000"
+    head = "a" * 40
     pr = _pr(
         author={"login": "api-author"},
         headRefOid=head,
@@ -1140,14 +1140,14 @@ def test_summarize_pr_push_identity_approve_counts_when_not_author() -> None:
         reviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED",
+                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": head},
             }
         ],
         latestReviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED",
+                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": ""},
             }
         ],
@@ -1161,7 +1161,7 @@ def test_summarize_pr_push_identity_approve_counts_when_not_author() -> None:
 def test_summarize_pr_named_fixer_and_bot_still_rejected() -> None:
     from kater.pr_control import _summarize_pr
 
-    head = "head000"
+    head = "a" * 40
     policy = GatePolicy(fixer_logins=("agent-fixer",))
     pr = _pr(
         author={"login": "api-author"},
@@ -1171,12 +1171,12 @@ def test_summarize_pr_named_fixer_and_bot_still_rejected() -> None:
         reviews=[
             {
                 "author": {"login": "agent-fixer"},
-                "state": "APPROVED",
+                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": head},
             },
             {
                 "author": {"login": "cursoragent"},
-                "state": "APPROVED",
+                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": head},
             },
         ],
@@ -1232,18 +1232,18 @@ def test_gate_for_pr_does_not_lookup_fail_when_check_runs_are_get() -> None:
     )
     pr = _pr(
         author={"login": "api-author"},
-        headRefOid="head000",
+        headRefOid="a" * 40,
         reviewDecision="APPROVED",
-        commits=[{"oid": "head000", "authors": [{"login": "ssh-pusher"}]}],
+        commits=[{"oid": "a" * 40, "authors": [{"login": "ssh-pusher"}]}],
         reviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED",
-                "commit": {"oid": "head000"},
+                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "commit": {"oid": "a" * 40},
             }
         ],
     )
-    res = gate_for_pr(client, pr, expected_head_sha="head000")
+    res = gate_for_pr(client, pr, expected_head_sha="a" * 40)
     assert REQUIRED_CHECK_LOOKUP not in res.reasons
     assert NO_REVIEWS not in res.reasons
     assert res.verdict == PASS
@@ -1274,17 +1274,17 @@ def test_gate_for_pr_protected_base_passes_by_default() -> None:
     )
     pr = _pr(
         author={"login": "api-author"},
-        headRefOid="head000",
+        headRefOid="a" * 40,
         reviewDecision="APPROVED",
         reviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED",
-                "commit": {"oid": "head000"},
+                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "commit": {"oid": "a" * 40},
             }
         ],
     )
-    res = gate_for_pr(client, pr, expected_head_sha="head000")
+    res = gate_for_pr(client, pr, expected_head_sha="a" * 40)
     assert BASE_PROTECTED not in res.reasons
     assert res.verdict == PASS
 
@@ -1307,18 +1307,18 @@ def test_gate_for_pr_protected_base_blocks_when_opted_in() -> None:
     )
     pr = _pr(
         author={"login": "api-author"},
-        headRefOid="head000",
+        headRefOid="a" * 40,
         reviewDecision="APPROVED",
         reviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED",
-                "commit": {"oid": "head000"},
+                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "commit": {"oid": "a" * 40},
             }
         ],
     )
     res = gate_for_pr(
-        client, pr, expected_head_sha="head000", policy=GatePolicy(block_base_protected=True)
+        client, pr, expected_head_sha="a" * 40, policy=GatePolicy(block_base_protected=True)
     )
     assert BASE_PROTECTED in res.reasons
     assert res.verdict == BLOCK
@@ -1340,7 +1340,7 @@ def test_summarize_pr_flags_p1_label_and_failed_check() -> None:
         labels=[{"name": "P1"}],
         statusCheckRollup=[{"status": "COMPLETED", "conclusion": "FAILURE", "name": "ci"}],
         author={"login": "alice"},
-        reviews=[{"author": {"login": "alice"}, "state": "APPROVED"}],
+        reviews=[{"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"}],
     )
     summ = _summarize_pr(pr)
     assert summ["p1_latch_open"] is True
@@ -1444,7 +1444,7 @@ def test_merge_pr_refuses_denied_repo(monkeypatch) -> None:
     audit: list[dict[str, Any]] = []
     monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: audit.append(kw) or 1)
     try:
-        merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+        merge_pr(42, expected_head_sha="a" * 40, actor="ci-bot")
     except MergeRejected as exc:
         assert "not allowed" in str(exc)
     else:
@@ -1462,7 +1462,7 @@ def test_merge_pr_refuses_missing_plane(monkeypatch) -> None:
     audit: list[dict[str, Any]] = []
     monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: audit.append(kw) or 1)
     try:
-        merge_pr(42, expected_head_sha="head000", actor="ci-bot")
+        merge_pr(42, expected_head_sha="a" * 40, actor="ci-bot")
     except MergeRejected as exc:
         assert "plane is not company-control" in str(exc)
     else:
@@ -1487,7 +1487,7 @@ def test_pr_gate_skill_is_notify_first() -> None:
 GRAPHQL_DIAL = "Post https://api.github.com/graphql: dial tcp 4.225.11.201:443: i/o timeout"
 
 
-def _rest_pr_payload(*, merged: bool = False, sha: str = "head000") -> dict[str, Any]:
+def _rest_pr_payload(*, merged: bool = False, sha: str = "a" * 40) -> dict[str, Any]:
     return {
         "number": 42,
         "title": "demo pr",
@@ -1523,9 +1523,9 @@ def test_pull_request_retries_transient_then_rest_success() -> None:
                 return _fail(GRAPHQL_DIAL)
             return _ok(_rest_pr_payload())
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "commit_id": "head000"}])
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40}])
         if path.endswith("/commits"):
-            return _ok([{"sha": "head000", "author": {"login": "alice"}}])
+            return _ok([{"sha": "a" * 40, "author": {"login": "alice"}}])
         if args[1] == "graphql":
             return _ok(
                 json.loads(_graphql_threads_payload([{"isResolved": True, "isOutdated": False}]))
@@ -1538,7 +1538,7 @@ def test_pull_request_retries_transient_then_rest_success() -> None:
         transport=TransportConfig(extra_retries=2, sleeper=lambda _: None, rng=lambda: 0.5),
     )
     pr = client.pull_request(42)
-    assert pr["headRefOid"] == "head000"
+    assert pr["headRefOid"] == "a" * 40
     assert pr["reviewThreads"] == [{"isResolved": True, "isOutdated": False}]
     assert sum(1 for c in calls if c.endswith("/pulls/42")) == 3
 
@@ -1659,7 +1659,7 @@ def test_merge_pr_timeout_does_not_retry_write_and_reconciles(monkeypatch) -> No
         if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
             return _ok(_rest_pr_payload(merged=state["merged"]))
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "commit_id": "head000"}])
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40}])
         if path.endswith("/commits"):
             return _ok([])
         if "check-runs" in path:
@@ -1679,7 +1679,7 @@ def test_merge_pr_timeout_does_not_retry_write_and_reconciles(monkeypatch) -> No
     audit: list[dict[str, Any]] = []
     monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: audit.append(kw) or 1)
 
-    result = merge_pr(42, expected_head_sha="head000", actor="ci-bot", repo="o/r")
+    result = merge_pr(42, expected_head_sha="a" * 40, actor="ci-bot", repo="o/r")
     assert result["merged"] is True
     assert result.get("reconciled") is True
     assert merge_calls["n"] == 1
@@ -1696,7 +1696,7 @@ def test_merge_pr_timeout_reconcile_unproven_fails_closed(monkeypatch) -> None:
         if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
             return _ok(_rest_pr_payload(merged=False))
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "commit_id": "head000"}])
+            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40}])
         if path.endswith("/commits"):
             return _ok([])
         if "check-runs" in path:
@@ -1718,7 +1718,7 @@ def test_merge_pr_timeout_reconcile_unproven_fails_closed(monkeypatch) -> None:
     audit: list[dict[str, Any]] = []
     monkeypatch.setattr("kater.storage.record_gate_audit", lambda **kw: audit.append(kw) or 1)
     try:
-        merge_pr(42, expected_head_sha="head000", actor="ci-bot", repo="o/r")
+        merge_pr(42, expected_head_sha="a" * 40, actor="ci-bot", repo="o/r")
     except RuntimeError as exc:
         assert "not proven merged" in str(exc)
     else:
@@ -1740,7 +1740,7 @@ def test_list_pull_requests_uses_rest_when_repo_set() -> None:
     )
     rows = client.list_pull_requests(limit=5)
     assert len(rows) == 1
-    assert rows[0]["headRefOid"] == "head000"
+    assert rows[0]["headRefOid"] == "a" * 40
     assert rows[0]["gateFieldsIncomplete"] is True
     assert any("pulls" in c for c in captured)
     assert not any(c.startswith("pr list") for c in captured)

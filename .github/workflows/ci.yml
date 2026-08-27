@@ -22,14 +22,16 @@ permissions:
   contents: read
 
 jobs:
-  # INTERIM / P1 (GRO-1209): pr-isolated and heavy are persistent chef-ci
-  # listeners, not ephemeral job sandboxes. Listener credentials remain in
-  # the guest; workspace wipe is not a HOME/process boundary. Do not treat
-  # this lane as production-safe isolation. GitHub-hosted runners stay banned
-  # until Actions spending is restored. PR → pr-isolated; else → heavy.
+  # HISTORY / P1 (GRO-1209): this public repo previously pinned CI to the
+  # self-hosted pr-isolated and heavy chef-ci listeners. Those are persistent
+  # listeners, not ephemeral job sandboxes: listener credentials remain in the
+  # guest and a workspace wipe is not a HOME/process boundary, so that lane was
+  # never production-safe isolation. Now that Actions spending is restored, all
+  # public jobs run on GitHub-hosted ubuntu-latest; only lanes needing private
+  # fleet access should opt back into self-hosted labels. INTERIM note kept for
+  # audit trail.
   # ── validate: lockfile, config, generated files, docs, metadata ────────
   validate:
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -105,7 +107,6 @@ jobs:
 
   # ── lint-type: ruff, format, mypy on the 3.11 syntax baseline ──────────
   lint-type:
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -132,7 +133,6 @@ jobs:
   # ── unit: matrix across supported Python versions ─────────────────────
   unit:
     needs: [validate]
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -176,7 +176,6 @@ jobs:
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──
   integration:
     needs: [validate]
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -204,7 +203,6 @@ jobs:
   # auditable skip while the public unit/integration/e2e gates remain required.
   computer-acceptance:
     needs: [validate]
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -281,7 +279,6 @@ jobs:
   # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
   e2e:
     needs: [unit, integration, computer-acceptance]
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -323,7 +320,6 @@ jobs:
   # ── package: wheel/sdist build + clean-venv install smoke ─────────────
   package:
     needs: [validate]
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -366,7 +362,6 @@ jobs:
   #  python + actions, so we don't upload a second SARIF here.)
   security-pr:
     needs: [validate]
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -419,7 +414,6 @@ jobs:
   # ── coverage: project-wide coverage gate (runs the full test suite) ──
   coverage:
     needs: [validate]
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -461,7 +455,6 @@ jobs:
       - package
       - security-pr
       - coverage
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
@@ -504,7 +497,6 @@ jobs:
       - package
       - security-pr
       - gate
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()

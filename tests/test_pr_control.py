@@ -1259,6 +1259,55 @@ def test_installed_app_without_matching_approved_review_is_ignored() -> None:
     }
 
 
+def test_uppercase_sha_pin_is_normalized_for_review_and_gate() -> None:
+    policy = GatePolicy()
+    pr = _pr()
+    reviews = pr["latestReviews"]
+    assert count_independent_approvals(
+        reviews, author_login="alice", policy=policy, expected_head_sha=("A" * 40)
+    ) == 1
+
+    class Client(GitHubPRClient):
+        def is_base_protected(self, branch: str) -> bool:
+            return False
+        def required_status_contexts(self, branch: str) -> list[str]:
+            return []
+        def commit_check_runs(self, sha: str) -> list[dict[str, Any]]:
+            return []
+
+    result = gate_for_pr(
+        Client(repo="acme/repo", runner=lambda args: None),
+        pr,
+        policy=policy,
+        expected_head_sha="A" * 40,
+    )
+    assert result.details["head_sha_matches"] is True
+
+
+def test_reviewer_lookup_uses_repository_from_pr_url_when_client_repo_is_missing() -> None:
+    calls: list[str] = []
+    class Client(GitHubPRClient):
+        def trusted_reviewer_app_identities(self, reviews=None, repository=""):
+            calls.append(repository)
+            return ReviewerAppLookup(frozenset())
+        def is_base_protected(self, branch: str) -> bool:
+            return False
+        def required_status_contexts(self, branch: str) -> list[str]:
+            return []
+        def commit_check_runs(self, sha: str) -> list[dict[str, Any]]:
+            return []
+
+    policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
+    result = gate_for_pr(
+        Client(repo=None, runner=lambda args: None),
+        _pr(url="https://github.com/acme/repo/pull/42"),
+        policy=policy,
+        expected_head_sha="a" * 40,
+    )
+    assert calls == ["acme/repo"]
+    assert REVIEWER_APP_LOOKUP not in result.reasons
+
+
 def test_reviewer_lookup_failure_blocks_gate() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     client = GitHubPRClient(
@@ -1272,7 +1321,7 @@ def test_reviewer_lookup_failure_blocks_gate() -> None:
 
 def test_mixed_app_lookup_failure_accepts_allowlisted_human_approval() -> None:
     class Client(GitHubPRClient):
-        def trusted_reviewer_app_identities(self, reviews=None):
+        def trusted_reviewer_app_identities(self, reviews=None, repository=""):
             return ReviewerAppLookup(frozenset(), True)
 
         def is_base_protected(self, branch: str) -> bool:
@@ -1295,7 +1344,7 @@ def test_mixed_app_lookup_failure_accepts_allowlisted_human_approval() -> None:
 
 def test_pinless_gate_skips_reviewer_app_lookup() -> None:
     class Client(GitHubPRClient):
-        def trusted_reviewer_app_identities(self, reviews=None):
+        def trusted_reviewer_app_identities(self, reviews=None, repository=""):
             raise AssertionError("pinless gate must not query reviewer App installations")
 
         def is_base_protected(self, branch: str) -> bool:

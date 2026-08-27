@@ -381,7 +381,7 @@ def count_independent_approvals(
     login from the PR author, and treating it as a fixer self-rejects the
     independent reviewer.
     """
-    pin = (expected_head_sha or "").strip()
+    pin = (expected_head_sha or "").strip().lower()
     # Independent credit is never safe without a real immutable head pin.
     if not _SHA40.fullmatch(pin):
         return 0
@@ -429,7 +429,7 @@ def count_independent_approvals(
     deny = _login_set(policy.independent_reviewer_denylist)
     fixers = _login_set(policy.fixer_logins) | _login_set(fixer_logins)
     author = _normalize_login(author_login)
-    pin = (expected_head_sha or "").strip()
+    pin = (expected_head_sha or "").strip().lower()
     count = 0
     for login, state in latest_state.items():
         if state != "APPROVED":
@@ -458,7 +458,7 @@ def count_independent_approvals(
             continue
         if policy.reject_fixer_approval and (login in fixers or app_identity in fixers):
             continue
-        if pin and _review_commit_oid(review) != pin:
+        if _review_commit_oid(review).lower() != pin:
             continue
         count += 1
     return count
@@ -761,13 +761,15 @@ class GitHubPRClient:
         return pr
 
     def trusted_reviewer_app_identities(
-        self, reviews: list[dict[str, Any]] | None = None
+        self,
+        reviews: list[dict[str, Any]] | None = None,
+        repository: str = "",
     ) -> ReviewerAppLookup:
         """Return provider-verified App identities installed for this repo.
 
         Missing/failed provider evidence is deliberately empty (fail closed).
         """
-        repo = getattr(self, "repo", None)
+        repo = (repository or getattr(self, "repo", None) or "").strip()
         if not repo or "/" not in repo:
             return ReviewerAppLookup(frozenset(), True)
         owner = repo.split("/", 1)[0]
@@ -1197,7 +1199,7 @@ def _summarize_pr(
     trusted_reviewer_apps: set[str] | None = None,
 ) -> dict[str, Any]:
     policy = policy or GatePolicy()
-    pin = (expected_head_sha or "").strip()
+    pin = (expected_head_sha or "").strip().lower()
     threads = pr.get("reviewThreads") or []
     open_threads = sum(1 for t in threads if not t.get("isResolved"))
     checks = [c for c in (pr.get("statusCheckRollup") or []) if isinstance(c, dict)]
@@ -1258,14 +1260,19 @@ def gate_for_pr(
     expected_head_sha: str = "",
 ) -> GateResult:
     policy = policy or load_gate_policy()
-    pin = (expected_head_sha or "").strip()
+    pin = (expected_head_sha or "").strip().lower()
     # Human-only allowlists do not require installation/API evidence.
     needs_app_lookup = bool(pin) and any(
         str(entry).strip().count(":") >= 2
         for entry in policy.independent_reviewer_allowlist
     )
+    lookup_repo = (
+        getattr(client, "repo", None)
+        or repo_from_url(str(pr.get("url") or ""))
+        or ""
+    ).strip()
     reviewer_lookup = (
-        client.trusted_reviewer_app_identities(_review_list(pr))
+        client.trusted_reviewer_app_identities(_review_list(pr), repository=lookup_repo)
         if needs_app_lookup
         else ReviewerAppLookup(frozenset())
     )
@@ -1341,7 +1348,7 @@ def gate_for_pr(
         )
     if pin:
         result.details["expected_head_sha"] = pin
-        matches = head_sha == pin if head_sha else None
+        matches = head_sha.lower() == pin if head_sha else None
         result.details["head_sha_matches"] = matches
         if matches is not True:
             if REASON_HEAD_STALE not in result.reasons:
@@ -1510,7 +1517,7 @@ def merge_pr(
     from kater.storage import record_gate_audit
 
     policy = policy or load_gate_policy()
-    pinned = (expected_head_sha or "").strip()
+    pinned = (expected_head_sha or "").strip().lower()
     client = _pr_client(repo)
     pr = client.pull_request(number)
     repo = (getattr(client, "repo", None) or repo_from_url(str(pr.get("url") or "")) or "").strip()
@@ -1559,7 +1566,7 @@ def merge_pr(
         )
         raise MergeRejected(f"merge blocked: verdict={verdict} reasons={reasons}")
 
-    if not head or head != pinned:
+    if not head or head.lower() != pinned:
         record_gate_audit(
             action="merge_rejected",
             pr_number=number,

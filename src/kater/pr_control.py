@@ -7,6 +7,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
@@ -382,9 +383,23 @@ def count_independent_approvals(
     """
     latest_state: dict[str, str] = {}
     latest_review: dict[str, dict[str, Any]] = {}
-    for review in reviews:
-        if not isinstance(review, dict):
-            continue
+    # GitHub normally returns chronological reviews, but that ordering is not
+    # a trust boundary. Sort by provider timestamp and use canonical content
+    # as a deterministic tie-breaker; undated reviews are oldest.
+    def review_order(review: dict[str, Any]) -> tuple[int, str, str]:
+        raw = str(
+            review.get("submittedAt")
+            or review.get("submitted_at")
+            or review.get("createdAt")
+            or ""
+        )
+        try:
+            stamp = datetime.fromisoformat(raw.replace("Z", "+00:00")).isoformat()
+        except ValueError:
+            stamp = ""
+        return (bool(stamp), stamp, json.dumps(review, sort_keys=True, default=str))
+
+    for review in sorted((r for r in reviews if isinstance(r, dict)), key=review_order):
         login = _normalize_login(_review_login(review))
         if not login:
             continue

@@ -31,6 +31,7 @@
 | `kater-gateway` | `.cursor/skills/kater-gateway/SKILL.md` | Start, configure, and verify the Kater MCP gateway locally or in cloud. |
 | `kater-poteto-mode` | `.cursor/skills/kater-poteto-mode/SKILL.md` | Kater facts for /poteto-mode. |
 | `pr-gate` | `.cursor/skills/pr-gate/SKILL.md` | Evaluate and fix one PR until merge-ready using Kater PR gate rules and gh. |
+| `pr-review-log` | `.cursor/skills/pr-review-log/SKILL.md` | Review a PR, fix root-cause bugs, and record review + continual-learning + session log. |
 
 ## Agents
 

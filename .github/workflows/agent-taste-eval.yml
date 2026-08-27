@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   eval:
-    runs-on: ${{ fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read

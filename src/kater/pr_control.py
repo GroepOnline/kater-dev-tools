@@ -391,7 +391,7 @@ def count_independent_approvals(
         latest_review[login] = review
 
     allow = {
-        str(v).strip().lower()
+        _normalize_login(v)
         for v in policy.independent_reviewer_allowlist
         if str(v).strip()
     }

@@ -31,6 +31,7 @@ EXPECTED_SKILLS = {
     "kater-dev-tools-parallel-lanes",
     "kater-poteto-mode",
     "pr-gate",
+    "pr-review-log",
 }
 EXPECTED_AGENTS = {"ci-fixer", "kater-verify", "parallel-lane", "pr-gate"}
 

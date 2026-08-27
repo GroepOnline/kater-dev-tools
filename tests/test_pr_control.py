@@ -1092,6 +1092,26 @@ def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
     )
 
 
+def test_ambiguous_app_slug_prefix_is_not_credited() -> None:
+    policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
+    review = {
+        "author": {"login": "reviewer-app[bot]", "is_bot": True},
+        "state": "APPROVED",
+        "submittedAt": "2026-08-27T10:00:00+00:00",
+        "commit_id": "a" * 40,
+    }
+    assert (
+        count_independent_approvals(
+            [review],
+            author_login="alice",
+            policy=policy,
+            expected_head_sha="a" * 40,
+            trusted_reviewer_apps={"reviewer-app:17:23", "reviewer-app:17:99"},
+        )
+        == 0
+    )
+
+
 def test_reviewer_app_identity_not_credited_to_matching_human_login() -> None:
     # A human whose GitHub login equals the App slug must not inherit App credit.
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
@@ -1172,6 +1192,10 @@ def test_installed_app_without_matching_approved_review_is_ignored() -> None:
     assert client.trusted_reviewer_app_identities([other]).identities == frozenset()
     at_prefixed = {"author": {"login": "@Reviewer-App[bot]"}, "state": "APPROVED"}
     assert client.trusted_reviewer_app_identities([at_prefixed]).identities == {
+        "reviewer-app:17:23"
+    }
+    ghost = {"author": None, "authorLogin": "reviewer-app[bot]", "state": "APPROVED"}
+    assert client.trusted_reviewer_app_identities([ghost]).identities == {
         "reviewer-app:17:23"
     }
 
@@ -1936,3 +1960,31 @@ def test_list_gate_unknown_when_rest_reviews_checks_not_fetched(monkeypatch) -> 
     assert GATE_INCOMPLETE in gate["reasons"]
     assert NO_REVIEWS not in gate["reasons"]
     assert gate["details"].get("advisory") is True
+
+
+def test_list_gate_complete_fields_does_not_block_unpinned_approvals() -> None:
+    from kater.pr_control import _list_gate_for_pr
+
+    gate = _list_gate_for_pr(
+        {"gateFieldsIncomplete": False},
+        {
+            "number": 1,
+            "head_sha": "a" * 40,
+            "base_sha": "b" * 40,
+            "mergeable": "MERGEABLE",
+            "draft": False,
+            "open_threads": 0,
+            "pending_checks": 0,
+            "approving_reviews": 1,
+            "failed_checks": 0,
+            "p1_latch_open": False,
+            "independent_approvals": 0,
+            "repo": "acme/repo",
+            "required_failed": 0,
+            "required_pending": 0,
+            "required_missing": 0,
+            "pr_state": "OPEN",
+        },
+    )
+    assert NO_REVIEWS not in gate["reasons"]
+    assert gate["verdict"] != BLOCK

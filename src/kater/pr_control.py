@@ -437,9 +437,8 @@ def count_independent_approvals(
         app_identity = ""
         if login.endswith("[bot]"):
             slug_prefix = f"{login.removesuffix('[bot]')}:"
-            app_identity = next(
-                (v for v in trusted_apps if v.startswith(slug_prefix)), ""
-            )
+            matches = sorted(v for v in trusted_apps if v.startswith(slug_prefix))
+            app_identity = matches[0] if len(matches) == 1 else ""
         # App approvals are independent evidence only when pinned to a real
         # commit; never credit an App on a missing/short caller-supplied pin.
         if app_identity and not _SHA40.fullmatch(pin):
@@ -791,7 +790,7 @@ class GitHubPRClient:
                     break
                 page += 1
             approved = {
-                _normalize_login(str(r.get("author", {}).get("login", "")))
+                _normalize_login(_review_login(r))
                 for r in (reviews or [])
                 if isinstance(r, dict) and str(r.get("state", "")).upper() == "APPROVED"
             }
@@ -1373,7 +1372,9 @@ def _list_gate_for_pr(pr: dict[str, Any], summary: dict[str, Any]) -> dict[str, 
             policy=policy,
             failed_checks=summary.get("failed_checks") or 0,
             p1_latch_open=bool(summary.get("p1_latch_open")),
-            independent_approvals=summary.get("independent_approvals"),
+            # List never supplies a head pin, so independent credit is undefined.
+            # Fall back to reviewDecision-based approving_reviews.
+            independent_approvals=None,
             repo=summary.get("repo") or "",
             required_failed=summary.get("required_failed") or 0,
             required_pending=summary.get("required_pending") or 0,

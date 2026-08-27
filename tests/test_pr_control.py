@@ -109,7 +109,8 @@ def _pr(**overrides: Any) -> dict[str, Any]:
         "latestReviews": [
             {
                 "author": {"login": "reviewer"},
-                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": "a" * 40},
             }
         ],
@@ -487,7 +488,7 @@ def test_gate_for_pr_unknown_mergeable_not_head_stale_when_merged() -> None:
     res = gate_for_pr(client, _pr(state="MERGED", mergeable="UNKNOWN"))
     assert HEAD_STALE not in res.reasons
     assert ALREADY_MERGED in res.reasons
-    assert res.verdict != BLOCK
+    assert res.verdict == BLOCK
 
 
 def test_gate_for_pr_blocks_on_unresolved_threads() -> None:
@@ -525,7 +526,7 @@ def test_tools_read_only_no_subprocess(monkeypatch) -> None:
     listing = pr_list_tool(state="open", limit=5)
     assert listing["count"] == 1
     status = pr_status_tool(42)
-    assert status["gate"]["verdict"] == PASS
+    assert status["gate"]["verdict"] == BLOCK
     gate = pr_gate_tool(42, expected_head_sha="a" * 40)
     assert gate["verdict"] == PASS
     assert gate["details"]["head_sha_matches"] is True
@@ -619,9 +620,7 @@ def test_load_gate_policy_reads_file(tmp_path) -> None:
 
 
 def test_gate_for_pr_loads_overlay_policy(tmp_path, monkeypatch) -> None:
-    (tmp_path / "gate-policy.json").write_text(
-        '{"require_approvals": 3}', encoding="utf-8"
-    )
+    (tmp_path / "gate-policy.json").write_text('{"require_approvals": 3}', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     def fake_runner(args: list[str]) -> Any:
@@ -947,13 +946,31 @@ def test_count_independent_approvals_rejects_author_bot_fixer() -> None:
         fixer_logins=("agent-fixer",),
     )
     reviews = [
-        {"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
-        {"author": {"login": "bob"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
-        {"author": {"login": "dependabot[bot]"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
-        {"author": {"login": "agent-fixer"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
+        {
+            "author": {"login": "alice"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+        },
+        {
+            "author": {"login": "bob"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+        },
+        {
+            "author": {"login": "dependabot[bot]"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+        },
+        {
+            "author": {"login": "agent-fixer"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+        },
     ]
     assert (
-        count_independent_approvals(reviews, author_login="alice", policy=policy, fixer_logins=())
+        count_independent_approvals(
+            reviews, author_login="alice", policy=policy, fixer_logins=(), expected_head_sha="a" * 40
+        )
         == 1
     )
 
@@ -961,51 +978,108 @@ def test_count_independent_approvals_rejects_author_bot_fixer() -> None:
 def test_count_independent_approvals_honor_allowlist() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-one",))
     reviews = [
-        {"author": {"login": "reviewer-one"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
-        {"author": {"login": "other-human"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"},
+        {
+            "author": {"login": "reviewer-one"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+        },
+        {
+            "author": {"login": "other-human"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+        },
     ]
-    assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 1
+    assert count_independent_approvals(
+        reviews, author_login="alice", policy=policy, expected_head_sha="a" * 40
+    ) == 1
 
 
 def test_app_allowlist_never_maps_human_slug_or_unrelated_human() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     reviews = [
-        {"author": {"login": "reviewer-app"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40},
-        {"author": {"login": "someone"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40},
+        {
+            "author": {"login": "reviewer-app"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
+        },
+        {
+            "author": {"login": "someone"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
+        },
     ]
-    assert count_independent_approvals(
-        reviews, author_login="alice", policy=policy,
-        expected_head_sha="a" * 40, trusted_reviewer_apps={"reviewer-app:17:23"},
-    ) == 0
+    assert (
+        count_independent_approvals(
+            reviews,
+            author_login="alice",
+            policy=policy,
+            expected_head_sha="a" * 40,
+            trusted_reviewer_apps={"reviewer-app:17:23"},
+        )
+        == 0
+    )
 
 
 def test_at_allowlist_entries_are_normalized() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("@alice",))
-    assert count_independent_approvals(
-        [{"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40}],
-        author_login="other", policy=policy, expected_head_sha="a" * 40,
-    ) == 1
+    assert (
+        count_independent_approvals(
+            [
+                {
+                    "author": {"login": "alice"},
+                    "state": "APPROVED",
+                    "submittedAt": "2026-08-27T10:00:00+00:00",
+                    "commit_id": "a" * 40,
+                }
+            ],
+            author_login="other",
+            policy=policy,
+            expected_head_sha="a" * 40,
+        )
+        == 1
+    )
 
 
 def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     review = {
         "author": {"login": "reviewer-app[bot]", "is_bot": False},
-        "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+        "state": "APPROVED",
+        "submittedAt": "2026-08-27T10:00:00+00:00",
         "commit_id": "a" * 40,
     }
-    assert count_independent_approvals(
-        [review], author_login="alice", policy=policy,
-        expected_head_sha="a" * 40, trusted_reviewer_apps={"reviewer-app:17:23"}
-    ) == 1
-    assert count_independent_approvals(
-        [review], author_login="alice", policy=policy,
-        expected_head_sha="stale", trusted_reviewer_apps={"reviewer-app:17:23"}
-    ) == 0
-    assert count_independent_approvals(
-        [review], author_login="alice", policy=policy,
-        expected_head_sha="a" * 40, trusted_reviewer_apps=set()
-    ) == 0
+    assert (
+        count_independent_approvals(
+            [review],
+            author_login="alice",
+            policy=policy,
+            expected_head_sha="a" * 40,
+            trusted_reviewer_apps={"reviewer-app:17:23"},
+        )
+        == 1
+    )
+    assert (
+        count_independent_approvals(
+            [review],
+            author_login="alice",
+            policy=policy,
+            expected_head_sha="stale",
+            trusted_reviewer_apps={"reviewer-app:17:23"},
+        )
+        == 0
+    )
+    assert (
+        count_independent_approvals(
+            [review],
+            author_login="alice",
+            policy=policy,
+            expected_head_sha="a" * 40,
+            trusted_reviewer_apps=set(),
+        )
+        == 0
+    )
 
 
 def test_reviewer_app_identity_not_credited_to_matching_human_login() -> None:
@@ -1013,21 +1087,30 @@ def test_reviewer_app_identity_not_credited_to_matching_human_login() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     review = {
         "author": {"login": "reviewer-app", "is_bot": False},
-        "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+        "state": "APPROVED",
+        "submittedAt": "2026-08-27T10:00:00+00:00",
         "commit_id": "a" * 40,
     }
-    assert count_independent_approvals(
-        [review], author_login="alice", policy=policy,
-        expected_head_sha="a" * 40, trusted_reviewer_apps={"reviewer-app:17:23"}
-    ) == 0
+    assert (
+        count_independent_approvals(
+            [review],
+            author_login="alice",
+            policy=policy,
+            expected_head_sha="a" * 40,
+            trusted_reviewer_apps={"reviewer-app:17:23"},
+        )
+        == 0
+    )
 
 
 def test_reviewer_allowlist_login_tolerates_leading_at() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("@alice",))
-    review = {"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"}
-    assert count_independent_approvals(
-        [review], author_login="bob", policy=policy
-    ) == 1
+    review = {
+        "author": {"login": "alice"},
+        "state": "APPROVED",
+        "submittedAt": "2026-08-27T10:00:00+00:00",
+    }
+    assert count_independent_approvals([review], author_login="bob", policy=policy) == 1
 
 
 def test_reviewer_installation_evidence_is_repo_scoped() -> None:
@@ -1037,21 +1120,25 @@ def test_reviewer_installation_evidence_is_repo_scoped() -> None:
         },
         "user/installations/23/repositories": {"repositories": [{"full_name": "acme/repo"}]},
     }
-    client = GitHubPRClient(repo="acme/repo", runner=lambda args: SimpleNamespace(
-        returncode=0,
-        stdout=json.dumps(
-            next(value for key, value in responses.items() if args[1].startswith(key))
+    client = GitHubPRClient(
+        repo="acme/repo",
+        runner=lambda args: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                next(value for key, value in responses.items() if args[1].startswith(key))
+            ),
+            stderr="",
         ),
-        stderr=""
-    ))
+    )
     assert client.trusted_reviewer_app_identities().identities == {"reviewer-app:17:23"}
 
 
 def test_reviewer_lookup_failure_blocks_gate() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
-    client = GitHubPRClient(repo="acme/repo", runner=lambda args: SimpleNamespace(
-        returncode=1, stdout="", stderr="HTTP 403: forbidden"
-    ))
+    client = GitHubPRClient(
+        repo="acme/repo",
+        runner=lambda args: SimpleNamespace(returncode=1, stdout="", stderr="HTTP 403: forbidden"),
+    )
     result = gate_for_pr(client, _pr(), policy=policy, expected_head_sha="a" * 40)
     assert result.verdict == BLOCK
     assert REVIEWER_APP_LOOKUP in result.reasons
@@ -1064,6 +1151,7 @@ def test_reviewer_installation_pagination_is_bounded() -> None:
             stdout=json.dumps({"installations": [{"id": 1}] * 100}),
             stderr="",
         )
+
     client = GitHubPRClient(repo="acme/repo", runner=runner)
     assert client.trusted_reviewer_app_identities().failed is True
 
@@ -1073,12 +1161,14 @@ def test_count_independent_approvals_pins_review_commit_oid() -> None:
     reviews = [
         {
             "author": {"login": "bob"},
-            "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
             "commit": {"oid": "old000"},
         },
         {
             "author": {"login": "carol"},
-            "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
             "commit": {"oid": "a" * 40},
         },
     ]
@@ -1140,14 +1230,16 @@ def test_summarize_pr_push_identity_approve_counts_when_not_author() -> None:
         reviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": head},
             }
         ],
         latestReviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": ""},
             }
         ],
@@ -1171,12 +1263,14 @@ def test_summarize_pr_named_fixer_and_bot_still_rejected() -> None:
         reviews=[
             {
                 "author": {"login": "agent-fixer"},
-                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": head},
             },
             {
                 "author": {"login": "cursoragent"},
-                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": head},
             },
         ],
@@ -1238,7 +1332,8 @@ def test_gate_for_pr_does_not_lookup_fail_when_check_runs_are_get() -> None:
         reviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": "a" * 40},
             }
         ],
@@ -1260,9 +1355,7 @@ def test_gate_for_pr_protected_base_passes_by_default() -> None:
             return SimpleNamespace(returncode=0, stdout='{"url":"https://example.test"}', stderr="")
         if "check-runs" in path:
             payload = {
-                "check_runs": [
-                    {"name": "ci", "status": "completed", "conclusion": "success"}
-                ]
+                "check_runs": [{"name": "ci", "status": "completed", "conclusion": "success"}]
             }
             return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
         return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found")
@@ -1279,7 +1372,8 @@ def test_gate_for_pr_protected_base_passes_by_default() -> None:
         reviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": "a" * 40},
             }
         ],
@@ -1312,7 +1406,8 @@ def test_gate_for_pr_protected_base_blocks_when_opted_in() -> None:
         reviews=[
             {
                 "author": {"login": "ssh-pusher"},
-                "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00",
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
                 "commit": {"oid": "a" * 40},
             }
         ],
@@ -1340,7 +1435,13 @@ def test_summarize_pr_flags_p1_label_and_failed_check() -> None:
         labels=[{"name": "P1"}],
         statusCheckRollup=[{"status": "COMPLETED", "conclusion": "FAILURE", "name": "ci"}],
         author={"login": "alice"},
-        reviews=[{"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00"}],
+        reviews=[
+            {
+                "author": {"login": "alice"},
+                "state": "APPROVED",
+                "submittedAt": "2026-08-27T10:00:00+00:00",
+            }
+        ],
     )
     summ = _summarize_pr(pr)
     assert summ["p1_latch_open"] is True
@@ -1523,7 +1624,16 @@ def test_pull_request_retries_transient_then_rest_success() -> None:
                 return _fail(GRAPHQL_DIAL)
             return _ok(_rest_pr_payload())
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40}])
+            return _ok(
+                [
+                    {
+                        "user": {"login": "bob"},
+                        "state": "APPROVED",
+                        "submittedAt": "2026-08-27T10:00:00+00:00",
+                        "commit_id": "a" * 40,
+                    }
+                ]
+            )
         if path.endswith("/commits"):
             return _ok([{"sha": "a" * 40, "author": {"login": "alice"}}])
         if args[1] == "graphql":
@@ -1659,7 +1769,16 @@ def test_merge_pr_timeout_does_not_retry_write_and_reconciles(monkeypatch) -> No
         if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
             return _ok(_rest_pr_payload(merged=state["merged"]))
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40}])
+            return _ok(
+                [
+                    {
+                        "user": {"login": "bob"},
+                        "state": "APPROVED",
+                        "submittedAt": "2026-08-27T10:00:00+00:00",
+                        "commit_id": "a" * 40,
+                    }
+                ]
+            )
         if path.endswith("/commits"):
             return _ok([])
         if "check-runs" in path:
@@ -1696,7 +1815,16 @@ def test_merge_pr_timeout_reconcile_unproven_fails_closed(monkeypatch) -> None:
         if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
             return _ok(_rest_pr_payload(merged=False))
         if path.endswith("/reviews"):
-            return _ok([{"user": {"login": "bob"}, "state": "APPROVED", "submittedAt": "2026-08-27T10:00:00+00:00", "commit_id": "a" * 40}])
+            return _ok(
+                [
+                    {
+                        "user": {"login": "bob"},
+                        "state": "APPROVED",
+                        "submittedAt": "2026-08-27T10:00:00+00:00",
+                        "commit_id": "a" * 40,
+                    }
+                ]
+            )
         if path.endswith("/commits"):
             return _ok([])
         if "check-runs" in path:

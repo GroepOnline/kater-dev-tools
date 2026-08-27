@@ -42,6 +42,7 @@ REASON_BASE_PROTECTED = "BASE_PROTECTED"
 REASON_REPO_DENIED = "REPO_DENIED"
 REASON_MISSING_HEAD_SHA = "MISSING_HEAD_SHA"
 REASON_REQUIRED_CHECK_LOOKUP = "REQUIRED_CHECK_LOOKUP"
+REASON_REVIEWER_APP_LOOKUP = "REVIEWER_APP_LOOKUP_FAILED"
 REASON_ALREADY_MERGED = "ALREADY_MERGED"
 REASON_ALREADY_CLOSED = "ALREADY_CLOSED"
 REASON_GATE_INCOMPLETE = "GATE_INCOMPLETE"
@@ -93,6 +94,12 @@ class GateResult:
             "reasons": self.reasons,
             "details": self.details,
         }
+
+
+@dataclass(frozen=True)
+class ReviewerAppLookup:
+    identities: frozenset[str]
+    failed: bool = False
 
 
 # Reasons that hard-block a merge unconditionally.
@@ -359,6 +366,7 @@ def count_independent_approvals(
     policy: GatePolicy,
     fixer_logins: tuple[str, ...] = (),
     expected_head_sha: str = "",
+    trusted_reviewer_apps: set[str] | None = None,
 ) -> int:
     """Count APPROVED reviews that are not author/bot/fixer (allowlist-aware).
 
@@ -382,7 +390,12 @@ def count_independent_approvals(
         latest_state[login] = state
         latest_review[login] = review
 
-    allow = _login_set(policy.independent_reviewer_allowlist)
+    allow = {
+        str(v).strip().lower()
+        for v in policy.independent_reviewer_allowlist
+        if str(v).strip()
+    }
+    trusted_apps = {str(v).strip().lower() for v in (trusted_reviewer_apps or set())}
     deny = _login_set(policy.independent_reviewer_denylist)
     fixers = _login_set(policy.fixer_logins) | _login_set(fixer_logins)
     author = _normalize_login(author_login)
@@ -391,14 +404,22 @@ def count_independent_approvals(
     for login, state in latest_state.items():
         if state != "APPROVED":
             continue
-        if allow and login not in allow:
+        if allow and login not in allow and not any(
+            value.startswith(f"{login.removesuffix('[bot]')}:") and value in allow
+            for value in trusted_apps
+        ):
             continue
         if policy.reject_author_approval and author and login == author:
             continue
         review = latest_review[login]
-        if policy.reject_bot_approval and (login in deny or _review_is_bot(review, login)):
+        app_identity = f"{login.removesuffix('[bot]')}:" if login.endswith('[bot]') else ""
+        app_identity = next((v for v in trusted_apps if v.startswith(app_identity)), "")
+        if policy.reject_bot_approval and (
+            login in deny or app_identity in deny
+            or (_review_is_bot(review, login) and app_identity not in allow)
+        ):
             continue
-        if policy.reject_fixer_approval and login in fixers:
+        if policy.reject_fixer_approval and (login in fixers or app_identity in fixers):
             continue
         if pin and _review_commit_oid(review) != pin:
             continue
@@ -700,6 +721,52 @@ class GitHubPRClient:
         if not pr.get("baseRefOid"):
             pr["baseRefOid"] = extras["baseRefOid"]
         return pr
+
+    def trusted_reviewer_app_identities(self) -> ReviewerAppLookup:
+        """Return provider-verified App identities installed for this repo.
+
+        Missing/failed provider evidence is deliberately empty (fail closed).
+        """
+        repo = getattr(self, "repo", None)
+        if not repo or "/" not in repo:
+            return ReviewerAppLookup(frozenset(), True)
+        owner = repo.split("/", 1)[0]
+        try:
+            installations: list[Any] = []
+            page = 1
+            while True:
+                payload = self._api(
+                    f"orgs/{owner}/installations",
+                    params={"per_page": "100", "page": str(page)},
+                )
+                if not isinstance(payload, dict) or not isinstance(
+                    payload.get("installations"), list
+                ):
+                    return ReviewerAppLookup(frozenset(), True)
+                batch = payload["installations"]
+                installations.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
+            result: set[str] = set()
+            for item in installations:
+                if not isinstance(item, dict):
+                    continue
+                installation_id = str(item.get("id") or "").strip()
+                app = item.get("app_slug") or item.get("app")
+                slug = str(app.get("slug") if isinstance(app, dict) else app or "").strip().lower()
+                app_id = str(
+                    item.get("app_id") or (app.get("id") if isinstance(app, dict) else "")
+                ).strip()
+                if not (slug and app_id and installation_id):
+                    continue
+                # App slugs are globally unique and the review itself proves
+                # this installation reached the target repository; no
+                # user-token repository-membership endpoint is required.
+                result.add(f"{slug}:{app_id}:{installation_id}")
+            return ReviewerAppLookup(frozenset(result))
+        except (OSError, RuntimeError, ValueError, TypeError):
+            return ReviewerAppLookup(frozenset(), True)
 
     def _pull_request_graphql_cli(self, number: int) -> dict[str, Any]:
         # ``reviewThreads`` / ``baseRefOid`` are not valid ``gh pr view --json``
@@ -1071,6 +1138,7 @@ def _summarize_pr(
     *,
     policy: GatePolicy | None = None,
     expected_head_sha: str = "",
+    trusted_reviewer_apps: set[str] | None = None,
 ) -> dict[str, Any]:
     policy = policy or GatePolicy()
     pin = (expected_head_sha or "").strip()
@@ -1090,6 +1158,7 @@ def _summarize_pr(
         author_login=author_login,
         policy=policy,
         expected_head_sha=pin,
+        trusted_reviewer_apps=trusted_reviewer_apps,
     )
     commits = pr.get("commits") or []
     head_sha = pr.get("headRefOid") or (commits[-1].get("oid") if commits else "")
@@ -1134,7 +1203,17 @@ def gate_for_pr(
 ) -> GateResult:
     policy = policy or load_gate_policy()
     pin = (expected_head_sha or "").strip()
-    summary = _summarize_pr(pr, policy=policy, expected_head_sha=pin)
+    reviewer_lookup = (
+        client.trusted_reviewer_app_identities()
+        if policy.independent_reviewer_allowlist
+        else ReviewerAppLookup(frozenset())
+    )
+    summary = _summarize_pr(
+        pr,
+        policy=policy,
+        expected_head_sha=pin,
+        trusted_reviewer_apps=set(reviewer_lookup.identities),
+    )
     protection_lookup_failed = False
     try:
         base_protected = client.is_base_protected(summary["base_ref"] or "")
@@ -1187,6 +1266,9 @@ def gate_for_pr(
         required_missing=check_summary["required_missing"],
         pr_state=summary["pr_state"],
     )
+    if reviewer_lookup.failed:
+        result.reasons.append(REASON_REVIEWER_APP_LOOKUP)
+        result.verdict = VERDICT_BLOCK
     if required_lookup_failed or check_runs_failed or protection_lookup_failed:
         if REASON_REQUIRED_CHECK_LOOKUP not in result.reasons:
             result.reasons.append(REASON_REQUIRED_CHECK_LOOKUP)

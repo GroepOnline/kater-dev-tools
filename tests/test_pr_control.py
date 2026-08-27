@@ -964,6 +964,44 @@ def test_count_independent_approvals_honor_allowlist() -> None:
     assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 1
 
 
+def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
+    policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
+    review = {
+        "author": {"login": "reviewer-app[bot]", "is_bot": False},
+        "state": "APPROVED",
+        "commit_id": "head",
+    }
+    assert count_independent_approvals(
+        [review], author_login="alice", policy=policy,
+        expected_head_sha="head", trusted_reviewer_apps={"reviewer-app:17:23"}
+    ) == 1
+    assert count_independent_approvals(
+        [review], author_login="alice", policy=policy,
+        expected_head_sha="stale", trusted_reviewer_apps={"reviewer-app:17:23"}
+    ) == 0
+    assert count_independent_approvals(
+        [review], author_login="alice", policy=policy,
+        expected_head_sha="head", trusted_reviewer_apps=set()
+    ) == 0
+
+
+def test_reviewer_installation_evidence_is_repo_scoped() -> None:
+    responses = {
+        "orgs/acme/installations": {
+            "installations": [{"id": 23, "app_slug": "reviewer-app", "app_id": 17}]
+        },
+        "user/installations/23/repositories": {"repositories": [{"full_name": "acme/repo"}]},
+    }
+    client = GitHubPRClient(repo="acme/repo", runner=lambda args: SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps(
+            next(value for key, value in responses.items() if args[1].startswith(key))
+        ),
+        stderr=""
+    ))
+    assert client.trusted_reviewer_app_identities().identities == {"reviewer-app:17:23"}
+
+
 def test_count_independent_approvals_pins_review_commit_oid() -> None:
     policy = GatePolicy()
     reviews = [

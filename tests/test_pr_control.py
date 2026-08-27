@@ -950,26 +950,34 @@ def test_count_independent_approvals_rejects_author_bot_fixer() -> None:
             "author": {"login": "alice"},
             "state": "APPROVED",
             "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
         },
         {
             "author": {"login": "bob"},
             "state": "APPROVED",
             "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
         },
         {
             "author": {"login": "dependabot[bot]"},
             "state": "APPROVED",
             "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
         },
         {
             "author": {"login": "agent-fixer"},
             "state": "APPROVED",
             "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
         },
     ]
     assert (
         count_independent_approvals(
-            reviews, author_login="alice", policy=policy, fixer_logins=(), expected_head_sha="a" * 40
+            reviews,
+            author_login="alice",
+            policy=policy,
+            fixer_logins=(),
+            expected_head_sha="a" * 40,
         )
         == 1
     )
@@ -982,11 +990,13 @@ def test_count_independent_approvals_honor_allowlist() -> None:
             "author": {"login": "reviewer-one"},
             "state": "APPROVED",
             "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
         },
         {
             "author": {"login": "other-human"},
             "state": "APPROVED",
             "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
         },
     ]
     assert count_independent_approvals(
@@ -1109,8 +1119,14 @@ def test_reviewer_allowlist_login_tolerates_leading_at() -> None:
         "author": {"login": "alice"},
         "state": "APPROVED",
         "submittedAt": "2026-08-27T10:00:00+00:00",
+        "commit_id": "a" * 40,
     }
-    assert count_independent_approvals([review], author_login="bob", policy=policy) == 1
+    assert count_independent_approvals(
+        [review],
+        author_login="bob",
+        policy=policy,
+        expected_head_sha="a" * 40,
+    ) == 1
 
 
 def test_reviewer_installation_evidence_is_repo_scoped() -> None:
@@ -1184,8 +1200,8 @@ def test_count_independent_approvals_pins_review_commit_oid() -> None:
         )
         == 0
     )
-    # Unpinned read path still counts login-level APPROVE without an OID.
-    assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 2
+    # Unpinned reads never receive independent approval credit.
+    assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 0
 
 
 def test_default_policy_does_not_block_protected_base() -> None:

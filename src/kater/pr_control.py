@@ -1067,6 +1067,13 @@ def _normalize_rest_review(review: dict[str, Any]) -> dict[str, Any]:
     mapped = {
         "author": {"login": login or "", "is_bot": is_bot},
         "state": review.get("state") or review.get("decision") or "",
+        "submittedAt": (
+            review.get("submitted_at")
+            or review.get("submittedAt")
+            or review.get("created_at")
+            or review.get("createdAt")
+            or ""
+        ),
         "authorAssociation": (
             review.get("author_association") or review.get("authorAssociation") or ""
         ),

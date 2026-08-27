@@ -1149,6 +1149,33 @@ def test_reviewer_installation_evidence_is_repo_scoped() -> None:
     assert client.trusted_reviewer_app_identities([review]).identities == {"reviewer-app:17:23"}
 
 
+def test_installed_app_without_matching_approved_review_is_ignored() -> None:
+    responses = {
+        "orgs/acme/installations": {
+            "installations": [{"id": 23, "app_slug": "reviewer-app", "app_id": 17}]
+        },
+    }
+    client = GitHubPRClient(
+        repo="acme/repo",
+        runner=lambda args: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                next(value for key, value in responses.items() if args[1].startswith(key))
+            ),
+            stderr="",
+        ),
+    )
+    assert client.trusted_reviewer_app_identities([]).identities == frozenset()
+    commented = {"author": {"login": "reviewer-app[bot]"}, "state": "COMMENTED"}
+    assert client.trusted_reviewer_app_identities([commented]).identities == frozenset()
+    other = {"author": {"login": "other[bot]"}, "state": "APPROVED"}
+    assert client.trusted_reviewer_app_identities([other]).identities == frozenset()
+    at_prefixed = {"author": {"login": "@Reviewer-App[bot]"}, "state": "APPROVED"}
+    assert client.trusted_reviewer_app_identities([at_prefixed]).identities == {
+        "reviewer-app:17:23"
+    }
+
+
 def test_reviewer_lookup_failure_blocks_gate() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     client = GitHubPRClient(

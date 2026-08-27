@@ -790,9 +790,11 @@ class GitHubPRClient:
                 if len(batch) < 100:
                     break
                 page += 1
-            approved = {str(r.get("author", {}).get("login", "")).lower()
-                        for r in (reviews or []) if isinstance(r, dict)
-                        and str(r.get("state", "")).upper() == "APPROVED"}
+            approved = {
+                _normalize_login(str(r.get("author", {}).get("login", "")))
+                for r in (reviews or [])
+                if isinstance(r, dict) and str(r.get("state", "")).upper() == "APPROVED"
+            }
             result: set[str] = set()
             for item in installations:
                 if not isinstance(item, dict):

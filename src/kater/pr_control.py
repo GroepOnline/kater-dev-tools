@@ -7,7 +7,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
@@ -408,7 +408,7 @@ def count_independent_approvals(
         stamp = review_timestamp(review)
         return (
             1 if stamp else 0,
-            stamp.astimezone(timezone.utc) if stamp else datetime.min.replace(tzinfo=timezone.utc),
+            stamp.astimezone(UTC) if stamp else datetime.min.replace(tzinfo=UTC),
             json.dumps(review, sort_keys=True, default=str),
         )
 

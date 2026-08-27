@@ -1236,9 +1236,14 @@ def gate_for_pr(
 ) -> GateResult:
     policy = policy or load_gate_policy()
     pin = (expected_head_sha or "").strip()
+    # Human-only allowlists do not require installation/API evidence.
+    needs_app_lookup = any(
+        str(entry).strip().count(":") >= 2
+        for entry in policy.independent_reviewer_allowlist
+    )
     reviewer_lookup = (
         client.trusted_reviewer_app_identities()
-        if policy.independent_reviewer_allowlist
+        if needs_app_lookup
         else ReviewerAppLookup(frozenset())
     )
     summary = _summarize_pr(

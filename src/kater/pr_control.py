@@ -7,7 +7,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
@@ -395,6 +395,7 @@ def count_independent_approvals(
             review.get("submittedAt")
             or review.get("submitted_at")
             or review.get("createdAt")
+            or review.get("created_at")
             or ""
         )
         try:
@@ -403,11 +404,11 @@ def count_independent_approvals(
         except (TypeError, ValueError):
             return None
 
-    def review_order(review: dict[str, Any]) -> tuple[int, str, str]:
+    def review_order(review: dict[str, Any]) -> tuple[int, datetime, str]:
         stamp = review_timestamp(review)
         return (
-            bool(stamp),
-            stamp.isoformat() if stamp else "",
+            1 if stamp else 0,
+            stamp.astimezone(timezone.utc) if stamp else datetime.min.replace(tzinfo=timezone.utc),
             json.dumps(review, sort_keys=True, default=str),
         )
 
@@ -813,7 +814,7 @@ class GitHubPRClient:
                 # user-token repository-membership endpoint is required.
                 result.add(f"{slug}:{app_id}:{installation_id}")
             return ReviewerAppLookup(frozenset(result))
-        except (OSError, RuntimeError, ValueError, TypeError):
+        except (OSError, RuntimeError, ValueError, TypeError, AttributeError):
             return ReviewerAppLookup(frozenset(), True)
 
     def _pull_request_graphql_cli(self, number: int) -> dict[str, Any]:

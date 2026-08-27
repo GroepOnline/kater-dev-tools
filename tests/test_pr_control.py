@@ -1090,6 +1090,64 @@ def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
         )
         == 0
     )
+    assert (
+        count_independent_approvals(
+            [{**review, "commit_id": "b" * 40}],
+            author_login="alice",
+            policy=policy,
+            expected_head_sha="a" * 40,
+            trusted_reviewer_apps={"reviewer-app:17:23"},
+        )
+        == 0
+    )
+
+
+def test_app_denylist_and_fixer_identity_win_over_allowlist() -> None:
+    review = {
+        "author": {"login": "reviewer-app[bot]", "is_bot": True},
+        "state": "APPROVED",
+        "submittedAt": "2026-08-27T10:00:00+00:00",
+        "commit_id": "a" * 40,
+    }
+    denied = GatePolicy(
+        independent_reviewer_allowlist=("reviewer-app:17:23",),
+        independent_reviewer_denylist=("reviewer-app:17:23",),
+    )
+    fixer = GatePolicy(
+        independent_reviewer_allowlist=("reviewer-app:17:23",),
+        fixer_logins=("reviewer-app:17:23",),
+    )
+    kwargs = {
+        "author_login": "alice",
+        "expected_head_sha": "a" * 40,
+        "trusted_reviewer_apps": {"reviewer-app:17:23"},
+    }
+    assert count_independent_approvals([review], policy=denied, **kwargs) == 0
+    assert count_independent_approvals([review], policy=fixer, **kwargs) == 0
+
+
+def test_rest_created_at_and_offset_timestamp_keep_latest_state() -> None:
+    policy = GatePolicy()
+    reviews = [
+        {
+            "author": {"login": "bob"},
+            "state": "APPROVED",
+            "created_at": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
+        },
+        {
+            "author": {"login": "bob"},
+            "state": "CHANGES_REQUESTED",
+            "submittedAt": "2026-08-27T12:00:00+02:00",
+            "commit_id": "a" * 40,
+        },
+    ]
+    assert (
+        count_independent_approvals(
+            reviews, author_login="alice", policy=policy, expected_head_sha="a" * 40
+        )
+        == 0
+    )
 
 
 def test_ambiguous_app_slug_prefix_is_not_credited() -> None:

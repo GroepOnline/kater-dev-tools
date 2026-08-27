@@ -390,8 +390,12 @@ def count_independent_approvals(
         latest_state[login] = state
         latest_review[login] = review
 
-    allow = _login_set(policy.independent_reviewer_allowlist)
-    trusted_apps = {_normalize_login(str(v)) for v in (trusted_reviewer_apps or set())}
+    allow = {
+        _normalize_login(v)
+        for v in policy.independent_reviewer_allowlist
+        if str(v).strip()
+    }
+    trusted_apps = {str(v).strip().lower() for v in (trusted_reviewer_apps or set())}
     deny = _login_set(policy.independent_reviewer_denylist)
     fixers = _login_set(policy.fixer_logins) | _login_set(fixer_logins)
     author = _normalize_login(author_login)
@@ -400,10 +404,13 @@ def count_independent_approvals(
     for login, state in latest_state.items():
         if state != "APPROVED":
             continue
+        # App identity is credited only to the exact GitHub bot login.
         app_identity = ""
         if login.endswith("[bot]"):
-            prefix = f"{login.removesuffix('[bot]')}:"
-            app_identity = next((v for v in trusted_apps if v.startswith(prefix)), "")
+            slug_prefix = f"{login.removesuffix('[bot]')}:"
+            app_identity = next(
+                (v for v in trusted_apps if v.startswith(slug_prefix)), ""
+            )
         if allow and login not in allow and app_identity not in allow:
             continue
         if policy.reject_author_approval and author and login == author:

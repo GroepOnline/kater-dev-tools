@@ -381,12 +381,16 @@ def count_independent_approvals(
     login from the PR author, and treating it as a fixer self-rejects the
     independent reviewer.
     """
+    pin = (expected_head_sha or "").strip()
+    # Independent credit is never safe without a real immutable head pin.
+    if not _SHA40.fullmatch(pin):
+        return 0
     latest_state: dict[str, str] = {}
     latest_review: dict[str, dict[str, Any]] = {}
     # GitHub normally returns chronological reviews, but that ordering is not
     # a trust boundary. Sort by provider timestamp and use canonical content
     # as a deterministic tie-breaker; undated reviews are oldest.
-    def review_order(review: dict[str, Any]) -> tuple[int, str, str]:
+    def review_timestamp(review: dict[str, Any]) -> datetime | None:
         raw = str(
             review.get("submittedAt")
             or review.get("submitted_at")
@@ -394,10 +398,18 @@ def count_independent_approvals(
             or ""
         )
         try:
-            stamp = datetime.fromisoformat(raw.replace("Z", "+00:00")).isoformat()
-        except ValueError:
-            stamp = ""
-        return (bool(stamp), stamp, json.dumps(review, sort_keys=True, default=str))
+            value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return value if value.tzinfo else None
+        except (TypeError, ValueError):
+            return None
+
+    def review_order(review: dict[str, Any]) -> tuple[int, str, str]:
+        stamp = review_timestamp(review)
+        return (
+            bool(stamp),
+            stamp.isoformat() if stamp else "",
+            json.dumps(review, sort_keys=True, default=str),
+        )
 
     for review in sorted((r for r in reviews if isinstance(r, dict)), key=review_order):
         login = _normalize_login(_review_login(review))
@@ -437,6 +449,8 @@ def count_independent_approvals(
         if policy.reject_author_approval and author and login == author:
             continue
         review = latest_review[login]
+        if review_timestamp(review) is None:
+            continue
         if policy.reject_bot_approval and (
             login in deny or app_identity in deny
             or (_review_is_bot(review, login) and app_identity not in allow)

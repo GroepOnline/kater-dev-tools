@@ -15,7 +15,8 @@ permissions:
   contents: read
 
 jobs:
-  # INTERIM / P1 (GRO-1209): persistent pr-isolated listener, not ephemeral.
+  # HISTORY / P1 (GRO-1209): this scanner previously used the persistent
+  # pr-isolated listener; it now runs on ephemeral GitHub-hosted capacity.
   # PR scanner code is pinned to the trusted base SHA; forks never run here.
   no-org-leak:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

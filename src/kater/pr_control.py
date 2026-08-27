@@ -760,7 +760,9 @@ class GitHubPRClient:
                         f"user/installations/{installation_id}/repositories",
                         params={"per_page": "100", "page": str(repo_page)},
                     )
-                    if not isinstance(payload, dict) or not isinstance(payload.get("repositories"), list):
+                    if not isinstance(payload, dict) or not isinstance(
+                        payload.get("repositories"), list
+                    ):
                         return ReviewerAppLookup(frozenset(), True)
                     batch = payload["repositories"]
                     repos.extend(batch)

@@ -964,6 +964,26 @@ def test_count_independent_approvals_honor_allowlist() -> None:
     assert count_independent_approvals(reviews, author_login="alice", policy=policy) == 1
 
 
+def test_app_allowlist_never_maps_human_slug_or_unrelated_human() -> None:
+    policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
+    reviews = [
+        {"author": {"login": "reviewer-app"}, "state": "APPROVED", "commit_id": "head"},
+        {"author": {"login": "someone"}, "state": "APPROVED", "commit_id": "head"},
+    ]
+    assert count_independent_approvals(
+        reviews, author_login="alice", policy=policy,
+        expected_head_sha="head", trusted_reviewer_apps={"reviewer-app:17:23"},
+    ) == 0
+
+
+def test_at_allowlist_entries_are_normalized() -> None:
+    policy = GatePolicy(independent_reviewer_allowlist=("@alice",))
+    assert count_independent_approvals(
+        [{"author": {"login": "alice"}, "state": "APPROVED", "commit_id": "head"}],
+        author_login="other", policy=policy, expected_head_sha="head",
+    ) == 1
+
+
 def test_reviewer_app_requires_provider_identity_and_exact_head() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     review = {

@@ -390,12 +390,8 @@ def count_independent_approvals(
         latest_state[login] = state
         latest_review[login] = review
 
-    allow = {
-        str(v).strip().lower()
-        for v in policy.independent_reviewer_allowlist
-        if str(v).strip()
-    }
-    trusted_apps = {str(v).strip().lower() for v in (trusted_reviewer_apps or set())}
+    allow = _login_set(policy.independent_reviewer_allowlist)
+    trusted_apps = {_normalize_login(str(v)) for v in (trusted_reviewer_apps or set())}
     deny = _login_set(policy.independent_reviewer_denylist)
     fixers = _login_set(policy.fixer_logins) | _login_set(fixer_logins)
     author = _normalize_login(author_login)
@@ -404,16 +400,15 @@ def count_independent_approvals(
     for login, state in latest_state.items():
         if state != "APPROVED":
             continue
-        if allow and login not in allow and not any(
-            value.startswith(f"{login.removesuffix('[bot]')}:") and value in allow
-            for value in trusted_apps
-        ):
+        app_identity = ""
+        if login.endswith("[bot]"):
+            prefix = f"{login.removesuffix('[bot]')}:"
+            app_identity = next((v for v in trusted_apps if v.startswith(prefix)), "")
+        if allow and login not in allow and app_identity not in allow:
             continue
         if policy.reject_author_approval and author and login == author:
             continue
         review = latest_review[login]
-        app_identity = f"{login.removesuffix('[bot]')}:" if login.endswith('[bot]') else ""
-        app_identity = next((v for v in trusted_apps if v.startswith(app_identity)), "")
         if policy.reject_bot_approval and (
             login in deny or app_identity in deny
             or (_review_is_bot(review, login) and app_identity not in allow)
@@ -444,6 +439,7 @@ def _collapse(
         REASON_REPO_DENIED,
         REASON_MISSING_HEAD_SHA,
         REASON_REQUIRED_CHECK_LOOKUP,
+        REASON_REVIEWER_APP_LOOKUP,
     }
     if policy.block_drafts:
         blocking_here.add(REASON_DRAFT)
@@ -748,11 +744,39 @@ class GitHubPRClient:
                 if len(batch) < 100:
                     break
                 page += 1
+            # Verify that each candidate installation is actually attached to
+            # this repository; org installation listing alone is insufficient.
+            verified_installations: set[str] = set()
+            for item in installations:
+                if not isinstance(item, dict):
+                    continue
+                installation_id = str(item.get("id") or "").strip()
+                if not installation_id:
+                    continue
+                repos: list[Any] = []
+                repo_page = 1
+                while True:
+                    payload = self._api(
+                        f"user/installations/{installation_id}/repositories",
+                        params={"per_page": "100", "page": str(repo_page)},
+                    )
+                    if not isinstance(payload, dict) or not isinstance(payload.get("repositories"), list):
+                        return ReviewerAppLookup(frozenset(), True)
+                    batch = payload["repositories"]
+                    repos.extend(batch)
+                    if len(batch) < 100:
+                        break
+                    repo_page += 1
+                if not any(isinstance(r, dict) and r.get("full_name") == repo for r in repos):
+                    continue
+                verified_installations.add(installation_id)
             result: set[str] = set()
             for item in installations:
                 if not isinstance(item, dict):
                     continue
                 installation_id = str(item.get("id") or "").strip()
+                if installation_id not in verified_installations:
+                    continue
                 app = item.get("app_slug") or item.get("app")
                 slug = str(app.get("slug") if isinstance(app, dict) else app or "").strip().lower()
                 app_id = str(

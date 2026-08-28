@@ -1032,7 +1032,73 @@ def _server_action(req: Request) -> Response:
     return Response.json(400, {"error": f"Unknown action: {action}"})
 
 
-# ── connector catalog (behind the 17 native tools) ─────────────────
+# ── execution fabric ────────────────────────────────────────────────
+
+
+@route("GET", "/api/tools/search")
+def _executor_tool_search(req: Request) -> Response:
+    from kater.connectors.errors import ConnectorError
+    from kater.executor import search_tools
+
+    query = (req.query1("q") or "").strip()
+    profile = (req.query1("profile") or "core").strip() or "core"
+    try:
+        limit = int(req.query1("limit") or "10")
+    except ValueError:
+        return Response.json(400, {"error": "limit must be an integer"})
+    include_raw = (req.query1("include_unavailable") or "").strip().lower()
+    include_unavailable = include_raw in {"1", "true", "yes", "on"}
+    try:
+        return Response.json(
+            200,
+            search_tools(
+                query,
+                profile=profile,
+                limit=limit,
+                include_unavailable=include_unavailable,
+            ),
+        )
+    except ConnectorError as exc:
+        return _connector_error_response(exc)
+
+
+@route("POST", "/api/execute")
+def _executor_execute(req: Request) -> Response:
+    denied = _catalog_admin_denied(req)
+    if denied:
+        return denied
+    try:
+        body = req.json or {}
+    except ValueError:
+        return Response.json(400, {"error": "invalid JSON body"})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be an object"})
+
+    capability_id = str(body.get("capability_id") or "").strip()
+    if not capability_id:
+        return Response.json(400, {"error": "capability_id is required"})
+    arguments = body.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        return Response.json(400, {"error": "arguments must be an object"})
+
+    from kater.connectors.errors import ConnectorError
+    from kater.executor import execute
+
+    try:
+        result = execute(
+            capability_id,
+            arguments,
+            profile=str(body.get("profile") or "core"),
+            connector_id=(str(body["connector_id"]) if body.get("connector_id") else None),
+            principal_id=str(body.get("principal_id") or "api"),
+            context_id=(str(body["context_id"]) if body.get("context_id") else None),
+        )
+    except ConnectorError as exc:
+        return _connector_error_response(exc)
+    return Response.json(200, result)
+
+
+# ── connector catalog (behind the native tools) ─────────────────────
 
 
 def _connector_error_response(exc: Exception) -> Response:

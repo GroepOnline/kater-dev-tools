@@ -2,7 +2,7 @@
 
 This is the catalog of *what Kater can route to*. It is not:
 
-- ``kater.registry.NativeTool`` (the 17 native MCP tools)
+- ``kater.registry.NativeTool`` (the bounded native MCP tools)
 - ``kater.capabilities.CapabilityManifest`` (capability fabric manifests)
 - ``kater.control_plane`` route candidates (logical capability pools)
 - ``kater.capabilities.computer.ComputerConnector`` (Computer/Fleet guest)

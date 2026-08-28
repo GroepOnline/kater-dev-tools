@@ -1,6 +1,6 @@
 """Persistent connector catalog for the Kater control plane.
 
-The 17 native MCP tools stay the external Cursor surface. Connectors live
+The bounded native MCP tools stay the external Cursor surface. Connectors live
 behind ``kater_adapters`` / chains and are never one-native-tool-per-vendor.
 """
 

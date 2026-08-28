@@ -1151,6 +1151,25 @@ def test_rest_created_at_and_offset_timestamp_keep_latest_state() -> None:
     )
 
 
+def test_extreme_offset_timestamp_fails_closed_without_crashing() -> None:
+    policy = GatePolicy()
+    review = {
+        "author": {"login": "bob"},
+        "state": "APPROVED",
+        "submittedAt": "9999-12-31T23:59:59-14:00",
+        "commit_id": "a" * 40,
+    }
+    assert (
+        count_independent_approvals(
+            [review],
+            author_login="alice",
+            policy=policy,
+            expected_head_sha="a" * 40,
+        )
+        == 0
+    )
+
+
 def test_ambiguous_app_slug_prefix_is_not_credited() -> None:
     policy = GatePolicy(independent_reviewer_allowlist=("reviewer-app:17:23",))
     review = {

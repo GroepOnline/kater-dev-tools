@@ -400,15 +400,17 @@ def count_independent_approvals(
         )
         try:
             value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            return value if value.tzinfo else None
-        except (TypeError, ValueError):
+            if not value.tzinfo:
+                return None
+            return value.astimezone(UTC)
+        except (TypeError, ValueError, OverflowError):
             return None
 
     def review_order(review: dict[str, Any]) -> tuple[int, datetime, str]:
         stamp = review_timestamp(review)
         return (
             1 if stamp else 0,
-            stamp.astimezone(UTC) if stamp else datetime.min.replace(tzinfo=UTC),
+            stamp if stamp else datetime.min.replace(tzinfo=UTC),
             json.dumps(review, sort_keys=True, default=str),
         )
 

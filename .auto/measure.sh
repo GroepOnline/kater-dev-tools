@@ -2,8 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Cold-start bucket timing (whole python process).
-T0_MS=$(date +%s%3N)
+# Cold-start bucket timing (whole python process), portably.
+T0_MS=$(python3 -c 'import time; print(int(time.time()*1000))')
 
 # Kater Dev MCP — offline tool-surface battery.
 # Emits METRIC name=value lines. No live gateway/auth calls.
@@ -54,6 +54,6 @@ print(f"METRIC core_profile_tools={len(core)}")
 print(json.dumps({"_battery": "kater-mcp-toolsurface", "sample": [t.name for t in builtins[:3]]}))
 PY
 
-T1_MS=$(date +%s%3N)
+T1_MS=$(python3 -c 'import time; print(int(time.time()*1000))')
 COLD_MS=$((T1_MS - T0_MS))
 echo "METRIC cold_ms=${COLD_MS}"

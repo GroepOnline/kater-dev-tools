@@ -7,11 +7,13 @@ bruikbare beschrijvingen en correcte JSON-schema's), en **beter routable** (tool
 agents). Streefdoel: meetbare ~85% verbetering op de primaire metric t.o.v. baseline.
 
 ## Metrics
-- **Primary**: `tool_count` × `described_tools`-ratio = `described_tools / tool_count` — de
-  aandeel van tools met een inhoudelijke beschrijving (hoger is beter). Kwaliteitsproxy die geen
-  live gateway nodig heeft.
-- **Secondary**: `boot_ms`, `registry_walk_ms` (lager beter — snelheid), `avg_description_chars`
-  (richtwaarde 60–200, beschrijving is de tool-call-kwaliteit), `app_tools_listed`.
+- **Primary**: `cold_ms` (lager is beter) — time-to-tool-list in een fris proces: de tijd die een
+  MCP-client wacht voordat de tool-surface beschikbaar is. Dat is de "sneller"-helft van het doel
+  (85% sneller = base ~500ms → <75ms).
+- **Secondary**: `registry_walk_ms` (lager beter), `boot_ms` (lager beter),
+  `description_ratio` (alle 17 tools beschreven — al 1.0, houden), `avg_description_chars`
+  (richtwaarde 60–200; agenten kiezen tools op beschrijving → tool-call-kwaliteit),
+  `app_tools_listed` (⩾0 = server bootbaar).
 
 ## How to Run
 `./.auto/measure.sh` — output `METRIC name=value` regels. Determinisch, offline, geen Kater-aanroepen.
@@ -35,4 +37,8 @@ agents). Streefdoel: meetbare ~85% verbetering op de primaire metric t.o.v. base
 - Batches blijven <10s in de batterij (snel herhalen)
 
 ## What's Been Tried
-- (baseline vóór eerste experiment — nog niets)
+- **Baseline (2026-08-28)**: cold_ms ≈ 500–900ms; het zware gewicht zit in de cold-importketen
+  (kater + fastmcp/pydantic + mcp_server top-level imports), niet in build_native_tools (~0ms wam).
+  Kans: hete imports (fastmcp, proxy, browser, pr_control) lazy maken achter getters → cold-start
+  kan naar de 100ms-klasse. Description-ratio zit al op 1.0 (niets te winnen op aanwezigheid;
+  wel op rijkdom van beschrijvingen).

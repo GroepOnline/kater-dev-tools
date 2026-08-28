@@ -191,6 +191,21 @@ def test_admin_create_dynamic_connector_starts_disabled_and_unprivileged():
     assert "admin-secret" not in json.dumps(resp.payload)
 
 
+def test_admin_create_dynamic_connector_rejects_literal_arbitrary_header_value():
+    headers = {"authorization": "Bearer admin-secret"}
+    definition = _dynamic_http_definition()
+    definition["transport"]["headers_template"] = {"X-Custom-Auth": "live-secret"}
+
+    resp = call("POST", "/api/connectors", body=definition, headers=headers)
+
+    assert resp.status == 400
+    assert resp.payload is not None
+    assert resp.payload["error"] == "invalid_connector"
+    assert "header template" in resp.payload.get("message", "")
+    assert "live-secret" not in json.dumps(resp.payload)
+    assert get_connector("dynamic-http") is None
+
+
 def test_admin_create_dynamic_connector_rejects_duplicate():
     headers = {"authorization": "Bearer admin-secret"}
     first = call("POST", "/api/connectors", body=_dynamic_http_definition(), headers=headers)

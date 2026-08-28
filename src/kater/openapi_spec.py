@@ -943,7 +943,41 @@ def _build_paths() -> dict[str, Any]:
                 }
             ],
             "responses": {"200": _ok()},
-        }
+        },
+        "post": {
+            "summary": "Register a dynamic connector (admin; starts disabled)",
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["id", "display_name", "type", "version", "transport"],
+                            "properties": {
+                                "id": {"type": "string"},
+                                "display_name": {"type": "string"},
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["api", "mcp", "bridge", "internal"],
+                                },
+                                "version": {"type": "string"},
+                                "transport": {"type": "object"},
+                                "capabilities": {"type": "array"},
+                                "auth_binding": {"type": "object"},
+                                "profiles": {"type": "array", "items": {"type": "string"}},
+                                "metadata": {"type": "object"},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "201": _ok(),
+                "400": _error_ref(),
+                "403": _error_ref(),
+                "409": _error_ref(),
+            },
+        },
     }
 
     paths["/api/connectors/{connector_id}/{action}"] = {

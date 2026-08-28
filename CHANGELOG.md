@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Admin-gated dynamic connector registration via `POST /api/connectors` and
+  `kater connector add <definition.json>`; new connectors always start disabled
+  with no permissions, and credential values remain out of the catalog.
 - Bounded GitHub transport for PR-gate tools: typed errors, secret redaction,
   configurable subprocess timeout, and a strict read-only retry budget
   (`docs/ops/pr-gate.md`).

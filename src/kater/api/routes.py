@@ -1055,6 +1055,41 @@ def _connector_error_response(exc: Exception) -> Response:
     return Response.json(status, payload)
 
 
+@route("POST", "/api/connectors")
+def _connectors_create(req: Request) -> Response:
+    """Register a dynamic connector without embedding credential values.
+
+    Registration is admin-only and always starts disabled with no granted
+    permissions. Validate and enable are separate explicit actions.
+    """
+    denied = _catalog_admin_denied(req)
+    if denied:
+        return denied
+    try:
+        body = req.json or {}
+    except ValueError:
+        return Response.json(400, {"error": "invalid JSON body"})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be an object"})
+
+    from kater.connectors.errors import ConnectorError, ConnectorValidationError
+    from kater.connectors.models import ConnectorRecord
+    from kater.connectors.store import create_connector
+
+    data = dict(body)
+    data["status"] = "disabled"
+    data["permissions"] = {}
+    data["origin"] = "dynamic"
+    try:
+        record = ConnectorRecord.from_mapping(data)
+        created = create_connector(record)
+    except ConnectorError as exc:
+        return _connector_error_response(exc)
+    except (TypeError, ValueError) as exc:
+        return _connector_error_response(ConnectorValidationError(str(exc)))
+    return Response.json(201, created.as_dict())
+
+
 @route("GET", "/api/connectors")
 def _connectors_list(req: Request) -> Response:
     from kater.connectors.registry import inventory

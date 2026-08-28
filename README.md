@@ -86,6 +86,9 @@ Client-side multi-server configs remain available via `kater config --profile op
 | `kater doctor` | Diagnostics + autofix |
 | `kater mcp list` | Browse all 29 MCP servers |
 | `kater mcp status <name>` | Server detail with launch config |
+| `kater connector add connector.json` | Register a new dynamic connector (disabled by default) |
+| `kater connector validate <id>` | Discover and validate connector capabilities |
+| `kater connector enable <id> --profile ops --level read` | Grant a profile and enable the connector |
 | `kater enable <name>` | Enable a server |
 | `kater disable <name>` | Disable a server |
 | `kater toggle <name>` | Toggle server on/off |

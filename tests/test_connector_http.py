@@ -150,3 +150,52 @@ def test_invoke_internal_without_handler_fails_closed_and_redacted():
     assert resp.payload is not None
     assert resp.payload["error"] == "no_internal_handler"
     assert "Bearer admin-secret" not in json.dumps(resp.payload)
+
+
+def _dynamic_http_definition() -> dict:
+    return {
+        "id": "dynamic-http",
+        "display_name": "Dynamic HTTP",
+        "type": "mcp",
+        "version": "1.0.0",
+        "transport": {
+            "kind": "http",
+            "endpoint": "https://example.invalid/mcp",
+            "headers_template": {"Authorization": "Bearer ${DYNAMIC_HTTP_TOKEN}"},
+        },
+        "auth_binding": {"kind": "env", "ref": "DYNAMIC_HTTP_TOKEN"},
+        "profiles": ["ops"],
+        "status": "enabled",
+        "permissions": {"ops": "admin"},
+        "origin": "seed",
+    }
+
+
+def test_create_dynamic_connector_requires_admin():
+    resp = call("POST", "/api/connectors", body=_dynamic_http_definition())
+    assert resp.status == 403
+    assert get_connector("dynamic-http") is None
+
+
+def test_admin_create_dynamic_connector_starts_disabled_and_unprivileged():
+    headers = {"authorization": "Bearer admin-secret"}
+    resp = call("POST", "/api/connectors", body=_dynamic_http_definition(), headers=headers)
+    assert resp.status == 201
+    record = get_connector("dynamic-http")
+    assert record is not None
+    assert record.status is ConnectorStatus.DISABLED
+    assert record.permissions == {}
+    assert record.origin == "dynamic"
+    assert resp.payload is not None
+    assert resp.payload["auth_binding"]["ref"] == "DYNAMIC_HTTP_TOKEN"
+    assert "admin-secret" not in json.dumps(resp.payload)
+
+
+def test_admin_create_dynamic_connector_rejects_duplicate():
+    headers = {"authorization": "Bearer admin-secret"}
+    first = call("POST", "/api/connectors", body=_dynamic_http_definition(), headers=headers)
+    second = call("POST", "/api/connectors", body=_dynamic_http_definition(), headers=headers)
+    assert first.status == 201
+    assert second.status == 409
+    assert second.payload is not None
+    assert second.payload["error"] == "duplicate_connector"

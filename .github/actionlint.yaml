@@ -1,0 +1,7 @@
+self-hosted-runner:
+  labels:
+    - pr-isolated
+    - heavy
+    - company-control
+
+config-variables: null

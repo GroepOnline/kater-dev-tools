@@ -1,0 +1,58 @@
+name: Company-control deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact main commit SHA to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kater-company-control-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64, company-control]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout deployment controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate deploy configuration
+        env:
+          DEPLOY_SHA: ${{ inputs.sha }}
+          DEPLOY_TARGET: ${{ vars.KATER_DEPLOY_TARGET }}
+          DEPLOY_SERVICE: ${{ vars.KATER_DEPLOY_SERVICE }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -n "$DEPLOY_TARGET"
+          test -n "$DEPLOY_SERVICE"
+          git cat-file -e "$DEPLOY_SHA^{commit}"
+          git fetch origin main
+          git merge-base --is-ancestor "$DEPLOY_SHA" origin/main
+
+      - name: Deploy exact SHA with rollback
+        env:
+          KATER_DEPLOY_SHA: ${{ inputs.sha }}
+          KATER_DEPLOY_TARGET: ${{ vars.KATER_DEPLOY_TARGET }}
+          KATER_DEPLOY_SERVICE: ${{ vars.KATER_DEPLOY_SERVICE }}
+          KATER_DEPLOY_API_PORT: ${{ vars.KATER_DEPLOY_API_PORT }}
+        run: ./scripts/deploy-company-control.sh
+
+      - name: Record deployed SHA
+        env:
+          DEPLOY_SHA: ${{ inputs.sha }}
+        run: |
+          {
+            echo "## Company-control deploy"
+            echo
+            echo "Deployed \`$DEPLOY_SHA\` after health-gated cutover."
+          } >> "$GITHUB_STEP_SUMMARY"

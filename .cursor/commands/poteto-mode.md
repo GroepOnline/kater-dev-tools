@@ -21,4 +21,4 @@ Do not copy playbooks into this repo. Do not use Cursor's built-in babysit for P
 | --- | --- | --- |
 | Satellite | `.cursor/skills/kater-poteto-mode/SKILL.md` | Kater ports, worktrees, pr-gate |
 | Global skill | `~/.agents/skills/poteto-mode/SKILL.md` | Playbooks and ChefGroep bind |
-| Worker standing | `.cursor/agents/poteto-agent.md` | Task `generalPurpose` standing |
+| Worker standing | `~/.cursor/agents/poteto-agent.md` | Task `generalPurpose` standing. Not a project agent. |

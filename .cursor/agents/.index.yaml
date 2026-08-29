@@ -16,11 +16,6 @@ items:
   kind: agent
   summary: Single disjoint-scope implementation lane.
   when: Single disjoint-scope implementation lane. Use proactively…
-- name: poteto-agent
-  path: .cursor/agents/poteto-agent.md
-  kind: agent
-  summary: Poteto-mode worker for kater-dev-tools.
-  when: Poteto-mode worker for kater-dev-tools. Use when /poteto-mo…
 - name: pr-gate
   path: .cursor/agents/pr-gate.md
   kind: agent

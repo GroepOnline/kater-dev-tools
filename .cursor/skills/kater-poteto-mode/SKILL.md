@@ -46,7 +46,7 @@ Project layer for poteto-mode in kater-dev-tools. Playbooks and binds live in
 
 - Cloud-safe serve is `--profile core --no-proxy`.
 - Do not commit `.kater/` or `.cursor/mcp.json`.
-- Cursor Task has no poteto-agent type. Spawn `generalPurpose` with `.cursor/agents/poteto-agent.md` standing.
+- Cursor Task has no poteto-agent type. Spawn `generalPurpose` with `~/.cursor/agents/poteto-agent.md` standing.
 
 ## Escalation
 

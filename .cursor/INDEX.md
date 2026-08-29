@@ -39,7 +39,6 @@
 | `ci-fixer` | `.cursor/agents/ci-fixer.md` | CI and local lint/test fixer for the current PR branch. |
 | `kater-verify` | `.cursor/agents/kater-verify.md` | Read-only gateway verification lane. |
 | `parallel-lane` | `.cursor/agents/parallel-lane.md` | Single disjoint-scope implementation lane. |
-| `poteto-agent` | `.cursor/agents/poteto-agent.md` | Poteto-mode worker for kater-dev-tools. |
 | `pr-gate` | `.cursor/agents/pr-gate.md` | PR gate lane executor. |
 
 ## Rules

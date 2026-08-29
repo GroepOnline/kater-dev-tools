@@ -38,7 +38,6 @@ Local/desktop verify how-to: [`docs/ops/local-desktop-verify.md`](docs/ops/local
 | `ci-fixer` | `.cursor/agents/ci-fixer.md` | Fix failing CI / lint / tests on current PR |
 | `parallel-lane` | `.cursor/agents/parallel-lane.md` | One disjoint-scope implementation lane |
 | `pr-gate` | `.cursor/agents/pr-gate.md` | One-PR gate lane (CI, review, rebase) |
-| `poteto-agent` | `.cursor/agents/poteto-agent.md` | Poteto-mode worker standing (parent spawns generalPurpose) |
 
 ## Pre-commit / pre-hooks
 
@@ -162,6 +161,6 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
 
 ## Skill satellites
 
-Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: chefgroep-skills).
+Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: chefgroep-skills). `kater-poteto-mode` → `poteto-mode` (global).
 
 Compound Engineering overlay: `.compound-engineering/` (tracked `config.yaml`, gitignored `config.local.yaml`). Artifact root `.compound-engineering/artifacts/`. Portable skills `~/.agents/skills/ce-*`; native Cursor plugin is fallback only when this overlay is absent.

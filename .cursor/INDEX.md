@@ -29,6 +29,7 @@
 | `kater-doctor` | `.cursor/skills/kater-doctor/SKILL.md` | Run Kater doctor diagnostics, fix plans, and safe apply for MCP/Cursor wiring. |
 | `kater-e2e` | `.cursor/skills/kater-e2e/SKILL.md` | End-to-end gateway proof: REST, MCP SSE initialize/tools, WebSocket handshake. |
 | `kater-gateway` | `.cursor/skills/kater-gateway/SKILL.md` | Start, configure, and verify the Kater MCP gateway locally or in cloud. |
+| `kater-poteto-mode` | `.cursor/skills/kater-poteto-mode/SKILL.md` | Kater facts for /poteto-mode. |
 | `pr-gate` | `.cursor/skills/pr-gate/SKILL.md` | Evaluate and fix one PR until merge-ready using Kater PR gate rules and gh. |
 
 ## Agents
@@ -38,6 +39,7 @@
 | `ci-fixer` | `.cursor/agents/ci-fixer.md` | CI and local lint/test fixer for the current PR branch. |
 | `kater-verify` | `.cursor/agents/kater-verify.md` | Read-only gateway verification lane. |
 | `parallel-lane` | `.cursor/agents/parallel-lane.md` | Single disjoint-scope implementation lane. |
+| `poteto-agent` | `.cursor/agents/poteto-agent.md` | Poteto-mode worker for kater-dev-tools. |
 | `pr-gate` | `.cursor/agents/pr-gate.md` | PR gate lane executor. |
 
 ## Rules
@@ -61,6 +63,7 @@
 | `/kater-gateway` | `.cursor/commands/kater-gateway.md` | Start, configure, and verify the Kater MCP gateway locally or in cloud. |
 | `/local-verify` | `.cursor/commands/local-verify.md` | Umbrella verify matrix: what to test on cloud VM vs local desktop vs Docker, port koppelingen, and canonical order of operations before push. |
 | `/parallel-lanes` | `.cursor/commands/parallel-lanes.md` | Dispatch parallel Cursor subagents with disjoint file scopes (~4 lanes) and a coordinator integrate step. |
+| `/poteto-mode` | `.cursor/commands/poteto-mode.md` | Run ChefGroep poteto-mode in kater-dev-tools. |
 | `/pr-gate` | `.cursor/commands/pr-gate.md` | Evaluate and fix one PR until merge-ready using Kater PR gate rules and gh. |
 
 ## Hooks

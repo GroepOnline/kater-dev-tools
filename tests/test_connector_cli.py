@@ -114,3 +114,61 @@ def test_connector_invoke_internal_without_handler_fails_closed():
     )
     assert result.exit_code == 1
     assert "no_internal_handler" in result.output
+
+
+def test_connector_add_registers_disabled_dynamic_connector(tmp_path):
+    definition = tmp_path / "connector.json"
+    definition.write_text(
+        json.dumps(
+            {
+                "id": "cli-dynamic",
+                "display_name": "CLI Dynamic",
+                "type": "mcp",
+                "version": "1.0.0",
+                "transport": {
+                    "kind": "http",
+                    "endpoint": "https://example.invalid/mcp",
+                    "headers_template": {"Authorization": "Bearer ${CLI_DYNAMIC_TOKEN}"},
+                },
+                "auth_binding": {"kind": "env", "ref": "CLI_DYNAMIC_TOKEN"},
+                "profiles": ["ops"],
+                "status": "enabled",
+                "permissions": {"ops": "admin"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["connector", "add", str(definition), "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["id"] == "cli-dynamic"
+    assert payload["status"] == "disabled"
+    assert payload["permissions"] == {}
+    assert payload["origin"] == "dynamic"
+    record = get_connector("cli-dynamic")
+    assert record is not None
+    assert record.status is ConnectorStatus.DISABLED
+
+
+def test_connector_add_rejects_embedded_secret_value(tmp_path):
+    definition = tmp_path / "connector.json"
+    definition.write_text(
+        json.dumps(
+            {
+                "id": "cli-secret",
+                "display_name": "CLI Secret",
+                "type": "mcp",
+                "version": "1.0.0",
+                "transport": {
+                    "kind": "http",
+                    "endpoint": "https://example.invalid/mcp",
+                    "headers_template": {"Authorization": "Bearer literal-secret"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["connector", "add", str(definition)])
+    assert result.exit_code == 1
+    assert "placeholder" in result.output
+    assert get_connector("cli-secret") is None

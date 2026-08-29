@@ -401,6 +401,43 @@ def _connector_seed_once() -> None:
     seed_builtin_connectors()
 
 
+@connector_app.command("add")
+def connector_add_command(
+    definition: Annotated[Path, typer.Argument(help="JSON connector definition file.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Output als JSON.")] = False,
+) -> None:
+    """Register a dynamic connector; it starts disabled and unprivileged."""
+    from kater.connectors.errors import ConnectorError, ConnectorValidationError
+    from kater.connectors.models import ConnectorRecord
+    from kater.connectors.store import create_connector
+
+    try:
+        payload = json.loads(definition.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ConnectorValidationError("connector definition must be a JSON object")
+        payload = dict(payload)
+        payload["status"] = "disabled"
+        payload["permissions"] = {}
+        payload["origin"] = "dynamic"
+        record = ConnectorRecord.from_mapping(payload)
+        created = create_connector(record)
+    except FileNotFoundError as exc:
+        typer.echo(f"definition not found: {definition}", err=True)
+        raise typer.Exit(code=1) from exc
+    except json.JSONDecodeError as exc:
+        typer.echo(f"invalid connector JSON: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    except (ConnectorError, TypeError, ValueError) as exc:
+        message = exc.code + ": " + str(exc) if isinstance(exc, ConnectorError) else str(exc)
+        typer.echo(message, err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        _print_json(created.as_dict())
+        return
+    typer.echo(f"Registered {created.id} (disabled); run connector validate, then enable.")
+
+
 @connector_app.command("list")
 def connector_list_command(
     profile: Annotated[

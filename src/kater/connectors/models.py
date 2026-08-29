@@ -215,7 +215,13 @@ class ConnectorTransport:
             raise ValueError(f"{kind} transport requires an endpoint")
         if kind == "stdio" and not (self.command or "").strip():
             raise ValueError("stdio transport requires a command")
-        for key, value in {**self.headers_template, **self.env_template}.items():
+        for key, value in self.headers_template.items():
+            if value and not _SAFE_SECRET_TEMPLATE.fullmatch(value.strip()):
+                raise ValueError(
+                    f"header template {key!r} must be a complete ${{ENV}} placeholder "
+                    "(optionally with an auth scheme)"
+                )
+        for key, value in self.env_template.items():
             if (
                 looks_like_secret_key(key)
                 and value

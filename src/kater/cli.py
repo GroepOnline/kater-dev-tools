@@ -18,7 +18,7 @@ profiles_app = typer.Typer(help="Inspect profiles.")
 mcp_app = typer.Typer(help="MCP server management.")
 chain_app = typer.Typer(help="Tool chain execution.")
 tunnel_app = typer.Typer(help="Tunnel management (Cloudflare / Tailscale).")
-connector_app = typer.Typer(help="Connector catalog management (behind the 17 native tools).")
+connector_app = typer.Typer(help="Connector catalog management behind the native tool surface.")
 app.add_typer(profiles_app, name="profiles")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(chain_app, name="chain")
@@ -391,7 +391,68 @@ def mcp_list_command(
     typer.echo(table.render())
 
 
-# ── connector catalog (behind the 17 native tools) ─────────────────
+# ── execution fabric ────────────────────────────────────────────────
+
+
+@app.command("search-tools")
+def search_tools_command(
+    query: Annotated[str, typer.Argument(help="Natural-language capability query.")],
+    profile: Annotated[
+        str, typer.Option("--profile", help="Permission profile.")
+    ] = DEFAULT_PROFILE,
+    limit: Annotated[int, typer.Option("--limit", help="Maximum matches (1-50).")] = 10,
+    include_unavailable: Annotated[
+        bool, typer.Option("--include-unavailable", help="Include blocked or disabled matches.")
+    ] = False,
+) -> None:
+    """Search connector capabilities without exposing every provider tool."""
+    from kater.executor import search_tools
+
+    _print_json(
+        search_tools(
+            query,
+            profile=profile,
+            limit=limit,
+            include_unavailable=include_unavailable,
+        )
+    )
+
+
+@app.command("execute")
+def execute_command(
+    capability_id: Annotated[str, typer.Argument(help="Capability id returned by search-tools.")],
+    profile: Annotated[
+        str, typer.Option("--profile", help="Permission profile.")
+    ] = DEFAULT_PROFILE,
+    connector_id: Annotated[
+        str | None,
+        typer.Option("--connector", help="Explicit connector for ambiguous capability ids."),
+    ] = None,
+    args_json: Annotated[str, typer.Option("--args", help="JSON object of arguments.")] = "{}",
+) -> None:
+    """Execute one capability through connector auth, policy, transport, and audit."""
+    from kater.connectors.auth import redact_text
+    from kater.connectors.errors import ConnectorError
+    from kater.executor import execute
+
+    try:
+        arguments = json.loads(args_json or "{}")
+        if not isinstance(arguments, dict):
+            raise ValueError("--args must be a JSON object")
+        result = execute(
+            capability_id,
+            arguments,
+            profile=profile,
+            connector_id=connector_id,
+            principal_id="cli",
+        )
+    except (ConnectorError, ValueError) as exc:
+        typer.echo(redact_text(str(exc)), err=True)
+        raise typer.Exit(code=1) from exc
+    _print_json(result)
+
+
+# ── connector catalog (behind the native tools) ─────────────────────
 
 
 def _connector_seed_once() -> None:

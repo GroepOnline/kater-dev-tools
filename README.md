@@ -104,11 +104,17 @@ Client-side multi-server configs remain available via `kater config --profile op
 | `kater evals` | Aggregated tool performance metrics |
 | `kater profiles` | List profiles |
 | `kater tools --profile ops` | List tools for a profile |
+| `kater search-tools "create a Linear issue" --profile ops` | Search registered connector capabilities |
+| `kater execute <capability> --profile ops --args '{}'` | Execute one capability through policy and audit |
 | `kater chains` | List tool chains |
 | `kater chain run <name>` | Execute a chain |
 | `kater version` | Show version |
 
 All commands support `--json` for structured output.
+
+## Agent execution
+
+Kater keeps provider tools behind the connector catalog. Agents can search the catalog with `kater_tool_search`, then run one result with `kater_execute`. The executor reuses connector auth, profile permissions, transport dispatch, and capability audit. See `docs/executor.md`.
 
 ## MCP Server Catalog (29+)
 
@@ -278,7 +284,7 @@ uv run pytest -v
 
 - **Cursor agents** — MCP wiring, hooks, and Cloud vs desktop verify:
   [docs/cursor-setup.md](docs/cursor-setup.md), [AGENTS.md](AGENTS.md)
-- **Connectors** — vendor MCP/API catalog behind the 17 native tools:
+- **Connectors** — vendor MCP/API catalog behind the native tool surface:
   [docs/connectors.md](docs/connectors.md)
 
 ## Architecture

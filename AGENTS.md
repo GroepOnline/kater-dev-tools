@@ -17,6 +17,7 @@ Full index + environment metadata: [`.cursor/INDEX.md`](.cursor/INDEX.md)
 | `kater-e2e` | `.cursor/skills/kater-e2e/` | `./scripts/e2e-mcp.sh` (server up) |
 | `kater-dashboard` | `.cursor/skills/kater-dashboard/` | REST + dashboard on `:9091` |
 | `pr-gate` | `.cursor/skills/pr-gate/` | Merge-ready PR checks and gate contract |
+| `poteto-mode` | `.cursor/skills/kater-poteto-mode/` | `/poteto-mode` satellite; playbooks stay global |
 | `ci-fixer` | `.cursor/skills/ci-fixer/` | Fix failing CI / lint / tests (twin of `ci-fixer` agent) |
 | `parallel-lanes` | `.cursor/skills/parallel-lanes/` | Spawn ~4 disjoint-scope parallel workers |
 | `create-skill` | `.cursor/skills/create-skill/` | `/create-skill` — scaffold a project skill |
@@ -160,6 +161,6 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
 
 ## Skill satellites
 
-Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: chefgroep-skills).
+Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: chefgroep-skills). `kater-poteto-mode` → `poteto-mode` (global).
 
 Compound Engineering overlay: `.compound-engineering/` (tracked `config.yaml`, gitignored `config.local.yaml`). Artifact root `.compound-engineering/artifacts/`. Portable skills `~/.agents/skills/ce-*`; native Cursor plugin is fallback only when this overlay is absent.

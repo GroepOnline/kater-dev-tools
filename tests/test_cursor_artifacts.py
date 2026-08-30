@@ -58,13 +58,14 @@ def test_print_markdown_lists_expected_kinds_and_paths() -> None:
     assert "| Kind | Name | Path |" in out
     assert "| skill | `kater-gateway` | `.cursor/skills/kater-gateway/SKILL.md` |" in out
     assert "| skill | `pr-gate` | `.cursor/skills/pr-gate/SKILL.md` |" in out
+    assert "| skill | `kater-poteto-mode` | `.cursor/skills/kater-poteto-mode/SKILL.md` |" in out
     assert "| agent | `pr-gate` | `.cursor/agents/pr-gate.md` |" in out
     assert "| hook | `sessionStart` | `.cursor/hooks.json` |" in out
-    assert "Skills: 11 |" in out
+    assert "Skills: 12 |" in out
     assert "Agents: 4 |" in out
-    # kater-project + verify-before-claim (this PR) + the generated taste rule.
+    # kater-project + verify-before-claim + the generated taste rule.
     assert "Rules: 3 |" in out
-    assert "Commands: 10 |" in out
+    assert "Commands: 11 |" in out
     assert "Hook events: 4 |" in out
     assert "| rule | `kater-project` |" in out
     assert "| skill | `ci-fix-loop` |" in out

@@ -52,6 +52,11 @@ items:
   summary: Dispatch parallel Cursor subagents with disjoint file scopes (~4 lanes)
     and a coordinator integrate step.
   when: Dispatch parallel Cursor subagents with disjoint file scope…
+- name: poteto-mode
+  path: .cursor/commands/poteto-mode.md
+  kind: command
+  summary: Run ChefGroep poteto-mode in kater-dev-tools.
+  when: Run ChefGroep poteto-mode in kater-dev-tools. Load the proj…
 - name: pr-gate
   path: .cursor/commands/pr-gate.md
   kind: command

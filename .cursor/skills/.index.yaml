@@ -53,6 +53,11 @@ items:
   kind: skill
   summary: Start, configure, and verify the Kater MCP gateway locally or in cloud.
   when: Start, configure, and verify the Kater MCP gateway locally…
+- name: kater-poteto-mode
+  path: .cursor/skills/kater-poteto-mode/SKILL.md
+  kind: skill
+  summary: Kater facts for /poteto-mode.
+  when: Kater facts for /poteto-mode. Ports 9090/9091/9092, pr-gate…
 - name: pr-gate
   path: .cursor/skills/pr-gate/SKILL.md
   kind: skill

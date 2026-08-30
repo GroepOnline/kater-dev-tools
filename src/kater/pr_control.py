@@ -389,7 +389,9 @@ def count_independent_approvals(
     latest_review: dict[str, dict[str, Any]] = {}
     # GitHub normally returns chronological reviews, but that ordering is not
     # a trust boundary. Sort by provider timestamp and use canonical content
-    # as a deterministic tie-breaker; undated reviews are oldest.
+    # as a deterministic tie-breaker. Unorderable timestamps sort last so a
+    # later undated CHANGES_REQUESTED cannot be overwritten by an older dated
+    # APPROVE. Undated APPROVE still cannot be credited (see below).
     def review_timestamp(review: dict[str, Any]) -> datetime | None:
         raw = str(
             review.get("submittedAt")
@@ -409,8 +411,8 @@ def count_independent_approvals(
     def review_order(review: dict[str, Any]) -> tuple[int, datetime, str]:
         stamp = review_timestamp(review)
         return (
-            1 if stamp else 0,
-            stamp if stamp else datetime.min.replace(tzinfo=UTC),
+            0 if stamp else 1,
+            stamp if stamp else datetime.max.replace(tzinfo=UTC),
             json.dumps(review, sort_keys=True, default=str),
         )
 

@@ -1127,6 +1127,30 @@ def test_app_denylist_and_fixer_identity_win_over_allowlist() -> None:
     assert count_independent_approvals([review], policy=fixer, **kwargs) == 0
 
 
+def test_unorderable_later_changes_requested_zeroes_independent_approvals() -> None:
+    policy = GatePolicy()
+    reviews = [
+        {
+            "author": {"login": "bob"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-27T10:00:00+00:00",
+            "commit_id": "a" * 40,
+        },
+        {
+            "author": {"login": "bob"},
+            "state": "CHANGES_REQUESTED",
+            "submittedAt": "not-a-timestamp",
+            "commit_id": "a" * 40,
+        },
+    ]
+    assert (
+        count_independent_approvals(
+            reviews, author_login="alice", policy=policy, expected_head_sha="a" * 40
+        )
+        == 0
+    )
+
+
 def test_rest_created_at_and_offset_timestamp_keep_latest_state() -> None:
     policy = GatePolicy()
     reviews = [

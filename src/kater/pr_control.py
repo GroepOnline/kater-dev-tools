@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
@@ -20,6 +22,7 @@ from kater.github_transport import (
 )
 
 _log = logging.getLogger("kater.pr_control")
+_SHA40 = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 
 # Machine-readable gate verdicts and reason codes. Write-tools (merge) must
 # require the recorded head SHA and only act on a PASS; WARN/BLOCK are
@@ -42,6 +45,7 @@ REASON_BASE_PROTECTED = "BASE_PROTECTED"
 REASON_REPO_DENIED = "REPO_DENIED"
 REASON_MISSING_HEAD_SHA = "MISSING_HEAD_SHA"
 REASON_REQUIRED_CHECK_LOOKUP = "REQUIRED_CHECK_LOOKUP"
+REASON_REVIEWER_APP_LOOKUP = "REVIEWER_APP_LOOKUP_FAILED"
 REASON_ALREADY_MERGED = "ALREADY_MERGED"
 REASON_ALREADY_CLOSED = "ALREADY_CLOSED"
 REASON_GATE_INCOMPLETE = "GATE_INCOMPLETE"
@@ -93,6 +97,12 @@ class GateResult:
             "reasons": self.reasons,
             "details": self.details,
         }
+
+
+@dataclass(frozen=True)
+class ReviewerAppLookup:
+    identities: frozenset[str]
+    failed: bool = False
 
 
 # Reasons that hard-block a merge unconditionally.
@@ -359,6 +369,7 @@ def count_independent_approvals(
     policy: GatePolicy,
     fixer_logins: tuple[str, ...] = (),
     expected_head_sha: str = "",
+    trusted_reviewer_apps: set[str] | None = None,
 ) -> int:
     """Count APPROVED reviews that are not author/bot/fixer (allowlist-aware).
 
@@ -370,11 +381,42 @@ def count_independent_approvals(
     login from the PR author, and treating it as a fixer self-rejects the
     independent reviewer.
     """
+    pin = (expected_head_sha or "").strip().lower()
+    # Independent credit is never safe without a real immutable head pin.
+    if not _SHA40.fullmatch(pin):
+        return 0
     latest_state: dict[str, str] = {}
     latest_review: dict[str, dict[str, Any]] = {}
-    for review in reviews:
-        if not isinstance(review, dict):
-            continue
+    # GitHub normally returns chronological reviews, but that ordering is not
+    # a trust boundary. Sort by provider timestamp and use canonical content
+    # as a deterministic tie-breaker. Unorderable timestamps sort last so a
+    # later undated CHANGES_REQUESTED cannot be overwritten by an older dated
+    # APPROVE. Undated APPROVE still cannot be credited (see below).
+    def review_timestamp(review: dict[str, Any]) -> datetime | None:
+        raw = str(
+            review.get("submittedAt")
+            or review.get("submitted_at")
+            or review.get("createdAt")
+            or review.get("created_at")
+            or ""
+        )
+        try:
+            value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if not value.tzinfo:
+                return None
+            return value.astimezone(UTC)
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    def review_order(review: dict[str, Any]) -> tuple[int, datetime, str]:
+        stamp = review_timestamp(review)
+        return (
+            0 if stamp else 1,
+            stamp if stamp else datetime.max.replace(tzinfo=UTC),
+            json.dumps(review, sort_keys=True, default=str),
+        )
+
+    for review in sorted((r for r in reviews if isinstance(r, dict)), key=review_order):
         login = _normalize_login(_review_login(review))
         if not login:
             continue
@@ -382,25 +424,45 @@ def count_independent_approvals(
         latest_state[login] = state
         latest_review[login] = review
 
-    allow = _login_set(policy.independent_reviewer_allowlist)
+    allow = {
+        _normalize_login(v)
+        for v in policy.independent_reviewer_allowlist
+        if str(v).strip()
+    }
+    trusted_apps = {str(v).strip().lower() for v in (trusted_reviewer_apps or set())}
     deny = _login_set(policy.independent_reviewer_denylist)
     fixers = _login_set(policy.fixer_logins) | _login_set(fixer_logins)
     author = _normalize_login(author_login)
-    pin = (expected_head_sha or "").strip()
+    pin = (expected_head_sha or "").strip().lower()
     count = 0
     for login, state in latest_state.items():
         if state != "APPROVED":
             continue
-        if allow and login not in allow:
+        # App identity is credited only to the exact GitHub bot login.
+        app_identity = ""
+        if login.endswith("[bot]"):
+            slug_prefix = f"{login.removesuffix('[bot]')}:"
+            matches = sorted(v for v in trusted_apps if v.startswith(slug_prefix))
+            app_identity = matches[0] if len(matches) == 1 else ""
+        # App approvals are independent evidence only when pinned to a real
+        # commit; never credit an App on a missing/short caller-supplied pin.
+        if app_identity and not _SHA40.fullmatch(pin):
+            app_identity = ""
+        if allow and login not in allow and app_identity not in allow:
             continue
         if policy.reject_author_approval and author and login == author:
             continue
         review = latest_review[login]
-        if policy.reject_bot_approval and (login in deny or _review_is_bot(review, login)):
+        if review_timestamp(review) is None:
             continue
-        if policy.reject_fixer_approval and login in fixers:
+        if policy.reject_bot_approval and (
+            login in deny or app_identity in deny
+            or (_review_is_bot(review, login) and app_identity not in allow)
+        ):
             continue
-        if pin and _review_commit_oid(review) != pin:
+        if policy.reject_fixer_approval and (login in fixers or app_identity in fixers):
+            continue
+        if _review_commit_oid(review).lower() != pin:
             continue
         count += 1
     return count
@@ -423,6 +485,7 @@ def _collapse(
         REASON_REPO_DENIED,
         REASON_MISSING_HEAD_SHA,
         REASON_REQUIRED_CHECK_LOOKUP,
+        REASON_REVIEWER_APP_LOOKUP,
     }
     if policy.block_drafts:
         blocking_here.add(REASON_DRAFT)
@@ -701,6 +764,66 @@ class GitHubPRClient:
             pr["baseRefOid"] = extras["baseRefOid"]
         return pr
 
+    def trusted_reviewer_app_identities(
+        self,
+        reviews: list[dict[str, Any]] | None = None,
+        repository: str = "",
+    ) -> ReviewerAppLookup:
+        """Return provider-verified App identities installed for this repo.
+
+        Missing/failed provider evidence is deliberately empty (fail closed).
+        """
+        repo = (repository or getattr(self, "repo", None) or "").strip()
+        if not repo or "/" not in repo:
+            return ReviewerAppLookup(frozenset(), True)
+        owner = repo.split("/", 1)[0]
+        try:
+            installations: list[Any] = []
+            page = 1
+            while True:
+                if page > 100:
+                    return ReviewerAppLookup(frozenset(), True)
+                payload = self._api(
+                    f"orgs/{owner}/installations",
+                    params={"per_page": "100", "page": str(page)},
+                )
+                if not isinstance(payload, dict) or not isinstance(
+                    payload.get("installations"), list
+                ):
+                    return ReviewerAppLookup(frozenset(), True)
+                batch = payload["installations"]
+                installations.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
+            approved = {
+                _normalize_login(_review_login(r))
+                for r in (reviews or [])
+                if isinstance(r, dict)
+                and str(r.get("state") or r.get("decision") or "").upper() == "APPROVED"
+            }
+            result: set[str] = set()
+            for item in installations:
+                if not isinstance(item, dict):
+                    continue
+                installation_id = str(item.get("id") or "").strip()
+                app = item.get("app_slug") or item.get("app")
+                slug = str(app.get("slug") if isinstance(app, dict) else app or "").strip().lower()
+                app_id = str(
+                    item.get("app_id") or (app.get("id") if isinstance(app, dict) else "")
+                ).strip()
+                if not (slug and app_id and installation_id):
+                    continue
+                if f"{slug}[bot]" not in approved:
+                    continue
+                # App slugs are globally unique and the review itself proves
+                # this installation reached the target repository; no
+                # user-token repository-membership endpoint is required.
+                result.add(f"{slug}:{app_id}:{installation_id}")
+            return ReviewerAppLookup(frozenset(result))
+        except (OSError, RuntimeError, ValueError, TypeError, AttributeError):
+            return ReviewerAppLookup(frozenset(), True)
+
     def _pull_request_graphql_cli(self, number: int) -> dict[str, Any]:
         # ``reviewThreads`` / ``baseRefOid`` are not valid ``gh pr view --json``
         # fields ("Unknown JSON field"). Threads stay on the GraphQL extras hop.
@@ -724,6 +847,32 @@ class GitHubPRClient:
             raise classify_github_failure(args=args, malformed=True, stdout=proc.stdout)
         return raw
 
+    def _api_paginated_list(
+        self, path: str, *, per_page: int = 100, max_pages: int = 20
+    ) -> list[Any]:
+        """GET a JSON-array GitHub endpoint across pages.
+
+        GitHub's default page size is 30. Repo-pinned gate/merge uses REST and
+        would otherwise miss an APPROVE that lands after the first page.
+        """
+        rows: list[Any] = []
+        page = 1
+        while page <= max_pages:
+            payload = self._api(
+                path,
+                params={"per_page": str(per_page), "page": str(page)},
+            )
+            if not isinstance(payload, list):
+                raise classify_github_failure(
+                    args=["api", path],
+                    malformed=True,
+                )
+            rows.extend(payload)
+            if len(payload) < per_page:
+                return rows
+            page += 1
+        return rows
+
     def _pull_request_rest(self, number: int) -> dict[str, Any]:
         raw = self._api(f"repos/{self.repo}/pulls/{number}")
         if not isinstance(raw, dict):
@@ -731,18 +880,8 @@ class GitHubPRClient:
                 args=["api", f"repos/{self.repo}/pulls/{number}"],
                 malformed=True,
             )
-        reviews = self._api(f"repos/{self.repo}/pulls/{number}/reviews")
-        if not isinstance(reviews, list):
-            raise classify_github_failure(
-                args=["api", f"repos/{self.repo}/pulls/{number}/reviews"],
-                malformed=True,
-            )
-        commits = self._api(f"repos/{self.repo}/pulls/{number}/commits")
-        if not isinstance(commits, list):
-            raise classify_github_failure(
-                args=["api", f"repos/{self.repo}/pulls/{number}/commits"],
-                malformed=True,
-            )
+        reviews = self._api_paginated_list(f"repos/{self.repo}/pulls/{number}/reviews")
+        commits = self._api_paginated_list(f"repos/{self.repo}/pulls/{number}/commits")
         return normalize_rest_pull(raw, reviews=reviews, commits=commits)
 
     def pull_merge_evidence(self, number: int) -> dict[str, Any]:
@@ -928,6 +1067,13 @@ def _normalize_rest_review(review: dict[str, Any]) -> dict[str, Any]:
     mapped = {
         "author": {"login": login or "", "is_bot": is_bot},
         "state": review.get("state") or review.get("decision") or "",
+        "submittedAt": (
+            review.get("submitted_at")
+            or review.get("submittedAt")
+            or review.get("created_at")
+            or review.get("createdAt")
+            or ""
+        ),
         "authorAssociation": (
             review.get("author_association") or review.get("authorAssociation") or ""
         ),
@@ -1071,9 +1217,10 @@ def _summarize_pr(
     *,
     policy: GatePolicy | None = None,
     expected_head_sha: str = "",
+    trusted_reviewer_apps: set[str] | None = None,
 ) -> dict[str, Any]:
     policy = policy or GatePolicy()
-    pin = (expected_head_sha or "").strip()
+    pin = (expected_head_sha or "").strip().lower()
     threads = pr.get("reviewThreads") or []
     open_threads = sum(1 for t in threads if not t.get("isResolved"))
     checks = [c for c in (pr.get("statusCheckRollup") or []) if isinstance(c, dict)]
@@ -1090,6 +1237,7 @@ def _summarize_pr(
         author_login=author_login,
         policy=policy,
         expected_head_sha=pin,
+        trusted_reviewer_apps=trusted_reviewer_apps,
     )
     commits = pr.get("commits") or []
     head_sha = pr.get("headRefOid") or (commits[-1].get("oid") if commits else "")
@@ -1133,8 +1281,28 @@ def gate_for_pr(
     expected_head_sha: str = "",
 ) -> GateResult:
     policy = policy or load_gate_policy()
-    pin = (expected_head_sha or "").strip()
-    summary = _summarize_pr(pr, policy=policy, expected_head_sha=pin)
+    pin = (expected_head_sha or "").strip().lower()
+    # Human-only allowlists do not require installation/API evidence.
+    needs_app_lookup = bool(pin) and any(
+        str(entry).strip().count(":") >= 2
+        for entry in policy.independent_reviewer_allowlist
+    )
+    lookup_repo = (
+        getattr(client, "repo", None)
+        or repo_from_url(str(pr.get("url") or ""))
+        or ""
+    ).strip()
+    reviewer_lookup = (
+        client.trusted_reviewer_app_identities(_review_list(pr), repository=lookup_repo)
+        if needs_app_lookup
+        else ReviewerAppLookup(frozenset())
+    )
+    summary = _summarize_pr(
+        pr,
+        policy=policy,
+        expected_head_sha=pin,
+        trusted_reviewer_apps=set(reviewer_lookup.identities),
+    )
     protection_lookup_failed = False
     try:
         base_protected = client.is_base_protected(summary["base_ref"] or "")
@@ -1187,6 +1355,9 @@ def gate_for_pr(
         required_missing=check_summary["required_missing"],
         pr_state=summary["pr_state"],
     )
+    if reviewer_lookup.failed and summary["independent_approvals"] < policy.require_approvals:
+        result.reasons.append(REASON_REVIEWER_APP_LOOKUP)
+        result.verdict = VERDICT_BLOCK
     if required_lookup_failed or check_runs_failed or protection_lookup_failed:
         if REASON_REQUIRED_CHECK_LOOKUP not in result.reasons:
             result.reasons.append(REASON_REQUIRED_CHECK_LOOKUP)
@@ -1198,7 +1369,7 @@ def gate_for_pr(
         )
     if pin:
         result.details["expected_head_sha"] = pin
-        matches = head_sha == pin if head_sha else None
+        matches = head_sha.lower() == pin if head_sha else None
         result.details["head_sha_matches"] = matches
         if matches is not True:
             if REASON_HEAD_STALE not in result.reasons:
@@ -1230,7 +1401,9 @@ def _list_gate_for_pr(pr: dict[str, Any], summary: dict[str, Any]) -> dict[str, 
             policy=policy,
             failed_checks=summary.get("failed_checks") or 0,
             p1_latch_open=bool(summary.get("p1_latch_open")),
-            independent_approvals=summary.get("independent_approvals"),
+            # List never supplies a head pin, so independent credit is undefined.
+            # Fall back to reviewDecision-based approving_reviews.
+            independent_approvals=None,
             repo=summary.get("repo") or "",
             required_failed=summary.get("required_failed") or 0,
             required_pending=summary.get("required_pending") or 0,
@@ -1365,7 +1538,7 @@ def merge_pr(
     from kater.storage import record_gate_audit
 
     policy = policy or load_gate_policy()
-    pinned = (expected_head_sha or "").strip()
+    pinned = (expected_head_sha or "").strip().lower()
     client = _pr_client(repo)
     pr = client.pull_request(number)
     repo = (getattr(client, "repo", None) or repo_from_url(str(pr.get("url") or "")) or "").strip()
@@ -1414,7 +1587,7 @@ def merge_pr(
         )
         raise MergeRejected(f"merge blocked: verdict={verdict} reasons={reasons}")
 
-    if not head or head != pinned:
+    if not head or head.lower() != pinned:
         record_gate_audit(
             action="merge_rejected",
             pr_number=number,

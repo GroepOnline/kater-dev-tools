@@ -26,9 +26,10 @@ htmlcov/
 # Advisory lock sidecars for the agent-taste signals registry
 .agents/registry/*.lock
 
-# ChefGroep standard ignores (OS / Xcode / local env / CE)
+# Compound Engineering checkout-local settings (tracked: config.yaml + example)
 .compound-engineering/*.local.yaml
 
+# ChefGroep standard ignores (OS / Xcode / local env)
 # OS / editors
 .DS_Store
 .AppleDouble
@@ -54,7 +55,5 @@ xcuserdata/
 *.dSYM.zip
 Pods/
 
-# Local env
-.env
-.env.local
+# Local env variants
 .env.*.local

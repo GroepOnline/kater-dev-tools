@@ -847,6 +847,32 @@ class GitHubPRClient:
             raise classify_github_failure(args=args, malformed=True, stdout=proc.stdout)
         return raw
 
+    def _api_paginated_list(
+        self, path: str, *, per_page: int = 100, max_pages: int = 20
+    ) -> list[Any]:
+        """GET a JSON-array GitHub endpoint across pages.
+
+        GitHub's default page size is 30. Repo-pinned gate/merge uses REST and
+        would otherwise miss an APPROVE that lands after the first page.
+        """
+        rows: list[Any] = []
+        page = 1
+        while page <= max_pages:
+            payload = self._api(
+                path,
+                params={"per_page": str(per_page), "page": str(page)},
+            )
+            if not isinstance(payload, list):
+                raise classify_github_failure(
+                    args=["api", path],
+                    malformed=True,
+                )
+            rows.extend(payload)
+            if len(payload) < per_page:
+                return rows
+            page += 1
+        return rows
+
     def _pull_request_rest(self, number: int) -> dict[str, Any]:
         raw = self._api(f"repos/{self.repo}/pulls/{number}")
         if not isinstance(raw, dict):
@@ -854,18 +880,8 @@ class GitHubPRClient:
                 args=["api", f"repos/{self.repo}/pulls/{number}"],
                 malformed=True,
             )
-        reviews = self._api(f"repos/{self.repo}/pulls/{number}/reviews")
-        if not isinstance(reviews, list):
-            raise classify_github_failure(
-                args=["api", f"repos/{self.repo}/pulls/{number}/reviews"],
-                malformed=True,
-            )
-        commits = self._api(f"repos/{self.repo}/pulls/{number}/commits")
-        if not isinstance(commits, list):
-            raise classify_github_failure(
-                args=["api", f"repos/{self.repo}/pulls/{number}/commits"],
-                malformed=True,
-            )
+        reviews = self._api_paginated_list(f"repos/{self.repo}/pulls/{number}/reviews")
+        commits = self._api_paginated_list(f"repos/{self.repo}/pulls/{number}/commits")
         return normalize_rest_pull(raw, reviews=reviews, commits=commits)
 
     def pull_merge_evidence(self, number: int) -> dict[str, Any]:

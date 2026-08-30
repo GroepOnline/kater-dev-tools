@@ -1880,6 +1880,11 @@ def _fail(stderr: str, code: int = 1) -> Any:
     return SimpleNamespace(returncode=code, stdout="", stderr=stderr)
 
 
+def _api_stem(args: list[str]) -> str:
+    path = args[1] if len(args) > 1 else ""
+    return path.split("?", 1)[0]
+
+
 def test_pull_request_retries_transient_then_rest_success() -> None:
     calls: list[str] = []
 
@@ -1890,7 +1895,7 @@ def test_pull_request_retries_transient_then_rest_success() -> None:
             if sum(1 for c in calls if c.endswith("/pulls/42")) < 3:
                 return _fail(GRAPHQL_DIAL)
             return _ok(_rest_pr_payload())
-        if path.endswith("/reviews"):
+        if _api_stem(args).endswith("/reviews"):
             return _ok(
                 [
                     {
@@ -1901,7 +1906,7 @@ def test_pull_request_retries_transient_then_rest_success() -> None:
                     }
                 ]
             )
-        if path.endswith("/commits"):
+        if _api_stem(args).endswith("/commits"):
             return _ok([{"sha": "a" * 40, "author": {"login": "alice"}}])
         if args[1] == "graphql":
             return _ok(
@@ -1918,6 +1923,72 @@ def test_pull_request_retries_transient_then_rest_success() -> None:
     assert pr["headRefOid"] == "a" * 40
     assert pr["reviewThreads"] == [{"isResolved": True, "isOutdated": False}]
     assert sum(1 for c in calls if c.endswith("/pulls/42")) == 3
+
+
+def test_rest_pull_paginates_reviews_past_github_default_page() -> None:
+    pin = "b" * 40
+    page1 = [
+        {
+            "user": {"login": f"noise{i}"},
+            "state": "COMMENTED",
+            "submitted_at": "2026-08-27T10:00:00Z",
+            "commit_id": "c" * 40,
+        }
+        for i in range(100)
+    ]
+    page2 = [
+        {
+            "user": {"login": "bob"},
+            "state": "APPROVED",
+            "submitted_at": "2026-08-30T15:58:01Z",
+            "commit_id": pin,
+        }
+    ]
+    review_pages: list[int] = []
+
+    def fake_runner(args: list[str]) -> Any:
+        path = args[1] if len(args) > 1 else ""
+        stem = _api_stem(args)
+        if stem.endswith("/pulls/42"):
+            return _ok(_rest_pr_payload(sha=pin))
+        if stem.endswith("/reviews"):
+            query = path.split("?", 1)[1] if "?" in path else ""
+            page = 1
+            for part in query.split("&"):
+                if part.startswith("page="):
+                    page = int(part.split("=", 1)[1])
+            review_pages.append(page)
+            return _ok(page2 if page >= 2 else page1)
+        if stem.endswith("/commits"):
+            return _ok([{"sha": pin, "author": {"login": "alice"}}])
+        if args[1] == "graphql":
+            return _ok(
+                json.loads(_graphql_threads_payload([{"isResolved": True, "isOutdated": False}]))
+            )
+        return _fail(f"unexpected {args}")
+
+    client = GitHubPRClient(
+        repo="o/r",
+        runner=fake_runner,
+        transport=TransportConfig(extra_retries=0, sleeper=lambda _: None),
+    )
+    pr = client.pull_request(42)
+    logins = [
+        (row.get("author") or {}).get("login")
+        for row in pr["reviews"]
+        if isinstance(row, dict)
+    ]
+    assert "bob" in logins
+    assert review_pages == [1, 2]
+    assert (
+        count_independent_approvals(
+            pr["reviews"],
+            author_login="alice",
+            policy=GatePolicy(),
+            expected_head_sha=pin,
+        )
+        == 1
+    )
 
 
 def test_pull_request_transport_exhaustion_is_not_pass() -> None:
@@ -1967,7 +2038,7 @@ def test_graphql_extras_fail_closed_after_retry_wrapper() -> None:
             return _fail(GRAPHQL_DIAL)
         if args[1].endswith("/pulls/42"):
             return _ok(_rest_pr_payload())
-        if args[1].endswith("/reviews") or args[1].endswith("/commits"):
+        if _api_stem(args).endswith("/reviews") or _api_stem(args).endswith("/commits"):
             return _ok([])
         return _fail("unexpected")
 
@@ -2035,7 +2106,7 @@ def test_merge_pr_timeout_does_not_retry_write_and_reconciles(monkeypatch) -> No
             raise subprocess.TimeoutExpired(cmd=["gh", *args], timeout=2)
         if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
             return _ok(_rest_pr_payload(merged=state["merged"]))
-        if path.endswith("/reviews"):
+        if _api_stem(args).endswith("/reviews"):
             return _ok(
                 [
                     {
@@ -2046,7 +2117,7 @@ def test_merge_pr_timeout_does_not_retry_write_and_reconciles(monkeypatch) -> No
                     }
                 ]
             )
-        if path.endswith("/commits"):
+        if _api_stem(args).endswith("/commits"):
             return _ok([])
         if "check-runs" in path:
             return _ok({"check_runs": []})
@@ -2081,7 +2152,7 @@ def test_merge_pr_timeout_reconcile_unproven_fails_closed(monkeypatch) -> None:
             raise subprocess.TimeoutExpired(cmd=["gh", *args], timeout=2)
         if path.endswith("/pulls/42") and "reviews" not in path and "commits" not in path:
             return _ok(_rest_pr_payload(merged=False))
-        if path.endswith("/reviews"):
+        if _api_stem(args).endswith("/reviews"):
             return _ok(
                 [
                     {
@@ -2092,7 +2163,7 @@ def test_merge_pr_timeout_reconcile_unproven_fails_closed(monkeypatch) -> None:
                     }
                 ]
             )
-        if path.endswith("/commits"):
+        if _api_stem(args).endswith("/commits"):
             return _ok([])
         if "check-runs" in path:
             return _ok({"check_runs": []})

@@ -1,0 +1,8 @@
+{
+  "name": "Kater Dev Tools",
+  "description": "Developer MCP gateway with profile-gated tools, browser workspace, and control room dashboard",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

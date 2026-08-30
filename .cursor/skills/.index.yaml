@@ -64,3 +64,9 @@ items:
   summary: Evaluate and fix one PR until merge-ready using Kater PR gate rules and
     gh.
   when: Evaluate and fix one PR until merge-ready using Kater PR ga…
+- name: pr-review-log
+  path: .cursor/skills/pr-review-log/SKILL.md
+  kind: skill
+  summary: Review a PR, fix root-cause bugs, and record review + continual-learning
+    + session log.
+  when: Review a PR, fix root-cause bugs, and record review + conti…

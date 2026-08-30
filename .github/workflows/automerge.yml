@@ -19,7 +19,6 @@ permissions:
 
 jobs:
   automerge:
-    # PR → pr-isolated; else → heavy.
     runs-on: ubuntu-latest
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]'

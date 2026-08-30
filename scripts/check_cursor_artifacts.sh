@@ -33,6 +33,13 @@ if [[ -f "${GEN}" ]]; then
   fi
 fi
 
+SOURCE_SKILL="${PR_REVIEW_LOG_SOURCE_SKILL:-${ROOT}/.cursor/skills/pr-review-log/SKILL.md}"
+MIRROR_SKILL="${PR_REVIEW_LOG_MIRROR_SKILL:-${ROOT}/.reviews/skills/pr-review-log/SKILL.md}"
+if [[ ! -f "${SOURCE_SKILL}" || ! -f "${MIRROR_SKILL}" ]] || ! cmp -s "${SOURCE_SKILL}" "${MIRROR_SKILL}"; then
+  echo "check_cursor_artifacts: pr-review-log mirror drift; .cursor/skills is authoritative" >&2
+  exit 1
+fi
+
 scan_cursor_org_leak() {
   # 'online''chefgroep' splits the literal so this guard's own source does not
   # trip the repo-wide org-leak scanner (mirrors scripts/no_org_leak.py).

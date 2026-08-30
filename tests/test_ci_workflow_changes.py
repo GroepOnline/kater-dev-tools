@@ -124,7 +124,9 @@ def test_coverage_job_installs_playwright_chromium() -> None:
 
 def test_release_workflow_bumps_checkout_action() -> None:
     text = RELEASE.read_text(encoding="utf-8")
-    assert "actions/checkout@v7" in text
+    # v7, pinned by commit SHA rather than by a mutable tag.
+    assert f"{KATER_CHECKOUT_SHA} # v7" in text
+    assert "actions/checkout@v7" not in text
 
 
 def test_no_org_leak_workflow_matches_shared_checkout_sha() -> None:

@@ -29,7 +29,9 @@ EXPECTED_SKILLS = {
     "kater-gateway",
     "kater-dev-tools-local-verify",
     "kater-dev-tools-parallel-lanes",
+    "kater-poteto-mode",
     "pr-gate",
+    "pr-review-log",
 }
 EXPECTED_AGENTS = {"ci-fixer", "kater-verify", "parallel-lane", "pr-gate"}
 
@@ -119,6 +121,16 @@ def test_parallel_lanes_skill_and_agent_are_cross_linked() -> None:
     frontmatter, agent_body = _parse_frontmatter(agent_path)
     assert frontmatter["name"] == "parallel-lane"
     assert ".cursor/skills/kater-dev-tools-parallel-lanes/SKILL.md" in agent_body
+
+
+def test_poteto_mode_command_loads_satellite() -> None:
+    command = (ROOT / ".cursor/commands/poteto-mode.md").read_text(encoding="utf-8")
+    assert ".cursor/skills/kater-poteto-mode/SKILL.md" in command
+    assert "~/.agents/skills/poteto-mode/SKILL.md" in command
+    skill_path = SKILLS_DIR / "kater-poteto-mode" / "SKILL.md"
+    frontmatter, _ = _parse_frontmatter(skill_path)
+    assert frontmatter["name"] == "kater-poteto-mode"
+    assert frontmatter.get("disable-model-invocation") is True
 
 
 def test_pr_gate_agent_frontmatter_fields() -> None:

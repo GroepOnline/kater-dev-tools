@@ -218,7 +218,7 @@ def test_per_connector_override_beats_global_default(tmp_path):
     assert len(made) == 1  # pooled override reused the warm backend
 
 
-def test_invoke_uses_dispatch_and_leaves_native_surface_at_seventeen(tmp_path, monkeypatch):
+def test_invoke_uses_dispatch_and_leaves_native_surface_at_nineteen(tmp_path, monkeypatch):
     monkeypatch.delenv("KATER_EXTENSIONS_MODULE", raising=False)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
     from kater.connectors import mcp_lifecycle
@@ -243,5 +243,5 @@ def test_invoke_uses_dispatch_and_leaves_native_surface_at_seventeen(tmp_path, m
 
     after = [tool.name for tool in build_native_tools()]
     assert before == after
-    assert len(before) == 17
+    assert len(before) == 19
     assert result["content"][0]["text"] == "ok"

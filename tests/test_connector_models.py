@@ -48,6 +48,15 @@ def test_literal_secret_in_header_template_rejected() -> None:
         )
 
 
+def test_literal_value_in_arbitrary_header_template_rejected() -> None:
+    with pytest.raises(ValueError, match=r"header template.*placeholder"):
+        ConnectorTransport(
+            kind="http",
+            endpoint="https://example.invalid",
+            headers_template={"X-Custom-Auth": "live-secret"},
+        )
+
+
 def test_metadata_secret_keys_rejected() -> None:
     with pytest.raises(ValueError, match="secret keys"):
         ConnectorRecord(

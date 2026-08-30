@@ -931,6 +931,56 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/tools/search"] = {
+        "get": {
+            "summary": "Search registered connector capabilities",
+            "parameters": [
+                {"name": "q", "in": "query", "required": False, "schema": {"type": "string"}},
+                {"name": "profile", "in": "query", "required": False, "schema": {"type": "string"}},
+                {"name": "limit", "in": "query", "required": False, "schema": {"type": "integer"}},
+                {
+                    "name": "include_unavailable",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "boolean"},
+                },
+            ],
+            "responses": {"200": _ok(), "400": _error_ref(), "409": _error_ref()},
+        }
+    }
+
+    paths["/api/execute"] = {
+        "post": {
+            "summary": "Execute a connector capability through Kater policy and audit",
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["capability_id"],
+                            "properties": {
+                                "capability_id": {"type": "string"},
+                                "arguments": {"type": "object"},
+                                "profile": {"type": "string"},
+                                "connector_id": {"type": "string"},
+                                "principal_id": {"type": "string"},
+                                "context_id": {"type": "string"},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": _ok(),
+                "400": _error_ref(),
+                "403": _error_ref(),
+                "404": _error_ref(),
+                "409": _error_ref(),
+            },
+        }
+    }
+
     paths["/api/connectors"] = {
         "get": {
             "summary": "List connectors with recomputed health",
@@ -943,7 +993,41 @@ def _build_paths() -> dict[str, Any]:
                 }
             ],
             "responses": {"200": _ok()},
-        }
+        },
+        "post": {
+            "summary": "Register a dynamic connector (admin; starts disabled)",
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["id", "display_name", "type", "version", "transport"],
+                            "properties": {
+                                "id": {"type": "string"},
+                                "display_name": {"type": "string"},
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["api", "mcp", "bridge", "internal"],
+                                },
+                                "version": {"type": "string"},
+                                "transport": {"type": "object"},
+                                "capabilities": {"type": "array"},
+                                "auth_binding": {"type": "object"},
+                                "profiles": {"type": "array", "items": {"type": "string"}},
+                                "metadata": {"type": "object"},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "201": _ok(),
+                "400": _error_ref(),
+                "403": _error_ref(),
+                "409": _error_ref(),
+            },
+        },
     }
 
     paths["/api/connectors/{connector_id}/{action}"] = {

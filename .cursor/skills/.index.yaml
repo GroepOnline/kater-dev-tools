@@ -53,9 +53,20 @@ items:
   kind: skill
   summary: Start, configure, and verify the Kater MCP gateway locally or in cloud.
   when: Start, configure, and verify the Kater MCP gateway locally…
+- name: kater-poteto-mode
+  path: .cursor/skills/kater-poteto-mode/SKILL.md
+  kind: skill
+  summary: Kater facts for /poteto-mode.
+  when: Kater facts for /poteto-mode. Ports 9090/9091/9092, pr-gate…
 - name: pr-gate
   path: .cursor/skills/pr-gate/SKILL.md
   kind: skill
   summary: Evaluate and fix one PR until merge-ready using Kater PR gate rules and
     gh.
   when: Evaluate and fix one PR until merge-ready using Kater PR ga…
+- name: pr-review-log
+  path: .cursor/skills/pr-review-log/SKILL.md
+  kind: skill
+  summary: Review a PR, fix root-cause bugs, and record review + continual-learning
+    + session log.
+  when: Review a PR, fix root-cause bugs, and record review + conti…

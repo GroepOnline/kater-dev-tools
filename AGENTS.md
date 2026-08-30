@@ -1,8 +1,35 @@
 # AGENTS.md — Kater Dev Tools
 
-Project conventions for AI agents working in this repo. Optional desktop-only:
-a maintainer may load a personal global `AGENTS.md` for Merge CLI notes — not
-required in Cursor Cloud.
+Conventions for AI agents in this repo. Behavior/config: `.reviews/agent-config.yaml`.
+
+## Operating mode
+
+- **Eager & autonomous.** Do the obvious thing, then report. Don't ask when intent is clear.
+- **Terse, code-mode.** Prefer diffs, commands, `path:line` citations over prose.
+- **Root cause, not symptom.** A code change that breaks a test updates the test to the new intended behavior.
+- **Never claim green without running it.** State the exact verify command.
+- **Parallelize non-trivial work** (see Parallel Working below).
+
+## Verify
+
+```bash
+uv run ruff check . && uv run mypy && uv run pytest   # ~100-120s
+uv run pytest tests/test_ci_workflow_changes.py       # after any .github/workflows/*.yml edit
+bash scripts/check_cursor_artifacts.sh                # after any .cursor/ edit
+```
+
+## Guardrails (break CI if violated)
+
+- `.github/workflows/*.yml` is asserted as **plain text** in `tests/test_ci_workflow_changes.py` — grep it before/after workflow edits.
+- `.cursor/INDEX.md` + `.cursor/skills/.index.yaml` are **generated** by `scripts/generate_cursor_index.py` — never hand-edit; regenerate. Adding a `.cursor` skill without regen fails the `validate` job (`scripts/check_cursor_artifacts.sh`).
+- SSOT is `.cursor/` only — no mirrored copies under `.agents`/`.claude`/`.codex`. Repo docs/logs go in `.reviews/`, not `.agents/`.
+- No org handle / production domain under `.cursor/` (org-leak scan).
+
+## Reviews & logs
+
+Write review notes, durable lessons, and session logs under `.reviews/` (see `.reviews/README.md`):
+`pr-<n>-review.md`, `continual-learning.md`, `sessions/YYYY-MM-DD-<slug>.md`.
+Reusable review skill: `.reviews/skills/pr-review-log/SKILL.md`.
 
 ## Skills
 
@@ -17,6 +44,7 @@ Full index + environment metadata: [`.cursor/INDEX.md`](.cursor/INDEX.md)
 | `kater-e2e` | `.cursor/skills/kater-e2e/` | `./scripts/e2e-mcp.sh` (server up) |
 | `kater-dashboard` | `.cursor/skills/kater-dashboard/` | REST + dashboard on `:9091` |
 | `pr-gate` | `.cursor/skills/pr-gate/` | Merge-ready PR checks and gate contract |
+| `poteto-mode` | `.cursor/skills/kater-poteto-mode/` | `/poteto-mode` satellite; playbooks stay global |
 | `ci-fixer` | `.cursor/skills/ci-fixer/` | Fix failing CI / lint / tests (twin of `ci-fixer` agent) |
 | `parallel-lanes` | `.cursor/skills/parallel-lanes/` | Spawn ~4 disjoint-scope parallel workers |
 | `create-skill` | `.cursor/skills/create-skill/` | `/create-skill` — scaffold a project skill |
@@ -24,7 +52,6 @@ Full index + environment metadata: [`.cursor/INDEX.md`](.cursor/INDEX.md)
 
 Slash commands (thin wrappers): `.cursor/commands/*.md` — see INDEX.
 
-SSOT is `.cursor/` only — no mirrored copies under `.agents` / `.claude` / `.codex`.
 Org-pinned PR gate overlays live in the private deployment repo; see
 [`docs/ops/private-cursor-overlay.md`](docs/ops/private-cursor-overlay.md).
 Local/desktop verify how-to: [`docs/ops/local-desktop-verify.md`](docs/ops/local-desktop-verify.md).
@@ -160,4 +187,6 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
 
 ## Skill satellites
 
-Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: chefgroep-skills).
+Deze repo's skills zijn mesh-satellites (`.cursor/skills/kater-dev-tools-*`): ci-fixer → ci-fix-loop, verify/lanes → workflow-verification-meta, create-* → skill-creator (meta-repo: chefgroep-skills). `kater-poteto-mode` → `poteto-mode` (global).
+
+Compound Engineering overlay: `.compound-engineering/` (tracked `config.yaml`, gitignored `config.local.yaml`). Artifact root `.compound-engineering/artifacts/`. Portable skills `~/.agents/skills/ce-*`; native Cursor plugin is fallback only when this overlay is absent.

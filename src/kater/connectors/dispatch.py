@@ -1,6 +1,6 @@
 """Configurable, stateless-by-default backend dispatch for MCP connectors.
 
-The connector control plane always presents Kater's 17 native tools as a
+The connector control plane always presents Kater's bounded native tools as a
 *stateless* surface to Cursor. This module governs only how Kater reaches
 *outbound* MCP backends when invoking a connector:
 

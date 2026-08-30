@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agent execution layer with `kater_tool_search` and `kater_execute`. Search ranks registered connector capabilities without loading every provider tool into agent context. Execute reuses connector auth, profile permissions, transport dispatch, and capability audit.
+- `GET /api/tools/search`, admin-gated `POST /api/execute`, and CLI `search-tools` / `execute` commands. Runtime profile checks reject profiles outside `KATER_PROFILE`.
+
+- Admin-gated dynamic connector registration via `POST /api/connectors` and
+  `kater connector add <definition.json>`; new connectors always start disabled
+  with no permissions, and credential values remain out of the catalog.
 - Bounded GitHub transport for PR-gate tools: typed errors, secret redaction,
   configurable subprocess timeout, and a strict read-only retry budget
   (`docs/ops/pr-gate.md`).

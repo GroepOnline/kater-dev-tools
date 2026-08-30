@@ -107,7 +107,7 @@ def test_invoke_does_not_add_native_tools(monkeypatch):
 
     after = [tool.name for tool in build_native_tools()]
     assert before == after
-    assert len(before) == 17
+    assert len(before) == 19
     assert "kater_profiles" in before
     assert "kater_github" not in before
     assert result["content"][0]["text"] == "ok"

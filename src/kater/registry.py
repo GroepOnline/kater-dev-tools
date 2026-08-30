@@ -18,6 +18,7 @@ from kater.browser.tools import (
 )
 from kater.chains import list_chains
 from kater.doctor import parse_profiles, run_doctor
+from kater.executor import execute, search_tools
 from kater.pr_control import (
     pr_audit_tool,
     pr_gate_tool,
@@ -86,6 +87,38 @@ def config_render_tool(profile: str = "core") -> dict[str, Any]:
     # Exposed as an MCP tool to connected agents: redact secrets, emit
     # ${VAR} placeholders instead of the server's live environment values.
     return render_profile_config(profile, include_secrets=False)
+
+
+def tool_search_tool(
+    query: str,
+    profile: str = "core",
+    limit: int = 10,
+    include_unavailable: bool = False,
+) -> dict[str, Any]:
+    return search_tools(
+        query,
+        profile=profile,
+        limit=limit,
+        include_unavailable=include_unavailable,
+    )
+
+
+def execute_tool(
+    capability_id: str,
+    arguments: dict[str, Any],
+    profile: str = "core",
+    connector_id: str | None = None,
+    principal_id: str = "anonymous",
+    context_id: str | None = None,
+) -> dict[str, Any]:
+    return execute(
+        capability_id,
+        arguments,
+        profile=profile,
+        connector_id=connector_id,
+        principal_id=principal_id,
+        context_id=context_id,
+    )
 
 
 # Typed FastMCP wrappers — handlers in kater.browser.tools use **kwargs, which
@@ -236,6 +269,22 @@ def build_native_tools() -> list[NativeTool]:
             profile="core",
             risk="low",
             handler=config_render_tool,
+        ),
+        NativeTool(
+            name="kater_tool_search",
+            description="Search registered connector capabilities for an agent task.",
+            profile="core",
+            risk="low",
+            handler=tool_search_tool,
+        ),
+        NativeTool(
+            name="kater_execute",
+            description=(
+                "Execute one registered connector capability through Kater policy and audit."
+            ),
+            profile="core",
+            risk="high",
+            handler=execute_tool,
         ),
         NativeTool(
             name="kater_pr_list",

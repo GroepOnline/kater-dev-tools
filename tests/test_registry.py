@@ -31,11 +31,11 @@ def test_adapter_inventory_tool_returns_adapters_for_core() -> None:
     assert "connectors" in result
 
 
-def test_native_gateway_surface_is_seventeen_without_extensions(monkeypatch) -> None:
+def test_native_gateway_surface_is_nineteen_without_extensions(monkeypatch) -> None:
     monkeypatch.delenv("KATER_EXTENSIONS_MODULE", raising=False)
     monkeypatch.delenv("KATER_PUBLIC", raising=False)
     names = [tool.name for tool in build_native_tools()]
-    assert len(names) == 17
+    assert len(names) == 19
     assert "kater_github" not in names
     assert "kater_connectors" not in names
     assert names.count("kater_profiles") == 1
@@ -58,6 +58,8 @@ def test_build_native_tools_includes_core_tools() -> None:
     assert "kater_chains" in names
     assert "kater_adapters" in names
     assert "kater_config" in names
+    assert "kater_tool_search" in names
+    assert "kater_execute" in names
     assert "kater_pr_list" in names
     assert "kater_pr_status" in names
     assert "kater_pr_gate" in names

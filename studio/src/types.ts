@@ -99,3 +99,14 @@ export interface TelemetryEvent {
 }
 
 export interface EventsResponse { total: number; events: TelemetryEvent[]; }
+
+export interface SettingsResponse {
+  version: number; default_profile: string;
+  auth: { mode: string; api_keys?: number; oauth_issuer?: string | null; };
+  server_overrides: Record<string, { enabled?: boolean | null; env?: Record<string, string> }>;
+  cors_origins: string[]; rate_limit_per_min: number; host: string; api_port: number;
+  mcp_port: number; ws_port: number; storage_backend: string; db_path: string;
+  body_size_limit: number; high_risk_default_disabled: boolean;
+  proxy_failure_threshold: number; proxy_recovery_timeout: number;
+  connector_invocation_mode: string; connector_pool_ttl_seconds: number;
+}

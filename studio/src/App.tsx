@@ -7,22 +7,20 @@ import { AutomationsView } from './views/AutomationsView';
 import { BrowserWorkspaceView } from './views/BrowserWorkspaceView';
 import { ControlRoomView } from './views/ControlRoomView';
 import { IntegrationsView } from './views/IntegrationsView';
-import { PlaceholderView } from './views/PlaceholderView';
 import { PrGateView } from './views/PrGateView';
+import { SettingsView } from './views/SettingsView';
 import { TelemetryView } from './views/TelemetryView';
 
-const placeholderCopy: Partial<Record<StudioView, [string, string]>> = {
-  settings: ['Settings', 'Gateway configuration with server-side ownership of secrets and policy.'],
-};
-
 function ActiveView({ view, status, catalog, loading }: { view: StudioView; status: ReturnType<typeof useKaterData>['status']; catalog: ReturnType<typeof useKaterData>['catalog']; loading: boolean }) {
-  if (view === 'integrations') return <IntegrationsView catalog={catalog} loading={loading} />;
-  if (view === 'control') return <ControlRoomView status={status} />;
-  if (view === 'browser') return <BrowserWorkspaceView />;
-  if (view === 'pr') return <PrGateView />;
-  if (view === 'automations') return <AutomationsView />;
-  if (view === 'telemetry') return <TelemetryView />;
-  return <PlaceholderView title={placeholderCopy[view]?.[0] ?? view} description={placeholderCopy[view]?.[1] ?? ''} />;
+  switch (view) {
+    case 'integrations': return <IntegrationsView catalog={catalog} loading={loading} />;
+    case 'control': return <ControlRoomView status={status} />;
+    case 'browser': return <BrowserWorkspaceView />;
+    case 'pr': return <PrGateView />;
+    case 'automations': return <AutomationsView />;
+    case 'telemetry': return <TelemetryView />;
+    case 'settings': return <SettingsView />;
+  }
 }
 
 export function App() {

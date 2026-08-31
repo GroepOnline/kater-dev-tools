@@ -19,3 +19,11 @@ Move one existing capability at a time from the embedded dashboard to Studio, bi
 ## Source branch warning
 
 `feat/scaffold-project-core-integration-types` contains useful Google AI Studio design work but also deletes the Python core and introduces a mock Express runtime. Never merge that branch wholesale. Salvage presentation ideas only.
+
+
+## Agent session projection
+
+- Existing Kater remote contexts are the agent-session authority; Studio does not create a second session store.
+- `Agent Activity` lists `/api/contexts` and reads the selected context's `/api/audit/capabilities?context_id=...` rows.
+- Context metadata is caller-supplied, so it never proves provider/model identity and is not used for provider styling. Context audit stays Kater-neutral.
+- Natural-language prompt execution remains disabled until Python Kater exposes an explicit transport for it.

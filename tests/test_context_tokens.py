@@ -15,6 +15,7 @@ from kater.authgate import (
     identity_from_record,
     resolve_request_identity,
 )
+from kater.capabilities import audit as capability_audit
 from kater.control_plane import contexts
 from kater.control_plane import tokens as context_tokens
 from kater.settings import KaterSettings
@@ -27,7 +28,9 @@ def ctx_db(tmp_path, monkeypatch):
     monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "test-context-secret")
     context_tokens.reset_token_secret_cache()
     contexts.reset_cache()
+    capability_audit.reset_cache()
     yield tmp_path
+    capability_audit.reset_cache()
     contexts.reset_cache()
     context_tokens.reset_token_secret_cache()
 
@@ -340,3 +343,52 @@ def test_cross_principal_creation_is_blocked_through_the_full_pipeline(ctx_db) -
         # not clear it, so leaving it set would scope every later test in this
         # process to this token's allowlist.
         set_request_identity(None)
+
+
+def test_capability_audit_is_principal_scoped_for_context_tokens(ctx_db) -> None:
+    caller = contexts.create_context(
+        principal_id="agent-a", label="caller", allowed_capabilities=["kater.profiles.list"]
+    )
+    sibling = contexts.create_context(principal_id="agent-a", label="sibling")
+    victim = contexts.create_context(principal_id="agent-b", label="victim")
+    capability_audit.record_capability_audit(
+        capability_id="kater.profiles.list", outcome="allowed", principal_id="agent-a",
+        context_id=sibling.context_id, profile="core",
+    )
+    capability_audit.record_capability_audit(
+        capability_id="web.search", outcome="allowed", principal_id="agent-b",
+        context_id=victim.context_id, profile="core",
+    )
+    capability_audit.record_capability_audit(
+        capability_id="github.issues.list", outcome="allowed", principal_id="agent-a",
+        context_id=sibling.context_id, profile="core",
+    )
+    token = context_tokens.issue_token(caller, ttl_seconds=300)
+    headers = {"X-Kater-Context": token}
+
+    own = call(
+        "GET", "/api/audit/capabilities",
+        query={"context_id": [sibling.context_id]}, headers=headers,
+    )
+    assert own.status == 200
+    assert own.payload is not None
+    assert [event["context_id"] for event in own.payload["events"]] == [sibling.context_id]
+    assert [event["capability_id"] for event in own.payload["events"]] == ["kater.profiles.list"]
+
+    other = call(
+        "GET", "/api/audit/capabilities",
+        query={"context_id": [victim.context_id]}, headers=headers,
+    )
+    assert other.status == 404
+
+    scoped = call("GET", "/api/audit/capabilities", headers=headers)
+    assert scoped.status == 200
+    assert scoped.payload is not None
+    assert all(event["principal_id"] == "agent-a" for event in scoped.payload["events"])
+    assert {event["capability_id"] for event in scoped.payload["events"]} == {"kater.profiles.list"}
+
+    denied_cap = call(
+        "GET", "/api/audit/capabilities",
+        query={"capability_id": ["github.issues.list"]}, headers=headers,
+    )
+    assert denied_cap.status == 403

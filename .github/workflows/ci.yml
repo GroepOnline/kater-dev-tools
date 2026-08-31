@@ -64,7 +64,7 @@ jobs:
         run: npm run build
 
       - name: Verify Studio assets are committed
-        run: git diff --exit-code -- src/kater/web/studio_dist
+        run: test -z "$(git status --porcelain -- src/kater/web/studio_dist)"
 
       - name: Validate TOML/YAML/JSON
         run: |

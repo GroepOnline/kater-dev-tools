@@ -146,7 +146,7 @@ def test_ci_builds_committed_studio_assets() -> None:
     validate = _job_block(text, "validate", "lint-type")
     assert "npm ci --ignore-scripts" in validate
     assert "npm run build" in validate
-    assert "git diff --exit-code -- src/kater/web/studio_dist" in validate
+    assert "git status --porcelain -- src/kater/web/studio_dist" in validate
 
 
 def test_package_job_requires_studio_runtime_assets() -> None:

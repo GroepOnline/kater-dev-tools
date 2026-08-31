@@ -7,7 +7,7 @@ import { studioConfig } from '../config';
 import { useSettingsData } from '../hooks/useSettingsData';
 
 export function SettingsView() {
-  const { data, error, loading, saving, update } = useSettingsData();
+  const { data, error, loading, saving, refresh, update } = useSettingsData();
   const [profile, setProfile] = useState('core');
   const [storage, setStorage] = useState<'jsonl' | 'sqlite'>('jsonl');
   useEffect(() => {
@@ -15,7 +15,8 @@ export function SettingsView() {
     setProfile(data.default_profile);
     setStorage(data.storage_backend === 'sqlite' ? 'sqlite' : 'jsonl');
   }, [data]);
-  if (loading || !data) return <section className="view-stack"><PageHeader title="Settings" description="Safe Kater runtime configuration." /><EmptyState>Loading settings…</EmptyState></section>;
+  if (loading && !data) return <section className="view-stack"><PageHeader title="Settings" description="Safe Kater runtime configuration." /><EmptyState>Loading settings…</EmptyState></section>;
+  if (!data) return <section className="view-stack"><PageHeader title="Settings" description="Safe Kater runtime configuration." /><EmptyState><div className="empty-state-stack"><strong>Settings unavailable</strong><span>{error ?? 'No settings data returned.'}</span><button className="secondary-action" type="button" onClick={() => void refresh()}>Retry</button></div></EmptyState></section>;
   const changed = profile.trim() !== data.default_profile || storage !== data.storage_backend;
   const canSave = studioConfig.features.allowSafeSettingsMutations && changed && profile.trim().length > 0 && !saving;
   const overrides = Object.values(data.server_overrides);

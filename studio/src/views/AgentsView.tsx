@@ -40,7 +40,7 @@ export function AgentsView({ status }: { status: StatusResponse | null }) {
           />)}
         </div>
         {loading && <CodexMessage>Reading Kater telemetry…</CodexMessage>}
-        {!loading && events.length === 0 && <CodexMessage>No persisted runtime events.</CodexMessage>}
+        {!loading && !error && events.length === 0 && <CodexMessage>No persisted runtime events.</CodexMessage>}
       </div>
     </article>
     <div className="agent-binding-note">

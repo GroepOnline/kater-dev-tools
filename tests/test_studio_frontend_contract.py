@@ -8,7 +8,17 @@ def test_studio_is_componentized_and_configurable() -> None:
     config = (STUDIO / "src/config.ts").read_text()
     tokens = (STUDIO / "src/styles/tokens.css").read_text()
     components = {path.name for path in (STUDIO / "src/components").glob("*.tsx")}
-    assert {"Sidebar.tsx", "Topbar.tsx", "StatusPill.tsx", "MetricCard.tsx", "IntegrationCard.tsx", "PageHeader.tsx", "EmptyState.tsx", "PrCard.tsx"} <= components
+    required = {
+        "Sidebar.tsx",
+        "Topbar.tsx",
+        "StatusPill.tsx",
+        "MetricCard.tsx",
+        "IntegrationCard.tsx",
+        "PageHeader.tsx",
+        "EmptyState.tsx",
+        "PrCard.tsx",
+    }
+    assert required <= components
     assert "studioConfig" in config
     assert "VITE_KATER_API_BASE" in config
     assert "--accent:" in tokens and "--surface:" in tokens and "--sidebar-width:" in tokens

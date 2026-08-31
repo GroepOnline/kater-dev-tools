@@ -34,7 +34,7 @@ PUBLIC_API_PATHS = frozenset(
     }
 )
 PUBLIC_API_PREFIXES = ("/.well-known",)
-DASHBOARD_PUBLIC_PATHS = frozenset(
+WEB_PUBLIC_PATHS = frozenset(
     {
         "/",
         "/dashboard",
@@ -90,7 +90,7 @@ def _is_public_path(path: str) -> bool:
 def should_proxy_to_api(path: str) -> bool:
     """HTTP paths owned by the REST API that the MCP gateway must forward."""
     normalized = path.rstrip("/") or "/"
-    if normalized in DASHBOARD_PUBLIC_PATHS:
+    if normalized in WEB_PUBLIC_PATHS:
         return True
     if normalized.startswith("/api/"):
         return True

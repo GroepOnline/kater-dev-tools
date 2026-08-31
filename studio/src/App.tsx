@@ -3,20 +3,28 @@ import { studioConfig, type StudioView } from './config';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { useKaterData } from './hooks/useKaterData';
+import { BrowserWorkspaceView } from './views/BrowserWorkspaceView';
 import { ControlRoomView } from './views/ControlRoomView';
 import { IntegrationsView } from './views/IntegrationsView';
 import { PlaceholderView } from './views/PlaceholderView';
 import { PrGateView } from './views/PrGateView';
 
 const placeholderCopy: Partial<Record<StudioView, [string, string]>> = {
-  browser: ['Browser Workspace', 'Browser sessions and actions will bind to the existing /api/browser routes.'],
   automations: ['Automations', 'Scheduled and event-driven Kater automations, without fake sample runs.'],
   telemetry: ['Telemetry', 'Live Kater events and WebSocket state, using authoritative runtime data only.'],
   settings: ['Settings', 'Gateway configuration with server-side ownership of secrets and policy.'],
 };
 
+function ActiveView({ view, status, catalog, loading }: { view: StudioView; status: ReturnType<typeof useKaterData>['status']; catalog: ReturnType<typeof useKaterData>['catalog']; loading: boolean }) {
+  if (view === 'integrations') return <IntegrationsView catalog={catalog} loading={loading} />;
+  if (view === 'control') return <ControlRoomView status={status} />;
+  if (view === 'browser') return <BrowserWorkspaceView />;
+  if (view === 'pr') return <PrGateView />;
+  return <PlaceholderView title={placeholderCopy[view]?.[0] ?? view} description={placeholderCopy[view]?.[1] ?? ''} />;
+}
+
 export function App() {
   const [view, setView] = useState<StudioView>(studioConfig.defaults.view);
-  const { status, catalog, error, loading } = useKaterData();
-  return <div className="app-shell"><Sidebar active={view} onSelect={setView} /><main className="workspace"><Topbar connected={!error} profile={String(status?.profile ?? studioConfig.defaults.profile)} />{error && <div className="error-strip">Gateway data unavailable: {error}</div>}<div className="workspace-scroll">{view === 'integrations' ? <IntegrationsView catalog={catalog} loading={loading} /> : view === 'control' ? <ControlRoomView status={status} /> : view === 'pr' ? <PrGateView /> : <PlaceholderView title={placeholderCopy[view]?.[0] ?? view} description={placeholderCopy[view]?.[1] ?? ''} />}</div></main></div>;
+  const data = useKaterData();
+  return <div className="app-shell"><Sidebar active={view} onSelect={setView} /><main className="workspace"><Topbar connected={!data.error} profile={String(data.status?.profile ?? studioConfig.defaults.profile)} />{data.error && <div className="error-strip">Gateway data unavailable: {data.error}</div>}<div className="workspace-scroll"><ActiveView view={view} status={data.status} catalog={data.catalog} loading={data.loading} /></div></main></div>;
 }

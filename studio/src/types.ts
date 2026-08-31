@@ -65,3 +65,22 @@ export interface PrListResponse {
   pulls: PullRequestItem[];
 }
 
+
+export interface BrowserProvider {
+  kind: string;
+  available: boolean;
+  detail?: string;
+  version?: string | null;
+}
+
+export interface BrowserProvidersResponse { providers: BrowserProvider[]; }
+
+export interface BrowserSession {
+  id?: string; session_id?: string; state?: string; provider?: string; url?: string;
+  created_at?: string; updated_at?: string; [key: string]: unknown;
+}
+
+export interface BrowserSessionsResponse {
+  sessions: BrowserSession[];
+  stats: { sessions: number; live: number; by_state: Record<string, number>; provider?: string; provider_started?: boolean; provider_info?: unknown; total_actions?: number; persisted_actions?: number; max_sessions?: number; last_error?: string | null; };
+}

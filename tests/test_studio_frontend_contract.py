@@ -21,6 +21,7 @@ def test_studio_is_componentized_and_configurable() -> None:
         "LatencyStrip.tsx",
         "TelemetryEventRow.tsx",
         "SettingRow.tsx",
+        "AgentContextCard.tsx",
     }
     assert required <= components
     assert "studioConfig" in config
@@ -43,6 +44,8 @@ def test_studio_never_replaces_the_python_runtime_with_mock_state() -> None:
     assert "/api/browser/sessions" in source
     assert "/api/automations" in source
     assert "/api/events" in source
+    assert "/api/contexts" in source
+    assert "/api/audit/capabilities" in source
     assert "/api/settings" in source
 
 
@@ -71,13 +74,24 @@ def test_studio_mutations_use_existing_policy_routes_without_secret_inputs() -> 
 def test_brainless_agent_renderers_require_real_provider_evidence() -> None:
     renderer = (STUDIO / "src/components/brainless/AgentEventLine.tsx").read_text()
     assert "event.metadata?.provider" in renderer
-    assert "provider.includes('anthropic')" in renderer
-    assert "provider.includes('openai')" in renderer
-    assert "provider.includes('xai')" in renderer
+    assert "classifyAgentProvider" in renderer
+    assert "includes('anthropic')" in renderer
+    assert "includes('openai')" in renderer
+    assert "includes('xai')" in renderer
     assert "return 'kater'" in renderer
     assert (STUDIO / "src/components/brainless/claude/claude-tool-call.tsx").exists()
     assert (STUDIO / "src/components/brainless/codex/codex-exec.tsx").exists()
     assert (STUDIO / "src/components/brainless/grok/grok-event.tsx").exists()
+
+
+def test_agent_session_projection_stays_read_only_and_context_authoritative() -> None:
+    agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
+    client = (STUDIO / "src/api/client.ts").read_text()
+    assert "/api/contexts" in client
+    assert "/api/audit/capabilities" in client
+    assert "/api/execute" not in client
+    assert ".metadata" not in agents
+    assert 'surface="kater"' in agents
 
 
 def test_experimental_navigation_flag_controls_sidebar() -> None:

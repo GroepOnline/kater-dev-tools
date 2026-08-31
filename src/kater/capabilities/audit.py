@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -129,10 +130,23 @@ def record_capability_audit(
         return int(cur.lastrowid) if cur.lastrowid is not None else 0
 
 
+
+def list_audited_capabilities() -> list[str]:
+    """Return distinct capability ids present in the audit ledger."""
+    with _lock:
+        rows = (
+            _get_db()
+            .execute("SELECT DISTINCT capability_id FROM capability_audit ORDER BY capability_id")
+            .fetchall()
+        )
+    return [str(row["capability_id"]) for row in rows]
+
 def query_capability_audit(
     *,
     capability_id: str | None = None,
     context_id: str | None = None,
+    principal_id: str | None = None,
+    capabilities: Sequence[str] | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Return audit rows newest-first."""
@@ -145,6 +159,16 @@ def query_capability_audit(
     if context_id:
         clauses.append("context_id = ?")
         params.append(context_id)
+    if principal_id:
+        clauses.append("principal_id = ?")
+        params.append(principal_id)
+    if capabilities is not None:
+        allowed = [str(name) for name in capabilities]
+        if not allowed:
+            return []
+        placeholders = ", ".join("?" for _ in allowed)
+        clauses.append(f"capability_id IN ({placeholders})")
+        params.extend(allowed)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     query = (
         f"SELECT * FROM capability_audit {where} ORDER BY id DESC LIMIT ?"  # noqa: S608

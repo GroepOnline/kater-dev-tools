@@ -100,6 +100,23 @@ export interface TelemetryEvent {
 
 export interface EventsResponse { total: number; events: TelemetryEvent[]; }
 
+export interface RemoteContext {
+  context_id: string; principal_id: string; label?: string | null; profile: string;
+  scopes: string[]; repository?: string | null; environment?: string | null;
+  allowed_capabilities: string[]; expires_at?: number | null; revoked_at?: number | null;
+  created_at: number; active: boolean; metadata?: Record<string, unknown>;
+}
+
+export interface ContextsResponse { total: number; contexts: RemoteContext[]; }
+
+export interface CapabilityAuditEvent {
+  id: number; timestamp: number; capability_id: string; principal_id?: string | null;
+  context_id?: string | null; outcome: 'allowed' | 'denied' | 'error' | string;
+  reason?: string | null; duration_ms?: number | null; profile?: string | null;
+}
+
+export interface CapabilityAuditResponse { total: number; events: CapabilityAuditEvent[]; }
+
 export interface SettingsResponse {
   version: number; default_profile: string;
   auth: { mode: string; api_keys?: number; oauth_issuer?: string | null; };

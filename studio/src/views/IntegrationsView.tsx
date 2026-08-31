@@ -18,10 +18,22 @@ export function IntegrationsView({ catalog, loading }: { catalog: CatalogRespons
   const active = allServers.filter(server => server.enabled).length;
   const needs = allServers.filter(server => server.enabled && (server.env_configured ?? server.configured) === false).length;
 
+  const hasQuery = query.trim().length > 0;
+  const catalogAside = loading
+    ? <span className="count-badge">loading</span>
+    : catalog
+      ? <span className="count-badge">{catalog.total} available</span>
+      : <span className="count-badge">unavailable</span>;
+
   return <section className="view-stack">
-    <PageHeader title="Integrations" description="Live MCP catalog from Kater. Search and inspect the real control-plane state without a parallel frontend runtime." aside={<span className="count-badge">{catalog?.total ?? 0} available</span>} />
-    <div className="metrics-grid"><MetricCard icon={Boxes} label="Catalog" value={catalog?.total ?? '—'} /><MetricCard icon={Activity} label="Enabled" value={active} /><MetricCard icon={ShieldAlert} label="Needs config" value={needs} /></div>
-    <IntegrationToolbar query={query} onQueryChange={setQuery} shown={servers.length} total={allServers.length} />
-    {loading ? <EmptyState>Loading catalog…</EmptyState> : servers.length ? <div className="integration-grid">{servers.map(server => <IntegrationCard server={server} key={server.name} />)}</div> : <EmptyState><div className="empty-state-stack"><strong>No matching integrations</strong><span>Clear the search to return to the live catalog.</span><button className="secondary-action" type="button" onClick={() => setQuery('')}>Clear search</button></div></EmptyState>}
+    <PageHeader title="Integrations" description="Live MCP catalog from Kater. Search and inspect the real control-plane state without a parallel frontend runtime." aside={catalogAside} />
+    <div className="metrics-grid"><MetricCard icon={Boxes} label="Catalog" value={catalog?.total ?? '—'} /><MetricCard icon={Activity} label="Enabled" value={catalog ? active : '—'} /><MetricCard icon={ShieldAlert} label="Needs config" value={catalog ? needs : '—'} /></div>
+    {catalog && allServers.length > 0 && <IntegrationToolbar query={query} onQueryChange={setQuery} shown={servers.length} total={allServers.length} />}
+    {loading ? <EmptyState>Loading catalog…</EmptyState>
+      : !catalog ? <EmptyState>Catalog unavailable. Gateway status may still be available.</EmptyState>
+      : allServers.length === 0 ? <EmptyState>No integrations are registered in the live catalog.</EmptyState>
+      : servers.length ? <div className="integration-grid">{servers.map(server => <IntegrationCard server={server} key={server.name} />)}</div>
+      : hasQuery ? <EmptyState><div className="empty-state-stack"><strong>No matching integrations</strong><span>Clear the search to return to the live catalog.</span><button className="secondary-action" type="button" onClick={() => setQuery('')}>Clear search</button></div></EmptyState>
+      : <EmptyState>No integrations are available.</EmptyState>}
   </section>;
 }

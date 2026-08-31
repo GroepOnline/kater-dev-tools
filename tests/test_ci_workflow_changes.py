@@ -144,8 +144,8 @@ def test_pyproject_pins_newer_uv_build_range() -> None:
 def test_ci_builds_committed_studio_assets() -> None:
     text = CI.read_text(encoding="utf-8")
     validate = _job_block(text, "validate", "lint-type")
-    assert "npm ci --ignore-scripts" in validate
-    assert "npm run build" in validate
+    assert "uv run npm --prefix studio ci --ignore-scripts" in validate
+    assert "uv run npm --prefix studio run build" in validate
     assert "git status --porcelain -- src/kater/web/studio_dist" in validate
 
 

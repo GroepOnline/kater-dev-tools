@@ -3,6 +3,7 @@ import { studioConfig, type StudioView } from './config';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { useKaterData } from './hooks/useKaterData';
+import { AutomationsView } from './views/AutomationsView';
 import { BrowserWorkspaceView } from './views/BrowserWorkspaceView';
 import { ControlRoomView } from './views/ControlRoomView';
 import { IntegrationsView } from './views/IntegrationsView';
@@ -10,7 +11,6 @@ import { PlaceholderView } from './views/PlaceholderView';
 import { PrGateView } from './views/PrGateView';
 
 const placeholderCopy: Partial<Record<StudioView, [string, string]>> = {
-  automations: ['Automations', 'Scheduled and event-driven Kater automations, without fake sample runs.'],
   telemetry: ['Telemetry', 'Live Kater events and WebSocket state, using authoritative runtime data only.'],
   settings: ['Settings', 'Gateway configuration with server-side ownership of secrets and policy.'],
 };
@@ -20,6 +20,7 @@ function ActiveView({ view, status, catalog, loading }: { view: StudioView; stat
   if (view === 'control') return <ControlRoomView status={status} />;
   if (view === 'browser') return <BrowserWorkspaceView />;
   if (view === 'pr') return <PrGateView />;
+  if (view === 'automations') return <AutomationsView />;
   return <PlaceholderView title={placeholderCopy[view]?.[0] ?? view} description={placeholderCopy[view]?.[1] ?? ''} />;
 }
 

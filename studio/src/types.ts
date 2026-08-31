@@ -84,3 +84,11 @@ export interface BrowserSessionsResponse {
   sessions: BrowserSession[];
   stats: { sessions: number; live: number; by_state: Record<string, number>; provider?: string; provider_started?: boolean; provider_info?: unknown; total_actions?: number; persisted_actions?: number; max_sessions?: number; last_error?: string | null; };
 }
+
+export interface AutomationItem {
+  id: string; name: string; enabled: boolean; kind: string; schedule_seconds: number;
+  config: Record<string, unknown>; last_run_at?: number | null; last_status?: string | null;
+  last_error?: string | null; created_at?: number; updated_at?: number;
+}
+
+export interface AutomationsResponse { automations: AutomationItem[]; total: number; }

@@ -1,5 +1,5 @@
 import { studioConfig } from '../config';
-import type { BrowserProvidersResponse, BrowserSessionsResponse, CatalogResponse, PrListResponse, StatusResponse } from '../types';
+import type { AutomationsResponse, BrowserProvidersResponse, BrowserSessionsResponse, CatalogResponse, PrListResponse, StatusResponse } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${studioConfig.api.baseUrl}${path}`, init);
@@ -14,4 +14,5 @@ export const katerApi = {
   pullRequests: (limit = 30) => request<PrListResponse>(`/api/pr/list?state=open&limit=${limit}`),
   browserProviders: () => request<BrowserProvidersResponse>('/api/browser/providers'),
   browserSessions: () => request<BrowserSessionsResponse>('/api/browser/sessions'),
+  automations: () => request<AutomationsResponse>('/api/automations'),
 };

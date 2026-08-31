@@ -17,6 +17,7 @@ def test_studio_is_componentized_and_configurable() -> None:
         "PageHeader.tsx",
         "EmptyState.tsx",
         "PrCard.tsx",
+        "AutomationCard.tsx",
     }
     assert required <= components
     assert "studioConfig" in config
@@ -37,6 +38,7 @@ def test_studio_never_replaces_the_python_runtime_with_mock_state() -> None:
     assert "/api/pr/list" in source
     assert "/api/browser/providers" in source
     assert "/api/browser/sessions" in source
+    assert "/api/automations" in source
 
 
 def test_google_ai_studio_branch_is_documented_as_salvage_only() -> None:

@@ -1,6 +1,6 @@
-import { AppWindow, Boxes, Gauge, GitPullRequest, Globe2, RadioTower, Settings2, Workflow } from 'lucide-react';
+import { AppWindow, Boxes, Bot, Gauge, GitPullRequest, Globe2, RadioTower, Settings2, Workflow } from 'lucide-react';
 
-export type StudioView = 'integrations' | 'control' | 'browser' | 'pr' | 'automations' | 'telemetry' | 'settings';
+export type StudioView = 'integrations' | 'control' | 'agents' | 'browser' | 'pr' | 'automations' | 'telemetry' | 'settings';
 
 export const studioConfig = {
   product: { name: 'KATER', subtitle: 'Dev Tools & Integrations Hub', version: '1.1.x' },
@@ -8,6 +8,7 @@ export const studioConfig = {
   navigation: [
     { section: 'Connect & discover', id: 'integrations' as const, label: 'Integrations', icon: Boxes },
     { section: 'Workspace & control', id: 'control' as const, label: 'Control Room', icon: Gauge },
+    { section: 'Workspace & control', id: 'agents' as const, label: 'Agent Activity', icon: Bot },
     { section: 'Workspace & control', id: 'browser' as const, label: 'Browser Workspace', icon: Globe2 },
     { section: 'Workspace & control', id: 'pr' as const, label: 'PR Gate & CI', icon: GitPullRequest },
     { section: 'Workspace & control', id: 'automations' as const, label: 'Automations', icon: Workflow },

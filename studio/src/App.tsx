@@ -3,6 +3,7 @@ import { studioConfig, type StudioView } from './config';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { useKaterData } from './hooks/useKaterData';
+import { AgentsView } from './views/AgentsView';
 import { AutomationsView } from './views/AutomationsView';
 import { BrowserWorkspaceView } from './views/BrowserWorkspaceView';
 import { ControlRoomView } from './views/ControlRoomView';
@@ -15,6 +16,7 @@ function ActiveView({ view, status, catalog, loading }: { view: StudioView; stat
   switch (view) {
     case 'integrations': return <IntegrationsView catalog={catalog} loading={loading} />;
     case 'control': return <ControlRoomView status={status} />;
+    case 'agents': return <AgentsView status={status} />;
     case 'browser': return <BrowserWorkspaceView />;
     case 'pr': return <PrGateView />;
     case 'automations': return <AutomationsView />;

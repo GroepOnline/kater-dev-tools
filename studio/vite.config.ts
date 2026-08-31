@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   base: '/studio/',
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     outDir: '../src/kater/web/studio_dist',
     emptyOutDir: true,

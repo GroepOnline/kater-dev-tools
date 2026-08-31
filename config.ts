@@ -21,7 +21,7 @@ export const envSchema = z.object({
     }),
   NODE_ENV: z
     .enum(['development', 'production', 'test'], {
-      errorMap: () => ({ message: "NODE_ENV must be 'development', 'production', or 'test'" }),
+      error: "NODE_ENV must be 'development', 'production', or 'test'",
     })
     .default('development'),
   KATER_AUTH_MODE: z

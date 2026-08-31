@@ -1,10 +1,12 @@
 import http from 'http';
+import { randomBytes } from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getDashboardHtml } from './src/dashboardHtml.js';
 import { store } from './src/store.js';
 import { config } from './config.js';
+import type { BrowserSession, TelemetryEvent } from './src/types.js';
 
 const app = express();
 const PORT = config.PORT;
@@ -46,7 +48,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-function broadcast(payload: Record<string, unknown>) {
+function broadcast(payload: object) {
   const msg = JSON.stringify(payload);
   for (const client of clients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -83,7 +85,7 @@ setInterval(() => {
     store.totalToolCalls++;
     if (ok) store.successfulToolCalls++;
 
-    const event = {
+    const event: TelemetryEvent = {
       type: 'tool_call',
       name: randomTool,
       duration_ms: duration,
@@ -461,7 +463,7 @@ app.get('/api/browser/sessions', (req, res) => {
 app.post('/api/browser/sessions', (req, res) => {
   const profile = req.body.profile || 'core';
   const newSession: BrowserSession = {
-    session_id: `brw_sess_${Math.random().toString(16).substring(2, 6)}`,
+    session_id: `brw_sess_${randomBytes(4).toString('hex')}`,
     label: `Browser Session (${profile})`,
     title: 'New Tab',
     state: 'active',

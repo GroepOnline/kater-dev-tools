@@ -1,7 +1,7 @@
 import { studioConfig } from '../config';
 import type {
   AutomationsResponse, BrowserProvidersResponse, BrowserSessionsResponse,
-  CatalogResponse, EventsResponse, PrListResponse, SettingsResponse, StatusResponse,
+  CapabilityAuditResponse, CatalogResponse, ContextsResponse, EventsResponse, PrListResponse, SettingsResponse, StatusResponse,
 } from '../types';
 
 export class ApiError extends Error {
@@ -37,6 +37,8 @@ export const katerApi = {
   automationSetEnabled: (id: string, enabled: boolean) => request(`/api/automations/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`, json('POST')),
   automationPatch: (id: string, patch: Record<string, unknown>) => request(`/api/automations/${encodeURIComponent(id)}`, json('PATCH', patch)),
   events: (limit = 40) => request<EventsResponse>(`/api/events?limit=${limit}`),
+  contexts: () => request<ContextsResponse>('/api/contexts'),
+  capabilityAudit: (contextId: string, limit = 100) => request<CapabilityAuditResponse>(`/api/audit/capabilities?context_id=${encodeURIComponent(contextId)}&limit=${limit}`),
   settings: () => request<SettingsResponse>('/api/settings'),
   updateSettings: (patch: Record<string, unknown>) => request<SettingsResponse>('/api/settings', json('POST', patch)),
 };

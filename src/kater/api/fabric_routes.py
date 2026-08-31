@@ -11,7 +11,7 @@ from typing import Any
 
 from kater.api.models import Request, Response, route
 from kater.authgate import RequestIdentity, capability_allowed, resolve_request_identity
-from kater.capabilities.audit import query_capability_audit
+from kater.capabilities.audit import list_audited_capabilities, query_capability_audit
 from kater.capabilities.discovery import discover
 from kater.capabilities.models import CapabilityManifest, DiscoveryContext, RiskClass
 from kater.capabilities.registry import get_default_registry
@@ -621,9 +621,28 @@ def _capability_audit_list(req: Request) -> Response:
         return Response.json(400, {"error": "limit must be an integer"})
     capability_id = req.query1("capability_id") or None
     context_id = req.query1("context_id") or None
+    identity = resolve_request_identity(req)
+    principal_id: str | None = None
+    if identity.principal_id is not None:
+        principal_id = identity.principal_id
+        if context_id:
+            record = remote_contexts.get_context(context_id)
+            if record is None or not _identity_owns_context(identity, record):
+                return Response.json(404, {"error": "context not found"})
+    capabilities: list[str] | None = None
+    if identity.allowed_capabilities is not None:
+        if capability_id and not capability_allowed(capability_id, identity.allowed_capabilities):
+            return Response.json(403, {"error": f"Capability not allowed: {capability_id}"})
+        capabilities = [
+            name
+            for name in list_audited_capabilities()
+            if capability_allowed(name, identity.allowed_capabilities)
+        ]
     rows = query_capability_audit(
         capability_id=capability_id,
         context_id=context_id,
+        principal_id=principal_id,
+        capabilities=capabilities,
         limit=limit,
     )
     return Response.json(200, {"total": len(rows), "events": rows})

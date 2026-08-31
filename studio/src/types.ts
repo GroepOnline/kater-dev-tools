@@ -92,3 +92,10 @@ export interface AutomationItem {
 }
 
 export interface AutomationsResponse { automations: AutomationItem[]; total: number; }
+
+export interface TelemetryEvent {
+  id: string | number; type?: string; name?: string; timestamp?: number | string;
+  duration_ms: number; success: boolean; profile?: string; metadata?: Record<string, unknown>;
+}
+
+export interface EventsResponse { total: number; events: TelemetryEvent[]; }

@@ -9,9 +9,9 @@ import { ControlRoomView } from './views/ControlRoomView';
 import { IntegrationsView } from './views/IntegrationsView';
 import { PlaceholderView } from './views/PlaceholderView';
 import { PrGateView } from './views/PrGateView';
+import { TelemetryView } from './views/TelemetryView';
 
 const placeholderCopy: Partial<Record<StudioView, [string, string]>> = {
-  telemetry: ['Telemetry', 'Live Kater events and WebSocket state, using authoritative runtime data only.'],
   settings: ['Settings', 'Gateway configuration with server-side ownership of secrets and policy.'],
 };
 
@@ -21,6 +21,7 @@ function ActiveView({ view, status, catalog, loading }: { view: StudioView; stat
   if (view === 'browser') return <BrowserWorkspaceView />;
   if (view === 'pr') return <PrGateView />;
   if (view === 'automations') return <AutomationsView />;
+  if (view === 'telemetry') return <TelemetryView />;
   return <PlaceholderView title={placeholderCopy[view]?.[0] ?? view} description={placeholderCopy[view]?.[1] ?? ''} />;
 }
 

@@ -2,7 +2,19 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  base: '/studio/',
   plugins: [react()],
+  build: {
+    outDir: '../src/kater/web/studio_dist',
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/studio.js',
+        chunkFileNames: 'assets/chunk-[hash].js',
+        assetFileNames: 'assets/studio.[ext]',
+      },
+    },
+  },
   server: {
     port: 4318,
     proxy: {

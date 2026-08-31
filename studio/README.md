@@ -12,8 +12,8 @@ Rules:
 Development:
 
 ```bash
-bun install
-bun run dev
+npm ci
+npm run dev
 ```
 
-Vite proxies `/api` and `/health` to `http://127.0.0.1:9091` by default.
+Vite proxies `/api` and `/health` to `http://127.0.0.1:9091` by default. `npm run build` writes deterministic runtime assets into `src/kater/web/studio_dist/` for Python packaging.

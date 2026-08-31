@@ -378,6 +378,28 @@ def _dashboard(_: Request) -> Response:
     return Response.html(200, render_dashboard(ws_port=load_settings().ws_port))
 
 
+def _studio_resource_response(name: str) -> Response:
+    from kater.web import read_studio_resource
+
+    body, content_type = read_studio_resource(name)
+    return Response(status=200, body=body, content_type=content_type)
+
+
+@route("GET", "/studio", public=True)
+def _studio(_: Request) -> Response:
+    return _studio_resource_response("index.html")
+
+
+@route("GET", "/studio/assets/studio.js", public=True)
+def _studio_js(_: Request) -> Response:
+    return _studio_resource_response("assets/studio.js")
+
+
+@route("GET", "/studio/assets/studio.css", public=True)
+def _studio_css(_: Request) -> Response:
+    return _studio_resource_response("assets/studio.css")
+
+
 @route("GET", "/.well-known/oauth-authorization-server", public=True)
 def _oauth_discovery(req: Request) -> Response:
     from kater.oauth import discovery_metadata

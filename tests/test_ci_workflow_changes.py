@@ -14,6 +14,7 @@ AUTOMERGE = ROOT / ".github/workflows/automerge.yml"
 RELEASE = ROOT / ".github/workflows/release.yml"
 NO_ORG_LEAK = ROOT / ".github/workflows/no-org-leak.yml"
 PYPROJECT = ROOT / "pyproject.toml"
+E2E_MCP = ROOT / "scripts/e2e-mcp.sh"
 
 KATER_CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 GITHUB_SCRIPT_SHA = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3"
@@ -139,3 +140,33 @@ def test_pyproject_pins_newer_uv_build_range() -> None:
     assert 'requires = ["uv_build>=0.12.7,<0.13"]' in text
     assert "0.11.32" not in text
     assert "0.12.2" not in text
+
+def test_ci_builds_committed_studio_assets() -> None:
+    text = CI.read_text(encoding="utf-8")
+    validate = _job_block(text, "validate", "lint-type")
+    assert "uv run npm --prefix studio ci --ignore-scripts" in validate
+    assert "uv run npm --prefix studio run build" in validate
+    assert "git status --porcelain -- src/kater/web/studio_dist" in validate
+
+
+def test_package_job_requires_studio_runtime_assets() -> None:
+    block = _job_block(CI.read_text(encoding="utf-8"), "package", "security-pr")
+    for asset in (
+        "kater/web/studio_dist/index.html",
+        "kater/web/studio_dist/assets/studio.js",
+        "kater/web/studio_dist/assets/studio.css",
+    ):
+        assert asset in block
+
+def test_e2e_smoke_covers_both_studio_and_dashboard() -> None:
+    text = E2E_MCP.read_text(encoding="utf-8")
+    assert '"/dashboard"' in text
+    assert '"/studio"' in text
+    assert '"/studio/assets/studio.js"' in text
+    assert '"/studio/assets/studio.css"' in text
+
+
+def test_package_smoke_reads_studio_from_installed_wheel() -> None:
+    block = _job_block(CI.read_text(encoding="utf-8"), "package", "security-pr")
+    assert "read_studio_resource" in block
+    assert "index.html" in block

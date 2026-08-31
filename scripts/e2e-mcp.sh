@@ -26,7 +26,16 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         failures.append(name)
 
 
-for path in ("/health", "/api/status", "/api/catalog", "/api/spec"):
+for path in (
+    "/health",
+    "/api/status",
+    "/api/catalog",
+    "/api/spec",
+    "/dashboard",
+    "/studio",
+    "/studio/assets/studio.js",
+    "/studio/assets/studio.css",
+):
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:9091{path}", timeout=10) as resp:
             check(f"REST {path}", resp.status == 200)

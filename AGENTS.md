@@ -133,7 +133,7 @@ uv run python .agents/scripts/generate-taste.py --check
 
 Zie `.agents/README.md`. UI-taste blijft in `design-system/taste/`.
 
-Kater is a single Python package (`uv`-managed, Python 3.11–3.14; VM ships 3.12). The startup update
+Kater ships as a single Python runtime package (`uv`-managed, Python 3.11–3.14; VM ships 3.12). The startup update
 script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile`) and runs
 `uv sync --dev`, so deps are ready before each session. Use `uv run <cmd>` for everything.
 
@@ -177,10 +177,13 @@ script installs `uv` (to `~/.local/bin`, already on PATH via `.bashrc`/`.profile
 - **Proxy backends**: live proxying of the 29+ backend MCP servers needs a profile, per-backend
   API keys in `.kater/.env` (or the environment), and Node/`npx` for stdio backends. With secrets
   present, proxy starts automatically; native tools (`kater_profiles`, etc.) always work.
-- **Architecture**: `kater serve` is a single Python process. The dashboard (`src/kater/web/dashboard.py`)
-  is a self-contained inline HTML/CSS/JS document rendered server-side; REST routes live in
-  `src/kater/api/`, the MCP SSE/stdio surface is in `src/kater/proxy/` and `src/kater/mcp/`, and state
-  is SQLite under `.kater/`. There is no separate frontend build step.
+- **Architecture**: `kater serve` is a single Python process. The legacy dashboard
+  (`src/kater/web/dashboard.py`) is self-contained inline HTML/CSS/JS; Kater Studio (`studio/`) is a
+  React/Vite presentation client with an explicit build-time step that writes deterministic static
+  assets to `src/kater/web/studio_dist/`. Run Studio commands through `uv run npm --prefix studio ...`.
+  The built assets are packaged into the Python wheel; there is no Node/frontend production runtime.
+  REST routes live in `src/kater/api/`, the MCP SSE/stdio surface is in `src/kater/proxy/` and
+  `src/kater/mcp/`, and state is SQLite under `.kater/`.
 - **Dashboard verification**: the dashboard hydrates without a blocking confirm overlay (the old
   import-time `review_fixes.py` monkeypatch layer was removed in #94/#95). Validate the gateway via
   the REST API, the `kater` CLI, or `./scripts/e2e-mcp.sh` rather than headless GUI automation.

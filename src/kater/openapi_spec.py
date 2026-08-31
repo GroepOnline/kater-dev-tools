@@ -12,6 +12,8 @@ DEFAULT_SERVER = "http://localhost:9091"
 
 _JSON: dict[str, Any] = {"application/json": {}}
 _HTML: dict[str, Any] = {"text/html": {}}
+_JAVASCRIPT: dict[str, Any] = {"text/javascript": {}}
+_CSS: dict[str, Any] = {"text/css": {}}
 
 
 def _ref(name: str) -> dict[str, str]:
@@ -83,6 +85,27 @@ def _build_paths() -> dict[str, Any]:
         "get": {
             "summary": "Web dashboard (canonical path)",
             "responses": {"200": {"description": "Dashboard HTML.", "content": _HTML}},
+        }
+    }
+
+    paths["/studio"] = {
+        "get": {
+            "summary": "Kater Studio web client",
+            "responses": {"200": {"description": "Kater Studio HTML shell.", "content": _HTML}},
+        }
+    }
+    paths["/studio/assets/studio.js"] = {
+        "get": {
+            "summary": "Kater Studio JavaScript bundle",
+            "responses": {
+                "200": {"description": "Kater Studio JavaScript bundle.", "content": _JAVASCRIPT}
+            },
+        }
+    }
+    paths["/studio/assets/studio.css"] = {
+        "get": {
+            "summary": "Kater Studio stylesheet",
+            "responses": {"200": {"description": "Kater Studio stylesheet.", "content": _CSS}},
         }
     }
 

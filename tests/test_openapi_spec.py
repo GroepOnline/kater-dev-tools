@@ -52,6 +52,18 @@ class TestBuildPaths:
         assert "/health/ready" in paths
         assert "get" in paths["/health/ready"]
 
+    def test_studio_routes_exist_with_static_content_types(self):
+        paths = _build_paths()
+        assert "text/html" in paths["/studio"]["get"]["responses"]["200"]["content"]
+        assert (
+            "text/javascript"
+            in paths["/studio/assets/studio.js"]["get"]["responses"]["200"]["content"]
+        )
+        assert (
+            "text/css"
+            in paths["/studio/assets/studio.css"]["get"]["responses"]["200"]["content"]
+        )
+
     def test_profiles_endpoint_exists(self):
         paths = _build_paths()
         assert "/api/profiles" in paths

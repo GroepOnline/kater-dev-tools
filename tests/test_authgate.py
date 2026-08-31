@@ -62,6 +62,12 @@ class TestIsPublicPath:
     def test_dashboard_path_is_public(self):
         assert should_proxy_to_api("/dashboard") is True
 
+    def test_studio_paths_proxy_to_api(self):
+        assert should_proxy_to_api("/studio") is True
+        assert should_proxy_to_api("/studio/") is True
+        assert should_proxy_to_api("/studio/assets/studio.js") is True
+        assert should_proxy_to_api("/studio/assets/studio.css") is True
+
     def test_api_paths_are_public(self):
         assert should_proxy_to_api("/api/tools") is True
         assert should_proxy_to_api("/api/settings") is True

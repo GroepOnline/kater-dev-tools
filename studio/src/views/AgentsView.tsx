@@ -1,6 +1,7 @@
 import { RefreshCw, SquareTerminal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AgentContextCard } from '../components/AgentContextCard';
+import { AgentRuntimeHandoff } from '../components/AgentRuntimeHandoff';
 import { AgentActivityLine } from '../components/brainless/AgentEventLine';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
@@ -46,6 +47,7 @@ export function AgentsView({ status }: { status: StatusResponse | null }) {
           <span><strong>principal</strong>{selected.principal_id}</span>
           <span><strong>capabilities</strong>{selected.allowed_capabilities.length || 'unrestricted'}</span>
         </div>}
+        {selected && <AgentRuntimeHandoff context={selected} />}
         <div className="agent-console-body">
           {activity.error && <div className="error-strip inline-error">Session audit unavailable: {activity.error}</div>}
           {events.map(event => <AgentActivityLine
@@ -62,6 +64,6 @@ export function AgentsView({ status }: { status: StatusResponse | null }) {
         </div>
       </article>
     </div>
-    <div className="agent-binding-note">This is a read-only projection over `/api/contexts` and `/api/audit/capabilities`. Prompt input stays disabled until Kater has an explicit natural-language execution transport; no second session store is introduced.</div>
+    <div className="agent-binding-note">This remains a read-only Kater projection. The handoff only copies an opaque correlation key for agent-runtime; prompt input and execution stay outside Studio until an explicit transport contract exists.</div>
   </section>;
 }

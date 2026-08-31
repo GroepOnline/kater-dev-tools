@@ -84,6 +84,17 @@ def test_brainless_agent_renderers_require_real_provider_evidence() -> None:
     assert (STUDIO / "src/components/brainless/grok/grok-event.tsx").exists()
 
 
+def test_agent_runtime_handoff_is_correlation_only() -> None:
+    handoff = (STUDIO / "src/components/AgentRuntimeHandoff.tsx").read_text()
+    agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
+    assert "katerContextId" in handoff
+    assert "navigator.clipboard.writeText" in handoff
+    assert "principal_id" not in handoff
+    assert "allowed_capabilities" not in handoff
+    assert "/api/execute" not in handoff
+    assert "AgentRuntimeHandoff" in agents
+
+
 def test_agent_session_projection_stays_read_only_and_context_authoritative() -> None:
     agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
     client = (STUDIO / "src/api/client.ts").read_text()

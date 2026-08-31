@@ -15,6 +15,10 @@ export const studioConfig = {
     { section: 'System', id: 'settings' as const, label: 'Settings', icon: Settings2 },
   ],
   defaults: { view: 'integrations' as StudioView, profile: 'core' },
-  features: { showExperimentalViews: true, allowMutations: false },
+  features: {
+    showExperimentalViews: true,
+    allowAutomationMutations: true,
+    allowSafeSettingsMutations: true,
+  },
   marks: { app: AppWindow },
 };

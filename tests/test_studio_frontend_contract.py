@@ -51,3 +51,18 @@ def test_google_ai_studio_branch_is_documented_as_salvage_only() -> None:
     assert "visual/interaction source material only" in architecture
     assert "Never merge that branch wholesale" in architecture
     assert "Python remains authoritative" in architecture
+
+
+def test_studio_mutations_use_existing_policy_routes_without_secret_inputs() -> None:
+    source = "\n".join(
+        path.read_text() for path in (STUDIO / "src").rglob("*") if path.is_file()
+    )
+    assert "enabled ? 'enable' : 'disable'" in source
+    assert "/run" in source
+    assert "schedule_seconds" in source
+    assert "updateSettings" in source
+    assert "default_profile" in source
+    assert "storage_backend" in source
+    assert "admin-secret" not in source
+    assert "KATER_ADMIN_KEY" not in source
+    assert "type=\"password\"" not in source

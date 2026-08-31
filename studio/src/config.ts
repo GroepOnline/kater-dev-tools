@@ -8,7 +8,7 @@ export const studioConfig = {
   navigation: [
     { section: 'Connect & discover', id: 'integrations' as const, label: 'Integrations', icon: Boxes },
     { section: 'Workspace & control', id: 'control' as const, label: 'Control Room', icon: Gauge },
-    { section: 'Workspace & control', id: 'agents' as const, label: 'Agent Activity', icon: Bot },
+    { section: 'Workspace & control', id: 'agents' as const, label: 'Agent Activity', icon: Bot, experimental: true },
     { section: 'Workspace & control', id: 'browser' as const, label: 'Browser Workspace', icon: Globe2 },
     { section: 'Workspace & control', id: 'pr' as const, label: 'PR Gate & CI', icon: GitPullRequest },
     { section: 'Workspace & control', id: 'automations' as const, label: 'Automations', icon: Workflow },

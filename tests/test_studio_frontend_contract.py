@@ -66,3 +66,22 @@ def test_studio_mutations_use_existing_policy_routes_without_secret_inputs() -> 
     assert "admin-secret" not in source
     assert "KATER_ADMIN_KEY" not in source
     assert "type=\"password\"" not in source
+
+
+def test_brainless_agent_renderers_require_real_provider_evidence() -> None:
+    renderer = (STUDIO / "src/components/brainless/AgentEventLine.tsx").read_text()
+    assert "event.metadata?.provider" in renderer
+    assert "provider.includes('anthropic')" in renderer
+    assert "provider.includes('openai')" in renderer
+    assert "provider.includes('xai')" in renderer
+    assert "return 'kater'" in renderer
+    assert (STUDIO / "src/components/brainless/claude/claude-tool-call.tsx").exists()
+    assert (STUDIO / "src/components/brainless/codex/codex-exec.tsx").exists()
+    assert (STUDIO / "src/components/brainless/grok/grok-event.tsx").exists()
+
+
+def test_experimental_navigation_flag_controls_sidebar() -> None:
+    config = (STUDIO / "src/config.ts").read_text()
+    sidebar = (STUDIO / "src/components/Sidebar.tsx").read_text()
+    assert "experimental: true" in config
+    assert "studioConfig.features.showExperimentalViews" in sidebar

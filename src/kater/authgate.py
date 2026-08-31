@@ -34,7 +34,15 @@ PUBLIC_API_PATHS = frozenset(
     }
 )
 PUBLIC_API_PREFIXES = ("/.well-known",)
-DASHBOARD_PUBLIC_PATHS = frozenset({"/", "/dashboard"})
+DASHBOARD_PUBLIC_PATHS = frozenset(
+    {
+        "/",
+        "/dashboard",
+        "/studio",
+        "/studio/assets/studio.js",
+        "/studio/assets/studio.css",
+    }
+)
 
 
 @dataclass(frozen=True)

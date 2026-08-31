@@ -1,19 +1,27 @@
-import { Activity, Boxes, Search, ShieldAlert } from 'lucide-react';
+import { Activity, Boxes, ShieldAlert } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { CatalogResponse } from '../types';
+import { EmptyState } from '../components/EmptyState';
 import { IntegrationCard } from '../components/IntegrationCard';
+import { IntegrationToolbar } from '../components/IntegrationToolbar';
 import { MetricCard } from '../components/MetricCard';
 import { PageHeader } from '../components/PageHeader';
 
 export function IntegrationsView({ catalog, loading }: { catalog: CatalogResponse | null; loading: boolean }) {
   const [query, setQuery] = useState('');
-  const servers = useMemo(() => (catalog?.servers ?? []).filter(server => `${server.name} ${server.description ?? ''}`.toLowerCase().includes(query.toLowerCase())), [catalog, query]);
-  const active = (catalog?.servers ?? []).filter(server => server.enabled).length;
-  const needs = (catalog?.servers ?? []).filter(server => server.enabled && (server.env_configured ?? server.configured) === false).length;
+  const allServers = catalog?.servers ?? [];
+  const servers = useMemo(() => {
+    const needle = query.toLowerCase().trim();
+    if (!needle) return allServers;
+    return allServers.filter(server => `${server.name} ${server.description ?? ''} ${server.transport ?? ''} ${(server.profiles ?? []).join(' ')}`.toLowerCase().includes(needle));
+  }, [allServers, query]);
+  const active = allServers.filter(server => server.enabled).length;
+  const needs = allServers.filter(server => server.enabled && (server.env_configured ?? server.configured) === false).length;
+
   return <section className="view-stack">
-    <PageHeader title="Integrations" description="Real Kater catalog. No Studio mock telemetry or replacement backend." aside={<span className="count-badge">{catalog?.total ?? 0} available</span>} />
+    <PageHeader title="Integrations" description="Live MCP catalog from Kater. Search and inspect the real control-plane state without a parallel frontend runtime." aside={<span className="count-badge">{catalog?.total ?? 0} available</span>} />
     <div className="metrics-grid"><MetricCard icon={Boxes} label="Catalog" value={catalog?.total ?? '—'} /><MetricCard icon={Activity} label="Enabled" value={active} /><MetricCard icon={ShieldAlert} label="Needs config" value={needs} /></div>
-    <label className="search-field"><Search size={15} aria-hidden /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search MCP servers and tools" /></label>
-    {loading ? <div className="empty-state">Loading catalog…</div> : <div className="integration-grid">{servers.map(server => <IntegrationCard server={server} key={server.name} />)}</div>}
+    <IntegrationToolbar query={query} onQueryChange={setQuery} shown={servers.length} total={allServers.length} />
+    {loading ? <EmptyState>Loading catalog…</EmptyState> : servers.length ? <div className="integration-grid">{servers.map(server => <IntegrationCard server={server} key={server.name} />)}</div> : <EmptyState><div className="empty-state-stack"><strong>No matching integrations</strong><span>Clear the search to return to the live catalog.</span><button className="secondary-action" type="button" onClick={() => setQuery('')}>Clear search</button></div></EmptyState>}
   </section>;
 }

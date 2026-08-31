@@ -2229,8 +2229,38 @@ def test_list_gate_unknown_when_rest_reviews_checks_not_fetched(monkeypatch) -> 
     gate = listing["pulls"][0]["gate"]
     assert gate["verdict"] == UNKNOWN
     assert GATE_INCOMPLETE in gate["reasons"]
+    assert HEAD_STALE not in gate["reasons"]
     assert NO_REVIEWS not in gate["reasons"]
     assert gate["details"].get("advisory") is True
+
+
+def test_list_gate_incomplete_preserves_explicit_conflict() -> None:
+    from kater.pr_control import _list_gate_for_pr
+
+    gate = _list_gate_for_pr(
+        {"gateFieldsIncomplete": True},
+        {
+            "number": 1,
+            "head_sha": "a" * 40,
+            "base_sha": "b" * 40,
+            "mergeable": "CONFLICTING",
+            "draft": False,
+            "open_threads": 0,
+            "pending_checks": 0,
+            "approving_reviews": 0,
+            "failed_checks": 0,
+            "p1_latch_open": False,
+            "repo": "acme/repo",
+            "required_failed": 0,
+            "required_pending": 0,
+            "required_missing": 0,
+            "pr_state": "OPEN",
+        },
+    )
+    assert gate["verdict"] == BLOCK
+    assert MERGE_CONFLICT in gate["reasons"]
+    assert GATE_INCOMPLETE in gate["reasons"]
+    assert HEAD_STALE not in gate["reasons"]
 
 
 def test_list_gate_complete_fields_does_not_block_unpinned_approvals() -> None:

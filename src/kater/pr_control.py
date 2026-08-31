@@ -1419,11 +1419,19 @@ def _list_gate_for_pr(pr: dict[str, Any], summary: dict[str, Any]) -> dict[str, 
         block_failed_checks=False,
         require_required_checks=False,
     )
+    # GitHub's REST PR-list payload does not include mergeability. In this
+    # incomplete/advisory path, UNKNOWN therefore means "not fetched", not
+    # stale head evidence. Preserve an explicit CONFLICTING value if a caller
+    # supplied one, but neutralize the synthetic UNKNOWN before evaluation.
+    list_mergeable = summary["mergeable"]
+    if list_mergeable == "UNKNOWN":
+        list_mergeable = "MERGEABLE"
+
     result = evaluate_gate(
         pr_number=summary["number"],
         head_sha=summary["head_sha"],
         base_sha=summary["base_sha"],
-        mergeable=summary["mergeable"],
+        mergeable=list_mergeable,
         draft=summary["draft"],
         open_threads=summary["open_threads"],
         pending_checks=0,

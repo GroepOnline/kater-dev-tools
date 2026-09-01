@@ -28,5 +28,6 @@ function ActiveView({ view, status, catalog, loading }: { view: StudioView; stat
 export function App() {
   const [view, setView] = useState<StudioView>(studioConfig.defaults.view);
   const data = useKaterData();
-  return <div className="app-shell"><Sidebar active={view} onSelect={setView} /><main className="workspace"><Topbar connected={!data.loading && !data.error && data.status !== null} profile={String(data.status?.profile ?? studioConfig.defaults.profile)} />{data.error && <div className="error-strip">Gateway data unavailable: {data.error}</div>}<div className="workspace-scroll"><ActiveView view={view} status={data.status} catalog={data.catalog} loading={data.loading} /></div></main></div>;
+  const activeNavigation = studioConfig.navigation.find(item => item.id === view) ?? { section: 'Workspace', label: 'Operator workspace' };
+  return <div className="app-shell"><Sidebar active={view} onSelect={setView} /><main className="workspace"><Topbar connected={!data.loading && !data.error && data.status !== null} profile={String(data.status?.profile ?? studioConfig.defaults.profile)} section={activeNavigation.section} viewLabel={activeNavigation.label} />{data.error && <div className="error-strip">Gateway data unavailable: {data.error}</div>}<div className="workspace-scroll"><ActiveView view={view} status={data.status} catalog={data.catalog} loading={data.loading} /></div></main></div>;
 }

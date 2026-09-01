@@ -70,6 +70,11 @@ ln -sfn "$STATE" .kater
 HOME="${HOME:-/home/chef}" uv sync --frozen
 .venv/bin/python scripts/check_executor_contract.py
 
+# Ensure release is readable by the kater service user (systemd chdir fails otherwise).
+# rsync as chef may create 700 dirs; kater runs as different user.
+sudo -n chmod -R a+rX "$RELEASE" 2>/dev/null || chmod -R a+rX "$RELEASE" 2>/dev/null || true
+sudo -n chmod a+rx "$RELEASE_ROOT" "$(dirname "$CURRENT")" 2>/dev/null || true
+
 curl -fsS --max-time 2 "http://127.0.0.1:$API_PORT/health/live" >/dev/null
 
 if [[ -L "$CURRENT" ]]; then

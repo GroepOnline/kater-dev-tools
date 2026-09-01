@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "jsonschema>=4.26",
-    "mcp>=2.0.0",
+    "mcp>=2.1.1",
     "pydantic>=2.7",
     "typer>=0.27.1",
 ]
@@ -50,7 +50,7 @@ constraint-dependencies = ["pip>=26.2"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.16.4",
+    "ruff>=0.16.5",
     "mypy>=2.3.1",
     "pyyaml>=6.0",
     "pip-audit>=2.9.0",

@@ -113,8 +113,10 @@ if [[ "$healthy" != 1 ]]; then
 fi
 [[ "$(cat "$CURRENT/.deployed-sha")" == "$SHA" ]] || { echo "deploy: active SHA mismatch" >&2; false; }
 
-printf '%s\n' "$SHA" > "$(dirname "$STATE")/kater-deployed-sha"
-printf '%s\n' "$PREVIOUS" > "$(dirname "$STATE")/kater-previous-release"
+sudo -n mkdir -p "$(dirname "$STATE")" 2>/dev/null || true
+sudo -n chmod a+rwx "$(dirname "$STATE")" 2>/dev/null || true
+printf '%s\n' "$SHA" | sudo -n tee "$(dirname "$STATE")/kater-deployed-sha" >/dev/null 2>&1 || printf '%s\n' "$SHA" > "$(dirname "$STATE")/kater-deployed-sha"
+printf '%s\n' "$PREVIOUS" | sudo -n tee "$(dirname "$STATE")/kater-previous-release" >/dev/null 2>&1 || printf '%s\n' "$PREVIOUS" > "$(dirname "$STATE")/kater-previous-release"
 CUTOVER=0
 trap - ERR
 

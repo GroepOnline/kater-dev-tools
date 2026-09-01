@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from kater.api.fabric_routes import FABRIC_OPENAPI_PATHS
@@ -50,6 +51,7 @@ def _error_ref() -> dict[str, Any]:
     }
 
 
+@lru_cache(maxsize=1)
 def _build_paths() -> dict[str, Any]:
     paths: dict[str, Any] = {}
 
@@ -1250,6 +1252,7 @@ def _automation_id_param() -> dict[str, Any]:
     }
 
 
+@lru_cache(maxsize=1)
 def _build_schemas() -> dict[str, Any]:
     return {
         "Health": {
@@ -1510,6 +1513,7 @@ def _build_schemas() -> dict[str, Any]:
     }
 
 
+@lru_cache(maxsize=4)
 def generate_spec() -> dict[str, Any]:
     try:
         from kater import __version__ as api_version

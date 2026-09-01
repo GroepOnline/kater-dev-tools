@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from importlib.resources import files
 
 _RESOURCES = {
@@ -11,6 +12,7 @@ _RESOURCES = {
 }
 
 
+@lru_cache(maxsize=8)
 def read_studio_resource(name: str) -> tuple[bytes, str]:
     """Return one explicitly-owned Studio resource and its content type."""
     content_type = _RESOURCES.get(name)

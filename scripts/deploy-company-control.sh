@@ -89,6 +89,7 @@ if (( FIRST )); then
 fi
 
 ln -sfn "$RELEASE" "$CURRENT"
+sudo -n systemctl daemon-reload 2>/dev/null || true
 sudo -n systemctl start "$SERVICE"
 healthy=0
 for _ in $(seq 1 40); do
@@ -98,7 +99,13 @@ for _ in $(seq 1 40); do
   fi
   sleep 0.5
 done
-[[ "$healthy" == 1 ]] || { echo "deploy: new runtime did not become healthy" >&2; false; }
+if [[ "$healthy" != 1 ]]; then
+  echo "deploy: new runtime did not become healthy — dumping diagnostics" >&2
+  sudo -n systemctl status "$SERVICE" --no-pager 2>&1 | head -80 >&2 || true
+  sudo -n journalctl -u "$SERVICE" -n 80 --no-pager 2>&1 | tail -80 >&2 || true
+  echo "deploy: new runtime did not become healthy" >&2
+  false
+fi
 [[ "$(cat "$CURRENT/.deployed-sha")" == "$SHA" ]] || { echo "deploy: active SHA mismatch" >&2; false; }
 
 printf '%s\n' "$SHA" > "$(dirname "$STATE")/kater-deployed-sha"

@@ -1,8 +1,9 @@
-import { RefreshCw, SquareTerminal } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AgentContextCard } from '../components/AgentContextCard';
 import { AgentRuntimeHandoff } from '../components/AgentRuntimeHandoff';
-import { AgentActivityLine } from '../components/brainless/AgentEventLine';
+import { AgentAuditEventRow } from '../components/AgentAuditEventRow';
+import { AgentSessionSummary } from '../components/AgentSessionSummary';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { useAgentContextEvents } from '../hooks/useAgentContextEvents';
@@ -32,38 +33,25 @@ export function AgentsView({ status }: { status: StatusResponse | null }) {
     {contexts.error && <div className="error-strip inline-error">Agent contexts unavailable: {contexts.error}</div>}
     <div className="agent-session-layout">
       <aside className="agent-context-list" aria-label="Remote agent contexts">
-        <div className="subsection-title"><span>Sessions</span><small>{rows.length} contexts</small></div>
+        <div className="subsection-title"><span>Sessions</span><small>{rows.filter(context => context.active).length}/{rows.length} active</small></div>
         {rows.map(context => <AgentContextCard context={context} selected={context.context_id === selectedId} onSelect={() => setSelectedId(context.context_id)} key={context.context_id} />)}
         {!contexts.loading && !contexts.error && rows.length === 0 && <EmptyState>No remote contexts yet.</EmptyState>}
       </aside>
       <article className="agent-console component-card" aria-label="Selected agent context activity">
-        <div className="agent-console-toolbar">
-          <span><SquareTerminal size={14} aria-hidden /> {selected?.label ?? selected?.context_id ?? 'No session selected'}</span>
-          <span>{selected ? `${selected.profile} · Kater context` : String(status?.profile ?? 'core')}</span>
-        </div>
-        {selected && <div className="agent-context-meta">
-          <span><strong>context</strong>{selected.context_id}</span>
-          <span><strong>repository</strong>{selected.repository ?? '—'}</span>
-          <span><strong>principal</strong>{selected.principal_id}</span>
-          <span><strong>capabilities</strong>{selected.allowed_capabilities.length || 'unrestricted'}</span>
-        </div>}
+        {selected && <AgentSessionSummary context={selected} events={events} />}
         {selected && <AgentRuntimeHandoff context={selected} />}
-        <div className="agent-console-body">
-          {activity.error && <div className="error-strip inline-error">Session audit unavailable: {activity.error}</div>}
-          {events.map(event => <AgentActivityLine
-            key={event.id}
-            label={event.capability_id}
-            durationMs={event.duration_ms}
-            success={event.outcome === 'allowed'}
-            surface="kater"
-            detail={`${event.outcome} · ${event.profile ?? selected?.profile ?? 'core'}`}
-          />)}
-          {activity.loading && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>Reading context audit…</strong><small>Kater</small></span></div>}
-          {selected && !activity.loading && !activity.error && events.length === 0 && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>No capability activity for this context.</strong><small>Kater</small></span></div>}
-          {!selected && !contexts.loading && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>Select or create a remote context to establish an agent session.</strong><small>Kater contexts</small></span></div>}
-        </div>
+        <section className="agent-audit-section" aria-label="Capability activity timeline">
+          <div className="agent-audit-heading"><div><span className="eyebrow">Activity</span><strong>Capability audit</strong></div><small>{events.length} events · canonical Kater audit</small></div>
+          <div className="agent-console-body">
+            {activity.error && <div className="error-strip inline-error">Session audit unavailable: {activity.error}</div>}
+            {selected && events.map(event => <AgentAuditEventRow key={event.id} event={event} fallbackProfile={selected.profile} surface="kater" />)}
+            {activity.loading && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>Reading context audit…</strong><small>Kater</small></span></div>}
+            {selected && !activity.loading && !activity.error && events.length === 0 && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>No capability activity for this context.</strong><small>Kater</small></span></div>}
+            {!selected && !contexts.loading && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>Select a remote context to inspect its session projection.</strong><small>Kater contexts</small></span></div>}
+          </div>
+        </section>
       </article>
     </div>
-    <div className="agent-binding-note">This remains a read-only Kater projection. The handoff only copies an opaque correlation key for agent-runtime; prompt input and execution stay outside Studio until an explicit transport contract exists.</div>
+    <div className="agent-binding-note">This remains a read-only Kater projection. Session selection and capability activity come from current Kater context/audit state; write controls remain deferred to the canonical session transport contract.</div>
   </section>;
 }

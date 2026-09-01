@@ -121,3 +121,20 @@ def test_studio_shell_is_contextual_without_fake_primary_action() -> None:
     assert "Runtime managed" in topbar
     assert "Add MCP" not in topbar
     assert "disabled" not in topbar
+
+
+def test_agent_activity_is_session_centered_and_truth_bound() -> None:
+    agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
+    summary = STUDIO / "src/components/AgentSessionSummary.tsx"
+    audit_row = STUDIO / "src/components/AgentAuditEventRow.tsx"
+    assert summary.exists()
+    assert audit_row.exists()
+    assert "AgentSessionSummary" in agents
+    assert "AgentAuditEventRow" in agents
+    assert "Read-only projection" in summary.read_text()
+    assert "Write transport not bound" in summary.read_text()
+    assert "reason" in audit_row.read_text()
+    assert "timestamp" in audit_row.read_text()
+    assert "/api/execute" not in agents
+    assert "Send message" not in agents
+    assert "Take over" not in agents

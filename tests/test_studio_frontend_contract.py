@@ -138,3 +138,22 @@ def test_agent_activity_is_session_centered_and_truth_bound() -> None:
     assert "/api/execute" not in agents
     assert "Send message" not in agents
     assert "Take over" not in agents
+
+
+def test_agent_workspace_has_session_and_audit_filtering_without_new_authority() -> None:
+    agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
+    session_filters = STUDIO / "src/components/AgentSessionFilters.tsx"
+    audit_filters = STUDIO / "src/components/AgentAuditFilters.tsx"
+    assert session_filters.exists()
+    assert audit_filters.exists()
+    assert "AgentSessionFilters" in agents
+    assert "AgentAuditFilters" in agents
+    assert "activeOnly" in agents
+    assert "outcomeFilter" in agents
+    assert "visibleRows" in agents
+    assert "visibleEvents" in agents
+    assert "aria-pressed" in session_filters.read_text()
+    assert "aria-pressed" in audit_filters.read_text()
+    assert "/api/execute" not in agents
+    assert "send message" not in agents.lower()
+    assert "takeover" not in agents.lower()

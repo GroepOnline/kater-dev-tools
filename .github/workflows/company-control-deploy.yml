@@ -35,8 +35,8 @@ jobs:
           [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
           test -n "$DEPLOY_TARGET"
           test -n "$DEPLOY_SERVICE"
-          git cat-file -e "$DEPLOY_SHA^{commit}"
           git fetch origin main
+          git cat-file -e "$DEPLOY_SHA^{commit}"
           git merge-base --is-ancestor "$DEPLOY_SHA" origin/main
 
       - name: Deploy exact SHA with rollback

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from functools import lru_cache
 from typing import Any
 
@@ -1513,7 +1514,6 @@ def _build_schemas() -> dict[str, Any]:
     }
 
 
-@lru_cache(maxsize=4)
 def generate_spec() -> dict[str, Any]:
     try:
         from kater import __version__ as api_version
@@ -1533,6 +1533,6 @@ def generate_spec() -> dict[str, Any]:
             "license": {"name": "MIT"},
         },
         "servers": [{"url": DEFAULT_SERVER, "description": "Local gateway"}],
-        "paths": _build_paths(),
-        "components": {"schemas": _build_schemas()},
+        "paths": copy.deepcopy(_build_paths()),
+        "components": {"schemas": copy.deepcopy(_build_schemas())},
     }

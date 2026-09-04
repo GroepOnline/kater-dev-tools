@@ -1,13 +1,16 @@
-import { Plus, Radio } from 'lucide-react';
+import { Radio, ShieldCheck } from 'lucide-react';
 import { StatusPill } from './StatusPill';
 
-export function Topbar({ connected, profile }: { connected: boolean; profile: string }) {
+export function Topbar({ connected, profile, section, viewLabel }: { connected: boolean; profile: string; section: string; viewLabel: string }) {
   return <header className="topbar">
-    <div className="topbar-title"><span className="eyebrow">Kater Studio</span><strong>Operator workspace</strong></div>
+    <div className="topbar-title">
+      <span className="topbar-context"><span>Kater Studio</span><span aria-hidden>/</span><span>{section}</span></span>
+      <strong>{viewLabel}</strong>
+    </div>
     <div className="topbar-actions">
       <StatusPill state={connected ? 'healthy' : 'offline'} label={connected ? 'gateway live' : 'gateway offline'} />
       <span className="profile-chip"><span className="chip-label">profile</span><Radio size={12} aria-hidden />{profile}</span>
-      <button className="primary-action" disabled title="Connection management remains in the authoritative Kater runtime"><Plus size={14} aria-hidden />Add MCP</button>
+      <span className="authority-chip" title="Connection management stays in the authoritative Python Kater runtime"><ShieldCheck size={13} aria-hidden />Runtime managed</span>
     </div>
   </header>;
 }

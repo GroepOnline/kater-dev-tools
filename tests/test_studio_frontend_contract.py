@@ -110,3 +110,14 @@ def test_experimental_navigation_flag_controls_sidebar() -> None:
     sidebar = (STUDIO / "src/components/Sidebar.tsx").read_text()
     assert "experimental: true" in config
     assert "studioConfig.features.showExperimentalViews" in sidebar
+
+
+def test_studio_shell_is_contextual_without_fake_primary_action() -> None:
+    app = (STUDIO / "src/App.tsx").read_text()
+    topbar = (STUDIO / "src/components/Topbar.tsx").read_text()
+    assert "activeNavigation" in app
+    assert "viewLabel={activeNavigation.label}" in app
+    assert "section={activeNavigation.section}" in app
+    assert "Runtime managed" in topbar
+    assert "Add MCP" not in topbar
+    assert "disabled" not in topbar

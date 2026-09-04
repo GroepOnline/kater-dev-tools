@@ -169,7 +169,11 @@ def test_agent_workspace_has_session_and_audit_filtering_without_new_authority()
     assert styles.count(
         "grid-template-columns:repeat(3,minmax(0,1fr))"
     ) == 1
-    assert "@media(max-width:900px){.agent-session-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}" in styles
+    responsive_facts = (
+        "@media(max-width:900px){.agent-session-facts{"
+        "grid-template-columns:repeat(2,minmax(0,1fr))}}"
+    )
+    assert responsive_facts in styles
     assert "/api/execute" not in agents
     assert "send message" not in agents.lower()
     assert "takeover" not in agents.lower()

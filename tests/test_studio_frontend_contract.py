@@ -134,6 +134,8 @@ def test_agent_activity_is_session_centered_and_truth_bound() -> None:
     assert "AgentAuditEventRow" in agents
     assert "auditAvailable" in agents
     assert "requestedContextId.current === requestedId" in activity_hook
+    assert "requestGeneration.current === generation" in activity_hook
+    assert "const generation = ++requestGeneration.current" in activity_hook
     assert "data: null, error: null, loading: true" in activity_hook
     assert "Read-only projection" in summary.read_text()
     assert "Write transport not bound" in summary.read_text()
@@ -164,6 +166,10 @@ def test_agent_workspace_has_session_and_audit_filtering_without_new_authority()
     assert 'id="agent-audit-search"' in audit_filters
     assert 'role="group"' in audit_filters
     assert ".topbar-actions .authority-chip{display:none}" in styles
+    assert styles.count(
+        "grid-template-columns:repeat(3,minmax(0,1fr))"
+    ) == 1
+    assert "@media(max-width:900px){.agent-session-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}" in styles
     assert "/api/execute" not in agents
     assert "send message" not in agents.lower()
     assert "takeover" not in agents.lower()

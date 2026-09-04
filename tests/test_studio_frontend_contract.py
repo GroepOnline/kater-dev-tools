@@ -137,9 +137,15 @@ def test_agent_activity_is_session_centered_and_truth_bound() -> None:
     assert "requestGeneration.current === generation" in activity_hook
     assert "const generation = ++requestGeneration.current" in activity_hook
     assert "data: null, error: null, loading: true" in activity_hook
-    assert "Read-only projection" in summary.read_text()
-    assert "Write transport not bound" in summary.read_text()
-    assert "Audit unavailable" in summary.read_text()
+    summary_source = summary.read_text()
+    assert "Read-only projection" in summary_source
+    assert "Write transport not bound" in summary_source
+    assert "type AuditStatus = 'loading' | 'available' | 'unavailable'" in summary_source
+    assert "auditStatus === 'loading'" in summary_source
+    assert "Audit loading…" in summary_source
+    assert "Audit unavailable" in summary_source
+    assert "auditStatus={auditStatus}" in agents
+    assert "auditStatus === 'loading' ? 'audit loading…'" in agents
     assert "reason" in audit_row.read_text()
     assert "timestamp" in audit_row.read_text()
     assert "/api/execute" not in agents
@@ -174,6 +180,10 @@ def test_agent_workspace_has_session_and_audit_filtering_without_new_authority()
         "grid-template-columns:repeat(2,minmax(0,1fr))}}"
     )
     assert responsive_facts in styles
+    assert (
+        ".agent-context-list>.subsection-title,.agent-context-list>.agent-filter-panel,"
+        ".agent-context-list>.empty-state{grid-column:1/-1}"
+    ) in styles
     assert "/api/execute" not in agents
     assert "send message" not in agents.lower()
     assert "takeover" not in agents.lower()

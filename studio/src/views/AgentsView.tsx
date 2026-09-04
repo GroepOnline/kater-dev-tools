@@ -38,6 +38,7 @@ export function AgentsView({ status }: { status: StatusResponse | null }) {
   const selected = useMemo(() => visibleRows.find(item => item.context_id === selectedId) ?? null, [visibleRows, selectedId]);
   const activity = useAgentContextEvents(selectedId);
   const auditAvailable = Boolean(selectedId && activity.contextId === selectedId && activity.data && !activity.loading && !activity.error);
+  const auditStatus = activity.loading ? 'loading' : auditAvailable ? 'available' : 'unavailable';
   const events = auditAvailable ? activity.data?.events ?? [] : [];
   const visibleEvents = useMemo(() => {
     const query = auditQuery.trim().toLowerCase();
@@ -61,10 +62,10 @@ export function AgentsView({ status }: { status: StatusResponse | null }) {
         {!contexts.loading && !contexts.error && visibleRows.length === 0 && <EmptyState>{rows.length ? 'No sessions match the current filters.' : 'No remote contexts yet.'}</EmptyState>}
       </aside>
       <article className="agent-console component-card" aria-label="Selected agent context activity">
-        {selected && <AgentSessionSummary context={selected} events={events} auditAvailable={auditAvailable} />}
+        {selected && <AgentSessionSummary context={selected} events={events} auditStatus={auditStatus} />}
         {selected && <AgentRuntimeHandoff context={selected} />}
         <section className="agent-audit-section" aria-label="Capability activity timeline">
-          <div className="agent-audit-heading"><div><span className="eyebrow">Activity</span><strong>Capability audit</strong></div><small>{auditAvailable ? `${visibleEvents.length}/${events.length} events · canonical Kater audit` : 'audit unavailable'}</small></div>
+          <div className="agent-audit-heading"><div><span className="eyebrow">Activity</span><strong>Capability audit</strong></div><small>{auditStatus === 'loading' ? 'audit loading…' : auditAvailable ? `${visibleEvents.length}/${events.length} events · canonical Kater audit` : 'audit unavailable'}</small></div>
           {selected && auditAvailable && <AgentAuditFilters query={auditQuery} onQueryChange={setAuditQuery} outcome={outcomeFilter} onOutcomeChange={setOutcomeFilter} shown={visibleEvents.length} total={events.length} />}
           <div className="agent-console-body">
             {activity.error && <div className="error-strip inline-error">Session audit unavailable: {activity.error}</div>}

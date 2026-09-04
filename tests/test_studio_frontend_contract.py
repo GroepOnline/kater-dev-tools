@@ -127,12 +127,17 @@ def test_agent_activity_is_session_centered_and_truth_bound() -> None:
     agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
     summary = STUDIO / "src/components/AgentSessionSummary.tsx"
     audit_row = STUDIO / "src/components/AgentAuditEventRow.tsx"
+    activity_hook = (STUDIO / "src/hooks/useAgentContextEvents.ts").read_text()
     assert summary.exists()
     assert audit_row.exists()
     assert "AgentSessionSummary" in agents
     assert "AgentAuditEventRow" in agents
+    assert "auditAvailable" in agents
+    assert "requestedContextId.current === requestedId" in activity_hook
+    assert "data: null, error: null, loading: true" in activity_hook
     assert "Read-only projection" in summary.read_text()
     assert "Write transport not bound" in summary.read_text()
+    assert "Audit unavailable" in summary.read_text()
     assert "reason" in audit_row.read_text()
     assert "timestamp" in audit_row.read_text()
     assert "/api/execute" not in agents
@@ -142,18 +147,23 @@ def test_agent_activity_is_session_centered_and_truth_bound() -> None:
 
 def test_agent_workspace_has_session_and_audit_filtering_without_new_authority() -> None:
     agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
-    session_filters = STUDIO / "src/components/AgentSessionFilters.tsx"
-    audit_filters = STUDIO / "src/components/AgentAuditFilters.tsx"
-    assert session_filters.exists()
-    assert audit_filters.exists()
+    session_filters = (STUDIO / "src/components/AgentSessionFilters.tsx").read_text()
+    audit_filters = (STUDIO / "src/components/AgentAuditFilters.tsx").read_text()
+    styles = (STUDIO / "src/styles/global.css").read_text()
     assert "AgentSessionFilters" in agents
     assert "AgentAuditFilters" in agents
     assert "activeOnly" in agents
     assert "outcomeFilter" in agents
     assert "visibleRows" in agents
     assert "visibleEvents" in agents
-    assert "aria-pressed" in session_filters.read_text()
-    assert "aria-pressed" in audit_filters.read_text()
+    assert "aria-pressed" in session_filters
+    assert "aria-pressed" in audit_filters
+    assert 'htmlFor="agent-session-search"' in session_filters
+    assert 'id="agent-session-search"' in session_filters
+    assert 'htmlFor="agent-audit-search"' in audit_filters
+    assert 'id="agent-audit-search"' in audit_filters
+    assert 'role="group"' in audit_filters
+    assert ".topbar-actions .authority-chip{display:none}" in styles
     assert "/api/execute" not in agents
     assert "send message" not in agents.lower()
     assert "takeover" not in agents.lower()

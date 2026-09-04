@@ -8,14 +8,14 @@ function formatTimestamp(value?: number | null) {
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
 }
 
-export function AgentSessionSummary({ context, events }: { context: RemoteContext; events: CapabilityAuditEvent[] }) {
+export function AgentSessionSummary({ context, events, auditAvailable }: { context: RemoteContext; events: CapabilityAuditEvent[]; auditAvailable: boolean }) {
   const label = context.label?.trim() || context.context_id;
   const allowed = events.filter(event => event.outcome === 'allowed').length;
   const denied = events.filter(event => event.outcome === 'denied').length;
   const errors = events.length - allowed - denied;
   const capabilityScope = context.allowed_capabilities.length ? `${context.allowed_capabilities.length} allowed` : 'unrestricted';
   const lifecycle = context.revoked_at ? `revoked · ${formatTimestamp(context.revoked_at)}` : context.expires_at ? `expires · ${formatTimestamp(context.expires_at)}` : 'no expiry reported';
-  const lastEvent = events[0]?.timestamp ? formatTimestamp(events[0].timestamp) : 'no audit activity';
+  const lastEvent = auditAvailable ? (events[0]?.timestamp ? formatTimestamp(events[0].timestamp) : 'no audit activity') : 'unavailable';
 
   return <section className="agent-session-summary" aria-label="Selected session summary">
     <div className="agent-session-summary-head">
@@ -30,9 +30,11 @@ export function AgentSessionSummary({ context, events }: { context: RemoteContex
       <span><strong>Last audit</strong>{lastEvent}</span>
     </div>
     <div className="agent-session-outcomes" aria-label="Capability audit outcomes">
-      <span><Activity size={12} aria-hidden /><strong>{allowed}</strong> allowed</span>
-      <span><strong>{denied}</strong> denied</span><span><strong>{errors}</strong> other/error</span>
-      <span><Clock3 size={11} aria-hidden /><strong>{events.length}</strong> loaded</span>
+      {auditAvailable ? <>
+        <span><Activity size={12} aria-hidden /><strong>{allowed}</strong> allowed</span>
+        <span><strong>{denied}</strong> denied</span><span><strong>{errors}</strong> other/error</span>
+        <span><Clock3 size={11} aria-hidden /><strong>{events.length}</strong> loaded</span>
+      </> : <span><Activity size={12} aria-hidden /><strong>Audit unavailable</strong></span>}
     </div>
     <div className="agent-transport-boundary"><LockKeyhole size={13} aria-hidden /><div><strong>Read-only projection</strong><span>Write transport not bound. Session commands stay outside Studio until the canonical transport contract exists.</span></div></div>
   </section>;

@@ -28,6 +28,13 @@ from kater.pr_control import (
     pr_status_tool,
 )
 from kater.profiles import list_profiles
+from kater.session_tools import (
+    kater_session_append,
+    kater_session_cancel,
+    kater_session_continue,
+    kater_session_events,
+    kater_session_submit,
+)
 
 ToolHandler = Callable[..., dict[str, Any]]
 
@@ -327,6 +334,41 @@ def build_native_tools() -> list[NativeTool]:
             profile="core",
             risk="high",
             handler=pr_merge_tool,
+        ),
+        NativeTool(
+            name="kater_session_continue",
+            description="Continue an active remote-context agent session.",
+            profile="core",
+            risk="low",
+            handler=kater_session_continue,
+        ),
+        NativeTool(
+            name="kater_session_submit",
+            description="Submit natural-language work on a remote-context session.",
+            profile="core",
+            risk="high",
+            handler=kater_session_submit,
+        ),
+        NativeTool(
+            name="kater_session_events",
+            description="Poll authoritative Kater-neutral session events.",
+            profile="core",
+            risk="low",
+            handler=kater_session_events,
+        ),
+        NativeTool(
+            name="kater_session_cancel",
+            description="Cancel in-flight session work.",
+            profile="core",
+            risk="high",
+            handler=kater_session_cancel,
+        ),
+        NativeTool(
+            name="kater_session_append",
+            description="Append a provider-neutral session event.",
+            profile="core",
+            risk="low",
+            handler=kater_session_append,
         ),
     ]
     tools.extend(_browser_native_tools())

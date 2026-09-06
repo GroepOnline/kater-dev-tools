@@ -6,6 +6,14 @@ into the taste loop (see `.agents/README.md`) instead.
 
 ---
 
+## Branch lifecycle must never classify `main`/`origin` as would-delete
+
+`git for-each-ref refs/remotes/origin` with `%(refname:short)` yields `origin/main` (normalizes to `main`) and sometimes a bare `origin` remote ref. Unique-count vs `main` is 0, so a naive stale scanner emits `would-delete main`. Skip protected refs (`main`, `master`, `origin`, `HEAD`) in parse/scan/`git_delete_ref`.
+
+## Session Studio contract tests flip when the Python transport lands
+
+`tests/test_studio_frontend_contract.py` asserted “Write transport not bound”. Binding Studio to `/api/contexts/{id}/session` requires updating those assertions (keep `/api/execute`, `Send message`, `setInterval`, `Math.random` forbidden).
+
 ## Workflow YAML is guarded by plain-text regression tests
 
 `tests/test_ci_workflow_changes.py` reads the workflow files as **text** and

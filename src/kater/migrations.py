@@ -339,6 +339,40 @@ _CONNECTORS_V9 = (
     )""",
 )
 
+AGENT_SESSION_TRANSPORT_SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS agent_session_work (
+        work_id TEXT PRIMARY KEY,
+        context_id TEXT NOT NULL,
+        principal_id TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        state TEXT NOT NULL,
+        correlation_json TEXT NOT NULL DEFAULT '{}',
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        cancelled_at REAL,
+        completed_at REAL
+    )""",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_agent_session_work_context "
+        "ON agent_session_work(context_id, created_at)"
+    ),
+    """CREATE TABLE IF NOT EXISTS agent_session_events (
+        event_id TEXT PRIMARY KEY,
+        context_id TEXT NOT NULL,
+        work_id TEXT,
+        seq INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        provider TEXT,
+        created_at REAL NOT NULL
+    )""",
+    (
+        "CREATE UNIQUE INDEX IF NOT EXISTS "
+        "idx_agent_session_events_context_seq_unique "
+        "ON agent_session_events(context_id, seq)"
+    ),
+)
+
 #: Ordered, append-only. Add new versions at the end; never edit a released one.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="baseline", statements=_BASELINE),
@@ -354,6 +388,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         statements=_AUTOMATION_DEFAULTS_ADOPTED_V8,
     ),
     Migration(version=9, name="connectors", statements=_CONNECTORS_V9),
+    Migration(
+        version=10,
+        name="agent_session_transport",
+        statements=AGENT_SESSION_TRANSPORT_SCHEMA,
+    ),
 )
 
 _CREATE_SCHEMA_TABLE = f"""CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (

@@ -87,6 +87,7 @@ def test_seeded_alias_capability_is_not_guessed_as_upstream_tool() -> None:
 
 def test_invoke_does_not_add_native_tools(monkeypatch):
     monkeypatch.delenv("KATER_EXTENSIONS_MODULE", raising=False)
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
     before = [tool.name for tool in build_native_tools()]
     record = _mcp_record(
         capabilities=[
@@ -107,7 +108,7 @@ def test_invoke_does_not_add_native_tools(monkeypatch):
 
     after = [tool.name for tool in build_native_tools()]
     assert before == after
-    assert len(before) == 19
+    assert len(before) == 24
     assert "kater_profiles" in before
     assert "kater_github" not in before
     assert result["content"][0]["text"] == "ok"

@@ -117,6 +117,71 @@ export interface CapabilityAuditEvent {
 
 export interface CapabilityAuditResponse { total: number; events: CapabilityAuditEvent[]; }
 
+export type AgentWorkState =
+  | 'idle'
+  | 'working'
+  | 'waiting'
+  | 'blocked'
+  | 'failed'
+  | 'review'
+  | 'completed'
+  | 'cancelled'
+  | string;
+
+export interface SessionWork {
+  work_id: string;
+  context_id: string;
+  principal_id: string;
+  prompt: string;
+  state: AgentWorkState;
+  correlation: { katerContextId?: string; [key: string]: unknown };
+  created_at: number;
+  updated_at: number;
+  cancelled_at?: number | null;
+  completed_at?: number | null;
+}
+
+export interface SessionEvent {
+  event_id: string;
+  context_id: string;
+  work_id?: string | null;
+  seq: number;
+  type: string;
+  payload: Record<string, unknown>;
+  provider?: string | null;
+  created_at: number;
+}
+
+export interface SessionProjection {
+  context: RemoteContext;
+  agent_state: AgentWorkState;
+  correlation: { katerContextId: string };
+  active_work: SessionWork | null;
+  work_total: number;
+  event?: SessionEvent;
+}
+
+export interface SessionEventsResponse {
+  context_id: string;
+  katerContextId: string;
+  after_seq: number;
+  next_seq: number;
+  total: number;
+  events: SessionEvent[];
+}
+
+export interface SessionSubmitResponse {
+  work: SessionWork;
+  events: SessionEvent[];
+  correlation: { katerContextId?: string; [key: string]: unknown };
+  agent_state: AgentWorkState;
+}
+
+export interface SessionCancelResponse {
+  work: SessionWork;
+  event: SessionEvent;
+}
+
 export interface SettingsResponse {
   version: number; default_profile: string;
   auth: { mode: string; api_keys?: number; oauth_issuer?: string | null; };

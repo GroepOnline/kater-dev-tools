@@ -20,6 +20,7 @@ class AgentState(StrEnum):
     FAILED = "failed"
     REVIEW = "review"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class ServiceState(StrEnum):

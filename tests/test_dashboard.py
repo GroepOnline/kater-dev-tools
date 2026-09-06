@@ -479,6 +479,8 @@ def test_fabric_view_has_capabilities_contexts_computer_seams():
     assert 'id="fabric-computer"' in html
     assert 'data-view="fabric"' in html
     assert "function loadFabricView" in html
+    assert "if (currentView === 'fabric') loadFabricView();" in html
+    assert "/api/capabilities?profile=" in html
     assert "/api/capabilities" in html
     assert "/api/contexts" in html
     assert "/api/computer" in html
@@ -791,9 +793,6 @@ def test_credentials_modal_focus_restoration_behavior_node(tmp_path):
     assert res["body"]["focusRestored"] is False
 
 
-# Runs the real zero-result renderers (Server Map, Catalog, Fabric) against a
-# DOM shim so the profile recovery button is asserted behaviourally: shown only
-# for non-core profiles, and clicking it actually switches back to core.
 _PROFILE_RECOVERY_HARNESS = r"""
 class El {
   constructor(tag) {
@@ -897,7 +896,8 @@ const LABEL = 'Switch profile to core';
   out.catalogButtonHiddenOnCore = !findButton(shell['catalog-grid'], LABEL);
 
   // Fabric: a custom profile with zero capabilities offers recovery.
-  apiResults['/api/capabilities'] = { value: { capabilities: [] } };
+  apiResults['/api/capabilities?profile=custom'] = { value: { capabilities: [] } };
+  apiResults['/api/capabilities?profile=core'] = { value: { capabilities: [] } };
   apiResults['/api/contexts'] = { value: { contexts: [] } };
   apiResults['/api/computer'] = { value: { configured: false } };
   activeProfile = 'custom'; calls.length = 0;
@@ -913,7 +913,7 @@ const LABEL = 'Switch profile to core';
 
   // Fabric: a rejected capabilities request is an error, not a profile
   // dead-end, so the recovery action must not appear.
-  apiResults['/api/capabilities'] = { reject: 'boom' };
+  apiResults['/api/capabilities?profile=custom'] = { reject: 'boom' };
   activeProfile = 'custom';
   await loadFabricView();
   out.fabricButtonHiddenOnError = !findButton(shell['fabric-capabilities'], LABEL);
@@ -971,3 +971,144 @@ def test_zero_result_profile_recovery_behavior_node(tmp_path):
     # A failed capabilities request renders an error, never the profile action.
     assert res["fabricButtonHiddenOnError"] is True
     assert res["fabricErrorShown"] is True
+
+
+def _js_handler_block(html: str, signature: str) -> str:
+    start = html.index(signature)
+    end = html.index("\nasync function", start + len(signature))
+    return html[start:end]
+
+
+@pytest.mark.parametrize(
+    ("handler", "loading_label", "idle_label"),
+    [
+        ("closeBrowserSession", "Closing...", "Close"),
+        ("browserNavigate", "Go...", "Go"),
+        ("browserReload", "Reloading...", "Reload"),
+    ],
+)
+def test_browser_view_buttons_use_context_loading_states(handler, loading_label, idle_label):
+    html = render_dashboard()
+    assert f'onclick="{handler}(this)"' in html
+
+    block = _js_handler_block(html, f"async function {handler}(btn)")
+    assert "btn.disabled = true" in block
+    assert "btn.setAttribute('aria-busy', 'true')" in block
+    assert f"btn.textContent = '{loading_label}'" in block
+
+    restore = block[block.index("} finally {") :]
+    assert "btn.disabled = false" in restore
+    assert "btn.removeAttribute('aria-busy')" in restore
+    assert f"btn.textContent = '{idle_label}'" in restore
+
+
+def test_browser_url_enter_serializes_navigation_through_go_button():
+    html = render_dashboard()
+    assert 'id="browser-go"' in html
+    assert "browserNavigate(document.getElementById('browser-go'))" in html
+
+    block = _js_handler_block(html, "async function browserNavigate(btn)")
+    assert "if (browserNavigating) return;" in block
+    assert "browserNavigating = true;" in block
+    assert "browserNavigating = false;" in block[block.index("} finally {") :]
+
+
+# Gedragstest voor de navigatie-guard: voert het echte `browserNavigate` uit in
+# Node met een vertraagde `apiPost`, zodat een tweede aanroep tijdens een
+# lopende navigatie aantoonbaar wordt genegeerd in plaats van alleen de
+# brontekst van de guard te matchen.
+_BROWSER_NAV_HARNESS = r"""
+const urlEl = { value: 'https://example.com' };
+const document = {
+  getElementById(id) { return id === 'browser-url' ? urlEl : null; },
+};
+let browserNavigating = false;
+let browserSelectedId = 'sess-1';
+function toast() {}
+function pushBrowserLog() {}
+function showBrowserShot() {}
+async function pollBrowserScreenshot() {}
+async function loadBrowserView() {}
+
+let apiPostCalls = 0;
+let pendingResolve = null;
+function apiPost() {
+  apiPostCalls += 1;
+  return new Promise((resolve) => { pendingResolve = resolve; });
+}
+
+/*__DASHBOARD_JS__*/
+
+const btn = {
+  disabled: false,
+  textContent: 'Go',
+  attrs: {},
+  setAttribute(k, v) { this.attrs[k] = v; },
+  removeAttribute(k) { delete this.attrs[k]; },
+};
+
+(async () => {
+  const first = browserNavigate(btn);
+  const duringFlight = {
+    disabled: btn.disabled,
+    ariaBusy: btn.attrs['aria-busy'] === 'true',
+    label: btn.textContent,
+  };
+
+  // Tweede aanroep terwijl de eerste nog loopt: de guard moet die laten vallen.
+  await browserNavigate(btn);
+  const callsWhilePending = apiPostCalls;
+
+  pendingResolve({ ok: true, url: 'https://example.com', screenshot_b64: 'x' });
+  await first;
+  const afterFlight = {
+    disabled: btn.disabled,
+    ariaBusy: 'aria-busy' in btn.attrs,
+    label: btn.textContent,
+  };
+
+  // Na afronding laat de guard een nieuwe navigatie weer door.
+  const second = browserNavigate(btn);
+  const callsAfterRelease = apiPostCalls;
+  pendingResolve({ ok: true, url: 'https://example.com', screenshot_b64: 'x' });
+  await second;
+
+  process.stdout.write(JSON.stringify({
+    duringFlight,
+    callsWhilePending,
+    afterFlight,
+    callsAfterRelease,
+  }));
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+"""
+
+
+def test_browser_navigate_drops_overlapping_invocations_node(tmp_path):
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:
+        pytest.skip("node is required to execute the dashboard JS")
+    assert node is not None
+    html = render_dashboard()
+    dashboard_js = _extract_js_function(html, "browserNavigate")
+    script = tmp_path / "browser_navigate_guard.cjs"
+    script.write_text(
+        _BROWSER_NAV_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(proc.stdout)
+    # Tijdens de eerste navigatie is de knop uitgeschakeld en bezig gemarkeerd.
+    assert res["duringFlight"] == {"disabled": True, "ariaBusy": True, "label": "Go..."}
+    # De overlappende tweede aanroep bereikt de API niet.
+    assert res["callsWhilePending"] == 1
+    # Na afloop is de knopstatus hersteld.
+    assert res["afterFlight"] == {"disabled": False, "ariaBusy": False, "label": "Go"}
+    # En een volgende navigatie mag weer door de guard.
+    assert res["callsAfterRelease"] == 2
+

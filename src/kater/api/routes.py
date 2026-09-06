@@ -2062,3 +2062,4 @@ def _computer_invoke(req: Request) -> Response:
 
 # Fabric lane (capability discovery + remote contexts). Side-effect import.
 from kater.api import fabric_routes as _fabric_routes  # noqa: E402, F401
+from kater.api import session_routes as _session_routes  # noqa: E402, F401

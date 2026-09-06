@@ -22,6 +22,7 @@ from kater.branch_lifecycle import (
     git_open_pr_heads,
     git_unique_commit_count,
     is_auto_deletable,
+    is_protected_ref,
     is_unique_patch,
     main,
     normalize_branch_name,
@@ -313,6 +314,8 @@ def test_origin_prefix_and_head_exclusion() -> None:
             [
                 f"origin/HEAD {MERGED_SHA}",
                 f"HEAD {MERGED_SHA}",
+                f"origin/main {MERGED_SHA}",
+                f"origin {MERGED_SHA}",
                 f"origin/{STALE_NAME} {MERGED_SHA}",
                 "not-a-ref",
             ]
@@ -590,6 +593,45 @@ def test_scan_skips_head_and_empty_names() -> None:
     assert STALE_NAME in names
     assert "HEAD" not in names
     assert "" not in names
+
+
+def test_scan_never_would_delete_protected_base_or_origin() -> None:
+    assert is_protected_ref("main") is True
+    assert is_protected_ref("origin/main") is True
+    assert is_protected_ref("origin") is True
+    assert is_protected_ref("master") is True
+    deleted: list[str] = []
+    receipts = _scan(
+        [
+            {"name": "main", "sha": MERGED_SHA},
+            {"name": "origin", "sha": MERGED_SHA},
+            {"name": "origin/main", "sha": MERGED_SHA},
+            {"name": STALE_NAME, "sha": MERGED_SHA},
+        ],
+        {MERGED_SHA: 0},
+        apply=True,
+        delete_ref=deleted.append,
+    )
+    names = {item["name"] for item in receipts}
+    assert "main" not in names
+    assert "origin" not in names
+    assert STALE_NAME in names
+    assert deleted == [STALE_NAME]
+
+
+def test_git_delete_ref_refuses_protected_names() -> None:
+    try:
+        git_delete_ref("main")
+    except RuntimeError as exc:
+        assert "protected" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+    try:
+        git_delete_ref("origin")
+    except RuntimeError as exc:
+        assert "protected" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
 
 
 def test_dry_run_cli_without_delete_ref_never_deletes() -> None:

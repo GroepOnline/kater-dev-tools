@@ -18,6 +18,7 @@ from typing import Any, Literal, Protocol, TextIO, TypedDict, cast
 DELETE_BRANCH_ON_MERGE: bool = True
 SHA_HEX_LEN = 40
 DEFAULT_BASE = "main"
+PROTECTED_REF_NAMES = frozenset({"HEAD", "origin", "master", DEFAULT_BASE})
 
 Action = Literal["would-delete", "retained", "tombstoned"]
 
@@ -210,6 +211,11 @@ def normalize_branch_name(name: str) -> str:
     return n
 
 
+def is_protected_ref(name: str, base: str = DEFAULT_BASE) -> bool:
+    n = normalize_branch_name(name)
+    return (not n) or n in PROTECTED_REF_NAMES or n == base or n.endswith("/HEAD")
+
+
 def classify_branch(name: str) -> str:
     n = normalize_branch_name(name)
     tombstone = TOMBSTONE_BY_NAME.get(n)
@@ -263,7 +269,7 @@ def parse_remote_refs(output: str) -> list[dict[str, str]]:
         if len(sha) != SHA_HEX_LEN or any(ch not in "0123456789abcdefABCDEF" for ch in sha):
             continue
         name = normalize_branch_name(name_part)
-        if not name or name == "HEAD" or name.endswith("/HEAD"):
+        if is_protected_ref(name):
             continue
         if name in seen:
             continue
@@ -332,7 +338,7 @@ def scan(
     live: dict[str, str] = {}
     for item in list_remote_branches():
         name, sha = _coerce_ref(item)
-        if not name or name == "HEAD":
+        if is_protected_ref(name, base=base):
             continue
         live[name] = sha
 
@@ -397,6 +403,8 @@ def scan(
                 continue
             if receipt["action"] != "would-delete":
                 continue
+            if is_protected_ref(receipt["name"], base=base):
+                continue
             if delete_ref is not None:
                 delete_ref(receipt["name"])
     return receipts
@@ -456,6 +464,8 @@ def git_open_pr_heads() -> set[str]:
 
 def git_delete_ref(name: str) -> None:
     branch = normalize_branch_name(name)
+    if is_protected_ref(branch):
+        raise RuntimeError(f"refusing to delete protected ref {branch}")
     completed = _run_git(["push", "origin", "--delete", branch])
     if completed.returncode != 0:
         err = (completed.stderr or completed.stdout or "").strip()

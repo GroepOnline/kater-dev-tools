@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import secrets
+import sqlite3
 
 import pytest
 
@@ -28,7 +30,7 @@ from tests._rest import call
 @pytest.fixture
 def ctx_db(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", "test-session-secret")
+    monkeypatch.setenv("KATER_CONTEXT_TOKEN_SECRET", secrets.token_urlsafe(32))
     context_tokens.reset_token_secret_cache()
     contexts.reset_cache()
     transport.reset_cache()
@@ -54,6 +56,12 @@ def _token(context_id: str, headers: bool = True) -> dict[str, str]:
     assert issued.payload is not None
     token = issued.payload["token"]
     return {"X-Kater-Context": token} if headers else {"Authorization": f"Bearer {token}"}
+
+
+def _session_call(context_id: str, method: str, path: str, **kwargs):
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers.update(_token(context_id))
+    return call(method, path, headers=headers, **kwargs)
 
 
 def test_session_routes_are_registered() -> None:
@@ -104,13 +112,14 @@ def test_builtins_and_mcp_tools_expose_session_capabilities(ctx_db) -> None:
 
 def test_submit_continue_poll_stream_cancel_and_correlation(ctx_db) -> None:
     context_id = _create_context()
-    continued = call("POST", f"/api/contexts/{context_id}/session/continue")
+    continued = _session_call(context_id, "POST", f"/api/contexts/{context_id}/session/continue")
     assert continued.status == 200
     assert continued.payload is not None
     assert continued.payload["correlation"]["katerContextId"] == context_id
     assert continued.payload["agent_state"] == AgentState.IDLE.value
 
-    submitted = call(
+    submitted = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "summarize the open PRs", "correlation": {"katerContextId": context_id}},
@@ -124,7 +133,7 @@ def test_submit_continue_poll_stream_cancel_and_correlation(ctx_db) -> None:
     assert submitted.payload["events"][1]["type"] == "work.state"
     work_id = work["work_id"]
 
-    polled = call("GET", f"/api/contexts/{context_id}/session/events")
+    polled = _session_call(context_id, "GET", f"/api/contexts/{context_id}/session/events")
     assert polled.status == 200
     assert polled.payload is not None
     types = [event["type"] for event in polled.payload["events"]]
@@ -133,7 +142,8 @@ def test_submit_continue_poll_stream_cancel_and_correlation(ctx_db) -> None:
     assert polled.payload["katerContextId"] == context_id
     next_seq = polled.payload["next_seq"]
 
-    streamed = call(
+    streamed = _session_call(
+        context_id,
         "GET",
         f"/api/contexts/{context_id}/session/events/stream",
         query={"after_seq": ["0"]},
@@ -144,14 +154,16 @@ def test_submit_continue_poll_stream_cancel_and_correlation(ctx_db) -> None:
     assert "event: work.submitted" in body
     assert "katerContextId" in body
 
-    json_stream = call(
+    json_stream = _session_call(
+        context_id,
         "GET",
         f"/api/contexts/{context_id}/session/events",
         query={"after_seq": [str(next_seq)], "stream": ["1"]},
     )
     assert json_stream.content_type.startswith("text/event-stream")
 
-    cancelled = call(
+    cancelled = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work/{work_id}/cancel",
         body={"reason": "operator"},
@@ -164,7 +176,8 @@ def test_submit_continue_poll_stream_cancel_and_correlation(ctx_db) -> None:
 
 def test_mismatched_kater_context_id_is_rejected(ctx_db) -> None:
     context_id = _create_context()
-    resp = call(
+    resp = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "hello", "correlation": {"katerContextId": "rctx_other"}},
@@ -176,7 +189,8 @@ def test_mismatched_kater_context_id_is_rejected(ctx_db) -> None:
 
 def test_empty_prompt_rejected(ctx_db) -> None:
     context_id = _create_context()
-    resp = call(
+    resp = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "   "},
@@ -186,13 +200,16 @@ def test_empty_prompt_rejected(ctx_db) -> None:
 
 def test_unknown_event_stays_kater_neutral(ctx_db) -> None:
     context_id = _create_context()
-    submitted = call(
+    submitted = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "work"},
     )
-    work_id = submitted.payload["work"]["work_id"]  # type: ignore[index]
-    appended = call(
+    assert submitted.payload is not None
+    work_id = submitted.payload["work"]["work_id"]
+    appended = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/events",
         body={
@@ -208,7 +225,8 @@ def test_unknown_event_stays_kater_neutral(ctx_db) -> None:
     assert event["provider"] is None
     assert event["payload"]["original_type"] == "anthropic.tool_use"
 
-    explicit = call(
+    explicit = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/events",
         body={"type": "work.progress", "work_id": work_id, "provider": "anthropic"},
@@ -221,31 +239,37 @@ def test_unknown_event_stays_kater_neutral(ctx_db) -> None:
 
 def test_transition_uses_existing_agent_state_machine(ctx_db) -> None:
     context_id = _create_context()
-    submitted = call(
+    submitted = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "run"},
     )
-    work_id = submitted.payload["work"]["work_id"]  # type: ignore[index]
-    working = call(
+    assert submitted.payload is not None
+    work_id = submitted.payload["work"]["work_id"]
+    working = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work/{work_id}/transition",
         body={"state": "working", "reason": "runtime-claimed"},
     )
     assert working.status == 200
-    illegal = call(
+    illegal = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work/{work_id}/transition",
         body={"state": "idle"},
     )
     assert illegal.status == 409
-    completed = call(
+    completed = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work/{work_id}/transition",
         body={"state": "completed"},
     )
     assert completed.status == 200
-    again = call(
+    again = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work/{work_id}/cancel",
         body={},
@@ -294,20 +318,21 @@ def test_capability_allowlist_denies_submit_and_records_audit(ctx_db) -> None:
     assert rows[0]["outcome"] == "denied"
 
 
-def test_revoked_context_rejects_mutations_but_projection_is_404_owned(ctx_db) -> None:
+def test_revoked_context_invalidates_session_token(ctx_db) -> None:
     context_id = _create_context()
+    headers = _token(context_id)
     call("POST", f"/api/contexts/{context_id}/revoke")
-    cont = call("POST", f"/api/contexts/{context_id}/session/continue")
-    assert cont.status == 409
+    cont = call("POST", f"/api/contexts/{context_id}/session/continue", headers=headers)
+    assert cont.status == 401
     submit = call(
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "late"},
+        headers=headers,
     )
-    assert submit.status == 409
-    listed = call("GET", f"/api/contexts/{context_id}/session/events")
-    assert listed.status == 200
-
+    assert submit.status == 401
+    listed = call("GET", f"/api/contexts/{context_id}/session/events", headers=headers)
+    assert listed.status == 401
 
 def test_bearer_context_token_binds_session_mutations(ctx_db) -> None:
     context_id = _create_context(
@@ -326,7 +351,8 @@ def test_bearer_context_token_binds_session_mutations(ctx_db) -> None:
 
 def test_wait_ms_poll_returns_empty_without_spinning(ctx_db) -> None:
     context_id = _create_context()
-    polled = call(
+    polled = _session_call(
+        context_id,
         "GET",
         f"/api/contexts/{context_id}/session/events",
         query={"after_seq": ["0"], "wait_ms": ["20"]},
@@ -383,13 +409,16 @@ def test_mcp_tool_does_not_leak_foreign_context(ctx_db) -> None:
 
 def test_append_event_can_transition_work_state(ctx_db) -> None:
     context_id = _create_context()
-    submitted = call(
+    submitted = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "go"},
     )
-    work_id = submitted.payload["work"]["work_id"]  # type: ignore[index]
-    appended = call(
+    assert submitted.payload is not None
+    work_id = submitted.payload["work"]["work_id"]
+    appended = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/events",
         body={"type": "work.state", "work_id": work_id, "payload": {"state": "working"}},
@@ -399,42 +428,47 @@ def test_append_event_can_transition_work_state(ctx_db) -> None:
     assert appended.payload["work"]["state"] == "working"
 
 
-def test_missing_context_is_404(ctx_db) -> None:
+def test_missing_identity_is_401_and_missing_context_is_404(ctx_db) -> None:
+    owner = _create_context()
     missing = "rctx_" + ("b" * 32)
-    assert call("GET", f"/api/contexts/{missing}/session").status == 404
-    assert call("POST", f"/api/contexts/{missing}/session/continue").status == 404
-
+    assert call("GET", f"/api/contexts/{missing}/session").status == 401
+    assert _session_call(owner, "GET", f"/api/contexts/{missing}/session").status == 404
+    assert _session_call(owner, "POST", f"/api/contexts/{missing}/session/continue").status == 404
 
 def test_list_and_get_work_are_context_scoped(ctx_db) -> None:
     context_id = _create_context()
     other = _create_context(principal_id="other-work")
-    submitted = call(
+    submitted = _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "scoped"},
     )
-    work_id = submitted.payload["work"]["work_id"]  # type: ignore[index]
-    listed = call("GET", f"/api/contexts/{context_id}/session/work")
+    assert submitted.payload is not None
+    work_id = submitted.payload["work"]["work_id"]
+    listed = _session_call(context_id, "GET", f"/api/contexts/{context_id}/session/work")
     assert listed.status == 200
     assert listed.payload is not None
     assert listed.payload["total"] == 1
     assert listed.payload["work"][0]["work_id"] == work_id
-    got = call("GET", f"/api/contexts/{context_id}/session/work/{work_id}")
+    got = _session_call(context_id, "GET", f"/api/contexts/{context_id}/session/work/{work_id}")
     assert got.status == 200
     assert got.payload is not None
     assert got.payload["prompt"] == "scoped"
-    foreign = call("GET", f"/api/contexts/{other}/session/work/{work_id}")
+    foreign = _session_call(context_id, "GET", f"/api/contexts/{other}/session/work/{work_id}")
     assert foreign.status == 404
 
 
 def test_accept_event_stream_polls_as_sse(ctx_db) -> None:
     context_id = _create_context()
-    call(
+    _session_call(
+        context_id,
         "POST",
         f"/api/contexts/{context_id}/session/work",
         body={"prompt": "sse"},
     )
-    streamed = call(
+    streamed = _session_call(
+        context_id,
         "GET",
         f"/api/contexts/{context_id}/session/events",
         headers={"Accept": "text/event-stream"},
@@ -460,7 +494,8 @@ def test_capability_allowlist_denies_continue_cancel_transition_append(ctx_db) -
         headers=headers,
     )
     assert submitted.status == 201
-    work_id = submitted.payload["work"]["work_id"]  # type: ignore[index]
+    assert submitted.payload is not None
+    work_id = submitted.payload["work"]["work_id"]
     continue_denied = call(
         "POST",
         f"/api/contexts/{context_id}/session/continue",
@@ -494,3 +529,76 @@ def test_capability_allowlist_denies_continue_cancel_transition_append(ctx_db) -
     assert rows
     assert rows[0]["outcome"] == "denied"
 
+
+
+def test_non_object_session_bodies_are_400(ctx_db) -> None:
+    context_id = _create_context()
+    paths = (
+        f"/api/contexts/{context_id}/session/work",
+        f"/api/contexts/{context_id}/session/work/awrk_missing/cancel",
+        f"/api/contexts/{context_id}/session/work/awrk_missing/transition",
+        f"/api/contexts/{context_id}/session/events",
+    )
+    for path in paths:
+        response = _session_call(context_id, "POST", path, body=[])
+        assert response.status == 400
+        assert response.payload == {"error": "body must be an object"}
+
+
+def test_sse_session_responses_are_not_cacheable(ctx_db) -> None:
+    context_id = _create_context()
+    response = _session_call(
+        context_id,
+        "GET",
+        f"/api/contexts/{context_id}/session/events/stream",
+    )
+    assert response.status == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Vary"] == "Authorization, X-Kater-Context"
+
+
+def test_continue_checks_read_capability_before_writing(ctx_db) -> None:
+    record = contexts.create_context(
+        principal_id="continue-only",
+        allowed_capabilities=["kater.session.continue"],
+    )
+    identity = RequestIdentity(
+        principal_id=record.principal_id,
+        context_id=record.context_id,
+        allowed_capabilities=frozenset({"kater.session.continue"}),
+    )
+    with pytest.raises(transport.SessionTransportError) as exc:
+        transport.continue_session(identity, record.context_id)
+    assert exc.value.status == 403
+    rows = transport._get_db().execute(
+        "SELECT COUNT(*) AS n FROM agent_session_events WHERE context_id = ?",
+        (record.context_id,),
+    ).fetchone()
+    assert int(rows["n"]) == 0
+
+
+def test_submit_rolls_back_partial_work_on_sqlite_failure(ctx_db, monkeypatch) -> None:
+    record = contexts.create_context(principal_id="rollback-agent")
+    identity = RequestIdentity(principal_id=record.principal_id, context_id=record.context_id)
+
+    def fail_insert(*_args, **_kwargs):
+        raise sqlite3.IntegrityError("forced sequence collision")
+
+    monkeypatch.setattr(transport, "_insert_event", fail_insert)
+    with pytest.raises(transport.SessionTransportError) as exc:
+        transport.submit_work(identity, record.context_id, "must roll back")
+    assert exc.value.status == 503
+    rows = transport._get_db().execute(
+        "SELECT COUNT(*) AS n FROM agent_session_work WHERE context_id = ?",
+        (record.context_id,),
+    ).fetchone()
+    assert int(rows["n"]) == 0
+
+
+def test_long_poll_wait_is_capped_by_constant(ctx_db, monkeypatch) -> None:
+    record = contexts.create_context(principal_id="wait-agent")
+    identity = RequestIdentity(principal_id=record.principal_id, context_id=record.context_id)
+    monkeypatch.setattr(transport, "WAIT_MAX_MS", 0)
+    result = transport.list_events(identity, record.context_id, wait_ms=999_999)
+    assert result["events"] == []
+    assert result["next_seq"] == 0

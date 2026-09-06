@@ -110,12 +110,17 @@ export function useAgentSessionTransport(contextId: string | null) {
 
   const runMutation = useCallback(async (op: () => Promise<unknown>) => {
     if (!contextId) return;
+    const mutationContextId = contextId;
     setState(current => ({ ...current, mutating: true, error: null }));
     try {
       await op();
-      refresh();
+      if (requestedContextId.current === mutationContextId) refresh();
     } catch (reason: unknown) {
-      setState(current => ({ ...current, mutating: false, error: errorMessage(reason) }));
+      setState(current => (
+        current.contextId === mutationContextId && requestedContextId.current === mutationContextId
+          ? { ...current, mutating: false, error: errorMessage(reason) }
+          : current
+      ));
       throw reason;
     }
   }, [contextId, refresh]);

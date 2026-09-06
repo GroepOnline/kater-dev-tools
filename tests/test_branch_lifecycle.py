@@ -6,6 +6,8 @@ import subprocess
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from kater.branch_lifecycle import (
     SALVAGE_ONLY_NAME,
     SHA_HEX_LEN,
@@ -62,6 +64,15 @@ def _scan(
 
 def _by_name(receipts: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {item["name"]: item for item in receipts}
+
+
+def _record_delete(deleted: list[str]):
+    def _delete(name: str, expected_sha: str) -> bool:
+        assert len(expected_sha) == 40
+        deleted.append(name)
+        return True
+
+    return _delete
 
 
 def test_unique_patch_never_auto_deletable() -> None:
@@ -168,7 +179,7 @@ def test_dry_run_does_not_call_delete() -> None:
         [{"name": STALE_NAME, "sha": MERGED_SHA}],
         {MERGED_SHA: 0},
         apply=False,
-        delete_ref=deleted.append,
+        delete_ref=_record_delete(deleted),
     )
     assert deleted == []
     buf = io.StringIO()
@@ -177,7 +188,7 @@ def test_dry_run_does_not_call_delete() -> None:
         list_remote_branches=lambda: [{"name": STALE_NAME, "sha": MERGED_SHA}],
         unique_commit_count=_counts({MERGED_SHA: 0}),
         open_pr_heads=lambda: set(),
-        delete_ref=deleted.append,
+        delete_ref=_record_delete(deleted),
         stdout=buf,
     )
     assert deleted == []
@@ -194,7 +205,7 @@ def test_apply_skips_unique_patches_and_deletes_only_stale() -> None:
         ],
         {MERGED_SHA: 0, UNIQUE_SHA: 2},
         apply=True,
-        delete_ref=deleted.append,
+        delete_ref=_record_delete(deleted),
     )
     by_name = _by_name(receipts)
     assert by_name[STALE_NAME]["action"] == "would-delete"
@@ -211,7 +222,7 @@ def test_apply_refuses_tombstone_names() -> None:
         [{"name": name, "sha": sha}],
         {sha: 0},
         apply=True,
-        delete_ref=deleted.append,
+        delete_ref=_record_delete(deleted),
     )
     item = _by_name(receipts)[name]
     assert item["action"] == "tombstoned"
@@ -338,7 +349,7 @@ def test_json_cli_and_dry_run_default() -> None:
         list_remote_branches=lambda: [{"name": STALE_NAME, "sha": MERGED_SHA}],
         unique_commit_count=_counts({MERGED_SHA: 0}),
         open_pr_heads=lambda: set(),
-        delete_ref=lambda _name: None,
+        delete_ref=lambda _name, _sha: True,
         stdout=buf,
     )
     assert rc == 0
@@ -460,7 +471,7 @@ def test_apply_cli_does_not_delete_unique_patch() -> None:
         ],
         unique_commit_count=_counts({MERGED_SHA: 0, UNIQUE_SHA: 2}),
         open_pr_heads=lambda: set(),
-        delete_ref=deleted.append,
+        delete_ref=_record_delete(deleted),
         stdout=buf,
     )
     assert deleted == [STALE_NAME]
@@ -472,21 +483,25 @@ def test_git_helpers_use_injected_runner(monkeypatch: Any) -> None:
 
     def fake_git(args: list[str]) -> subprocess.CompletedProcess[str]:
         calls.append(args)
+        if args[:1] == ["fetch"]:
+            return subprocess.CompletedProcess(args, 0, "", "")
         if args[:1] == ["for-each-ref"]:
             return subprocess.CompletedProcess(args, 0, f"origin/{STALE_NAME} {MERGED_SHA}\n", "")
+        if args[:1] == ["ls-remote"]:
+            output = f"{MERGED_SHA}\trefs/heads/{STALE_NAME}\n"
+            return subprocess.CompletedProcess(args, 0, output, "")
         if args[:1] == ["merge-base"]:
             return subprocess.CompletedProcess(args, 0, "abc\n", "")
         if args[:1] == ["rev-list"]:
             return subprocess.CompletedProcess(args, 0, "0\n", "")
-        if args[:3] == ["push", "origin", "--delete"]:
-            return subprocess.CompletedProcess(args, 0, "", "")
         return subprocess.CompletedProcess(args, 1, "", "fail")
 
     monkeypatch.setattr("kater.branch_lifecycle._run_git", fake_git)
     assert git_list_remote_branches() == [{"name": STALE_NAME, "sha": MERGED_SHA}]
     assert git_unique_commit_count(MERGED_SHA) == 0
-    git_delete_ref(f"origin/{STALE_NAME}")
-    assert ["push", "origin", "--delete", STALE_NAME] in calls
+    assert git_delete_ref(f"origin/{STALE_NAME}", MERGED_SHA) is False
+    assert ["fetch", "--prune", "origin"] in calls
+    assert ["ls-remote", "--heads", "origin", f"refs/heads/{STALE_NAME}"] in calls
 
     kwargs = default_scan_kwargs()
     assert kwargs["delete_branch_on_merge_enabled"]() is True
@@ -528,7 +543,7 @@ def test_git_unique_unrelated_and_bad_count(monkeypatch: Any) -> None:
 
 def test_git_open_pr_heads_parses_and_swallows(monkeypatch: Any) -> None:
     def ok_run(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        _ = cmd
+        assert "--limit" in cmd and "10000" in cmd
         return subprocess.CompletedProcess(
             cmd, 0, json.dumps([{"headRefName": "origin/feat/open"}]), ""
         )
@@ -568,7 +583,7 @@ def test_git_list_and_delete_failure(monkeypatch: Any) -> None:
     monkeypatch.setattr("kater.branch_lifecycle._run_git", fail)
     assert git_list_remote_branches() == []
     try:
-        git_delete_ref("stale")
+        git_delete_ref("stale", MERGED_SHA)
     except RuntimeError as exc:
         assert "stale" in str(exc)
     else:
@@ -606,7 +621,7 @@ def test_scan_never_would_delete_protected_base_or_origin() -> None:
         ],
         {MERGED_SHA: 0},
         apply=True,
-        delete_ref=deleted.append,
+        delete_ref=_record_delete(deleted),
     )
     names = {item["name"] for item in receipts}
     assert "main" not in names
@@ -617,13 +632,13 @@ def test_scan_never_would_delete_protected_base_or_origin() -> None:
 
 def test_git_delete_ref_refuses_protected_names() -> None:
     try:
-        git_delete_ref("main")
+        git_delete_ref("main", MERGED_SHA)
     except RuntimeError as exc:
         assert "protected" in str(exc)
     else:
         raise AssertionError("expected RuntimeError")
     try:
-        git_delete_ref("origin")
+        git_delete_ref("origin", MERGED_SHA)
     except RuntimeError as exc:
         assert "protected" in str(exc)
     else:
@@ -659,8 +674,10 @@ def test_run_git_invokes_subprocess(monkeypatch: Any) -> None:
 def test_apply_cli_without_injected_delete_uses_git_helper(monkeypatch: Any) -> None:
     deleted: list[str] = []
 
-    def fake_delete(name: str) -> None:
+    def fake_delete(name: str, expected_sha: str) -> bool:
+        assert expected_sha == MERGED_SHA
         deleted.append(name)
+        return True
 
     monkeypatch.setattr("kater.branch_lifecycle.git_delete_ref", fake_delete)
     buf = io.StringIO()
@@ -672,3 +689,38 @@ def test_apply_cli_without_injected_delete_uses_git_helper(monkeypatch: Any) -> 
         stdout=buf,
     )
     assert deleted == [STALE_NAME]
+
+
+def test_git_delete_ref_rejects_remote_tip_change(monkeypatch: Any) -> None:
+    calls: list[list[str]] = []
+
+    def fake_git(args: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args[:1] == ["ls-remote"]:
+            output = f"{UNIQUE_SHA}\trefs/heads/{STALE_NAME}\n"
+            return subprocess.CompletedProcess(args, 0, output, "")
+        return subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    monkeypatch.setattr("kater.branch_lifecycle._run_git", fake_git)
+    with pytest.raises(RuntimeError, match="expected"):
+        git_delete_ref(STALE_NAME, MERGED_SHA)
+    assert not any(args[:1] == ["push"] for args in calls)
+
+
+def test_default_delete_retains_when_atomic_compare_delete_is_unavailable(monkeypatch: Any) -> None:
+    def fake_git(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if args[:1] == ["ls-remote"]:
+            output = f"{MERGED_SHA}\trefs/heads/{STALE_NAME}\n"
+            return subprocess.CompletedProcess(args, 0, output, "")
+        return subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    monkeypatch.setattr("kater.branch_lifecycle._run_git", fake_git)
+    receipts = _scan(
+        [{"name": STALE_NAME, "sha": MERGED_SHA}],
+        {MERGED_SHA: 0},
+        apply=True,
+        delete_ref=git_delete_ref,
+    )
+    item = _by_name(receipts)[STALE_NAME]
+    assert item["action"] == "retained"
+    assert "compare-and-delete unavailable" in item["reason"]

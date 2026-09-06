@@ -339,7 +339,7 @@ _CONNECTORS_V9 = (
     )""",
 )
 
-_AGENT_SESSION_TRANSPORT_V10 = (
+AGENT_SESSION_TRANSPORT_SCHEMA = (
     """CREATE TABLE IF NOT EXISTS agent_session_work (
         work_id TEXT PRIMARY KEY,
         context_id TEXT NOT NULL,
@@ -367,10 +367,6 @@ _AGENT_SESSION_TRANSPORT_V10 = (
         created_at REAL NOT NULL
     )""",
     (
-        "CREATE INDEX IF NOT EXISTS idx_agent_session_events_context_seq "
-        "ON agent_session_events(context_id, seq)"
-    ),
-    (
         "CREATE UNIQUE INDEX IF NOT EXISTS "
         "idx_agent_session_events_context_seq_unique "
         "ON agent_session_events(context_id, seq)"
@@ -395,7 +391,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         version=10,
         name="agent_session_transport",
-        statements=_AGENT_SESSION_TRANSPORT_V10,
+        statements=AGENT_SESSION_TRANSPORT_SCHEMA,
     ),
 )
 

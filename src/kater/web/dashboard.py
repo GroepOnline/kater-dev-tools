@@ -2096,6 +2096,7 @@ function switchProfile(p) {
   writeUrlState();
   loadCatalog();
   if (currentView === 'catalog') loadCatalogView();
+  if (currentView === 'fabric') loadFabricView();
   toast('profile: ' + p);
 }
 
@@ -4253,7 +4254,7 @@ async function loadFabricView() {
   if (!capsEl || !ctxEl || !computerEl) return;
   try {
     const [capsRes, ctxRes, computerRes] = await Promise.allSettled([
-      api('/api/capabilities'),
+      api('/api/capabilities?profile=' + encodeURIComponent(activeProfile || 'core')),
       api('/api/contexts'),
       api('/api/computer'),
     ]);

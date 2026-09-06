@@ -87,6 +87,7 @@ def test_seeded_alias_capability_is_not_guessed_as_upstream_tool() -> None:
 
 def test_invoke_does_not_add_native_tools(monkeypatch):
     monkeypatch.delenv("KATER_EXTENSIONS_MODULE", raising=False)
+    monkeypatch.delenv("KATER_PUBLIC", raising=False)
     before = [tool.name for tool in build_native_tools()]
     record = _mcp_record(
         capabilities=[

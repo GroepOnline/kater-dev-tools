@@ -254,7 +254,7 @@ def _sse(payload: dict[str, Any]) -> Response:
         status=200,
         body=events_as_sse(payload),
         content_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
+        headers={"Cache-Control": "no-store", "Vary": "Authorization, X-Kater-Context"},
     )
 
 
@@ -291,6 +291,8 @@ def _session_work_submit(req: Request) -> Response:
         body = req.json
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be an object"})
     correlation = body.get("correlation")
     if correlation is not None and not isinstance(correlation, dict):
         return Response.json(400, {"error": "correlation must be an object"})
@@ -325,6 +327,8 @@ def _session_work_cancel(req: Request) -> Response:
         body = req.json
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be an object"})
     reason = body.get("reason")
     try:
         payload = cancel_work(
@@ -344,6 +348,8 @@ def _session_work_transition(req: Request) -> Response:
         body = req.json
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be an object"})
     state = str(body.get("state") or "").strip()
     if not state:
         return Response.json(400, {"error": "state is required"})
@@ -384,6 +390,8 @@ def _session_events_append(req: Request) -> Response:
         body = req.json
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
+    if not isinstance(body, dict):
+        return Response.json(400, {"error": "body must be an object"})
     payload_obj = body.get("payload")
     if payload_obj is not None and not isinstance(payload_obj, dict):
         return Response.json(400, {"error": "payload must be an object"})

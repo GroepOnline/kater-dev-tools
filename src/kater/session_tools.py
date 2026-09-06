@@ -1,4 +1,9 @@
-"""Native MCP tools for the agent-session transport."""
+"""Native MCP tools for the agent-session transport.
+
+Submit/continue/cancel/append/event-tail are MCP surfaces in this release. Full
+session projection plus list/get/transition work remain REST-only; all surfaces
+still share the same ``remote_contexts`` identity and transport store.
+"""
 
 from __future__ import annotations
 

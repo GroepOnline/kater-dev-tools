@@ -32,7 +32,7 @@ export function AgentSessionComposer({
     setPrompt('');
   };
 
-  return <form className="agent-session-composer" aria-label="Session work composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
+  return <form className="agent-session-composer" aria-label="Session work composer" onSubmit={event => { event.preventDefault(); void submit().catch(() => undefined); }}>
     <label htmlFor="agent-session-prompt">Natural-language work</label>
     <textarea
       id="agent-session-prompt"
@@ -45,8 +45,8 @@ export function AgentSessionComposer({
     />
     <div className="agent-session-composer-actions">
       <button className="primary-action" type="submit" disabled={disabled || !trimmed}>{mutating ? 'Submitting…' : 'Submit work'}</button>
-      <button className="secondary-action" type="button" disabled={disabled} onClick={() => { void onContinueSession(); }}>Continue session</button>
-      {canCancel && <button className="secondary-action" type="button" disabled={disabled} onClick={() => { void onCancelWork(); }}>Cancel work</button>}
+      <button className="secondary-action" type="button" disabled={disabled} onClick={() => { void onContinueSession().catch(() => undefined); }}>Continue session</button>
+      {canCancel && <button className="secondary-action" type="button" disabled={disabled} onClick={() => { void onCancelWork().catch(() => undefined); }}>Cancel work</button>}
     </div>
     {activeWork && <small>Active work <code>{activeWork.work_id}</code> · {activeWork.state} · katerContextId {session?.correlation.katerContextId ?? context.context_id}</small>}
     {error && <div className="error-strip inline-error" role="alert">{error}</div>}

@@ -11,6 +11,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from kater.capabilities.audit import record_capability_audit
 from kater.control_plane import contexts as remote_contexts
 from kater.control_plane.models import AgentState
 from kater.control_plane.state import AGENT_STATE_MACHINE, InvalidTransition
+from kater.migrations import AGENT_SESSION_TRANSPORT_SCHEMA
 from kater.settings import load_settings
 
 CAP_CONTINUE = "kater.session.continue"
@@ -42,41 +44,7 @@ KNOWN_EVENT_TYPES = frozenset(
 UNKNOWN_EVENT_TYPE = "event.unknown"
 PROMPT_MAX_CHARS = 32_768
 WAIT_SLICE_SECONDS = 0.05
-
-_SCHEMA = """
-PRAGMA journal_mode = WAL;
-PRAGMA busy_timeout = 10000;
-
-CREATE TABLE IF NOT EXISTS agent_session_work (
-    work_id TEXT PRIMARY KEY,
-    context_id TEXT NOT NULL,
-    principal_id TEXT NOT NULL,
-    prompt TEXT NOT NULL,
-    state TEXT NOT NULL,
-    correlation_json TEXT NOT NULL DEFAULT '{}',
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    cancelled_at REAL,
-    completed_at REAL
-);
-CREATE INDEX IF NOT EXISTS idx_agent_session_work_context
-    ON agent_session_work(context_id, created_at);
-
-CREATE TABLE IF NOT EXISTS agent_session_events (
-    event_id TEXT PRIMARY KEY,
-    context_id TEXT NOT NULL,
-    work_id TEXT,
-    seq INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    provider TEXT,
-    created_at REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_agent_session_events_context_seq
-    ON agent_session_events(context_id, seq);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_session_events_context_seq_unique
-    ON agent_session_events(context_id, seq);
-"""
+WAIT_MAX_MS = 30_000
 
 _lock = threading.RLock()
 _db_cache: sqlite3.Connection | None = None
@@ -170,11 +138,38 @@ def _get_db() -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=10.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.executescript(_SCHEMA)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 10000")
+    for statement in AGENT_SESSION_TRANSPORT_SCHEMA:
+        conn.execute(statement)
     conn.commit()
     _db_cache = conn
     _db_path_cache = db_path
     return conn
+
+
+@contextmanager
+def _write_transaction(db: sqlite3.Connection):
+    """Serialize cross-process writes and translate SQLite failures."""
+    if db.in_transaction:
+        db.rollback()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        yield
+    except SessionTransportError:
+        db.rollback()
+        raise
+    except sqlite3.Error as exc:
+        db.rollback()
+        raise SessionTransportError(503, "session store unavailable") from exc
+    except BaseException:
+        db.rollback()
+        raise
+    try:
+        db.commit()
+    except sqlite3.Error as exc:
+        db.rollback()
+        raise SessionTransportError(503, "session store unavailable") from exc
 
 
 def reset_cache() -> None:
@@ -230,9 +225,7 @@ def _event_from_row(row: sqlite3.Row) -> EventRecord:
 
 
 def _owns(identity: RequestIdentity, record: remote_contexts.ContextRecord) -> bool:
-    if identity.principal_id is None:
-        return True
-    return record.principal_id == identity.principal_id
+    return identity.principal_id is not None and record.principal_id == identity.principal_id
 
 
 def _normalize_event_type(raw: str) -> tuple[str, dict[str, Any]]:
@@ -272,6 +265,8 @@ def _gate_context(
     write: bool,
     audit: bool,
 ) -> remote_contexts.ContextRecord:
+    if identity.principal_id is None:
+        raise SessionTransportError(401, "resolved context identity required")
     if not capability_allowed(capability, identity.allowed_capabilities):
         if audit:
             record_capability_audit(
@@ -409,13 +404,9 @@ def _latest_work(db: sqlite3.Connection, context_id: str) -> WorkRecord | None:
     return None if row is None else _work_from_row(row)
 
 
-def session_projection(
-    identity: RequestIdentity,
-    context_id: str,
+def _projection_for_record(
+    record: remote_contexts.ContextRecord, context_id: str
 ) -> dict[str, Any]:
-    record = _gate_context(
-        identity, context_id, capability=CAP_EVENTS_READ, write=False, audit=False
-    )
     with _lock:
         db = _get_db()
         latest = _latest_work(db, context_id)
@@ -434,6 +425,16 @@ def session_projection(
     }
 
 
+def session_projection(
+    identity: RequestIdentity,
+    context_id: str,
+) -> dict[str, Any]:
+    record = _gate_context(
+        identity, context_id, capability=CAP_EVENTS_READ, write=False, audit=False
+    )
+    return _projection_for_record(record, context_id)
+
+
 def continue_session(
     identity: RequestIdentity,
     context_id: str,
@@ -441,18 +442,21 @@ def continue_session(
     record = _gate_context(
         identity, context_id, capability=CAP_CONTINUE, write=True, audit=True
     )
+    _gate_context(
+        identity, context_id, capability=CAP_EVENTS_READ, write=False, audit=False
+    )
     with _lock:
         db = _get_db()
-        event = _insert_event(
-            db,
-            context_id=record.context_id,
-            work_id=None,
-            event_type="session.continued",
-            payload={"katerContextId": record.context_id},
-            provider=None,
-        )
-        db.commit()
-    projection = session_projection(identity, context_id)
+        with _write_transaction(db):
+            event = _insert_event(
+                db,
+                context_id=record.context_id,
+                work_id=None,
+                event_type="session.continued",
+                payload={"katerContextId": record.context_id},
+                provider=None,
+            )
+    projection = _projection_for_record(record, context_id)
     projection["event"] = event.to_dict()
     return projection
 
@@ -488,36 +492,36 @@ def submit_work(
     )
     with _lock:
         db = _get_db()
-        db.execute(
-            """INSERT INTO agent_session_work (
-                   work_id, context_id, principal_id, prompt, state, correlation_json,
-                   created_at, updated_at, cancelled_at, completed_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                work.work_id,
-                work.context_id,
-                work.principal_id,
-                work.prompt,
-                work.state.value,
-                json.dumps(work.correlation, ensure_ascii=False),
-                work.created_at,
-                work.updated_at,
-                None,
-                None,
-            ),
-        )
-        submitted = _insert_event(
-            db,
-            context_id=work.context_id,
-            work_id=work.work_id,
-            event_type="work.submitted",
-            payload={"katerContextId": work.context_id},
-            provider=None,
-        )
-        waiting, state_event = _apply_state(
-            db, work, AgentState.WAITING, reason="handoff"
-        )
-        db.commit()
+        with _write_transaction(db):
+            db.execute(
+                """INSERT INTO agent_session_work (
+                       work_id, context_id, principal_id, prompt, state, correlation_json,
+                       created_at, updated_at, cancelled_at, completed_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    work.work_id,
+                    work.context_id,
+                    work.principal_id,
+                    work.prompt,
+                    work.state.value,
+                    json.dumps(work.correlation, ensure_ascii=False),
+                    work.created_at,
+                    work.updated_at,
+                    None,
+                    None,
+                ),
+            )
+            submitted = _insert_event(
+                db,
+                context_id=work.context_id,
+                work_id=work.work_id,
+                event_type="work.submitted",
+                payload={"katerContextId": work.context_id},
+                provider=None,
+            )
+            waiting, state_event = _apply_state(
+                db, work, AgentState.WAITING, reason="handoff"
+            )
     return {
         "work": waiting.to_dict(),
         "events": [submitted.to_dict(), state_event.to_dict()],
@@ -561,13 +565,13 @@ def cancel_work(
     _gate_context(identity, context_id, capability=CAP_CANCEL, write=True, audit=True)
     with _lock:
         db = _get_db()
-        work = _get_work_unlocked(db, work_id)
-        if work is None or work.context_id != context_id:
-            raise SessionTransportError(404, "work not found")
-        updated, event = _apply_state(
-            db, work, AgentState.CANCELLED, reason=reason or "cancelled"
-        )
-        db.commit()
+        with _write_transaction(db):
+            work = _get_work_unlocked(db, work_id)
+            if work is None or work.context_id != context_id:
+                raise SessionTransportError(404, "work not found")
+            updated, event = _apply_state(
+                db, work, AgentState.CANCELLED, reason=reason or "cancelled"
+            )
     return {"work": updated.to_dict(), "event": event.to_dict()}
 
 
@@ -586,11 +590,11 @@ def transition_work(
     _gate_context(identity, context_id, capability=CAP_TRANSITION, write=True, audit=True)
     with _lock:
         db = _get_db()
-        work = _get_work_unlocked(db, work_id)
-        if work is None or work.context_id != context_id:
-            raise SessionTransportError(404, "work not found")
-        updated, event = _apply_state(db, work, target, reason=reason)
-        db.commit()
+        with _write_transaction(db):
+            work = _get_work_unlocked(db, work_id)
+            if work is None or work.context_id != context_id:
+                raise SessionTransportError(404, "work not found")
+            updated, event = _apply_state(db, work, target, reason=reason)
     return {"work": updated.to_dict(), "event": event.to_dict()}
 
 
@@ -610,34 +614,45 @@ def append_event(
     explicit = _explicit_provider(provider)
     with _lock:
         db = _get_db()
-        bound_work: str | None = None
-        if work_id:
-            work = _get_work_unlocked(db, work_id)
-            if work is None or work.context_id != context_id:
-                raise SessionTransportError(404, "work not found")
-            bound_work = work.work_id
-            if stored_type == "work.state" and "state" in body:
-                try:
-                    target = AgentState(str(body["state"]))
-                except ValueError as exc:
-                    raise SessionTransportError(
-                        400, f"unknown agent state: {body['state']}"
-                    ) from exc
-                reason_raw = body.get("reason")
-                reason = None if reason_raw is None else str(reason_raw)
-                updated, event = _apply_state(db, work, target, reason=reason)
-                db.commit()
-                return {"event": event.to_dict(), "work": updated.to_dict()}
-        event = _insert_event(
-            db,
-            context_id=context_id,
-            work_id=bound_work,
-            event_type=stored_type,
-            payload=body,
-            provider=explicit,
-        )
-        db.commit()
-    return {"event": event.to_dict()}
+        with _write_transaction(db):
+            bound_work: str | None = None
+            if work_id:
+                work = _get_work_unlocked(db, work_id)
+                if work is None or work.context_id != context_id:
+                    raise SessionTransportError(404, "work not found")
+                bound_work = work.work_id
+                if stored_type == "work.state" and "state" in body:
+                    try:
+                        target = AgentState(str(body["state"]))
+                    except ValueError as exc:
+                        raise SessionTransportError(
+                            400, f"unknown agent state: {body['state']}"
+                        ) from exc
+                    reason_raw = body.get("reason")
+                    reason = None if reason_raw is None else str(reason_raw)
+                    updated, event = _apply_state(db, work, target, reason=reason)
+                    result = {"event": event.to_dict(), "work": updated.to_dict()}
+                else:
+                    event = _insert_event(
+                        db,
+                        context_id=context_id,
+                        work_id=bound_work,
+                        event_type=stored_type,
+                        payload=body,
+                        provider=explicit,
+                    )
+                    result = {"event": event.to_dict()}
+            else:
+                event = _insert_event(
+                    db,
+                    context_id=context_id,
+                    work_id=None,
+                    event_type=stored_type,
+                    payload=body,
+                    provider=explicit,
+                )
+                result = {"event": event.to_dict()}
+    return result
 
 
 def list_events(
@@ -651,7 +666,7 @@ def list_events(
     _gate_context(identity, context_id, capability=CAP_EVENTS_READ, write=False, audit=False)
     after = max(0, int(after_seq))
     lim = max(1, min(int(limit), 1000))
-    wait = max(0, int(wait_ms))
+    wait = min(max(0, int(wait_ms)), WAIT_MAX_MS)
     deadline = time.monotonic() + (wait / 1000.0)
     events: list[EventRecord] = []
     while True:

@@ -479,6 +479,8 @@ def test_fabric_view_has_capabilities_contexts_computer_seams():
     assert 'id="fabric-computer"' in html
     assert 'data-view="fabric"' in html
     assert "function loadFabricView" in html
+    assert "if (currentView === 'fabric') loadFabricView();" in html
+    assert "/api/capabilities?profile=" in html
     assert "/api/capabilities" in html
     assert "/api/contexts" in html
     assert "/api/computer" in html
@@ -894,7 +896,8 @@ const LABEL = 'Switch profile to core';
   out.catalogButtonHiddenOnCore = !findButton(shell['catalog-grid'], LABEL);
 
   // Fabric: a custom profile with zero capabilities offers recovery.
-  apiResults['/api/capabilities'] = { value: { capabilities: [] } };
+  apiResults['/api/capabilities?profile=custom'] = { value: { capabilities: [] } };
+  apiResults['/api/capabilities?profile=core'] = { value: { capabilities: [] } };
   apiResults['/api/contexts'] = { value: { contexts: [] } };
   apiResults['/api/computer'] = { value: { configured: false } };
   activeProfile = 'custom'; calls.length = 0;
@@ -910,7 +913,7 @@ const LABEL = 'Switch profile to core';
 
   // Fabric: a rejected capabilities request is an error, not a profile
   // dead-end, so the recovery action must not appear.
-  apiResults['/api/capabilities'] = { reject: 'boom' };
+  apiResults['/api/capabilities?profile=custom'] = { reject: 'boom' };
   activeProfile = 'custom';
   await loadFabricView();
   out.fabricButtonHiddenOnError = !findButton(shell['fabric-capabilities'], LABEL);

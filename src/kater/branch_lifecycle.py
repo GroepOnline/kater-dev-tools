@@ -177,7 +177,7 @@ TOMBSTONE_BY_NAME: dict[str, Tombstone] = {item.name: item for item in TOMBSTONE
 ListRemoteBranches = Callable[[], Sequence[object]]
 UniqueCommitCount = Callable[..., int | None]
 OpenPrHeads = Callable[[], set[str]]
-DeleteRef = Callable[[str], None]
+DeleteRef = Callable[[str, str], bool | None]
 
 
 class _NamedSha(Protocol):
@@ -399,7 +399,12 @@ def scan(
             if is_protected_ref(receipt["name"], base=base):
                 continue
             if delete_ref is not None:
-                delete_ref(receipt["name"])
+                deleted = delete_ref(receipt["name"], receipt["sha"])
+                if deleted is False:
+                    receipt["action"] = "retained"
+                    receipt["reason"] = (
+                        "automatic compare-and-delete unavailable; retained fail-closed"
+                    )
     return receipts
 
 
@@ -413,6 +418,9 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def git_list_remote_branches() -> list[dict[str, str]]:
+    refreshed = _run_git(["fetch", "--prune", "origin"])
+    if refreshed.returncode != 0:
+        return []
     completed = _run_git(
         ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin"]
     )
@@ -436,7 +444,7 @@ def git_unique_commit_count(sha: str, base: str = DEFAULT_BASE) -> int | None:
 
 def git_open_pr_heads() -> set[str]:
     completed = subprocess.run(
-        ["gh", "pr", "list", "--state", "open", "--json", "headRefName"],  # noqa: S607
+        ["gh", "pr", "list", "--state", "open", "--limit", "10000", "--json", "headRefName"],  # noqa: S607
         check=False,
         capture_output=True,
         text=True,
@@ -455,14 +463,24 @@ def git_open_pr_heads() -> set[str]:
     return heads
 
 
-def git_delete_ref(name: str) -> None:
+def git_delete_ref(name: str, expected_sha: str) -> bool:
+    """Fail closed: standard Git transport lacks atomic compare-and-delete."""
     branch = normalize_branch_name(name)
     if is_protected_ref(branch):
         raise RuntimeError(f"refusing to delete protected ref {branch}")
-    completed = _run_git(["push", "origin", "--delete", branch])
-    if completed.returncode != 0:
-        err = (completed.stderr or completed.stdout or "").strip()
-        raise RuntimeError(f"refusing incomplete delete of {branch}: {err}")
+    live = _run_git(["ls-remote", "--heads", "origin", f"refs/heads/{branch}"])
+    if live.returncode != 0:
+        err = (live.stderr or live.stdout or "").strip()
+        raise RuntimeError(f"unable to verify remote ref {branch}: {err}")
+    rows = [line.split() for line in live.stdout.splitlines() if line.strip()]
+    if len(rows) != 1 or rows[0][0].lower() != expected_sha.lower():
+        observed = rows[0][0] if rows else "missing"
+        raise RuntimeError(
+            f"refusing delete of {branch}: expected {expected_sha}, observed {observed}"
+        )
+    # `git push --delete` cannot atomically assert the expected object id.
+    # Keep the branch rather than racing a concurrent writer.
+    return False
 
 
 def default_scan_kwargs() -> dict[str, Any]:
@@ -491,7 +509,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="delete auto_deletable refs only; unique patches are always skipped",
+        help="apply safe cleanup; refs are retained when atomic compare-and-delete is unavailable",
     )
     parser.add_argument("--json", action="store_true", help="emit receipts as JSON")
     return parser

@@ -56,7 +56,6 @@ SUPERSEDED_NAMES = frozenset(
         "fix/pr-gate-gh-reviewthreads",
     }
 )
-PARKED_NAME = "docs/udo-full-use-runbook"
 SALVAGE_ONLY_NAME = "feat/scaffold-project-core-integration-types"
 
 
@@ -98,12 +97,6 @@ TOMBSTONES: tuple[Tombstone, ...] = (
         "84c37e8651e839f50ae60b1f125fbb8e7b7b5891",
         "superseded",
         "reviewThreads/fail-closed on main",
-    ),
-    Tombstone(
-        "docs/udo-full-use-runbook",
-        "394efafe8b5f9bd8b21c01adec626ea459b46e18",
-        "parked",
-        "UDO on hold",
     ),
     Tombstone(
         "feat/scaffold-project-core-integration-types",

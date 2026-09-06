@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from kater.branch_lifecycle import (
-    PARKED_NAME,
     SALVAGE_ONLY_NAME,
     SHA_HEX_LEN,
     SUPERSEDED_NAMES,
@@ -152,7 +151,7 @@ def test_open_pr_blocks_delete() -> None:
 
 
 def test_tombstone_sha_is_exact_40_char() -> None:
-    assert len(TOMBSTONES) == 18
+    assert len(TOMBSTONES) == 17
     seen: set[str] = set()
     for item in TOMBSTONES:
         assert len(item.sha) == SHA_HEX_LEN
@@ -220,7 +219,7 @@ def test_apply_refuses_tombstone_names() -> None:
     assert deleted == []
 
 
-def test_classes_jules_palette_autoresearch_prototype_rescue_udo_scaffold() -> None:
+def test_classes_jules_palette_autoresearch_prototype_rescue_scaffold() -> None:
     assert classify_branch("jules-4802806421746281431-c2509d83") == "jules"
     assert classify_branch("origin/jules-new-donor") == "jules"
     assert classify_branch("palette-browser-loading-feedback-5480200343156298719") == "palette"
@@ -231,7 +230,6 @@ def test_classes_jules_palette_autoresearch_prototype_rescue_udo_scaffold() -> N
     assert classify_branch("prototype/lab") == "prototype"
     assert classify_branch("rescue/pr-159-backup") == "rescue"
     assert classify_branch("rescue/hotfix") == "rescue"
-    assert classify_branch("docs/udo-full-use-runbook") == "parked"
     assert classify_branch("feat/scaffold-project-core-integration-types") == "salvage-only"
     assert classify_branch("dependabot/pip/foo") == "dependabot"
     assert classify_branch("feat/chefvault-integration") == "superseded"
@@ -263,9 +261,8 @@ def test_retain_classes_never_auto_delete_even_when_merged() -> None:
         )
 
 
-def test_parked_and_salvage_and_donor_history_not_auto_deletable() -> None:
+def test_tombstoned_salvage_and_donor_history_not_auto_deletable() -> None:
     for name in (
-        "docs/udo-full-use-runbook",
         "feat/scaffold-project-core-integration-types",
         "codesmith/pr180-lint-fix",
         "devin/fork-gate-and-control-plane-upgrade",
@@ -387,7 +384,6 @@ def test_dependabot_merged_without_pr_would_delete() -> None:
 
 
 def test_documented_classification_constants() -> None:
-    assert PARKED_NAME == "docs/udo-full-use-runbook"
     assert SALVAGE_ONLY_NAME == "feat/scaffold-project-core-integration-types"
     assert SUPERSEDED_NAMES == {
         "feat/chefvault-integration",

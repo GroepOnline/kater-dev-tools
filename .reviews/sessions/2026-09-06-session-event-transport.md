@@ -7,7 +7,7 @@
 - Studio composer/poll bound after Python tests: no `/api/execute`, no `setInterval`.
 - Dashboard: profile recovery + browser `aria-busy` labels.
 - Branch lifecycle dry-run scanner with tombstones; protected refs (`main`/`origin`) never `would-delete`.
-- Product PR: https://github.com/GroepOnline/kater-dev-tools/pull/75
+- Product PR: #75
 
 ## Verify
 
@@ -23,5 +23,5 @@ Live `:9091` continue → submit (`waiting`/`handoff`) → unknown event stays `
 ## Follow-ups
 
 - Unique remote patches stay; scanner does not auto-delete them.
-- `docs/udo-full-use-runbook` remains parked.
+- Private-overlay branch policy remains outside the public lifecycle tombstone table.
 - Cloud `environment.json` still does not install `uv` (install-user failed 127 in this VM).

@@ -13,7 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Runtime-authoritative agent-session work/event transport keyed by
+  existing remote contexts (`/api/contexts/{id}/session/*`, MCP tools,
+  OpenAPI). Studio composer is a replaceable client over that contract.
+- Dashboard profile recovery (`Switch profile to core`) and browser
+  Go/Reload/Close loading feedback (`aria-busy` + busy labels).
+- Dry-run branch lifecycle scanner with terminal-name tombstones and
+  exact-SHA receipts; unique patches are never auto-deleted.
 - Agent execution layer with `kater_tool_search` and `kater_execute`. Search ranks registered connector capabilities without loading every provider tool into agent context. Execute reuses connector auth, profile permissions, transport dispatch, and capability audit.
+
 - `GET /api/tools/search`, admin-gated `POST /api/execute`, and CLI `search-tools` / `execute` commands. Runtime profile checks reject profiles outside `KATER_PROFILE`.
 
 - Admin-gated dynamic connector registration via `POST /api/connectors` and

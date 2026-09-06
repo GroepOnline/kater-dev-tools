@@ -789,3 +789,323 @@ def test_credentials_modal_focus_restoration_behavior_node(tmp_path):
     assert res["body"]["capturedNothing"] is True
     assert res["body"]["cleared"] is True
     assert res["body"]["focusRestored"] is False
+
+
+_PROFILE_RECOVERY_HARNESS = r"""
+class El {
+  constructor(tag) {
+    this.tagName = String(tag).toUpperCase();
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.textContent = '';
+    const classes = new Set();
+    this.classList = {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    };
+  }
+  get innerHTML() { return ''; }
+  set innerHTML(value) {
+    if (value !== '') throw new Error('harness only supports clearing innerHTML');
+    this.children = [];
+  }
+  setAttribute() {}
+  appendChild(child) { this.children.push(child); return child; }
+  replaceChildren() { this.children = []; }
+}
+
+const shell = {};
+for (const id of ['server-map', 'catalog-grid', 'catalog-count', 'fabric-count',
+                  'fabric-capabilities', 'fabric-contexts', 'fabric-computer',
+                  'fabric-cap-count', 'fabric-ctx-count', 'fabric-computer-status']) {
+  shell[id] = new El('div');
+}
+const document = {
+  createElement: (tag) => new El(tag),
+  getElementById: (id) => shell[id] || null,
+};
+
+let servers = [];
+let routeFilter = 'all';
+let routeRows = [];
+let activeProfile = 'core';
+let catalogQuery = '';
+let catalogFilter = 'all';
+let catalogLoadSeq = 0;
+let catalogItems = [];
+const apiResults = {};
+function api(url) {
+  const r = apiResults[url];
+  if (r && r.reject) return Promise.reject(new Error(r.reject));
+  return Promise.resolve((r && r.value) || {});
+}
+function catalogApiPath() { return '/api/catalog'; }
+function filterServers(list) { return list; }
+function serverState() { return 'ready'; }
+const calls = [];
+function switchProfile(p) { calls.push('switchProfile:' + p); }
+function setRouteFilter(f) { calls.push('setRouteFilter:' + f); routeFilter = f; }
+function resetRouteFilter() { setRouteFilter('all'); }
+function clearCatalogSearch() { calls.push('clearCatalogSearch'); }
+function resetCatalogFilter() { calls.push('resetCatalogFilter'); }
+
+/*__DASHBOARD_JS__*/
+
+function findButton(el, label) {
+  if (el.tagName === 'BUTTON' && el.textContent === label) return el;
+  for (const child of el.children) {
+    const hit = findButton(child, label);
+    if (hit) return hit;
+  }
+  return null;
+}
+const LABEL = 'Switch profile to core';
+
+(async () => {
+  const out = {};
+
+  // Server Map: a custom profile with zero servers offers recovery, and the
+  // click resets a lingering route filter before switching back to core.
+  servers = []; routeFilter = 'ready'; activeProfile = 'custom'; calls.length = 0;
+  renderServerMap();
+  let btn = findButton(shell['server-map'], LABEL);
+  out.mapButtonShown = !!btn;
+  if (btn) btn.onclick();
+  out.mapClickCalls = calls.slice();
+
+  // Server Map: the core profile keeps a plain empty note (nowhere to escape).
+  servers = []; routeFilter = 'all'; activeProfile = 'core';
+  renderServerMap();
+  out.mapButtonHiddenOnCore = !findButton(shell['server-map'], LABEL);
+
+  // Catalog: a custom profile with zero servers offers recovery.
+  apiResults['/api/catalog'] = { value: { servers: [] } };
+  activeProfile = 'custom'; calls.length = 0;
+  await loadCatalogView();
+  btn = findButton(shell['catalog-grid'], LABEL);
+  out.catalogButtonShown = !!btn;
+  if (btn) btn.onclick();
+  out.catalogClickCalls = calls.slice();
+
+  activeProfile = 'core';
+  await loadCatalogView();
+  out.catalogButtonHiddenOnCore = !findButton(shell['catalog-grid'], LABEL);
+
+  // Fabric: a custom profile with zero capabilities offers recovery.
+  apiResults['/api/capabilities'] = { value: { capabilities: [] } };
+  apiResults['/api/contexts'] = { value: { contexts: [] } };
+  apiResults['/api/computer'] = { value: { configured: false } };
+  activeProfile = 'custom'; calls.length = 0;
+  await loadFabricView();
+  btn = findButton(shell['fabric-capabilities'], LABEL);
+  out.fabricButtonShown = !!btn;
+  if (btn) btn.onclick();
+  out.fabricClickCalls = calls.slice();
+
+  activeProfile = 'core';
+  await loadFabricView();
+  out.fabricButtonHiddenOnCore = !findButton(shell['fabric-capabilities'], LABEL);
+
+  // Fabric: a rejected capabilities request is an error, not a profile
+  // dead-end, so the recovery action must not appear.
+  apiResults['/api/capabilities'] = { reject: 'boom' };
+  activeProfile = 'custom';
+  await loadFabricView();
+  out.fabricButtonHiddenOnError = !findButton(shell['fabric-capabilities'], LABEL);
+  out.fabricErrorShown = shell['fabric-capabilities'].children.some(
+    (c) => String(c.textContent).startsWith('Could not load capabilities'));
+
+  process.stdout.write(JSON.stringify(out));
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+"""
+
+
+def test_zero_result_profile_recovery_behavior_node(tmp_path):
+    # Sighted, screen reader, and keyboard users must have a path to escape
+    # zero-result states when a custom profile has nothing configured. Runs
+    # the shipped renderers instead of matching source strings.
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:  # pragma: no cover - depends on the host toolchain
+        pytest.skip("node is required to execute the dashboard JS")
+    assert node is not None
+    html = render_dashboard()
+    dashboard_js = "\n".join(
+        _extract_js_function(html, name)
+        for name in ("visibleRouteServers", "renderServerMap", "loadCatalogView", "loadFabricView")
+    )
+    script = tmp_path / "profile_recovery.cjs"
+    script.write_text(
+        _PROFILE_RECOVERY_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(proc.stdout)
+
+    # Server Map: button only for non-core, and the click resets the route
+    # filter before switching so core cannot land on another empty view.
+    assert res["mapButtonShown"] is True
+    assert res["mapClickCalls"] == ["setRouteFilter:all", "switchProfile:core"]
+    assert res["mapButtonHiddenOnCore"] is True
+
+    # Catalog: button only for non-core; clicking switches to core.
+    assert res["catalogButtonShown"] is True
+    assert res["catalogClickCalls"] == ["switchProfile:core"]
+    assert res["catalogButtonHiddenOnCore"] is True
+
+    # Fabric: button only for non-core; clicking switches to core.
+    assert res["fabricButtonShown"] is True
+    assert res["fabricClickCalls"] == ["switchProfile:core"]
+    assert res["fabricButtonHiddenOnCore"] is True
+
+    # A failed capabilities request renders an error, never the profile action.
+    assert res["fabricButtonHiddenOnError"] is True
+    assert res["fabricErrorShown"] is True
+
+
+def _js_handler_block(html: str, signature: str) -> str:
+    start = html.index(signature)
+    end = html.index("\nasync function", start + len(signature))
+    return html[start:end]
+
+
+@pytest.mark.parametrize(
+    ("handler", "loading_label", "idle_label"),
+    [
+        ("closeBrowserSession", "Closing...", "Close"),
+        ("browserNavigate", "Go...", "Go"),
+        ("browserReload", "Reloading...", "Reload"),
+    ],
+)
+def test_browser_view_buttons_use_context_loading_states(handler, loading_label, idle_label):
+    html = render_dashboard()
+    assert f'onclick="{handler}(this)"' in html
+
+    block = _js_handler_block(html, f"async function {handler}(btn)")
+    assert "btn.disabled = true" in block
+    assert "btn.setAttribute('aria-busy', 'true')" in block
+    assert f"btn.textContent = '{loading_label}'" in block
+
+    restore = block[block.index("} finally {") :]
+    assert "btn.disabled = false" in restore
+    assert "btn.removeAttribute('aria-busy')" in restore
+    assert f"btn.textContent = '{idle_label}'" in restore
+
+
+def test_browser_url_enter_serializes_navigation_through_go_button():
+    html = render_dashboard()
+    assert 'id="browser-go"' in html
+    assert "browserNavigate(document.getElementById('browser-go'))" in html
+
+    block = _js_handler_block(html, "async function browserNavigate(btn)")
+    assert "if (browserNavigating) return;" in block
+    assert "browserNavigating = true;" in block
+    assert "browserNavigating = false;" in block[block.index("} finally {") :]
+
+
+# Gedragstest voor de navigatie-guard: voert het echte `browserNavigate` uit in
+# Node met een vertraagde `apiPost`, zodat een tweede aanroep tijdens een
+# lopende navigatie aantoonbaar wordt genegeerd in plaats van alleen de
+# brontekst van de guard te matchen.
+_BROWSER_NAV_HARNESS = r"""
+const urlEl = { value: 'https://example.com' };
+const document = {
+  getElementById(id) { return id === 'browser-url' ? urlEl : null; },
+};
+let browserNavigating = false;
+let browserSelectedId = 'sess-1';
+function toast() {}
+function pushBrowserLog() {}
+function showBrowserShot() {}
+async function pollBrowserScreenshot() {}
+async function loadBrowserView() {}
+
+let apiPostCalls = 0;
+let pendingResolve = null;
+function apiPost() {
+  apiPostCalls += 1;
+  return new Promise((resolve) => { pendingResolve = resolve; });
+}
+
+/*__DASHBOARD_JS__*/
+
+const btn = {
+  disabled: false,
+  textContent: 'Go',
+  attrs: {},
+  setAttribute(k, v) { this.attrs[k] = v; },
+  removeAttribute(k) { delete this.attrs[k]; },
+};
+
+(async () => {
+  const first = browserNavigate(btn);
+  const duringFlight = {
+    disabled: btn.disabled,
+    ariaBusy: btn.attrs['aria-busy'] === 'true',
+    label: btn.textContent,
+  };
+
+  // Tweede aanroep terwijl de eerste nog loopt: de guard moet die laten vallen.
+  await browserNavigate(btn);
+  const callsWhilePending = apiPostCalls;
+
+  pendingResolve({ ok: true, url: 'https://example.com', screenshot_b64: 'x' });
+  await first;
+  const afterFlight = {
+    disabled: btn.disabled,
+    ariaBusy: 'aria-busy' in btn.attrs,
+    label: btn.textContent,
+  };
+
+  // Na afronding laat de guard een nieuwe navigatie weer door.
+  const second = browserNavigate(btn);
+  const callsAfterRelease = apiPostCalls;
+  pendingResolve({ ok: true, url: 'https://example.com', screenshot_b64: 'x' });
+  await second;
+
+  process.stdout.write(JSON.stringify({
+    duringFlight,
+    callsWhilePending,
+    afterFlight,
+    callsAfterRelease,
+  }));
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+"""
+
+
+def test_browser_navigate_drops_overlapping_invocations_node(tmp_path):
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:
+        pytest.skip("node is required to execute the dashboard JS")
+    assert node is not None
+    html = render_dashboard()
+    dashboard_js = _extract_js_function(html, "browserNavigate")
+    script = tmp_path / "browser_navigate_guard.cjs"
+    script.write_text(
+        _BROWSER_NAV_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(proc.stdout)
+    # Tijdens de eerste navigatie is de knop uitgeschakeld en bezig gemarkeerd.
+    assert res["duringFlight"] == {"disabled": True, "ariaBusy": True, "label": "Go..."}
+    # De overlappende tweede aanroep bereikt de API niet.
+    assert res["callsWhilePending"] == 1
+    # Na afloop is de knopstatus hersteld.
+    assert res["afterFlight"] == {"disabled": False, "ariaBusy": False, "label": "Go"}
+    # En een volgende navigatie mag weer door de guard.
+    assert res["callsAfterRelease"] == 2
+

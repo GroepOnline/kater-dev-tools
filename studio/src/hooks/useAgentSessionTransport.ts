@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { katerApi } from '../api/client';
 import type { SessionEvent, SessionProjection } from '../types';
 
@@ -18,14 +19,78 @@ interface AgentSessionTransportState {
   mutating: boolean;
 }
 
+type StateSetter = Dispatch<SetStateAction<AgentSessionTransportState>>;
+
+const EMPTY_STATE: AgentSessionTransportState = {
+  contextId: null,
+  session: null,
+  events: [],
+  error: null,
+  loading: false,
+  mutating: false,
+};
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
+async function pollSession(
+  requestedId: string,
+  signal: AbortSignal,
+  isCurrent: () => boolean,
+  setState: StateSetter,
+) {
+  const session = await katerApi.session(requestedId, signal);
+  if (!isCurrent()) return;
+
+  const first = await katerApi.sessionEvents(requestedId, { after_seq: 0, wait_ms: 0, signal });
+  if (!isCurrent()) return;
+
+  let afterSeq = first.next_seq;
+  let events = first.events;
+  setState({ contextId: requestedId, session, events, error: null, loading: false, mutating: false });
+
+  while (!signal.aborted && isCurrent()) {
+    const batch = await katerApi.sessionEvents(requestedId, {
+      after_seq: afterSeq,
+      wait_ms: POLL_WAIT_MS,
+      signal,
+    });
+    if (!isCurrent()) return;
+    afterSeq = batch.next_seq;
+    if (!batch.events.length) continue;
+    events = events.concat(batch.events);
+    setState(current => current.contextId === requestedId && isCurrent() ? { ...current, events } : current);
+  }
+}
+
+async function runSessionTransport(
+  requestedId: string,
+  controller: AbortController,
+  isCurrent: () => boolean,
+  setState: StateSetter,
+) {
+  try {
+    await pollSession(requestedId, controller.signal, isCurrent, setState);
+  } catch (reason: unknown) {
+    if (controller.signal.aborted || isAbort(reason) || !isCurrent()) return;
+    setState({
+      contextId: requestedId,
+      session: null,
+      events: [],
+      error: errorMessage(reason),
+      loading: false,
+      mutating: false,
+    });
+  }
+}
+
 export function useAgentSessionTransport(contextId: string | null) {
   const requestedContextId = useRef(contextId);
   const requestGeneration = useRef(0);
   requestedContextId.current = contextId;
   const [epoch, setEpoch] = useState(0);
-  const [state, setState] = useState<AgentSessionTransportState>({
-    contextId: null, session: null, events: [], error: null, loading: false, mutating: false,
-  });
+  const [state, setState] = useState<AgentSessionTransportState>(EMPTY_STATE);
   const refresh = useCallback(() => { setEpoch(value => value + 1); }, []);
 
   useEffect(() => {
@@ -33,52 +98,13 @@ export function useAgentSessionTransport(contextId: string | null) {
     const generation = ++requestGeneration.current;
     const controller = new AbortController();
     if (!requestedId) {
-      setState({ contextId: null, session: null, events: [], error: null, loading: false, mutating: false });
+      setState(EMPTY_STATE);
       return;
     }
+
+    const isCurrent = () => requestedContextId.current === requestedId && requestGeneration.current === generation;
     setState({ contextId: requestedId, session: null, events: [], error: null, loading: true, mutating: false });
-    void (async () => {
-      try {
-        const session = await katerApi.session(requestedId, controller.signal);
-        if (requestedContextId.current !== requestedId || requestGeneration.current !== generation) return;
-        const first = await katerApi.sessionEvents(requestedId, { after_seq: 0, wait_ms: 0, signal: controller.signal });
-        if (requestedContextId.current !== requestedId || requestGeneration.current !== generation) return;
-        let afterSeq = first.next_seq;
-        let events = first.events;
-        setState({ contextId: requestedId, session, events, error: null, loading: false, mutating: false });
-        while (!controller.signal.aborted && requestGeneration.current === generation) {
-          const batch = await katerApi.sessionEvents(requestedId, {
-            after_seq: afterSeq,
-            wait_ms: POLL_WAIT_MS,
-            signal: controller.signal,
-          });
-          if (requestedContextId.current !== requestedId || requestGeneration.current !== generation) return;
-          if (batch.events.length) {
-            afterSeq = batch.next_seq;
-            events = events.concat(batch.events);
-            setState(current => (
-              current.contextId === requestedId && requestGeneration.current === generation
-                ? { ...current, events }
-                : current
-            ));
-          } else {
-            afterSeq = batch.next_seq;
-          }
-        }
-      } catch (reason: unknown) {
-        if (controller.signal.aborted || isAbort(reason)) return;
-        if (requestedContextId.current === requestedId && requestGeneration.current === generation) {
-          setState({
-            contextId: requestedId,
-            session: null,
-            events: [],
-            error: reason instanceof Error ? reason.message : String(reason),
-            loading: false,
-            mutating: false,
-          });
-        }
-      }
-    })();
+    void runSessionTransport(requestedId, controller, isCurrent, setState);
     return () => { controller.abort(); };
   }, [contextId, epoch]);
 
@@ -89,11 +115,7 @@ export function useAgentSessionTransport(contextId: string | null) {
       await op();
       refresh();
     } catch (reason: unknown) {
-      setState(current => ({
-        ...current,
-        mutating: false,
-        error: reason instanceof Error ? reason.message : String(reason),
-      }));
+      setState(current => ({ ...current, mutating: false, error: errorMessage(reason) }));
       throw reason;
     }
   }, [contextId, refresh]);

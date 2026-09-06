@@ -1013,17 +1013,6 @@ def test_browser_url_enter_serializes_navigation_through_go_button():
     assert "browserNavigating = false;" in block[block.index("} finally {") :]
 
 
-def test_browser_url_enter_serializes_navigation_through_go_button():
-    html = render_dashboard()
-    assert 'id="browser-go"' in html
-    assert "browserNavigate(document.getElementById('browser-go'))" in html
-
-    block = _js_handler_block(html, "async function browserNavigate(btn)")
-    assert "if (browserNavigating) return;" in block
-    assert "browserNavigating = true;" in block
-    assert "browserNavigating = false;" in block[block.index("} finally {") :]
-
-
 _BROWSER_NAV_HARNESS = r"""
 const urlEl = { value: 'https://example.com' };
 const document = {

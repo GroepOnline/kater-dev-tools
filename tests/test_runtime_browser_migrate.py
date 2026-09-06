@@ -29,18 +29,20 @@ def test_ensure_migrated_records_browser_and_automations_versions(tmp_path) -> N
     finally:
         conn.close()
 
-    assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    assert {
-        "browser_sessions",
-        "browser_actions",
-        "automations",
-        "remote_contexts",
-        "usage_events",
-        "capability_audit",
-        "automation_meta",
-        "connectors",
-    } <= tables
-    assert migrations.latest_version() == 9
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        assert {
+            "browser_sessions",
+            "browser_actions",
+            "automations",
+            "remote_contexts",
+            "usage_events",
+            "capability_audit",
+            "automation_meta",
+            "connectors",
+            "agent_session_work",
+            "agent_session_events",
+        } <= tables
+        assert migrations.latest_version() == 10
 
 
 def test_runtime_start_calls_ensure_migrated(monkeypatch, tmp_path) -> None:

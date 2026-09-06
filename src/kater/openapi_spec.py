@@ -5,6 +5,7 @@ from functools import lru_cache
 from typing import Any
 
 from kater.api.fabric_routes import FABRIC_OPENAPI_PATHS
+from kater.api.session_routes import SESSION_OPENAPI_PATHS
 from kater.api.usage_routes import USAGE_OPENAPI_PATHS
 
 OPENAPI_VERSION = "3.1.0"
@@ -1146,6 +1147,7 @@ def _build_paths() -> dict[str, Any]:
     }
 
     paths.update(FABRIC_OPENAPI_PATHS)
+    paths.update(SESSION_OPENAPI_PATHS)
     paths.update(USAGE_OPENAPI_PATHS)
     return paths
 

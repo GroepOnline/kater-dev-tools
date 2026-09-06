@@ -551,6 +551,15 @@ def test_git_open_pr_heads_parses_and_swallows(monkeypatch: Any) -> None:
     monkeypatch.setattr("kater.branch_lifecycle.subprocess.run", ok_run)
     assert git_open_pr_heads() == {"feat/open"}
 
+    many = [{"headRefName": f"feat/open-{index}"} for index in range(45)]
+
+    def many_run(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert "--limit" in cmd and "10000" in cmd
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(many), "")
+
+    monkeypatch.setattr("kater.branch_lifecycle.subprocess.run", many_run)
+    assert git_open_pr_heads() == {f"feat/open-{index}" for index in range(45)}
+
     def bad_json(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, 0, "{", "")
 

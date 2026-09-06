@@ -550,7 +550,7 @@ def restore_backup(
         if DB_NAME in restored:
             try:
                 results = migrations.run_migrations(staging / DB_NAME)
-            except migrations.MigrationError as exc:
+            except (migrations.MigrationError, sqlite3.Error) as exc:
                 raise BackupError(
                     f"restored database failed migration before install: {exc}"
                 ) from exc

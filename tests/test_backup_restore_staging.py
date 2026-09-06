@@ -66,16 +66,33 @@ def test_rejected_staging_leaves_existing_state_unchanged(restore_case, monkeypa
     migrator = Mock(side_effect=migrations.MigrationError("fixture rejection"))
     monkeypatch.setattr(migrations, "run_migrations", migrator)
 
-    with pytest.raises((backup.BackupError, migrations.MigrationError)) as error:
+    with pytest.raises(backup.BackupError) as error:
         backup.restore_backup(bundle, project_dir=root, force=True)
 
     assert _state_bytes(state) == original
     safety.assert_not_called()
-    assert isinstance(error.value, backup.BackupError)
     assert "failed migration before install" in str(error.value)
     staged_db = migrator.call_args.args[0]
     assert staged_db != state / backup.DB_NAME
     assert staged_db.parent.parent.parent == root
+    assert not staged_db.parent.parent.exists()
+
+
+def test_malformed_staging_database_is_reported_without_replacing_state(
+    restore_case, monkeypatch
+):
+    root, state, original, bundle, safety = restore_case
+    migrator = Mock(side_effect=backup.sqlite3.DatabaseError("file is not a database"))
+    monkeypatch.setattr(migrations, "run_migrations", migrator)
+
+    with pytest.raises(backup.BackupError, match="failed migration before install") as error:
+        backup.restore_backup(bundle, project_dir=root, force=True)
+
+    assert "file is not a database" in str(error.value)
+    assert _state_bytes(state) == original
+    safety.assert_not_called()
+    staged_db = migrator.call_args.args[0]
+    assert staged_db != state / backup.DB_NAME
     assert not staged_db.parent.parent.exists()
 
 

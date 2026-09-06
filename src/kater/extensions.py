@@ -16,6 +16,7 @@ def load_extensions_module() -> Any | None:
     - ``NATIVE_TOOLS``: extra ``NativeTool`` entries for ``build_native_tools``
     - ``CHAINS``: extra ``ChainDefinition`` entries
     - ``CAPABILITIES``: extra ``CapabilityManifest`` entries (capability manifest registry)
+    - ``PLUGINS``: product-facing plugin manifests grouping extension toolkits
     """
     name = os.environ.get("KATER_EXTENSIONS_MODULE", "").strip()
     if not name:

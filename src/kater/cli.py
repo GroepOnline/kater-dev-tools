@@ -13,7 +13,9 @@ from kater.doctor import parse_profiles, run_doctor
 from kater.profiles import DEFAULT_PROFILE, all_tool_sources, get_source, list_profiles
 from kater.registry import tools_for_profile
 
-app = typer.Typer(help="Developer MCP gateway — one unified tool surface for code agents.")
+app = typer.Typer(
+    help="Agent capability fabric — toolkits, integrations, plugins, and MCP in one surface."
+)
 profiles_app = typer.Typer(help="Inspect profiles.")
 mcp_app = typer.Typer(help="MCP server management.")
 chain_app = typer.Typer(help="Tool chain execution.")
@@ -166,6 +168,78 @@ def tools_command(
         return
     for tool in tools:
         typer.echo(f"{tool.name}: {tool.description}")
+
+
+# ── capability catalog ─────────────────────────────────────────────
+
+
+def _catalog_cli(kind: str | None, query: str, profile: str, json_output: bool) -> None:
+    from kater.fabric_catalog import CatalogKind, catalog_payload
+
+    parsed_kind = CatalogKind(kind) if kind else None
+    payload = catalog_payload(query=query, profile=profile, kind=parsed_kind)
+    if json_output:
+        _print_json(payload)
+        return
+    rows = payload["items"]
+    if not rows:
+        typer.echo("No matching catalog entries.")
+        return
+    for item in rows:
+        status = item.get("status") or "available"
+        transport = item.get("transport") or "-"
+        typer.echo(f"{item['id']} [{status}] ({transport}) {item['description']}")
+
+
+@app.command("catalog")
+def catalog_command(
+    kind: Annotated[
+        str | None,
+        typer.Option("--kind", help="toolkit, integration, plugin, or mcp."),
+    ] = None,
+    query: Annotated[str, typer.Option("--query", "-q", help="Search the catalog.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Browse the complete Kater capability catalog."""
+    from kater.fabric_catalog import CatalogKind
+
+    if kind:
+        try:
+            CatalogKind(kind)
+        except ValueError as exc:
+            raise typer.BadParameter("kind must be toolkit, integration, plugin, or mcp") from exc
+    _catalog_cli(kind, query, profile, json_output)
+
+
+@app.command("toolkits")
+def toolkits_command(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search toolkits.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List agent-facing Kater toolkits."""
+    _catalog_cli("toolkit", query, profile, json_output)
+
+
+@app.command("integrations")
+def integrations_command(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search integrations.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List provider integrations and connection readiness."""
+    _catalog_cli("integration", query, profile, json_output)
+
+
+@app.command("plugins")
+def plugins_command(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search plugins.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List installed Kater plugin bundles."""
+    _catalog_cli("plugin", query, profile, json_output)
 
 
 # ── chains ─────────────────────────────────────────────────────────
@@ -541,8 +615,7 @@ def connector_validate_command(
         _print_json(record.as_dict())
         return
     typer.echo(
-        f"Validated {record.id}: {len(record.capabilities)} capabilities, "
-        f"{record.status.value}"
+        f"Validated {record.id}: {len(record.capabilities)} capabilities, {record.status.value}"
     )
 
 
@@ -603,9 +676,7 @@ def connector_invoke_command(
     connector_id: Annotated[str, typer.Argument(help="Connector id.")],
     capability_id: Annotated[str, typer.Argument(help="Capability id to invoke.")],
     profile: Annotated[str, typer.Option("--profile", help="Calling profile.")] = DEFAULT_PROFILE,
-    args_json: Annotated[
-        str, typer.Option("--args", help="JSON object of arguments.")
-    ] = "{}",
+    args_json: Annotated[str, typer.Option("--args", help="JSON object of arguments.")] = "{}",
 ) -> None:
     """Invoke one connector capability in-process (redacts secrets on error)."""
     from kater.connectors.auth import redact_text

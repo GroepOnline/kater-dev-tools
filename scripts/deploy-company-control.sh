@@ -45,6 +45,7 @@ FAILED="$CURRENT.failed-$TS"
 PREVIOUS=""
 FIRST=0
 CUTOVER=0
+ACTIVE_DEPENDENTS=()
 
 rollback() {
   rc=$?
@@ -59,6 +60,10 @@ rollback() {
       ln -sfn "$PREVIOUS" "$CURRENT"
     fi
     sudo -n systemctl start "$SERVICE" >/dev/null 2>&1 || true
+    for dependent in "${ACTIVE_DEPENDENTS[@]}"; do
+      sudo -n systemctl start "$dependent" >/dev/null 2>&1 || \
+        echo "deploy: rollback could not restart dependent $dependent" >&2
+    done
   fi
   exit "$rc"
 }
@@ -101,6 +106,17 @@ else
   FIRST=1
 fi
 
+# Stopping a required backend also stops reverse-dependent proxy services.
+# Preserve only the service units that are active before cutover and restore
+# that exact exposure set after either a successful cutover or rollback.
+while IFS= read -r dependent; do
+  dependent="${dependent#"${dependent%%[![:space:]]*}"}"
+  [[ "$dependent" == *.service && "$dependent" != "$SERVICE" ]] || continue
+  if systemctl is-active --quiet "$dependent"; then
+    ACTIVE_DEPENDENTS+=("$dependent")
+  fi
+done < <(systemctl list-dependencies --reverse --plain --no-legend "$SERVICE")
+
 CUTOVER=1
 sudo -n systemctl stop "$SERVICE"
 if (( FIRST )); then
@@ -129,6 +145,13 @@ if [[ "$healthy" != 1 ]]; then
   false
 fi
 [[ "$(cat "$CURRENT/.deployed-sha")" == "$SHA" ]] || { echo "deploy: active SHA mismatch" >&2; false; }
+for dependent in "${ACTIVE_DEPENDENTS[@]}"; do
+  sudo -n systemctl start "$dependent"
+  if ! systemctl is-active --quiet "$dependent"; then
+    echo "deploy: dependent did not become active: $dependent" >&2
+    false
+  fi
+done
 
 sudo -n mkdir -p "$(dirname "$STATE")" 2>/dev/null || true
 sudo -n chmod a+rwx "$(dirname "$STATE")" 2>/dev/null || true

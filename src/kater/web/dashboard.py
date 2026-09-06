@@ -2095,6 +2095,7 @@ function switchProfile(p) {
   writeUrlState();
   loadCatalog();
   if (currentView === 'catalog') loadCatalogView();
+  if (currentView === 'fabric') loadFabricView();
   toast('profile: ' + p);
 }
 
@@ -2247,7 +2248,20 @@ function renderServerMap() {
         btn.onclick = resetRouteFilter;
         empty.appendChild(btn);
       }
-    } else { empty.textContent = 'No servers in this profile.'; }
+    } else {
+      empty.textContent = 'No servers in this profile.';
+      if (activeProfile !== 'core') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'view-empty-link';
+        btn.textContent = 'Switch profile to core';
+        btn.onclick = () => {
+          if (routeFilter !== 'all') setRouteFilter('all', true);
+          switchProfile('core');
+        };
+        empty.appendChild(btn);
+      }
+    }
     el.appendChild(empty);
     return;
   }
@@ -3480,6 +3494,9 @@ async function loadCatalogView() {
       addLink('Switch filter to all', resetCatalogFilter);
     } else {
       empty.textContent = 'No servers in this profile. Switch profiles in the top bar.';
+      if (activeProfile !== 'core') {
+        addLink('Switch profile to core', () => switchProfile('core'));
+      }
     }
     grid.appendChild(empty);
     return;
@@ -4216,10 +4233,23 @@ async function loadFabricView() {
       count.textContent = caps.length + ' caps · ' + contexts.length + ' contexts';
     }
     capsEl.replaceChildren();
-    if (!caps.length) {
+    if (capsRes.status === 'rejected') {
+      const err = document.createElement('div');
+      err.className = 'view-empty';
+      err.textContent = 'Could not load capabilities: ' + ((capsRes.reason && capsRes.reason.message) || 'error');
+      capsEl.appendChild(err);
+    } else if (!caps.length) {
       const empty = document.createElement('div');
       empty.className = 'view-empty';
       empty.textContent = 'No capabilities discoverable for the current profile.';
+      if (activeProfile !== 'core') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'view-empty-link';
+        btn.textContent = 'Switch profile to core';
+        btn.onclick = () => switchProfile('core');
+        empty.appendChild(btn);
+      }
       capsEl.appendChild(empty);
     } else {
       for (const item of caps.slice(0, 50)) {

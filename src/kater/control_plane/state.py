@@ -44,7 +44,7 @@ class StateMachine(Generic[StateT]):
 
 AGENT_STATE_MACHINE = StateMachine(
     {
-        AgentState.IDLE: frozenset({AgentState.WORKING}),
+        AgentState.IDLE: frozenset({AgentState.WORKING, AgentState.WAITING, AgentState.CANCELLED}),
         AgentState.WORKING: frozenset(
             {
                 AgentState.WAITING,
@@ -52,15 +52,36 @@ AGENT_STATE_MACHINE = StateMachine(
                 AgentState.FAILED,
                 AgentState.REVIEW,
                 AgentState.COMPLETED,
+                AgentState.CANCELLED,
             }
         ),
-        AgentState.WAITING: frozenset({AgentState.WORKING, AgentState.BLOCKED, AgentState.FAILED}),
-        AgentState.BLOCKED: frozenset({AgentState.WORKING, AgentState.FAILED, AgentState.REVIEW}),
+        AgentState.WAITING: frozenset(
+            {
+                AgentState.WORKING,
+                AgentState.BLOCKED,
+                AgentState.FAILED,
+                AgentState.CANCELLED,
+            }
+        ),
+        AgentState.BLOCKED: frozenset(
+            {
+                AgentState.WORKING,
+                AgentState.FAILED,
+                AgentState.REVIEW,
+                AgentState.CANCELLED,
+            }
+        ),
         AgentState.FAILED: frozenset({AgentState.WORKING, AgentState.REVIEW}),
         AgentState.REVIEW: frozenset(
-            {AgentState.WORKING, AgentState.BLOCKED, AgentState.COMPLETED}
+            {
+                AgentState.WORKING,
+                AgentState.BLOCKED,
+                AgentState.COMPLETED,
+                AgentState.CANCELLED,
+            }
         ),
         AgentState.COMPLETED: frozenset(),
+        AgentState.CANCELLED: frozenset(),
     }
 )
 

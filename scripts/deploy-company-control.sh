@@ -45,6 +45,7 @@ FAILED="$CURRENT.failed-$TS"
 PREVIOUS=""
 FIRST=0
 CUTOVER=0
+ACTIVE_DEPENDENTS=()
 
 rollback() {
   rc=$?
@@ -59,6 +60,10 @@ rollback() {
       ln -sfn "$PREVIOUS" "$CURRENT"
     fi
     sudo -n systemctl start "$SERVICE" >/dev/null 2>&1 || true
+    for dependent in "${ACTIVE_DEPENDENTS[@]}"; do
+      sudo -n systemctl start "$dependent" >/dev/null 2>&1 || \
+        echo "deploy: rollback could not restart dependent $dependent" >&2
+    done
   fi
   exit "$rc"
 }
@@ -70,10 +75,27 @@ ln -sfn "$STATE" .kater
 HOME="${HOME:-/home/chef}" uv sync --frozen
 .venv/bin/python scripts/check_executor_contract.py
 
-# Ensure release is readable by the kater service user (systemd chdir fails otherwise).
-# rsync as chef may create 700 dirs; kater runs as different user.
-sudo -n chmod -R a+rX "$RELEASE" 2>/dev/null || chmod -R a+rX "$RELEASE" 2>/dev/null || true
-sudo -n chmod a+rx "$RELEASE_ROOT" "$(dirname "$CURRENT")" 2>/dev/null || true
+# rsync copies the 0700 mode of mktemp's archive root onto RELEASE.  The
+# systemd service runs as a different user, so make the release path traversable
+# explicitly and prove that exact service identity can reach the executable
+# before stopping the healthy runtime. Never hide permission failures here.
+if ! sudo -n chmod a+rx "$RELEASE" "$RELEASE_ROOT" "$(dirname "$CURRENT")" 2>/dev/null; then
+  chmod a+rx "$RELEASE" "$RELEASE_ROOT" "$(dirname "$CURRENT")"
+fi
+if ! sudo -n chmod -R a+rX "$RELEASE" 2>/dev/null; then
+  chmod -R a+rX "$RELEASE"
+fi
+SERVICE_USER="$(systemctl show -p User --value "$SERVICE")"
+SERVICE_USER="${SERVICE_USER:-root}"
+[[ "$SERVICE_USER" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "deploy: unsafe service user: $SERVICE_USER" >&2; false; }
+if ! sudo -n -u "$SERVICE_USER" test -x "$RELEASE"; then
+  echo "deploy: service user $SERVICE_USER cannot traverse release $RELEASE" >&2
+  false
+fi
+if ! sudo -n -u "$SERVICE_USER" test -x "$RELEASE/.venv/bin/kater"; then
+  echo "deploy: service user $SERVICE_USER cannot execute staged kater" >&2
+  false
+fi
 
 curl -fsS --max-time 2 "http://127.0.0.1:$API_PORT/health/live" >/dev/null
 
@@ -83,6 +105,17 @@ else
   [[ -d "$CURRENT" ]] || { echo "deploy: current runtime missing" >&2; false; }
   FIRST=1
 fi
+
+# Stopping a required backend also stops reverse-dependent proxy services.
+# Preserve only the service units that are active before cutover and restore
+# that exact exposure set after either a successful cutover or rollback.
+while IFS= read -r dependent; do
+  dependent="${dependent#"${dependent%%[![:space:]]*}"}"
+  [[ "$dependent" == *.service && "$dependent" != "$SERVICE" ]] || continue
+  if systemctl is-active --quiet "$dependent"; then
+    ACTIVE_DEPENDENTS+=("$dependent")
+  fi
+done < <(systemctl list-dependencies --reverse --plain --no-legend "$SERVICE")
 
 CUTOVER=1
 sudo -n systemctl stop "$SERVICE"
@@ -112,6 +145,13 @@ if [[ "$healthy" != 1 ]]; then
   false
 fi
 [[ "$(cat "$CURRENT/.deployed-sha")" == "$SHA" ]] || { echo "deploy: active SHA mismatch" >&2; false; }
+for dependent in "${ACTIVE_DEPENDENTS[@]}"; do
+  sudo -n systemctl start "$dependent"
+  if ! systemctl is-active --quiet "$dependent"; then
+    echo "deploy: dependent did not become active: $dependent" >&2
+    false
+  fi
+done
 
 sudo -n mkdir -p "$(dirname "$STATE")" 2>/dev/null || true
 sudo -n chmod a+rwx "$(dirname "$STATE")" 2>/dev/null || true

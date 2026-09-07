@@ -1,7 +1,9 @@
 import { studioConfig } from '../config';
 import type {
   AutomationsResponse, BrowserProvidersResponse, BrowserSessionsResponse,
-  CapabilityAuditResponse, CatalogResponse, ContextsResponse, EventsResponse, PrListResponse, SettingsResponse, StatusResponse,
+  CapabilityAuditResponse, CatalogResponse, ContextsResponse, EventsResponse, PrListResponse,
+  SessionCancelResponse, SessionEventsResponse, SessionProjection, SessionSubmitResponse,
+  SettingsResponse, StatusResponse,
 } from '../types';
 
 export class ApiError extends Error {
@@ -41,4 +43,33 @@ export const katerApi = {
   capabilityAudit: (contextId: string, limit = 100) => request<CapabilityAuditResponse>(`/api/audit/capabilities?context_id=${encodeURIComponent(contextId)}&limit=${limit}`),
   settings: () => request<SettingsResponse>('/api/settings'),
   updateSettings: (patch: Record<string, unknown>) => request<SettingsResponse>('/api/settings', json('POST', patch)),
+  session: (contextId: string, signal?: AbortSignal) => request<SessionProjection>(
+    `/api/contexts/${encodeURIComponent(contextId)}/session`,
+    signal ? { signal } : undefined,
+  ),
+  sessionContinue: (contextId: string) => request<SessionProjection>(
+    `/api/contexts/${encodeURIComponent(contextId)}/session/continue`,
+    json('POST'),
+  ),
+  sessionSubmit: (contextId: string, prompt: string) => request<SessionSubmitResponse>(
+    `/api/contexts/${encodeURIComponent(contextId)}/session/work`,
+    json('POST', { prompt, correlation: { katerContextId: contextId } }),
+  ),
+  sessionCancel: (contextId: string, workId: string, reason = 'operator') => request<SessionCancelResponse>(
+    `/api/contexts/${encodeURIComponent(contextId)}/session/work/${encodeURIComponent(workId)}/cancel`,
+    json('POST', { reason }),
+  ),
+  sessionEvents: (
+    contextId: string,
+    opts?: { after_seq?: number; limit?: number; wait_ms?: number; signal?: AbortSignal },
+  ) => {
+    const params = new URLSearchParams();
+    params.set('after_seq', String(opts?.after_seq ?? 0));
+    params.set('limit', String(opts?.limit ?? 100));
+    if (opts?.wait_ms) params.set('wait_ms', String(opts.wait_ms));
+    return request<SessionEventsResponse>(
+      `/api/contexts/${encodeURIComponent(contextId)}/session/events?${params.toString()}`,
+      opts?.signal ? { signal: opts.signal } : undefined,
+    );
+  },
 };

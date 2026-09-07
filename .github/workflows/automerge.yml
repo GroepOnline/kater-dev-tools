@@ -31,6 +31,14 @@ jobs:
           script: |
             const pr = context.payload.pull_request;
             if (!pr) return;
+            const { data: repository } = await github.rest.repos.get(context.repo);
+            if (repository.allow_auto_merge === false) {
+              core.notice('Auto-merge skipped: disabled by repository policy (allow_auto_merge=false).');
+              return;
+            }
+            if (repository.allow_auto_merge !== true) {
+              throw new Error('Repository metadata did not provide a boolean allow_auto_merge setting.');
+            }
             // Squash-merge once required checks pass.
             await github.graphql(`
               mutation($id: ID!) {

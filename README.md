@@ -270,6 +270,14 @@ Org-specific profiles and adapters can live in a separate private repo and load 
 runtime via `KATER_EXTENSIONS_MODULE` (see `src/kater/extensions.py` and
 [docs/ops/private-overlays.md](docs/ops/private-overlays.md)).
 
+With `KATER_PUBLIC=1` (also `true`, `yes`, or `on`), catalog endpoints omit
+sources and persisted connectors scoped only to `PRIVATE_PROFILES`. Persisted
+records cannot reintroduce a hidden source. Mixed-profile entries retain only
+their public profile names. Plugin catalogs apply the same visibility rule to
+profiles and toolkit references; private-only bundles are omitted. Non-public
+deployments retain the complete catalog. This presentation filter does not
+replace capability authorization.
+
 ```bash
 export KATER_EXTENSIONS_MODULE=your_package.extensions
 uv run kater-capabilities list

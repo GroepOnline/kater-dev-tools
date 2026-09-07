@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -19,7 +20,15 @@ from kater.connectors.auth import binding_is_satisfied
 from kater.connectors.models import ConnectorRecord, ConnectorType
 from kater.connectors.store import list_connectors
 from kater.extensions import extension_attr
-from kater.profiles import TOOL_SOURCES, ToolSource, visible_tool_sources
+from kater.profiles import (
+    TOOL_SOURCES,
+    ToolSource,
+    all_tool_sources,
+    is_private_profile,
+    is_private_source,
+    is_public_mode,
+    visible_tool_sources,
+)
 from kater.settings import load_settings
 
 
@@ -72,12 +81,32 @@ def _plugin_id_for_source(source: ToolSource) -> str:
     return module or "kater-extension"
 
 
+def _visible_profiles(profiles: Iterable[str]) -> tuple[str, ...]:
+    public = is_public_mode()
+    return tuple(
+        sorted(profile for profile in profiles if not public or not is_private_profile(profile))
+    )
+
+
+def _hidden_source_names() -> set[str]:
+    if not is_public_mode():
+        return set()
+    return {source.name for source in all_tool_sources() if is_private_source(source)}
+
+
 def _connector_map() -> dict[str, ConnectorRecord]:
     try:
-        return {record.id: record for record in list_connectors()}
+        records = list_connectors()
     except Exception:
         # Catalog reads should remain available when persistence is unavailable.
         return {}
+    hidden_sources = _hidden_source_names()
+    return {
+        record.id: record
+        for record in records
+        if record.id not in hidden_sources
+        and (not record.profiles or _visible_profiles(record.profiles))
+    }
 
 
 def _source_capabilities(
@@ -131,7 +160,7 @@ def toolkit_items() -> list[CatalogItem]:
                 description=source.description,
                 plugin_id=_plugin_id_for_source(source),
                 transport=source.transport.value,
-                profiles=tuple(sorted(source.profiles)),
+                profiles=_visible_profiles(source.profiles),
                 capabilities=_source_capabilities(source, connectors),
                 enabled=settings.is_server_enabled(source.name, default=True),
                 configured=source_is_configured(source, settings),
@@ -165,7 +194,7 @@ def integration_items() -> list[CatalogItem]:
                 ),
                 plugin_id=_plugin_id_for_source(source) if source else "dynamic",
                 transport=record.transport.kind,
-                profiles=tuple(sorted(record.profiles)),
+                profiles=_visible_profiles(record.profiles),
                 capabilities=tuple(sorted(cap.id for cap in record.capabilities)),
                 enabled=record.status.value == "enabled",
                 configured=binding_is_satisfied(
@@ -193,7 +222,7 @@ def integration_items() -> list[CatalogItem]:
                 description=source.description,
                 plugin_id=_plugin_id_for_source(source),
                 transport=source.transport.value,
-                profiles=tuple(sorted(source.profiles)),
+                profiles=_visible_profiles(source.profiles),
                 enabled=settings.is_server_enabled(source.name, default=True),
                 configured=source_is_configured(source, settings),
                 status="available",
@@ -220,7 +249,7 @@ def mcp_items() -> list[CatalogItem]:
                 description=source.description,
                 plugin_id=_plugin_id_for_source(source),
                 transport=source.transport.value,
-                profiles=tuple(sorted(source.profiles)),
+                profiles=_visible_profiles(source.profiles),
                 enabled=settings.is_server_enabled(source.name, default=True),
                 configured=source_is_configured(source, settings),
                 status=_source_status(source, connectors),
@@ -237,7 +266,7 @@ def mcp_items() -> list[CatalogItem]:
                 name=record.display_name,
                 kind=CatalogKind.MCP,
                 transport=record.transport.kind,
-                profiles=tuple(sorted(record.profiles)),
+                profiles=_visible_profiles(record.profiles),
                 capabilities=tuple(sorted(cap.id for cap in record.capabilities)),
                 enabled=record.status.value == "enabled",
                 configured=binding_is_satisfied(
@@ -257,6 +286,7 @@ def mcp_items() -> list[CatalogItem]:
 
 def _extension_plugin_items() -> list[CatalogItem]:
     raw_plugins = tuple(extension_attr("PLUGINS", ()))
+    hidden_sources = _hidden_source_names()
     items: list[CatalogItem] = []
     for raw in raw_plugins:
         if isinstance(raw, dict):
@@ -270,7 +300,14 @@ def _extension_plugin_items() -> list[CatalogItem]:
         plugin_id = str(data.get("id") or data.get("name") or "").strip()
         if not plugin_id:
             continue
-        toolkits = tuple(sorted(str(item) for item in data.get("toolkits", ())))
+        profiles = tuple(str(item) for item in data.get("profiles", ()))
+        visible_profiles = _visible_profiles(profiles)
+        if profiles and not visible_profiles:
+            continue
+        declared_toolkits = tuple(str(item) for item in data.get("toolkits", ()))
+        toolkits = tuple(sorted(item for item in declared_toolkits if item not in hidden_sources))
+        if declared_toolkits and not toolkits:
+            continue
         items.append(
             CatalogItem(
                 id=f"plugin:{plugin_id}",
@@ -278,7 +315,7 @@ def _extension_plugin_items() -> list[CatalogItem]:
                 kind=CatalogKind.PLUGIN,
                 description=str(data.get("description") or ""),
                 plugin_id=plugin_id,
-                profiles=tuple(sorted(str(item) for item in data.get("profiles", ()))),
+                profiles=visible_profiles,
                 capabilities=toolkits,
                 status=str(data.get("status") or "installed"),
                 origin=str(data.get("origin") or "extension"),
@@ -294,10 +331,15 @@ def _extension_plugin_items() -> list[CatalogItem]:
 def plugin_items() -> list[CatalogItem]:
     from kater import __version__
 
-    builtin_sources = tuple(source for source in TOOL_SOURCES if source.transport.value != "native")
+    hidden_sources = _hidden_source_names()
+    builtin_sources = tuple(
+        source
+        for source in TOOL_SOURCES
+        if source.transport.value != "native" and source.name not in hidden_sources
+    )
     builtin_toolkits = tuple(sorted(source.name for source in builtin_sources))
-    builtin_profiles = tuple(
-        sorted({profile for source in builtin_sources for profile in source.profiles})
+    builtin_profiles = _visible_profiles(
+        {profile for source in builtin_sources for profile in source.profiles}
     )
     items = [
         CatalogItem(
@@ -326,6 +368,8 @@ def plugin_items() -> list[CatalogItem]:
                     if source.name not in builtin_names and source.transport.value != "native"
                 )
             )
+            if is_public_mode() and not extension_toolkits:
+                return items
             items.append(
                 CatalogItem(
                     id=f"plugin:{module}",

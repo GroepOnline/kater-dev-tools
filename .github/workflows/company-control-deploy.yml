@@ -27,45 +27,57 @@ jobs:
     runs-on: [self-hosted, Linux, X64, company-control]
     timeout-minutes: 20
     env:
-      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.sha }}
+      REQUESTED_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.sha }}
     steps:
-      - name: Checkout deployment controller
+      - name: Checkout current deployment controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ env.DEPLOY_SHA }}
+          ref: main
+          persist-credentials: false
 
-      - name: Validate deploy configuration
+      - name: Resolve and validate deploy SHA
+        id: target
         env:
           DEPLOY_TARGET: ${{ vars.KATER_DEPLOY_TARGET }}
           DEPLOY_SERVICE: ${{ vars.KATER_DEPLOY_SERVICE }}
         run: |
           set -euo pipefail
-          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          requested="$REQUESTED_DEPLOY_SHA"
+          [[ "$requested" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid deploy SHA"; exit 1; }
           test -n "$DEPLOY_TARGET"
           test -n "$DEPLOY_SERVICE"
-          git fetch origin main
-          git cat-file -e "$DEPLOY_SHA^{commit}"
-          git merge-base --is-ancestor "$DEPLOY_SHA" origin/main
+          git fetch --no-tags origin main
+          git cat-file -e "$requested^{commit}"
+          git merge-base --is-ancestor "$requested" origin/main || {
+            echo "::error::requested deploy SHA is not on origin/main"
+            exit 1
+          }
+          resolved="$(git rev-parse "$requested^{commit}")"
+          [[ "$resolved" =~ ^[0-9a-f]{40}$ ]]
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
             [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]
             [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]
           fi
+          echo "sha=$resolved" >> "$GITHUB_OUTPUT"
 
       - name: Deploy exact SHA with rollback snapshot
         env:
-          KATER_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+          KATER_DEPLOY_SHA: ${{ steps.target.outputs.sha }}
           KATER_DEPLOY_TARGET: ${{ vars.KATER_DEPLOY_TARGET }}
           KATER_DEPLOY_SERVICE: ${{ vars.KATER_DEPLOY_SERVICE }}
           KATER_DEPLOY_API_PORT: ${{ vars.KATER_DEPLOY_API_PORT }}
         run: ./scripts/deploy-company-control.sh
 
       - name: Record deployment transaction
+        env:
+          DEPLOY_SHA: ${{ steps.target.outputs.sha }}
         run: |
           {
             echo "## Company-control deploy"
             echo
             echo "Deployed \`$DEPLOY_SHA\` after green main CI and health-gated cutover."
             echo
+            echo "The deployment controller came from current main; the application payload was resolved separately to an immutable main commit."
             echo "Rollback state is retained by the deploy controller under the Kater state directory."
           } >> "$GITHUB_STEP_SUMMARY"

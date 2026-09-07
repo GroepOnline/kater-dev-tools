@@ -544,6 +544,18 @@ def restore_backup(
             manifest = _read_manifest(archive, members)
             restored = _extract_verified(archive, manifest, staging, members=members)
 
+        # Validate and upgrade only the staged copy. A rejected database must
+        # never replace the install or consume its safety/rollback state.
+        applied: tuple[int, ...] = ()
+        if DB_NAME in restored:
+            try:
+                results = migrations.run_migrations(staging / DB_NAME)
+            except (migrations.MigrationError, sqlite3.Error) as exc:
+                raise BackupError(
+                    f"restored database failed migration before install: {exc}"
+                ) from exc
+            applied = tuple(r.version for r in results if r.status == "applied")
+
         safety_source: Path | None = None
         if _has_state(kater_dir):
             safety_source = workdir / f"kater-safety-{_timestamp()}.tar.gz"
@@ -592,11 +604,6 @@ def restore_backup(
         _capability_audit_reset,
     ):
         _reset()
-
-    applied: tuple[int, ...] = ()
-    if DB_NAME in restored:
-        results = migrations.run_migrations(kater_dir / DB_NAME)
-        applied = tuple(r.version for r in results if r.status == "applied")
 
     _log.info("restored %d files into %s", len(restored), kater_dir)
     return RestoreResult(

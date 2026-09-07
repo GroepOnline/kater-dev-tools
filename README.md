@@ -3,32 +3,45 @@
 [![CI](https://github.com/GroepOnline/kater-dev-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/kater-dev-tools/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Kater is an open-source, developer-only MCP gateway for code agents. One endpoint, one
-source of truth, full self-manageable. Keep agent context small by exposing
-one curated MCP surface and turning broad dev MCPs on only through profiles.
+Kater is an open-source capability fabric for AI agents. It brings toolkits,
+integrations, plugins, and MCP providers behind one discoverable surface while
+keeping credentials, connection state, and provider wiring out of agent prompts.
+MCP is an important Kater transport, not the whole product.
 
-```
+```text
   Agent (Cursor / Claude / ChatGPT / API)
   │
-  │  one MCP connection
-  │
   ▼
-┌─────────────────────────────────────┐
-│            KATER GATEWAY            │
-│                                     │
-│  KaterRuntime (ordered lifecycle)   │
-│   ├─ REST API  (RouteTable pipeline)│
-│   ├─ MCP / SSE (FastMCP + authgate) │
-│   └─ WebSocket (telemetry stream)   │
-│                                     │
-│  authgate · CORS · Rate Limit · DB  │
-│  ProxyManager → stdio / SSE backends│
-│                                     │
-│   Native  +  GitHub + Sentry + CF   │
-│   (local)   (stdio)   (SSE)  (stdio)│
-│              + 29 more servers      │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│                 KATER                       │
+│                                             │
+│  Toolkits       integrations      plugins   │
+│  GitHub         auth/bindings      bundles  │
+│  Linear         API/MCP/bridge     extension│
+│  Cloudflare     health/status      registry │
+│                                             │
+│  discovery · profiles · audit · telemetry  │
+│                                             │
+│  Surfaces: MCP · REST · CLI · WebSocket    │
+└─────────────────────────────────────────────┘
 ```
+
+## Product model
+
+- **Toolkit** — an agent-facing capability bundle such as GitHub, Linear, or Cloudflare.
+- **Integration** — the concrete provider binding/adapter behind a toolkit, including auth and health.
+- **Plugin** — an installable bundle that can contribute toolkits, capabilities, and provider wiring.
+- **MCP** — one transport and exposure surface for Kater; providers may also use HTTP, native, or bridge transports.
+
+The product catalog is available at `/api/fabric` and can be filtered into
+`/api/toolkits`, `/api/integrations`, `/api/plugins`, and `/api/mcp/catalog`.
+These rich catalog routes require unrestricted capability discovery; capability-restricted
+callers receive `403` and retain access to the existing capability-filtered discovery
+and invocation APIs. The `q` and `profile` parameters filter the view, not authorization.
+Catalog metadata excludes launch arguments, environment/header templates and credential
+references. HTTP endpoint and homepage URLs expose only their origin, without userinfo,
+paths, queries or fragments.
+Existing connector and MCP-server APIs remain compatible.
 
 ## Quick Start
 
@@ -66,15 +79,17 @@ Client-side multi-server configs remain available via `kater config --profile op
 
 ## What It Does
 
-- **Unified MCP surface**: proxy 29+ MCP servers behind one endpoint
+- **Toolkit catalog**: discover agent-facing provider capability bundles
+- **Integration catalog**: separate provider availability from concrete connection readiness
+- **Plugin catalog**: group built-in and extension-provided toolkits into installable bundles
+- **Unified MCP surface**: proxy 29+ MCP servers behind one endpoint when MCP is the chosen transport
+- **Capability discovery**: search machine-readable capabilities without loading every schema into context
 - **Profile gating**: expose only the tools relevant to the current task
 - **Web dashboard**: routing table, server catalog, evals, deploy configs
-- **REST API**: 25+ endpoints with OpenAPI spec at `/api/spec`
-- **WebSocket**: real-time telemetry and server state changes
-- **Auth**: API key or OAuth2 with PKCE (ChatGPT compatible)
+- **REST API**: product catalog, capability, connector, and operational endpoints with OpenAPI at `/api/spec`
+- **Auth and connections**: API key/OAuth2 with PKCE plus secret references and provider bindings
 - **Telemetry**: SQLite-backed tool call tracking, success rates, latency
 - **Deploy**: Docker, Cloudflare Tunnel, Tailscale Funnel, systemd, K8s, stdio
-- **Self-managed**: enable/disable servers at runtime, no restart needed
 
 ## CLI Commands
 
@@ -84,6 +99,10 @@ Client-side multi-server configs remain available via `kater config --profile op
 | `kater up` | Init + Cursor MCP config + start gateway |
 | `kater status` | Live instance overview |
 | `kater doctor` | Diagnostics + autofix |
+| `kater catalog` | Browse toolkits, integrations, plugins, and MCP surfaces |
+| `kater toolkits` | List agent-facing capability bundles |
+| `kater integrations` | List provider bindings and connection readiness |
+| `kater plugins` | List installed plugin bundles |
 | `kater mcp list` | Browse all 29 MCP servers |
 | `kater mcp status <name>` | Server detail with launch config |
 | `kater connector add connector.json` | Register a new dynamic connector (disabled by default) |
@@ -250,6 +269,14 @@ See [docs/deploy-server.md](docs/deploy-server.md) and [SECURITY.md](SECURITY.md
 Org-specific profiles and adapters can live in a separate private repo and load at
 runtime via `KATER_EXTENSIONS_MODULE` (see `src/kater/extensions.py` and
 [docs/ops/private-overlays.md](docs/ops/private-overlays.md)).
+
+With `KATER_PUBLIC=1` (also `true`, `yes`, or `on`), catalog endpoints omit
+sources and persisted connectors scoped only to `PRIVATE_PROFILES`. Persisted
+records cannot reintroduce a hidden source. Mixed-profile entries retain only
+their public profile names. Plugin catalogs apply the same visibility rule to
+profiles and toolkit references; private-only bundles are omitted. Non-public
+deployments retain the complete catalog. This presentation filter does not
+replace capability authorization.
 
 ```bash
 export KATER_EXTENSIONS_MODULE=your_package.extensions

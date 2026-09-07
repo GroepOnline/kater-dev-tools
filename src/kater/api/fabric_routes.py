@@ -10,7 +10,12 @@ from __future__ import annotations
 from typing import Any
 
 from kater.api.models import Request, Response, route
-from kater.authgate import RequestIdentity, capability_allowed, resolve_request_identity
+from kater.authgate import (
+    RequestIdentity,
+    capability_allowed,
+    get_request_identity,
+    resolve_request_identity,
+)
 from kater.capabilities.audit import list_audited_capabilities, query_capability_audit
 from kater.capabilities.discovery import discover
 from kater.capabilities.models import CapabilityManifest, DiscoveryContext, RiskClass
@@ -363,8 +368,7 @@ def _identity_can_delegate_record(identity: RequestIdentity, record: Any) -> boo
     if not record.allowed_capabilities:
         return False
     return all(
-        capability_allowed(capability, allowed)
-        for capability in record.allowed_capabilities
+        capability_allowed(capability, allowed) for capability in record.allowed_capabilities
     )
 
 
@@ -650,3 +654,135 @@ def _capability_audit_list(req: Request) -> Response:
 
 # Register usage ledger routes without a circular ``from kater.api import …``.
 import kater.api.usage_routes as _usage_routes  # noqa: E402, F401
+
+
+# Product-facing catalog: MCP is a transport/surface, integrations are concrete
+# provider bindings, plugins are installable extension bundles, and toolkits are
+# agent-facing capability bundles. Existing connector/capability APIs remain valid.
+def _catalog_response(req: Request, kind: str | None = None) -> Response:
+    from kater.fabric_catalog import CatalogKind, catalog_payload
+
+    identity = get_request_identity()
+    if identity.allowed_capabilities is not None:
+        return Response.json(
+            403,
+            {
+                "error": "Catalog metadata requires unrestricted capability discovery",
+                "code": "capability_denied",
+            },
+        )
+
+    requested = kind or (req.query1("kind") or "").strip().lower()
+    parsed_kind = None
+    if requested:
+        try:
+            parsed_kind = CatalogKind(requested)
+        except ValueError:
+            return Response.json(
+                400,
+                {"error": f"unknown catalog kind: {requested}"},
+            )
+    return Response.json(
+        200,
+        catalog_payload(
+            query=req.query1("q") or "",
+            profile=req.query1("profile") or "",
+            kind=parsed_kind,
+        ),
+    )
+
+
+@route("GET", "/api/fabric")
+def _fabric_catalog(req: Request) -> Response:
+    return _catalog_response(req)
+
+
+@route("GET", "/api/toolkits")
+def _toolkits_catalog(req: Request) -> Response:
+    return _catalog_response(req, "toolkit")
+
+
+@route("GET", "/api/integrations")
+def _integrations_catalog(req: Request) -> Response:
+    return _catalog_response(req, "integration")
+
+
+@route("GET", "/api/plugins")
+def _plugins_catalog(req: Request) -> Response:
+    return _catalog_response(req, "plugin")
+
+
+@route("GET", "/api/mcp/catalog")
+def _mcp_catalog(req: Request) -> Response:
+    return _catalog_response(req, "mcp")
+
+
+_CATALOG_RESPONSE = {
+    "200": {
+        "description": "Kater product catalog view.",
+        "content": {"application/json": {"schema": {"type": "object"}}},
+    },
+    "403": {"description": "Rich catalog discovery requires unrestricted capabilities."},
+}
+
+_CATALOG_FILTER_PARAMETERS = [
+    {"name": "q", "in": "query", "required": False, "schema": {"type": "string"}},
+    {
+        "name": "profile",
+        "in": "query",
+        "required": False,
+        "description": "Catalog view filter, not an authorization grant.",
+        "schema": {"type": "string"},
+    },
+]
+
+FABRIC_OPENAPI_PATHS.update(
+    {
+        "/api/fabric": {
+            "get": {
+                "summary": "Browse Kater toolkits, integrations, plugins, and MCP surfaces",
+                "parameters": [
+                    {
+                        "name": "kind",
+                        "in": "query",
+                        "required": False,
+                        "schema": {
+                            "type": "string",
+                            "enum": ["toolkit", "integration", "plugin", "mcp"],
+                        },
+                    },
+                    *_CATALOG_FILTER_PARAMETERS,
+                ],
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/toolkits": {
+            "get": {
+                "summary": "List Kater toolkits",
+                "parameters": _CATALOG_FILTER_PARAMETERS,
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/integrations": {
+            "get": {
+                "summary": "List Kater integrations",
+                "parameters": _CATALOG_FILTER_PARAMETERS,
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/plugins": {
+            "get": {
+                "summary": "List Kater plugins",
+                "parameters": _CATALOG_FILTER_PARAMETERS,
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/mcp/catalog": {
+            "get": {
+                "summary": "List Kater MCP surfaces",
+                "parameters": _CATALOG_FILTER_PARAMETERS,
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+    }
+)

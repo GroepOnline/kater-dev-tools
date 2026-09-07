@@ -1,12 +1,12 @@
 [project]
 name = "kater"
 version = "1.1.1"
-description = "Developer MCP gateway with profile-gated tools for code agents"
+description = "Agent capability fabric for toolkits, integrations, plugins, and MCP"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11,<3.15"
 authors = [{ name = "GroepOnline contributors" }]
-keywords = ["mcp", "gateway", "agents", "cursor", "devtools"]
+keywords = ["agents", "toolkits", "integrations", "plugins", "mcp", "gateway"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

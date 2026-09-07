@@ -18,6 +18,8 @@ This record summarizes the read-only triage of 21 unmerged remote branches again
 | Total | 21 | Complete triage set |
 
 The three land candidates were opened as PRs #76, #78, and #79. This triage note is PR #77.
+An earlier closed documentation PR (#55) did not merge; its sanitized public runbook
+recovery landed instead as #76.
 
 ## Land candidates
 
@@ -78,10 +80,29 @@ The archive count above records the original disposition, not 18 proofs of
 complete semantic equivalence. Recovery work still needs exact-head CI and
 independent approval; this follow-up does not claim that recovery has landed.
 
+## Status refresh — 2026-09-07
+
+After merging current `main` (`771985bb88361d50cc4a0647da565ad60fbbafa0`) into
+this branch, the land-PR disposition is:
+
+| PR | Outcome | Notes |
+| --- | --- | --- |
+| #76 | Merged | Public private-overlay gateway operations runbook |
+| #78 | Merged | Dashboard profile recovery |
+| #79 | Closed (superseded) | Browser loading feedback already on `main` via #75 (`a712396`) |
+| #55 | Closed (unmerged) | Superseded by the sanitized public runbook in #76 |
+| #77 | Open | This documentation record |
+
+Remaining open pull requests at this refresh (excluding dependency bots unless
+listed): #82 (backup restore validation), #83 (capability catalog), #84 and #85
+(dependency updates), #86 (auto-merge policy), and this #77.
+
+The restore-safety recovery called out above is tracked separately as #82.
+
 ## Merge order
 
-1. Land the two independent dashboard fixes one at a time, rebasing the second if `main` moves.
-2. Land the sanitized public runbook once the leak guard and CI are green.
+1. ~~Land the two independent dashboard fixes one at a time, rebasing the second if `main` moves.~~ Done: profile recovery via #78; browser loading was already on `main` via #75, so #79 closed as superseded.
+2. ~~Land the sanitized public runbook once the leak guard and CI are green.~~ Done via #76 (superseding the earlier closed #55 attempt).
 3. Land this documentation record after the resulting `main` state is stable.
 4. Remote branch deletion, if desired later, is a separate cleanup action and should happen only after confirming the archive tags exist.
 

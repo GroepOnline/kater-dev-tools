@@ -8,7 +8,7 @@ integrations, plugins, and MCP providers behind one discoverable surface while
 keeping credentials, connection state, and provider wiring out of agent prompts.
 MCP is an important Kater transport, not the whole product.
 
-```
+```text
   Agent (Cursor / Claude / ChatGPT / API)
   │
   ▼
@@ -33,8 +33,14 @@ MCP is an important Kater transport, not the whole product.
 - **Plugin** — an installable bundle that can contribute toolkits, capabilities, and provider wiring.
 - **MCP** — one transport and exposure surface for Kater; providers may also use HTTP, native, or bridge transports.
 
-The public catalog is available at `/api/fabric` and can be filtered into
+The product catalog is available at `/api/fabric` and can be filtered into
 `/api/toolkits`, `/api/integrations`, `/api/plugins`, and `/api/mcp/catalog`.
+These rich catalog routes require unrestricted capability discovery; capability-restricted
+callers receive `403` and retain access to the existing capability-filtered discovery
+and invocation APIs. The `q` and `profile` parameters filter the view, not authorization.
+Catalog metadata excludes launch arguments, environment/header templates and credential
+references. HTTP endpoint and homepage URLs expose only their origin, without userinfo,
+paths, queries or fragments.
 Existing connector and MCP-server APIs remain compatible.
 
 ## Quick Start

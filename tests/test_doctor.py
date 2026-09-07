@@ -160,6 +160,7 @@ def test_doctor_ops_adapter_ready_when_linear_and_sentry_configured(monkeypatch,
 
 def test_browser_lane_unsupported_when_not_expected(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("kater.doctor.socket.gethostname", lambda: "generic-test-host")
     monkeypatch.delenv("KATER_BROWSER_ENABLE", raising=False)
     monkeypatch.delenv("KATER_BROWSER_CDP_URL", raising=False)
     monkeypatch.delenv("KATER_BROWSER_STEEL_URL", raising=False)

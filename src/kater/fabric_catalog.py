@@ -8,9 +8,11 @@ them: Kater can converge its public model without a flag-day rewrite.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
+from urllib.parse import urlsplit
 
 from kater.connect import source_is_configured
 from kater.connectors.auth import binding_is_satisfied
@@ -93,6 +95,27 @@ def _source_status(source: ToolSource, connectors: dict[str, ConnectorRecord]) -
     return record.status.value if record is not None else "available"
 
 
+def _catalog_url_metadata(key: str, value: str | None) -> dict[str, str]:
+    """Expose only HTTP origins, never credential-bearing endpoint configuration."""
+    if not value or any(char.isspace() or ord(char) < 32 for char in value):
+        return {}
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or not hostname:
+            return {}
+        host = hostname.encode("idna").decode("ascii")
+        if not re.fullmatch(r"[a-zA-Z0-9.:-]+", host):
+            return {}
+        port = parsed.port
+    except (ValueError, UnicodeError):
+        return {}
+    authority = f"[{host}]" if ":" in host else host
+    if port is not None:
+        authority = f"{authority}:{port}"
+    return {key: f"{parsed.scheme}://{authority}"}
+
+
 def toolkit_items() -> list[CatalogItem]:
     settings = load_settings()
     connectors = _connector_map()
@@ -115,7 +138,7 @@ def toolkit_items() -> list[CatalogItem]:
                 status=_source_status(source, connectors),
                 origin="builtin" if _plugin_id_for_source(source) == "kater-core" else "extension",
                 metadata={
-                    "homepage": source.homepage,
+                    **_catalog_url_metadata("homepage", source.homepage),
                     "risk": source.risk.value,
                     "context_cost": source.context_cost,
                     "has_mcp_surface": source.mcp is not None,
@@ -154,7 +177,6 @@ def integration_items() -> list[CatalogItem]:
                 metadata={
                     "connector_type": record.type.value,
                     "auth_binding_kind": record.auth_binding.kind.value,
-                    "auth_binding_ref": record.auth_binding.ref,
                 },
             )
         )
@@ -190,7 +212,6 @@ def mcp_items() -> list[CatalogItem]:
         if source.mcp is None:
             continue
         seen.add(source.name)
-        mcp = source.mcp.model_dump()
         items.append(
             CatalogItem(
                 id=f"mcp:{source.name}",
@@ -204,7 +225,7 @@ def mcp_items() -> list[CatalogItem]:
                 configured=source_is_configured(source, settings),
                 status=_source_status(source, connectors),
                 origin="builtin" if _plugin_id_for_source(source) == "kater-core" else "extension",
-                metadata={"mcp": mcp},
+                metadata=_catalog_url_metadata("endpoint", source.mcp.url),
             )
         )
     for record in connectors.values():
@@ -226,7 +247,7 @@ def mcp_items() -> list[CatalogItem]:
                 status=record.status.value,
                 origin=record.origin,
                 metadata={
-                    "endpoint": record.transport.endpoint,
+                    **_catalog_url_metadata("endpoint", record.transport.endpoint),
                     "connector_type": record.type.value,
                 },
             )

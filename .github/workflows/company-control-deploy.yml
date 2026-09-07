@@ -1,6 +1,10 @@
 name: Company-control deploy
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       sha:
@@ -17,17 +21,22 @@ concurrency:
 
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: [self-hosted, Linux, X64, company-control]
     timeout-minutes: 20
+    env:
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.sha }}
     steps:
       - name: Checkout deployment controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Validate deploy configuration
         env:
-          DEPLOY_SHA: ${{ inputs.sha }}
           DEPLOY_TARGET: ${{ vars.KATER_DEPLOY_TARGET }}
           DEPLOY_SERVICE: ${{ vars.KATER_DEPLOY_SERVICE }}
         run: |
@@ -38,21 +47,25 @@ jobs:
           git fetch origin main
           git cat-file -e "$DEPLOY_SHA^{commit}"
           git merge-base --is-ancestor "$DEPLOY_SHA" origin/main
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+            [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]
+            [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]
+          fi
 
-      - name: Deploy exact SHA with rollback
+      - name: Deploy exact SHA with rollback snapshot
         env:
-          KATER_DEPLOY_SHA: ${{ inputs.sha }}
+          KATER_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
           KATER_DEPLOY_TARGET: ${{ vars.KATER_DEPLOY_TARGET }}
           KATER_DEPLOY_SERVICE: ${{ vars.KATER_DEPLOY_SERVICE }}
           KATER_DEPLOY_API_PORT: ${{ vars.KATER_DEPLOY_API_PORT }}
         run: ./scripts/deploy-company-control.sh
 
-      - name: Record deployed SHA
-        env:
-          DEPLOY_SHA: ${{ inputs.sha }}
+      - name: Record deployment transaction
         run: |
           {
             echo "## Company-control deploy"
             echo
-            echo "Deployed \`$DEPLOY_SHA\` after health-gated cutover."
+            echo "Deployed \`$DEPLOY_SHA\` after green main CI and health-gated cutover."
+            echo
+            echo "Rollback state is retained by the deploy controller under the Kater state directory."
           } >> "$GITHUB_STEP_SUMMARY"

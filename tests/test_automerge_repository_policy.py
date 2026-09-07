@@ -13,6 +13,15 @@ WORKFLOW = ROOT / ".github/workflows/automerge.yml"
 
 
 def _run_script(scenario: dict[str, object]) -> dict[str, object]:
+    """
+    Execute the workflow's auto-merge script against a mocked GitHub environment.
+    
+    Parameters:
+    	scenario (dict[str, object]): Repository state, pull-request state, and optional API errors to simulate.
+    
+    Returns:
+    	dict[str, object]: Captured API calls, notices, informational messages, and error details.
+    """
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     step = next(
         step

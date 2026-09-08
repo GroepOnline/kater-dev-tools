@@ -23,7 +23,9 @@ jobs:
   deploy:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: [self-hosted, Linux, X64, company-control]
     timeout-minutes: 20
     env:
@@ -56,6 +58,7 @@ jobs:
           resolved="$(git rev-parse "$requested^{commit}")"
           [[ "$resolved" =~ ^[0-9a-f]{40}$ ]]
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+            [[ "${{ github.event.workflow_run.event }}" == "push" ]]
             [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]
             [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]
           fi

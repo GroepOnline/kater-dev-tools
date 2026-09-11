@@ -16,7 +16,6 @@ from kater.connect import source_is_configured
 from kater.connectors.auth import binding_is_satisfied
 from kater.connectors.models import ConnectorRecord, ConnectorType
 from kater.connectors.store import list_connectors
-from kater.extensions import extension_attr
 from kater.profiles import TOOL_SOURCES, ToolSource, visible_tool_sources
 from kater.settings import load_settings
 
@@ -234,90 +233,30 @@ def mcp_items() -> list[CatalogItem]:
     return items
 
 
-def _extension_plugin_items() -> list[CatalogItem]:
-    raw_plugins = tuple(extension_attr("PLUGINS", ()))
+def plugin_items() -> list[CatalogItem]:
+    from kater.plugins import list_plugin_manifests
+
     items: list[CatalogItem] = []
-    for raw in raw_plugins:
-        if isinstance(raw, dict):
-            data = raw
-        elif hasattr(raw, "__dataclass_fields__") and not isinstance(raw, type):
-            data = {name: getattr(raw, name) for name in raw.__dataclass_fields__}
-        elif hasattr(raw, "as_dict"):
-            data = raw.as_dict()
-        else:
-            data = getattr(raw, "__dict__", {})
-        plugin_id = str(data.get("id") or data.get("name") or "").strip()
-        if not plugin_id:
-            continue
-        toolkits = tuple(sorted(str(item) for item in data.get("toolkits", ())))
+    for manifest in list_plugin_manifests():
         items.append(
             CatalogItem(
-                id=f"plugin:{plugin_id}",
-                name=str(data.get("name") or plugin_id),
+                id=f"plugin:{manifest.id}",
+                name=manifest.name,
                 kind=CatalogKind.PLUGIN,
-                description=str(data.get("description") or ""),
-                plugin_id=plugin_id,
-                profiles=tuple(sorted(str(item) for item in data.get("profiles", ()))),
-                capabilities=toolkits,
-                status=str(data.get("status") or "installed"),
-                origin=str(data.get("origin") or "extension"),
+                description=manifest.description,
+                plugin_id=manifest.id,
+                profiles=manifest.profiles,
+                capabilities=manifest.toolkits,
+                status=manifest.status,
+                origin=manifest.origin,
                 metadata={
-                    "version": str(data.get("version") or ""),
-                    "toolkits": list(toolkits),
+                    "version": manifest.version,
+                    "publisher": manifest.publisher,
+                    "homepage": manifest.homepage,
+                    "toolkits": list(manifest.toolkits),
                 },
             )
         )
-    return items
-
-
-def plugin_items() -> list[CatalogItem]:
-    from kater import __version__
-
-    builtin_sources = tuple(source for source in TOOL_SOURCES if source.transport.value != "native")
-    builtin_toolkits = tuple(sorted(source.name for source in builtin_sources))
-    builtin_profiles = tuple(
-        sorted({profile for source in builtin_sources for profile in source.profiles})
-    )
-    items = [
-        CatalogItem(
-            id="plugin:kater-core",
-            name="Kater Core",
-            kind=CatalogKind.PLUGIN,
-            description="Built-in Kater toolkit, integration, and MCP providers.",
-            plugin_id="kater-core",
-            profiles=builtin_profiles,
-            capabilities=builtin_toolkits,
-            status="installed",
-            origin="builtin",
-            metadata={"version": __version__, "toolkits": list(builtin_toolkits)},
-        )
-    ]
-    extension_plugins = _extension_plugin_items()
-    items.extend(extension_plugins)
-    if not extension_plugins:
-        module = os.environ.get("KATER_EXTENSIONS_MODULE", "").strip()
-        if module:
-            builtin_names = {source.name for source in TOOL_SOURCES}
-            extension_toolkits = tuple(
-                sorted(
-                    source.name
-                    for source in visible_tool_sources()
-                    if source.name not in builtin_names and source.transport.value != "native"
-                )
-            )
-            items.append(
-                CatalogItem(
-                    id=f"plugin:{module}",
-                    name=module,
-                    kind=CatalogKind.PLUGIN,
-                    description="Implicit Kater extension plugin.",
-                    plugin_id=module,
-                    capabilities=extension_toolkits,
-                    status="installed",
-                    origin="extension",
-                    metadata={"toolkits": list(extension_toolkits)},
-                )
-            )
     return items
 
 

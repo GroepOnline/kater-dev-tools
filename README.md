@@ -30,12 +30,15 @@ MCP is an important Kater transport, not the whole product.
 
 - **Toolkit** — an agent-facing capability bundle such as GitHub, Linear, or Cloudflare.
 - **Integration** — the concrete provider binding/adapter behind a toolkit, including auth and health.
-- **Plugin** — an installable bundle that can contribute toolkits, capabilities, and provider wiring.
+- **Connection** — one configured account/tenant for an integration; multiple accounts may coexist.
+- **Plugin** — a versioned manifest/bundle that can contribute toolkits, capabilities, and provider wiring.
 - **MCP** — one transport and exposure surface for Kater; providers may also use HTTP, native, or bridge transports.
 
 The public catalog is available at `/api/fabric` and can be filtered into
 `/api/toolkits`, `/api/integrations`, `/api/plugins`, and `/api/mcp/catalog`.
-Existing connector and MCP-server APIs remain compatible.
+Configured accounts are listed separately at `/api/connections`. Integration
+credential/OAuth/connection routes live under `/api/integrations/{name}/...`;
+the existing MCP-server routes remain compatible aliases.
 
 ## Quick Start
 
@@ -97,6 +100,7 @@ Client-side multi-server configs remain available via `kater config --profile op
 | `kater toolkits` | List agent-facing capability bundles |
 | `kater integrations` | List provider bindings and connection readiness |
 | `kater plugins` | List installed plugin bundles |
+| `kater connections` | List configured provider accounts without secrets |
 | `kater mcp list` | Browse all 29 MCP servers |
 | `kater mcp status <name>` | Server detail with launch config |
 | `kater connector add connector.json` | Register a new dynamic connector (disabled by default) |

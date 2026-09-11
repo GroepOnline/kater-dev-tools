@@ -6,7 +6,7 @@ export function useAutomationsData() {
   const [data, setData] = useState<AutomationsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set());
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -21,15 +21,18 @@ export function useAutomationsData() {
   }, []);
 
   const mutate = useCallback(async (id: string, action: () => Promise<unknown>) => {
-    setPendingId(id);
+    setPendingIds(current => new Set(current).add(id));
     try {
       await action();
       await refresh();
-      setError(null);
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setPendingId(null);
+      setPendingIds(current => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
     }
   }, [refresh]);
 
@@ -38,5 +41,5 @@ export function useAutomationsData() {
   const saveSchedule = useCallback((id: string, scheduleSeconds: number) => mutate(id, () => katerApi.automationPatch(id, { schedule_seconds: scheduleSeconds })), [mutate]);
 
   useEffect(() => { void refresh(); }, [refresh]);
-  return { data, error, loading, pendingId, refresh, runNow, setEnabled, saveSchedule };
+  return { data, error, loading, pendingIds, refresh, runNow, setEnabled, saveSchedule };
 }

@@ -38,7 +38,7 @@ export function AgentsView({ status }: { status: StatusResponse | null }) {
       <div className="agent-console-body">
         {events.map(event => <AgentEventLine key={String(event.id)} event={event} />)}
         {loading && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>Reading Kater telemetry…</strong><small>runtime</small></span></div>}
-        {!loading && events.length === 0 && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>No persisted runtime events.</strong><small>Kater</small></span></div>}
+        {!loading && !error && events.length === 0 && <div className="agent-runtime-event"><span className="agent-runtime-dot" aria-hidden>•</span><span className="agent-runtime-copy"><strong>No persisted runtime events.</strong><small>Kater</small></span></div>}
       </div>
     </article>
     <div className="agent-binding-note">

@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/home/joep/Code/GroepOnline/kater-dev-tools/worktrees/kater-studio-salvage-20260831/.codex/hooks/fetch-cursor-artifacts.sh'",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/home/joep/Code/GroepOnline/kater-dev-tools/worktrees/kater-studio-salvage-20260831/.codex/hooks/fetch-cursor-artifacts.sh'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/home/joep/Code/GroepOnline/kater-dev-tools/worktrees/kater-studio-salvage-20260831/.codex/hooks/fetch-cursor-artifacts.sh'",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

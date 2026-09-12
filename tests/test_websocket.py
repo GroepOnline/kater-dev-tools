@@ -11,6 +11,7 @@ import time
 
 import pytest
 
+from kater.settings import settings_path
 from kater.websocket import (
     WS_GUID,
     broadcast,
@@ -18,6 +19,7 @@ from kater.websocket import (
     connected_clients_count,
     create_ws_server,
 )
+from tests.portutil import free_port
 
 
 def _ws_handshake(sock: socket.socket) -> str:
@@ -120,6 +122,48 @@ def test_websocket_handshake(ws_server) -> None:
     ).decode()
     assert expected in response
     sock.close()
+
+
+def test_websocket_upgrade_malformed_resource_auth_is_a_redacted_503(monkeypatch, tmp_path) -> None:
+    secret = "persisted-websocket-resource-auth-secret"
+    monkeypatch.chdir(tmp_path)
+    path = settings_path()
+    path.parent.mkdir()
+    path.write_text(json.dumps({"resource_auth": {"enabled": True, "issuer": secret}}))
+    server = create_ws_server("127.0.0.1", free_port())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2)
+    try:
+        sock.connect(("127.0.0.1", server.server_port))
+        sock.sendall(
+            b"GET /ws HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Upgrade: websocket\r\n"
+            b"Connection: Upgrade\r\n"
+            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+            b"Sec-WebSocket-Version: 13\r\n\r\n"
+        )
+        response = bytearray()
+        while True:
+            try:
+                chunk = sock.recv(4096)
+            except TimeoutError:
+                break
+            if not chunk:
+                break
+            response.extend(chunk)
+    finally:
+        sock.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert response.startswith(b"HTTP/1.0 503")
+    _, body = bytes(response).split(b"\r\n\r\n", 1)
+    assert json.loads(body) == {"error": "resource_auth_configuration_error"}
+    assert secret.encode() not in response
 
 
 def test_websocket_ping_command(ws_server) -> None:

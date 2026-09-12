@@ -188,13 +188,19 @@ def load_settings(project_dir: Path | None = None) -> KaterSettings:
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            # A present but unreadable settings file may contain an enabled
+            # resource-auth contract. Never replace that contract with the
+            # disabled default merely because it cannot be parsed.
+            raise ResourceAuthConfigurationError() from None
+        try:
             settings = KaterSettings.from_dict(data)
         except ValidationError:
             if isinstance(data, dict) and "resource_auth" in data:
                 # An invalid resource contract must never silently become disabled.
                 raise ResourceAuthConfigurationError() from None
             settings = _settings_from_env()
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:
             settings = _settings_from_env()
     else:
         settings = _settings_from_env()

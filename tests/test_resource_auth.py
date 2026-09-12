@@ -99,6 +99,29 @@ def test_invalid_persisted_contract_does_not_fall_back_to_disabled(tmp_path):
         load_settings(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b'{"resource_auth": {"enabled": true',
+        b'{"resource_auth": {"enabled": true}}\xff',
+    ],
+    ids=["truncated-json", "invalid-utf8"],
+)
+def test_unreadable_persisted_settings_do_not_disable_resource_auth(tmp_path, contents):
+    path = settings_path(tmp_path)
+    path.parent.mkdir()
+    path.write_bytes(contents)
+
+    with pytest.raises(ResourceAuthConfigurationError) as error:
+        load_settings(tmp_path)
+
+    assert error.value.code == "resource_auth_configuration_error"
+
+
+def test_missing_persisted_settings_still_initializes_defaults(tmp_path):
+    assert load_settings(tmp_path).resource_auth == ResourceAuthConfig()
+
+
 def test_other_invalid_settings_cannot_disable_an_enabled_contract(tmp_path, config):
     path = settings_path(tmp_path)
     path.parent.mkdir()
@@ -111,6 +134,41 @@ def _persist_malformed_resource_auth(tmp_path, *, secret: str) -> None:
     path = settings_path(tmp_path)
     path.parent.mkdir()
     path.write_text(json.dumps({"resource_auth": {"enabled": True, "issuer": secret}}))
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b'{"resource_auth": {"enabled": true',
+        b'{"resource_auth": {"enabled": true}}\xff',
+    ],
+    ids=["truncated-json", "invalid-utf8"],
+)
+def test_gateway_rejects_unreadable_resource_auth_settings_with_redacted_503(
+    tmp_path, monkeypatch, contents
+):
+    monkeypatch.chdir(tmp_path)
+    path = settings_path(tmp_path)
+    path.parent.mkdir()
+    path.write_bytes(contents)
+    monkeypatch.setattr(
+        "kater.api.server._get_rate_limiter", lambda: MagicMock(check=lambda _: True)
+    )
+
+    response = handle(
+        Request(
+            method="GET",
+            path="/api/profiles",
+            query={},
+            headers={},
+            raw_body=b"",
+            client_ip="127.0.0.1",
+            base_url="http://127.0.0.1",
+        )
+    )
+
+    assert response.status == 503
+    assert response.payload == {"error": "resource_auth_configuration_error"}
 
 
 def test_gateway_configuration_errors_are_redacted_at_auth_and_body_size_boundaries(

@@ -61,7 +61,9 @@ class ActorIdentity:
         }
 
     @classmethod
-    def from_mapping(cls, data: dict[str, Any] | None, *, default_actor: str = "anonymous") -> ActorIdentity:
+    def from_mapping(
+        cls, data: dict[str, Any] | None, *, default_actor: str = "anonymous"
+    ) -> ActorIdentity:
         if not data:
             return cls(actor_id=default_actor)
         return cls(
@@ -180,7 +182,8 @@ def new_ids(policy: PolicyContext) -> tuple[str, str]:
     return run_id, trace_id
 
 
-def action_is_dangerous(action: str, *, mutation: bool = False) -> bool:  # noqa: ARG001
+def action_is_dangerous(action: str, *, mutation: bool = False) -> bool:
+    _ = mutation
     tokens = {part.lower() for part in action.split(".") if part}
     return bool(tokens & _DANGEROUS_TOKENS)
 
@@ -272,7 +275,8 @@ def lookup_idempotency(key: str, fingerprint: str) -> dict[str, Any] | None:
         row = (
             _get_db()
             .execute(
-                "SELECT fingerprint, result_json FROM execution_idempotency WHERE idempotency_key = ?",
+                "SELECT fingerprint, result_json FROM execution_idempotency"
+                " WHERE idempotency_key = ?",
                 (key,),
             )
             .fetchone()

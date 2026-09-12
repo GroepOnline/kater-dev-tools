@@ -410,7 +410,7 @@ def _matches(item: CatalogItem, *, query: str, profile: str) -> bool:
 
 def connection_items() -> list[CatalogItem]:
     items: list[CatalogItem] = []
-    for view in list_connection_views():
+    for view in list_connection_views(records=_connector_map()):
         items.append(
             CatalogItem(
                 id=f"connection:{view.id}",

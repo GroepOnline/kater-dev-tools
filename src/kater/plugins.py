@@ -25,8 +25,12 @@ class PluginManifest:
             raise ValueError("plugin id is required")
         object.__setattr__(self, "id", plugin_id)
         object.__setattr__(self, "name", (self.name or plugin_id).strip() or plugin_id)
-        object.__setattr__(self, "toolkits", tuple(str(item) for item in self.toolkits if str(item)))
-        object.__setattr__(self, "profiles", tuple(str(item) for item in self.profiles if str(item)))
+        object.__setattr__(
+            self, "toolkits", tuple(str(item) for item in self.toolkits if str(item))
+        )
+        object.__setattr__(
+            self, "profiles", tuple(str(item) for item in self.profiles if str(item))
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {

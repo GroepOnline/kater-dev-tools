@@ -17,10 +17,10 @@ from kater.authgate import (
     resolve_request_identity,
 )
 from kater.capabilities.audit import list_audited_capabilities, query_capability_audit
-from kater.connections import get_connection_view
 from kater.capabilities.discovery import discover
 from kater.capabilities.models import CapabilityManifest, DiscoveryContext, RiskClass
 from kater.capabilities.registry import get_default_registry
+from kater.connections import get_connection_view
 from kater.control_plane import contexts as remote_contexts
 from kater.control_plane.tokens import token_expires_at
 

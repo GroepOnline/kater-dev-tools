@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from kater.connectors.auth import binding_is_satisfied
 from kater.connectors.models import (
+    AuthBindingKind,
     AuthBindingRef,
     ConnectorCapability,
     ConnectorRecord,
@@ -143,8 +144,15 @@ def _metadata_for(name: str) -> dict[str, str]:
 
 
 def _record_from_source(source: ToolSource) -> ConnectorRecord:
-    auth_binding = AuthBindingRef.from_env_names(source.env)
+    if source.name == "github":
+        auth_binding = AuthBindingRef(kind=AuthBindingKind.NONE)
+    else:
+        auth_binding = AuthBindingRef.from_env_names(source.env)
     env_ok = binding_is_satisfied(auth_binding, connector_id=source.name)
+    if source.name == "github":
+        env_ok = bool(source.env) and binding_is_satisfied(
+            AuthBindingRef.from_env_names(source.env), connector_id=source.name
+        )
     caps = _BUILTIN_CAPABILITIES.get(source.name, ())
     profiles = frozenset(source.profiles)
     if source.name in _IN_SCOPE:

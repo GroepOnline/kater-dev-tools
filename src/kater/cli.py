@@ -177,10 +177,7 @@ def _catalog_cli(kind: str | None, query: str, profile: str, json_output: bool) 
     from kater.connectors.seed import seed_builtin_connectors
     from kater.fabric_catalog import CatalogKind, catalog_payload
 
-    try:
-        seed_builtin_connectors()
-    except Exception:
-        pass
+    seed_builtin_connectors()
     parsed_kind = CatalogKind(kind) if kind else None
     payload = catalog_payload(query=query, profile=profile, kind=parsed_kind)
     if json_output:

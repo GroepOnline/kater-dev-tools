@@ -13,7 +13,13 @@ from kater.connect import list_connections, source_is_configured
 from kater.connectors.auth import binding_is_satisfied, missing_auth_names
 from kater.connectors.models import AuthBindingKind, ConnectorRecord
 from kater.connectors.store import get_connector, list_connectors
-from kater.profiles import ToolSource, visible_tool_sources
+from kater.profiles import (
+    ToolSource,
+    all_tool_sources,
+    is_private_source,
+    is_public_mode,
+    visible_tool_sources,
+)
 from kater.settings import load_settings
 
 
@@ -151,13 +157,28 @@ def _oauth_views(source: ToolSource) -> list[ConnectionView]:
     return views
 
 
-def list_connection_views() -> list[ConnectionView]:
+def _hidden_integration_ids() -> set[str]:
+    if not is_public_mode():
+        return set()
+    return {source.name for source in all_tool_sources() if is_private_source(source)}
+
+
+def list_connection_views(
+    records: dict[str, ConnectorRecord] | None = None,
+) -> list[ConnectionView]:
     """Return every default and saved connection without secret values."""
     sources = {source.name: source for source in visible_tool_sources()}
-    records = {record.id: record for record in list_connectors()}
+    if records is None:
+        try:
+            records = {record.id: record for record in list_connectors()}
+        except Exception:
+            records = {}
+    hidden = _hidden_integration_ids()
     views: list[ConnectionView] = []
     seen: set[str] = set()
     for integration_id in sorted(set(sources) | set(records)):
+        if integration_id in hidden:
+            continue
         source = sources.get(integration_id)
         record = records.get(integration_id)
         if source is not None and source.transport.value == "native" and record is None:

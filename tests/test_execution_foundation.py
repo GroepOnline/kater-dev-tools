@@ -61,7 +61,9 @@ def isolated(tmp_path, monkeypatch):
     reset_idempotency_cache()
 
 
-def _internal(connector_id: str = "demoexec", *, permission: PermissionLevel = PermissionLevel.WRITE):
+def _internal(
+    connector_id: str = "demoexec", *, permission: PermissionLevel = PermissionLevel.WRITE
+):
     return ConnectorRecord(
         id=connector_id,
         display_name=connector_id.title(),

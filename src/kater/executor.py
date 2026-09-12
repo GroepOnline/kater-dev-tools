@@ -535,7 +535,11 @@ def execute(
             error_code = last_error.code
             reason = redact_text(str(last_error))
             raise last_error
-        assert result is not None
+        if result is None:
+            raise ConnectorUnavailableError(
+                "action returned no result",
+                connector_id=integration_id,
+            )
         reason = f"connection={connection_id}"
         duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
         audit_id = _record_audit(
@@ -620,5 +624,5 @@ def execute(
             attempts=max(attempts, 1),
             extra={"profile": policy.profile, "context_id": policy.context_id},
         )
-        setattr(exc, "execution", failed.as_dict())
+        exc.execution = failed.as_dict()
         raise

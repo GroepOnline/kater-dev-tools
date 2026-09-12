@@ -737,6 +737,18 @@ def mcp_status_command(
 # ── serve (unified) ────────────────────────────────────────────────
 
 
+def _apply_mcp_credentials_or_exit() -> None:
+    """Apply MCP credentials or exit without exposing invalid persisted configuration."""
+    from kater.resource_auth import ResourceAuthConfigurationError
+    from kater.settings import load_settings
+
+    try:
+        load_settings().apply_credentials_to_env()
+    except ResourceAuthConfigurationError:
+        typer.echo(ResourceAuthConfigurationError.code, err=True)
+        raise typer.Exit(code=1) from None
+
+
 @app.command("serve")
 def serve_command(
     profile: Annotated[str, typer.Option("--profile", help="Profile to expose.")] = DEFAULT_PROFILE,
@@ -771,9 +783,8 @@ def serve_command(
 
     if mcp_only:
         from kater.mcp_server import serve
-        from kater.settings import load_settings
 
-        load_settings().apply_credentials_to_env()
+        _apply_mcp_credentials_or_exit()
         typer.echo(
             f"Kater MCP on http://{host}:{mcp_port}/sse (proxy={'on' if use_proxy else 'off'})"
         )
@@ -865,11 +876,10 @@ def mcp_serve_command(
     """Start the MCP SSE server (alias for `kater serve --mcp-only`)."""
     from kater.envfile import load_project_env, resolve_use_proxy
     from kater.mcp_server import serve
-    from kater.settings import load_settings
 
     load_project_env()
     os.environ["KATER_PROFILE"] = profile
-    load_settings().apply_credentials_to_env()
+    _apply_mcp_credentials_or_exit()
     serve(
         profile=profile,
         use_proxy=resolve_use_proxy(profile=profile),

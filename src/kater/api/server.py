@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 # This import MUST happen before any call to handle(); it is safe at module
 # level because routes.py only uses lazy imports for heavy dependencies.
 from kater.api.models import ROUTER, Request, Response
+from kater.resource_auth import ResourceAuthConfigurationError
 from kater.settings import (
     RateLimiter,
     cors_allow_origin,
@@ -30,6 +31,11 @@ _log = logging.getLogger(__name__)
 # ── Rate limiter (module-level) ────────────────────────────────────
 
 _rate_limiter: RateLimiter | None = None
+
+
+def _resource_auth_configuration_response() -> Response:
+    """Return the fixed, non-sensitive response for invalid resource auth state."""
+    return Response.json(503, {"error": ResourceAuthConfigurationError.code})
 
 
 def _get_rate_limiter() -> RateLimiter:
@@ -77,21 +83,29 @@ def handle(request: Request) -> Response:
     matched_route, params = matched
     request.params = params
 
-    if matched_route.rate_limit and not _get_rate_limiter().check(request.client_ip):
-        return Response.json(429, {"error": "Rate limit exceeded. Try again later."})
+    if matched_route.rate_limit:
+        try:
+            rate_limited = not _get_rate_limiter().check(request.client_ip)
+        except ResourceAuthConfigurationError:
+            return _resource_auth_configuration_response()
+        if rate_limited:
+            return Response.json(429, {"error": "Rate limit exceeded. Try again later."})
 
     if not matched_route.public:
         from kater.authgate import AuthContext, authenticate
 
-        decision = authenticate(
-            AuthContext(
-                settings=load_settings(),
-                authorization_header=request.header("authorization"),
-                query_api_key=request.query1("api_key"),
-                path=request.path,
-                context_header=request.header("x-kater-context"),
+        try:
+            decision = authenticate(
+                AuthContext(
+                    settings=load_settings(),
+                    authorization_header=request.header("authorization"),
+                    query_api_key=request.query1("api_key"),
+                    path=request.path,
+                    context_header=request.header("x-kater-context"),
+                )
             )
-        )
+        except ResourceAuthConfigurationError:
+            return _resource_auth_configuration_response()
         if not decision.allowed:
             return Response.json(401, {"error": decision.error or "Unauthorized"})
     else:
@@ -110,6 +124,8 @@ def handle(request: Request) -> Response:
 
     try:
         return matched_route.handler(request)
+    except ResourceAuthConfigurationError:
+        return _resource_auth_configuration_response()
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})
     except Exception:
@@ -151,7 +167,12 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
             return None
         raw = b""
         if length:
-            if length > load_settings().body_size_limit:
+            try:
+                body_size_limit = load_settings().body_size_limit
+            except ResourceAuthConfigurationError:
+                self._write(_resource_auth_configuration_response())
+                return None
+            if length > body_size_limit:
                 self._write(Response.json(400, {"error": "Request body too large"}))
                 return None
             raw = self.rfile.read(length)
@@ -219,12 +240,17 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         # Apply rate limiting to OPTIONS (CORS preflight) to prevent DoS.
-        if _get_rate_limiter().check(
-            _resolve_client_ip(
-                self.headers.get("X-Forwarded-For", ""),
-                self.client_address[0] if self.client_address else "",
+        try:
+            allowed = _get_rate_limiter().check(
+                _resolve_client_ip(
+                    self.headers.get("X-Forwarded-For", ""),
+                    self.client_address[0] if self.client_address else "",
+                )
             )
-        ):
+        except ResourceAuthConfigurationError:
+            self._write(_resource_auth_configuration_response())
+            return
+        if allowed:
             self._write(Response.json(200, {"ok": True}))
         else:
             self._write(Response.json(429, {"error": "rate limit exceeded"}))
@@ -232,7 +258,12 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
     def _write(self, response: Response) -> None:
         body = response.encoded()
         origin = self.headers.get("Origin")
-        allow = cors_allow_origin(load_settings(), origin)
+        try:
+            allow = cors_allow_origin(load_settings(), origin)
+        except ResourceAuthConfigurationError:
+            # The error response itself must not re-open the broken settings
+            # boundary or reveal any persisted configuration in a CORS header.
+            allow = None
         self.send_response(response.status)
         self.send_header("Content-Type", response.content_type)
         self.send_header("Content-Length", str(len(body)))

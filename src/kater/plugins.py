@@ -95,10 +95,9 @@ def _core_manifest() -> PluginManifest:
         name="Kater Core",
         version=__version__,
         description="Built-in Kater toolkit, integration, and MCP providers.",
-        publisher="GroepOnline",
+        publisher="Kater",
         toolkits=toolkits,
         profiles=profiles,
-        homepage="https://github.com/GroepOnline/kater-dev-tools",
         status="installed",
         origin="builtin",
     )

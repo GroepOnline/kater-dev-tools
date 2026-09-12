@@ -9,12 +9,12 @@ plugin-id normalizer, deleted unused `get_connection_view`).
 
 ## Filed
 
-- P2 `src/kater/api/fabric_routes.py:792` — Agent tool missing for GET /api/connections surface — https://github.com/GroepOnline/kater-dev-tools/issues/96
-- P2 `src/kater/api/fabric_routes.py:812` — Agent tool missing for GET /api/plugins/{id} detail — https://github.com/GroepOnline/kater-dev-tools/issues/97
-- P2 `src/kater/connections.py:128` — Stored-but-unconfigured connection hides configured runtime env row — https://github.com/GroepOnline/kater-dev-tools/issues/98
-- P2 `src/kater/plugins.py:126` — Plugin IDs still disagree with fabric_catalog list IDs — https://github.com/GroepOnline/kater-dev-tools/issues/99
-- P3 `src/kater/api/fabric_routes.py:894` — Integration alias OpenAPI omits handler error responses — https://github.com/GroepOnline/kater-dev-tools/issues/100
-- P2/P3 `tests/test_connections_plugins.py` — Test gaps on landed connections/plugins surface — https://github.com/GroepOnline/kater-dev-tools/issues/101
+- P2 `src/kater/api/fabric_routes.py:792` — Agent tool missing for GET /api/connections surface — #96
+- P2 `src/kater/api/fabric_routes.py:812` — Agent tool missing for GET /api/plugins/{id} detail — #97
+- P2 `src/kater/connections.py:128` — Stored-but-unconfigured connection hides configured runtime env row — #98
+- P2 `src/kater/plugins.py:126` — Plugin IDs still disagree with fabric_catalog list IDs — #99
+- P3 `src/kater/api/fabric_routes.py:894` — Integration alias OpenAPI omits handler error responses — #100
+- P2/P3 `tests/test_connections_plugins.py` — Test gaps on landed connections/plugins surface — #101
 
 ## Failed
 

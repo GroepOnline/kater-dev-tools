@@ -2,7 +2,7 @@
 
 Lens: `docs/architecture/runtime-kronkel.md` +
 `docs/architecture/execution-foundation.md`.
-Head at review time: `0e04b66` (kronkel-docs + CodeFactor split).
+Head at review time: `eda7bb2` (merge-train plan + CodeFactor split).
 Train: slot 3 — `docs/merge-train-20260912.md`.
 
 ## Verdict

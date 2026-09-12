@@ -14,7 +14,7 @@ human APPROVE on the exact head SHA. This file is the plan, not a merge.
 | --- | --- | --- | --- |
 | 1 | [#103](https://github.com/GroepOnline/kater-dev-tools/pull/103) | `adac162` | **MERGE** — docs-only dashboard/frontend. Known erratum: Studio exists. |
 | 2 | [#105](https://github.com/GroepOnline/kater-dev-tools/pull/105) | `dd230fb` | **MERGE** — taste scorecard + signal ack. Generated state; low risk. |
-| 3 | [#95](https://github.com/GroepOnline/kater-dev-tools/pull/95) | `0e04b66` | **MERGE** — Execution Foundation. Supersedes #102. |
+| 3 | [#95](https://github.com/GroepOnline/kater-dev-tools/pull/95) | `eda7bb2` | **MERGE** — Execution Foundation. Supersedes #102. |
 | 4 | [#102](https://github.com/GroepOnline/kater-dev-tools/pull/102) | `3d1dccc` | **CLOSE** after #95. Do not merge. Cherry-pick leftovers later. |
 | 5 | [#104](https://github.com/GroepOnline/kater-dev-tools/pull/104) | `326c9cc` | **MERGE** as historical morning triage. Do not rewrite; this file is the evening plan. |
 
@@ -65,7 +65,7 @@ head; do not reintroduce).
 
 1. Approve + merge #103 (`--match-head-commit adac162`).
 2. Approve + merge #105 (`dd230fb`).
-3. Approve #95 at `0e04b66` (or newer pin). Merge with exact-head.
+3. Approve #95 at `eda7bb2` (or newer pin). Merge with exact-head.
 4. Close #102 with comment: superseded by #95; leftovers listed above.
 5. Merge #104 as-is (historical).
 6. Optional: one follow-up PR for plugin-detail + integration aliases.

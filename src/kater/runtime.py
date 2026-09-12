@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import socket
 import threading
 import time
 from http.server import ThreadingHTTPServer
@@ -43,6 +44,7 @@ class KaterRuntime:
         use_proxy: bool = False,
     ) -> None:
         self._profile = profile
+        self._explicit_listen = listen
         self._listen = listen or ListenConfig()
         self._use_proxy = use_proxy
         self._started = False
@@ -54,11 +56,15 @@ class KaterRuntime:
         self._mcp_uvicorn: uvicorn.Server | None = None
         self._mcp_thread: threading.Thread | None = None
         self._maintenance_thread: threading.Thread | None = None
+        self._product_uvicorn: uvicorn.Server | None = None
+        self._product_thread: threading.Thread | None = None
+        self._product_socket: socket.socket | None = None
 
     def start(self) -> None:
         if self._started:
             return
 
+        self._shutdown_event.clear()
         os.environ["KATER_PROFILE"] = self._profile
 
         # Project secrets + dashboard-persisted credentials before proxy start.
@@ -66,7 +72,25 @@ class KaterRuntime:
         from kater.settings import load_settings
 
         load_project_env()
-        load_settings().apply_credentials_to_env()
+        settings = load_settings()
+        if self._explicit_listen is None:
+            from kater.settings import resolve_listen_config
+
+            self._listen = resolve_listen_config(settings=settings)
+        settings.apply_credentials_to_env()
+        product_app = None
+        if settings.resource_auth.enabled:
+            from kater.mcp.product_server import build_product_mcp_app
+            from kater.resource_auth import IntrospectionClient
+
+            IntrospectionClient(settings.resource_auth).validate_configuration()
+            if self._listen.product_mcp_port in {
+                self._listen.api_port,
+                self._listen.mcp_port,
+                self._listen.ws_port,
+            }:
+                raise ValueError("Product MCP must use a dedicated listener port")
+            product_app = build_product_mcp_app(settings.resource_auth)
 
         from kater.migrations import ensure_migrated
 
@@ -163,6 +187,37 @@ class KaterRuntime:
         self._maintenance_thread.start()
 
         self._started = True
+        if product_app is not None:
+            try:
+                # Bind synchronously so a collision fails startup, never only a daemon thread.
+                self._product_socket = socket.create_server(
+                    (self._listen.host, self._listen.product_mcp_port),
+                    family=socket.AF_INET6 if ":" in self._listen.host else socket.AF_INET,
+                )
+                self._product_uvicorn = uvicorn.Server(
+                    uvicorn.Config(
+                        product_app,
+                        host=self._listen.host,
+                        port=self._listen.product_mcp_port,
+                        log_level="warning",
+                        access_log=False,
+                    )
+                )
+                self._product_thread = threading.Thread(
+                    target=self._product_uvicorn.run,
+                    kwargs={"sockets": [self._product_socket]},
+                    daemon=True,
+                    name="kater-product-mcp",
+                )
+                self._product_thread.start()
+                deadline = time.monotonic() + 5.0
+                while not self._product_uvicorn.started:
+                    if not self._product_thread.is_alive() or time.monotonic() >= deadline:
+                        raise RuntimeError("Product MCP listener failed to start")
+                    time.sleep(0.01)
+            except Exception:
+                self.stop()
+                raise
 
     def _run_light_janitor(self) -> None:
         """Browser reap + automations tick — every wake."""
@@ -232,6 +287,9 @@ class KaterRuntime:
 
         self._shutdown_event.set()
 
+        if self._product_uvicorn is not None:
+            self._product_uvicorn.should_exit = True
+
         if self._mcp_uvicorn is not None:
             try:
                 self._mcp_uvicorn.should_exit = True
@@ -261,9 +319,12 @@ class KaterRuntime:
                 _log.warning("proxy shutdown failed: %s", exc)
 
         # Join worker threads so stop() blocks until in-flight requests drain.
-        for thread in (self._api_thread, self._ws_thread, self._mcp_thread):
+        for thread in (self._api_thread, self._ws_thread, self._mcp_thread, self._product_thread):
             if thread is not None and thread.is_alive():
                 thread.join(timeout=timeout)
+        if self._product_socket is not None:
+            self._product_socket.close()
+            self._product_socket = None
         if self._maintenance_thread is not None and self._maintenance_thread.is_alive():
             self._maintenance_thread.join(timeout=2.0)
 
@@ -294,7 +355,9 @@ class KaterRuntime:
         previous_sigint = signal.signal(signal.SIGINT, _handle_signal)
         previous_sigterm = signal.signal(signal.SIGTERM, _handle_signal)
         try:
-            self._shutdown_event.wait()
+            while not self._shutdown_event.wait(0.5):
+                if self._product_thread is not None and not self._product_thread.is_alive():
+                    raise RuntimeError("Product MCP listener stopped unexpectedly")
         finally:
             signal.signal(signal.SIGINT, previous_sigint)
             signal.signal(signal.SIGTERM, previous_sigterm)

@@ -1,4 +1,4 @@
-"""Opt-in Auth introspection building block; not wired to Kater's request handlers.
+"""Opt-in Auth introspection for the dedicated product transport.
 
 Auth POST /v1/introspect accepts JSON {token, resource}, authenticated with a
 resource-specific service key. Its active response has sub, plane, scope, aud,
@@ -126,26 +126,25 @@ class _ActiveClaims(BaseModel):
     exp: int = Field(gt=0)
 
 
-def _require_contract(config: ResourceAuthConfig, required_scopes: frozenset[str]) -> None:
+def _require_enabled_contract(config: ResourceAuthConfig) -> None:
     if not config.enabled:
         raise ResourceAuthDisabled()
+
+
+def _require_contract(config: ResourceAuthConfig, required_scopes: frozenset[str]) -> None:
+    _require_enabled_contract(config)
     if not required_scopes or not required_scopes.issubset(config.allowed_scopes):
         raise ResourceAuthConfigurationError()
 
 
-def parse_introspection(
+def _parse_active_introspection(
     payload: object,
     *,
     config: ResourceAuthConfig,
-    required_scopes: frozenset[str],
     now: float | None = None,
 ) -> ResourcePrincipal:
-    """Validate the Auth response and authorize explicit resource scopes.
-
-    Invalid/inactive claims map to 401; valid tokens missing required scopes map
-    to 403. Any supplied iss extension must match exactly, though Auth omits it.
-    """
-    _require_contract(config, required_scopes)
+    """Validate active Auth claims without making a tool authorization decision."""
+    _require_enabled_contract(config)
     if not isinstance(payload, dict) or payload.get("active") is not True:
         raise InvalidToken()
     try:
@@ -169,8 +168,6 @@ def parse_introspection(
         or not scopes.issubset(config.allowed_scopes)
     ):
         raise InvalidToken()
-    if not required_scopes.issubset(scopes):
-        raise InsufficientScope()
     return ResourcePrincipal(
         issuer=config.issuer,
         subject=claims.sub,
@@ -179,6 +176,25 @@ def parse_introspection(
         scopes=scopes,
         expires_at=claims.exp,
     )
+
+
+def parse_introspection(
+    payload: object,
+    *,
+    config: ResourceAuthConfig,
+    required_scopes: frozenset[str],
+    now: float | None = None,
+) -> ResourcePrincipal:
+    """Validate the Auth response and authorize explicit resource scopes.
+
+    Invalid/inactive claims map to 401; valid tokens missing required scopes map
+    to 403. Any supplied iss extension must match exactly, though Auth omits it.
+    """
+    _require_contract(config, required_scopes)
+    principal = _parse_active_introspection(payload, config=config, now=now)
+    if not required_scopes.issubset(principal.scopes):
+        raise InsufficientScope()
+    return principal
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -200,14 +216,20 @@ class IntrospectionClient:
     def __init__(self, config: ResourceAuthConfig) -> None:
         self._config = config
 
-    def authenticate(self, token: str, *, required_scopes: frozenset[str]) -> ResourcePrincipal:
-        config = self._config
-        _require_contract(config, required_scopes)
-        if not token or len(token) > 8192 or not _OPAQUE.fullmatch(token):
-            raise InvalidToken()
-        service_key = os.environ.get(config.service_key_env, "")
+    def validate_configuration(self) -> None:
+        """Validate secret presence without sending a request or exposing its value."""
+        _require_enabled_contract(self._config)
+        service_key = os.environ.get(self._config.service_key_env, "")
         if len(service_key) < 32 or not _OPAQUE.fullmatch(service_key):
             raise ResourceAuthConfigurationError()
+
+    def _request(self, token: str) -> object:
+        config = self._config
+        _require_enabled_contract(config)
+        if not token or len(token) > 8192 or not _OPAQUE.fullmatch(token):
+            raise InvalidToken()
+        self.validate_configuration()
+        service_key = os.environ[config.service_key_env]
         issuer = urlsplit(config.issuer)
         connection: HTTPSConnection | None = None
         try:
@@ -247,4 +269,29 @@ class IntrospectionClient:
         finally:
             if connection is not None:
                 connection.close()
-        return parse_introspection(payload, config=config, required_scopes=required_scopes)
+        return payload
+
+    def check_readiness(self) -> bool:
+        """Require Auth's inactive-token response, never accept malformed active claims."""
+        payload = self._request("kater-readiness-deliberately-invalid")
+        return isinstance(payload, dict) and payload.get("active") is False
+
+    def introspect(self, token: str) -> ResourcePrincipal:
+        """Validate a bearer and return its bounded claims without choosing a tool.
+
+        The MCP transport needs this distinction so its OAuth middleware can
+        advertise all granted scopes and enforce each tool's scope separately.
+        The token is still checked remotely on every HTTP request; no positive
+        result is cached.
+        """
+        payload = self._request(token)
+        return _parse_active_introspection(payload, config=self._config)
+
+    def authenticate(self, token: str, *, required_scopes: frozenset[str]) -> ResourcePrincipal:
+        _require_contract(self._config, required_scopes)
+        payload = self._request(token)
+        return parse_introspection(
+            payload,
+            config=self._config,
+            required_scopes=required_scopes,
+        )

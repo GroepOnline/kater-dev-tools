@@ -407,3 +407,20 @@ def test_real_https_validation_revocation_and_untrusted_certificate(tmp_path, mo
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({"active": False}, True),
+        ({"active": True}, False),
+        ({"active": 0}, False),
+        ({"error": "unavailable"}, False),
+        ([], False),
+    ],
+)
+def test_readiness_requires_explicit_inactive_response(config, transport, payload, expected):
+    transport[2].read.return_value = json.dumps(payload).encode()
+    assert IntrospectionClient(config).check_readiness() is expected
+    sent = json.loads(transport[1].request.call_args.kwargs["body"])
+    assert sent == {"token": "kater-readiness-deliberately-invalid", "resource": RESOURCE}

@@ -54,3 +54,12 @@ def test_rollback_restarts_previously_active_dependents() -> None:
 
     assert 'for dependent in "${ACTIVE_DEPENDENTS[@]}"' in rollback
     assert 'sudo -n systemctl start "$dependent"' in rollback
+
+
+def test_product_readiness_is_checked_while_rollback_is_armed() -> None:
+    text = _script()
+    cutover = text.index("CUTOVER=1")
+    readiness = text.index('"http://127.0.0.1:$API_PORT/health/ready"', cutover)
+    done = text.index("CUTOVER=0", cutover)
+    assert cutover < readiness < done
+    assert 'curl --fail-with-body -sS --max-time 15' in text[:readiness]

@@ -99,4 +99,5 @@ implementeert zonder de trigger hierboven.
    `execute` / catalog, geen parallelle architectuur.
 
 Review-notities horen in `.reviews/pr-<n>-review.md` (zie
-`.reviews/README.md`).
+`.reviews/README.md`). Open-PR volgorde:
+[`../merge-train-20260912.md`](../merge-train-20260912.md).

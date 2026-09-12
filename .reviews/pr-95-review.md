@@ -2,13 +2,19 @@
 
 Lens: `docs/architecture/runtime-kronkel.md` +
 `docs/architecture/execution-foundation.md`.
-Head at review time: `4d87019` (kronkel-docs + CodeFactor split).
+Head at review time: `0e04b66` (kronkel-docs + CodeFactor split).
+Train: slot 3 — `docs/merge-train-20260912.md`.
 
 ## Verdict
 
-Foundation is aligned: Kater blijft execute-plane, GitHub is de eerste
-toolkit, `kater_pr_*` zijn wrappers. Niet mergen als “volledig systeem” of
-als startsein voor een Rust/Redis-daemon.
+**MERGE after human APPROVE** (train slot 3). Foundation is aligned:
+Kater blijft execute-plane, GitHub is de eerste toolkit, `kater_pr_*`
+zijn wrappers. Niet mergen als “volledig systeem” of als startsein
+voor een Rust/Redis-daemon.
+
+Gate (one-shot): CI green, `CLEAN`, not draft. Blockers for write-path:
+geen independent APPROVE; 17 unresolved bot-threads (v0 follow-up).
+Supersedes #102.
 
 ## Plane check
 

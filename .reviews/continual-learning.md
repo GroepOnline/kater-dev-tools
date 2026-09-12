@@ -6,6 +6,13 @@ into the taste loop (see `.agents/README.md`) instead.
 
 ---
 
+## Merge train: #95 supersedes #102; docs/state first
+
+Open PRs op 2026-09-12: merge #103 → #105 → #95, close #102, keep #104
+as morning snapshot. #102 and #95 both add `connections.py`/`plugins.py`;
+#95 is the foundation model. Do not merge overlapping catalog recoveries
+before the execute contract. Plan: `docs/merge-train-20260912.md`.
+
 ## Runtime kronkel: Python blijft; geen Redis-MCP-systeem
 
 Kater is execute-plane (catalog, connections, policy, audit), niet een

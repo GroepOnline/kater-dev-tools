@@ -96,3 +96,4 @@ runs with it **started**.
 | [`docs/ops/local-desktop-verify.md`](ops/local-desktop-verify.md) | Local/desktop verify matrix |
 | [`docs/ops/private-cursor-overlay.md`](ops/private-cursor-overlay.md) | Org-pinned overlays (private repo) |
 | [`.reviews/README.md`](../.reviews/README.md) | Review notes, continual-learning, session logs |
+| [`docs/merge-train-20260912.md`](merge-train-20260912.md) | Open-PR merge train (2026-09-12) |

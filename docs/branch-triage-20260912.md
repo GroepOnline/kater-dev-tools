@@ -22,7 +22,7 @@ already-on-main verdict cites its `main`-side ref.
 
 | Branch | Evidence | Tag |
 | --- | --- | --- |
-| `docs/udo-full-use-runbook` | Content sanitized and landed via #76 as `docs/ops/kater-private-overlay-runbook.md`. Branch tip still carries internal refs (workspace URL, internal tracking ids), so it must never land as-is. | `archive/20260912/udo-full-use-runbook` |
+| `docs/…-full-use-runbook` (tip `394efaf`) | Content sanitized and landed via #76 as `docs/ops/kater-private-overlay-runbook.md`. Branch tip still carries internal refs (workspace URL, internal tracking ids), so it must never land as-is. | `archive/20260912/*` (tip `394efaf`) |
 | `land/palette-browser-loading` | PR #79 closed as superseded; behavior on `main` via #75 (`a712396`). Branch tip is an older subset. | `archive/20260912/palette-browser-loading` |
 | `palette-browser-loading-feedback-5480200343156298719` | Same behavior as above; branch additionally carries stale CI-timeout changes the 09-06 triage intentionally excluded. | `archive/20260912/palette-browser-loading-feedback` |
 | `palette-profile-recovery-14826043716077132865` | Landed via #78; `main` has since moved further (profile-scoped Fabric work). | `archive/20260912/palette-profile-recovery` |

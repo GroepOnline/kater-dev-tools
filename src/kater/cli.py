@@ -242,6 +242,30 @@ def plugins_command(
     _catalog_cli("plugin", query, profile, json_output)
 
 
+@app.command("connections")
+def connections_command(
+    integration: Annotated[
+        str, typer.Option("--integration", help="Filter by integration name.")
+    ] = "",
+    query: Annotated[str, typer.Option("--query", "-q", help="Search connections.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List configured provider accounts without exposing credentials."""
+    from kater.connections import list_connection_views
+
+    rows = list_connection_views(query=query, profile=profile, integration=integration)
+    payload = {"total": len(rows), "connections": [row.as_dict() for row in rows]}
+    if json_output:
+        _print_json(payload)
+        return
+    for row in rows:
+        typer.echo(
+            f"{row.id} [{row.auth_kind}/{row.storage}] "
+            f"{row.label} configured={'true' if row.configured else 'false'}"
+        )
+
+
 # ── chains ─────────────────────────────────────────────────────────
 
 

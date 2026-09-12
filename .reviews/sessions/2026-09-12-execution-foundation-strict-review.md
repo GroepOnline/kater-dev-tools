@@ -6,7 +6,7 @@ PR #95 volledig oppakken: CI groen + strenge review-fixes.
 
 ## CI
 
-- `no-org-leak`: merge-train doc (org handle + UDO)
+- `no-org-leak`: merge-train doc (org handle + private data-plane token)
 - `unit (3.13)`: `timeout 480s` → 124, geen falende assert
 - `gate`: volgschade van unit
 

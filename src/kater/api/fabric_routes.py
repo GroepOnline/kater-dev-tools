@@ -786,3 +786,135 @@ FABRIC_OPENAPI_PATHS.update(
         },
     }
 )
+
+
+@route("GET", "/api/connections")
+def _connections_catalog(req: Request) -> Response:
+    from kater.connections import list_connection_views
+
+    rows = list_connection_views(
+        query=req.query1("q") or "",
+        profile=req.query1("profile") or "",
+        integration=req.query1("integration") or "",
+    )
+    by_integration: dict[str, int] = {}
+    for row in rows:
+        by_integration[row.integration] = by_integration.get(row.integration, 0) + 1
+    return Response.json(
+        200,
+        {
+            "total": len(rows),
+            "connections": [row.as_dict() for row in rows],
+            "by_integration": by_integration,
+        },
+    )
+
+
+@route("GET", "/api/plugins/{plugin_id}")
+def _plugin_manifest_get(req: Request) -> Response:
+    from kater.plugins import get_plugin_manifest
+
+    manifest = get_plugin_manifest(req.params["plugin_id"])
+    if manifest is None:
+        return Response.json(404, {"error": "plugin not found"})
+    return Response.json(200, {"plugin": manifest.as_dict()})
+
+
+FABRIC_OPENAPI_PATHS.update(
+    {
+        "/api/connections": {
+            "get": {
+                "summary": "List configured Kater integration connections",
+                "parameters": [
+                    {"name": "q", "in": "query", "required": False, "schema": {"type": "string"}},
+                    {
+                        "name": "profile",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string"},
+                    },
+                    {
+                        "name": "integration",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string"},
+                    },
+                ],
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/plugins/{plugin_id}": {
+            "get": {
+                "summary": "Get one Kater plugin manifest",
+                "parameters": [
+                    {
+                        "name": "plugin_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    }
+                ],
+                "responses": {
+                    "200": _CATALOG_RESPONSE["200"],
+                    "404": {
+                        "description": "Plugin not found",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
+                        },
+                    },
+                },
+            }
+        },
+    }
+)
+
+
+_INTEGRATION_NAME_PARAM = {
+    "name": "name",
+    "in": "path",
+    "required": True,
+    "schema": {"type": "string"},
+}
+_CONNECTION_ID_PARAM = {
+    "name": "conn_id",
+    "in": "path",
+    "required": True,
+    "schema": {"type": "string"},
+}
+
+FABRIC_OPENAPI_PATHS.update(
+    {
+        "/api/integrations/{name}/credentials": {
+            "post": {
+                "summary": "Set credentials for an integration",
+                "parameters": [_INTEGRATION_NAME_PARAM],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"type": "object"}}},
+                },
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/integrations/{name}/oauth/start": {
+            "post": {
+                "summary": "Start OAuth for an integration",
+                "parameters": [_INTEGRATION_NAME_PARAM],
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/integrations/{name}/connections": {
+            "get": {
+                "summary": "List connections for an integration",
+                "parameters": [_INTEGRATION_NAME_PARAM],
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/integrations/{name}/connections/{conn_id}": {
+            "delete": {
+                "summary": "Remove an integration connection",
+                "parameters": [_INTEGRATION_NAME_PARAM, _CONNECTION_ID_PARAM],
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+    }
+)

@@ -1250,6 +1250,7 @@ def _connector_action(req: Request) -> Response:
     return Response.json(400, {"error": f"Unknown action: {action}"})
 
 
+@route("POST", "/api/integrations/{name}/credentials")
 @route("POST", "/api/mcp/servers/{name}/credentials")
 def _server_credentials(req: Request) -> Response:
     # Store the credentials a server needs to connect. Only env vars the server
@@ -1315,6 +1316,7 @@ def _server_credentials(req: Request) -> Response:
     return Response.json(200, {"name": name, "env_configured": env_present, "applied": applied})
 
 
+@route("POST", "/api/integrations/{name}/oauth/start")
 @route("POST", "/api/mcp/servers/{name}/oauth/start")
 def _server_oauth_start(req: Request) -> Response:
     denied = _catalog_admin_denied(req)
@@ -1542,6 +1544,7 @@ def _mcp_oauth_callback(req: Request) -> Response:
     return Response.html(200, page)
 
 
+@route("GET", "/api/integrations/{name}/connections")
 @route("GET", "/api/mcp/servers/{name}/connections")
 def _server_connections(req: Request) -> Response:
     source = _visible_source(req.params["name"])
@@ -1553,6 +1556,7 @@ def _server_connections(req: Request) -> Response:
     return Response.json(200, {"name": source.name, "connections": oauth.get("connections") or []})
 
 
+@route("DELETE", "/api/integrations/{name}/connections/{conn_id}")
 @route("DELETE", "/api/mcp/servers/{name}/connections/{conn_id}")
 def _server_connection_delete(req: Request) -> Response:
     denied = _catalog_admin_denied(req)

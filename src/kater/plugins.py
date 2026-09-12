@@ -104,10 +104,18 @@ def _core_manifest() -> PluginManifest:
     )
 
 
+def extension_plugin_id(module: str) -> str:
+    return re.sub(r"[^a-z0-9._-]+", "-", module.lower()).strip("-") or "extension"
+
+
 def list_plugin_manifests() -> list[PluginManifest]:
     manifests = [_core_manifest()]
     raw_plugins = tuple(extension_attr("PLUGINS", ()))
-    manifests.extend(PluginManifest.from_mapping(_manifest_mapping(raw)) for raw in raw_plugins)
+    for raw in raw_plugins:
+        try:
+            manifests.append(PluginManifest.from_mapping(_manifest_mapping(raw)))
+        except ValueError:
+            continue
     if raw_plugins:
         # Explicit PLUGINS take precedence; the implicit module manifest is fallback only.
         return manifests
@@ -123,7 +131,7 @@ def list_plugin_manifests() -> list[PluginManifest]:
     toolkits, profiles = _toolkits_profiles(tuple(extension_sources))
     manifests.append(
         PluginManifest(
-            id=re.sub(r"[^a-z0-9._-]+", "-", module.lower()).strip("-") or "extension",
+            id=extension_plugin_id(module),
             name=module,
             version="0.0.0",
             description="Implicit Kater extension plugin.",

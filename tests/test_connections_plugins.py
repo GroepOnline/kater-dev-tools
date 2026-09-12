@@ -138,3 +138,25 @@ def test_connections_cli_json(monkeypatch, tmp_path) -> None:
     assert payload["total"] == 1
     assert payload["connections"][0]["id"] == "sentry:env"
     assert "sentry_cli_secret" not in result.stdout
+
+
+def test_malformed_extension_plugin_entry_is_skipped(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kater.plugins.extension_attr",
+        lambda name, default=(): ({"id": "Bad Plugin id!!", "name": "Bad"},),
+    )
+    manifests = list_plugin_manifests()
+    assert all(manifest.id != "Bad Plugin id!!" for manifest in manifests)
+    assert "kater-core" in {manifest.id for manifest in manifests}
+
+
+def test_connection_plugin_id_matches_manifest_id(monkeypatch) -> None:
+    from kater.connections import _plugin_id
+    from kater.plugins import extension_plugin_id
+    from kater.profiles import RiskLevel, ToolSource, Transport
+
+    monkeypatch.setenv("KATER_EXTENSIONS_MODULE", "MyExt_Module")
+    source = ToolSource(
+        name="myext", description="x", transport=Transport.HTTP, risk=RiskLevel.LOW
+    )
+    assert _plugin_id(source) == extension_plugin_id("MyExt_Module") == "myext_module"

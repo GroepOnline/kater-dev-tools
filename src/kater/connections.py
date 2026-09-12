@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from kater.connect import list_connections, source_is_configured
+from kater.plugins import extension_plugin_id
 from kater.profiles import TOOL_SOURCES, ToolSource, visible_tool_sources
 from kater.settings import KaterSettings, ServerConnection, load_settings
 
@@ -48,7 +49,7 @@ def _plugin_id(source: ToolSource) -> str:
     if source.name in _BUILTIN_NAMES:
         return "kater-core"
     module = os.environ.get("KATER_EXTENSIONS_MODULE", "").strip()
-    return module or "extension"
+    return extension_plugin_id(module) if module else "extension"
 
 
 def _auth_kind(source: ToolSource) -> str:
@@ -139,10 +140,3 @@ def list_connection_views(
             rows.append(row)
     rows.sort(key=lambda row: (row.integration, row.created_at, row.id))
     return rows
-
-
-def get_connection_view(connection_id: str) -> ConnectionView | None:
-    for row in list_connection_views():
-        if row.id == connection_id:
-            return row
-    return None

@@ -35,8 +35,11 @@ from kater.connectors.store import clear_connector_state, upsert_connector
 from kater.execution import ActorIdentity, PolicyContext, reset_idempotency_cache
 from kater.executor import execute
 from kater.fabric_catalog import CatalogKind, catalog_payload
+from kater.mcp_server import _wrap_native_handler
 from kater.plugins import PluginManifest
+from kater.profiles import OAuthConnectConfig, RiskLevel, ToolSource, Transport
 from kater.registry import execute_tool, pr_list_tool, pr_merge_tool
+from kater.settings import KaterSettings, ServerConnection, ServerOverride, save_settings
 from kater.toolkits import GITHUB_TOOLKIT
 from tests._rest import call
 
@@ -294,10 +297,57 @@ def test_github_actions_are_in_catalog_and_mcp_execute_surface():
     assert {"connection", "action", "input", "actor_id", "run_id", "idempotency_key"} <= set(
         params
     )
+    mcp_params = inspect.signature(_wrap_native_handler(execute_tool)).parameters
+    assert {"connection", "action", "input", "actor_id", "run_id", "idempotency_key"} <= set(
+        mcp_params
+    )
     listed = call("GET", "/api/actions")
     assert listed.status == 200
     assert listed.payload is not None
     assert "github.pr.merge" in {item["name"] for item in listed.payload["actions"]}
+
+
+def test_oauth_connection_views_never_echo_token_values(monkeypatch):
+    source = ToolSource(
+        name="demo-oauth",
+        description="oauth fixture",
+        transport=Transport.HTTP,
+        risk=RiskLevel.HIGH,
+        profiles={"ops", "core"},
+        env=["DEMO_ACCESS_TOKEN"],
+        oauth=OAuthConnectConfig(
+            provider="slack",
+            authorize_url="https://example.test/oauth/authorize",
+            token_url="https://example.test/oauth/token",
+            client_id_env="DEMO_CLIENT_ID",
+            token_env="DEMO_ACCESS_TOKEN",
+        ),
+    )
+    settings = KaterSettings(
+        server_overrides={
+            "demo-oauth": ServerOverride(
+                connections=[
+                    ServerConnection(
+                        id="acct1",
+                        label="workspace-a",
+                        env={"DEMO_ACCESS_TOKEN": "kater-test-access-token"},
+                    )
+                ]
+            )
+        }
+    )
+    save_settings(settings)
+    monkeypatch.setattr("kater.connections.visible_tool_sources", lambda: [source])
+    views = {view.id: view for view in list_connection_views(records={})}
+    oauth = views["demo-oauth:acct1"]
+    assert oauth.origin == "oauth"
+    assert oauth.auth_kind == "oauth"
+    dumped = json.dumps(oauth.as_dict())
+    assert "kater-test-access-token" not in dumped
+    assert "DEMO_ACCESS_TOKEN" in dumped
+    manifest = integration_manifest("demo-oauth")
+    assert manifest is not None
+    assert "demo-oauth:acct1" in manifest.connections
 
 
 def test_retries_then_succeeds():

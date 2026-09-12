@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from kater.capabilities.audit import record_capability_audit
@@ -382,6 +383,309 @@ def _assert_dangerous_policy(
             )
 
 
+def _normalize_input(
+    action: str | None,
+    capability_id: str | None,
+    raw_input: dict[str, Any] | None,
+    arguments: dict[str, Any] | None,
+) -> tuple[str, dict[str, Any]]:
+    resolved = (action or capability_id or "").strip()
+    if not resolved:
+        raise ConnectorCapabilityError("action is required")
+    payload = raw_input if raw_input is not None else arguments
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ConnectorCapabilityError("input must be an object")
+    return resolved, payload
+
+
+def _resolve_integration(
+    connection: str | None,
+    connector_id: str | None,
+    action: str,
+) -> str:
+    if connection:
+        integration_id = resolve_integration_id(connection)
+        if connector_id and connector_id != integration_id:
+            raise ConnectorCapabilityError(
+                f"connection {connection!r} does not match connector {connector_id!r}",
+                connector_id=connector_id,
+            )
+        return integration_id
+    return _resolve_connector(action, connector_id)
+
+
+def _apply_merge_sha(action: str, payload: dict[str, Any], policy: PolicyContext) -> dict[str, Any]:
+    if (
+        action == "github.pr.merge"
+        and policy.expected_head_sha
+        and not str(payload.get("expected_head_sha") or "").strip()
+    ):
+        return {**payload, "expected_head_sha": policy.expected_head_sha}
+    return payload
+
+
+def _authorize_action(
+    integration_id: str,
+    action: str,
+    payload: dict[str, Any],
+    policy: PolicyContext,
+    actor: ActorIdentity,
+) -> None:
+    capability = _resolve_action_capability(integration_id, action)
+    if capability is None and action not in native_action_ids():
+        raise ConnectorCapabilityError(
+            f"action {action!r} is not registered",
+            connector_id=integration_id,
+        )
+    if capability is not None:
+        validate_action_input(capability.input_schema, payload)
+    record = get_connector(integration_id)
+    if record is not None:
+        assert_profile_access(
+            record,
+            policy.profile,
+            action,
+            mutation=bool(capability.mutation) if capability is not None else False,
+        )
+    _assert_dangerous_policy(
+        action,
+        payload,
+        capability,
+        policy,
+        actor,
+        integration_id=integration_id,
+    )
+
+
+@dataclass
+class _CallState:
+    connection_id: str
+    integration_id: str
+    payload: dict[str, Any]
+    fingerprint: str = ""
+
+
+def _prepare(
+    state: _CallState,
+    *,
+    connection: str | None,
+    connector_id: str | None,
+    action: str,
+    policy: PolicyContext,
+    actor: ActorIdentity,
+) -> None:
+    _assert_served_profile(policy.profile)
+    _seed_catalog()
+    state.integration_id = _resolve_integration(connection, connector_id, action)
+    state.connection_id = connection or default_connection_id(state.integration_id)
+    _assert_connection(state.connection_id, state.integration_id)
+    state.payload = _apply_merge_sha(action, state.payload, policy)
+    _authorize_action(state.integration_id, action, state.payload, policy, actor)
+    state.fingerprint = input_fingerprint(state.connection_id, action, state.payload)
+
+
+def _replay_idempotent(policy: PolicyContext, fingerprint: str) -> dict[str, Any] | None:
+    if not policy.idempotency_key:
+        return None
+    cached = lookup_idempotency(policy.idempotency_key, fingerprint)
+    if cached is None:
+        return None
+    replay = dict(cached)
+    replay["idempotency_replay"] = True
+    return replay
+
+
+def _resolve_timeout(policy: PolicyContext, integration_id: str) -> float | None:
+    timeout = policy.timeout_seconds
+    if timeout is not None:
+        return timeout
+    record = get_connector(integration_id)
+    if record is not None:
+        return record.transport.timeout_seconds
+    return None
+
+
+def _classify_error(exc: ConnectorError) -> str:
+    if isinstance(exc, (ConnectorPolicyError, ConnectorAuthError, ConnectorCapabilityError)):
+        return "denied"
+    return "error"
+
+
+def _run_attempts(
+    integration_id: str,
+    action: str,
+    payload: dict[str, Any],
+    policy: PolicyContext,
+) -> tuple[dict[str, Any] | None, ConnectorError | None, int]:
+    timeout = _resolve_timeout(policy, integration_id)
+    attempts = 0
+    last_error: ConnectorError | None = None
+    result: dict[str, Any] | None = None
+    while True:
+        attempts += 1
+        try:
+            result = run_with_timeout(
+                lambda: _dispatch(
+                    integration_id,
+                    action,
+                    payload,
+                    profile=policy.profile,
+                ),
+                timeout,
+            )
+            return result, None, attempts
+        except (ConnectorPolicyError, ConnectorAuthError, ConnectorCapabilityError) as exc:
+            return None, exc, attempts
+        except ConnectorError as exc:
+            last_error = exc
+            if attempts <= policy.max_retries and is_retryable(exc):
+                continue
+            return None, last_error, attempts
+        except Exception as exc:
+            return (
+                None,
+                ConnectorUnavailableError(
+                    redact_text(str(exc)),
+                    connector_id=integration_id,
+                ),
+                attempts,
+            )
+
+
+def _audit_fields(
+    *,
+    action: str,
+    actor: ActorIdentity,
+    policy: PolicyContext,
+    connection_id: str,
+    run_id: str,
+    trace_id: str,
+    outcome: str,
+    reason: str | None,
+    duration_ms: float,
+    error_code: str | None = None,
+) -> int | None:
+    return _record_audit(
+        capability_id=action,
+        principal_id=actor.principal_id or actor.actor_id,
+        context_id=policy.context_id,
+        outcome=outcome,
+        reason=reason,
+        duration_ms=duration_ms,
+        profile=policy.profile,
+        connection_id=connection_id,
+        action=action,
+        actor_id=actor.actor_id,
+        agent_id=actor.agent_id,
+        run_id=run_id,
+        trace_id=trace_id,
+        idempotency_key=policy.idempotency_key,
+        error_code=error_code,
+    )
+
+
+def _success_payload(
+    *,
+    connection_id: str,
+    integration_id: str,
+    action: str,
+    actor: ActorIdentity,
+    policy: PolicyContext,
+    run_id: str,
+    trace_id: str,
+    result: dict[str, Any],
+    attempts: int,
+    started: float,
+    fingerprint: str,
+) -> dict[str, Any]:
+    duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
+    audit_id = _audit_fields(
+        action=action,
+        actor=actor,
+        policy=policy,
+        connection_id=connection_id,
+        run_id=run_id,
+        trace_id=trace_id,
+        outcome="allowed",
+        reason=f"connection={connection_id}",
+        duration_ms=duration_ms,
+    )
+    payload_out = ExecutionResult(
+        ok=True,
+        connection_id=connection_id,
+        action=action,
+        integration_id=integration_id,
+        toolkit=integration_id,
+        identity=actor,
+        run_id=run_id,
+        trace_id=trace_id,
+        result=result,
+        audit_id=audit_id,
+        audit_recorded=audit_id is not None,
+        duration_ms=duration_ms,
+        attempts=attempts,
+        extra={"profile": policy.profile, "context_id": policy.context_id},
+    ).as_dict()
+    if policy.idempotency_key:
+        store_idempotency(policy.idempotency_key, fingerprint, payload_out)
+    return payload_out
+
+
+def _attach_failure(
+    exc: ConnectorError,
+    *,
+    connection_id: str,
+    integration_id: str,
+    action: str,
+    actor: ActorIdentity,
+    policy: PolicyContext,
+    run_id: str,
+    trace_id: str,
+    outcome: str,
+    reason: str | None,
+    error_code: str | None,
+    attempts: int,
+    started: float,
+) -> None:
+    if outcome == "allowed":
+        outcome = _classify_error(exc)
+    duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
+    audit_id = _audit_fields(
+        action=action,
+        actor=actor,
+        policy=policy,
+        connection_id=connection_id,
+        run_id=run_id,
+        trace_id=trace_id,
+        outcome=outcome,
+        reason=reason or redact_text(str(exc)),
+        duration_ms=duration_ms,
+        error_code=error_code or exc.code,
+    )
+    exc.execution = ExecutionResult(
+        ok=False,
+        connection_id=connection_id,
+        action=action,
+        integration_id=integration_id,
+        toolkit=integration_id,
+        identity=actor,
+        run_id=run_id,
+        trace_id=trace_id,
+        error=ExecutionError(
+            code=exc.code,
+            message=redact_text(str(exc)),
+            retryable=is_retryable(exc),
+        ),
+        audit_id=audit_id,
+        audit_recorded=audit_id is not None,
+        duration_ms=duration_ms,
+        attempts=max(attempts, 1),
+        extra={"profile": policy.profile, "context_id": policy.context_id},
+    ).as_dict()
+
+
 def execute(
     capability_id: str | None = None,
     arguments: dict[str, Any] | None = None,
@@ -405,15 +709,7 @@ def execute(
     Canonical form: ``execute(connection, action, input, identity, policy_context)``.
     The positional ``capability_id`` / ``arguments`` form stays as compatibility.
     """
-    resolved_action = (action or capability_id or "").strip()
-    if not resolved_action:
-        raise ConnectorCapabilityError("action is required")
-    payload = input if input is not None else arguments
-    if payload is None:
-        payload = {}
-    if not isinstance(payload, dict):
-        raise ConnectorCapabilityError("input must be an object")
-
+    resolved_action, payload = _normalize_input(action, capability_id, input, arguments)
     actor = _coerce_identity(identity, principal_id=principal_id)
     policy = _coerce_policy(
         policy_context,
@@ -425,204 +721,93 @@ def execute(
         trace_id=trace_id,
     )
     run_id, trace_id = new_ids(policy)
-    connection_id = connection or ""
-    integration_id = connector_id or ""
+    state = _CallState(
+        connection_id=connection or "",
+        integration_id=connector_id or "",
+        payload=payload,
+    )
+    return _invoke(
+        state,
+        connection=connection,
+        connector_id=connector_id,
+        action=resolved_action,
+        actor=actor,
+        policy=policy,
+        run_id=run_id,
+        trace_id=trace_id,
+    )
+
+
+def _raise_dispatch_error(last_error: ConnectorError) -> tuple[str, str, str]:
+    return _classify_error(last_error), last_error.code, redact_text(str(last_error))
+
+
+def _invoke(
+    state: _CallState,
+    *,
+    connection: str | None,
+    connector_id: str | None,
+    action: str,
+    actor: ActorIdentity,
+    policy: PolicyContext,
+    run_id: str,
+    trace_id: str,
+) -> dict[str, Any]:
     started = time.perf_counter()
     outcome = "allowed"
     reason: str | None = None
     error_code: str | None = None
     attempts = 0
-    result: dict[str, Any] | None = None
-    last_error: ConnectorError | None = None
-
     try:
-        _assert_served_profile(policy.profile)
-        _seed_catalog()
-        if connection:
-            integration_id = resolve_integration_id(connection)
-            if connector_id and connector_id != integration_id:
-                raise ConnectorCapabilityError(
-                    f"connection {connection!r} does not match connector {connector_id!r}",
-                    connector_id=connector_id,
-                )
-        elif connector_id:
-            integration_id = _resolve_connector(resolved_action, connector_id)
-        else:
-            integration_id = _resolve_connector(resolved_action, None)
-
-        connection_id = connection or default_connection_id(integration_id)
-        _assert_connection(connection_id, integration_id)
-        capability = _resolve_action_capability(integration_id, resolved_action)
-        if capability is None and resolved_action not in native_action_ids():
-            raise ConnectorCapabilityError(
-                f"action {resolved_action!r} is not registered",
-                connector_id=integration_id,
-            )
-        if capability is not None:
-            validate_action_input(capability.input_schema, payload)
-        if (
-            resolved_action == "github.pr.merge"
-            and policy.expected_head_sha
-            and not str(payload.get("expected_head_sha") or "").strip()
-        ):
-            payload = {**payload, "expected_head_sha": policy.expected_head_sha}
-        record = get_connector(integration_id)
-        if record is not None:
-            assert_profile_access(
-                record,
-                policy.profile,
-                resolved_action,
-                mutation=bool(capability.mutation) if capability is not None else False,
-            )
-        _assert_dangerous_policy(
-            resolved_action,
-            payload,
-            capability,
-            policy,
-            actor,
-            integration_id=integration_id,
+        _prepare(
+            state,
+            connection=connection,
+            connector_id=connector_id,
+            action=action,
+            policy=policy,
+            actor=actor,
         )
-
-        fingerprint = input_fingerprint(connection_id, resolved_action, payload)
-        if policy.idempotency_key:
-            cached = lookup_idempotency(policy.idempotency_key, fingerprint)
-            if cached is not None:
-                cached = dict(cached)
-                cached["idempotency_replay"] = True
-                return cached
-
-        timeout = policy.timeout_seconds
-        if timeout is None:
-            record = get_connector(integration_id)
-            if record is not None:
-                timeout = record.transport.timeout_seconds
-
-        while True:
-            attempts += 1
-            try:
-                result = run_with_timeout(
-                    lambda: _dispatch(
-                        integration_id,
-                        resolved_action,
-                        payload,
-                        profile=policy.profile,
-                    ),
-                    timeout,
-                )
-                last_error = None
-                break
-            except (ConnectorPolicyError, ConnectorAuthError, ConnectorCapabilityError) as exc:
-                last_error = exc
-                break
-            except ConnectorError as exc:
-                last_error = exc
-                if attempts <= policy.max_retries and is_retryable(exc):
-                    continue
-                break
-            except Exception as exc:
-                last_error = ConnectorUnavailableError(
-                    redact_text(str(exc)),
-                    connector_id=integration_id,
-                )
-                break
+        replay = _replay_idempotent(policy, state.fingerprint)
+        if replay is not None:
+            return replay
+        result, last_error, attempts = _run_attempts(
+            state.integration_id, action, state.payload, policy
+        )
         if last_error is not None:
-            if isinstance(
-                last_error, (ConnectorPolicyError, ConnectorAuthError, ConnectorCapabilityError)
-            ):
-                outcome = "denied"
-            else:
-                outcome = "error"
-            error_code = last_error.code
-            reason = redact_text(str(last_error))
+            outcome, error_code, reason = _raise_dispatch_error(last_error)
             raise last_error
         if result is None:
             raise ConnectorUnavailableError(
                 "action returned no result",
-                connector_id=integration_id,
+                connector_id=state.integration_id,
             )
-        reason = f"connection={connection_id}"
-        duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
-        audit_id = _record_audit(
-            capability_id=resolved_action,
-            principal_id=actor.principal_id or actor.actor_id,
-            context_id=policy.context_id,
-            outcome="allowed",
-            reason=reason,
-            duration_ms=duration_ms,
-            profile=policy.profile,
-            connection_id=connection_id,
-            action=resolved_action,
-            actor_id=actor.actor_id,
-            agent_id=actor.agent_id,
-            run_id=run_id,
-            trace_id=trace_id,
-            idempotency_key=policy.idempotency_key,
-        )
-        envelope = ExecutionResult(
-            ok=True,
-            connection_id=connection_id,
-            action=resolved_action,
-            integration_id=integration_id,
-            toolkit=integration_id,
-            identity=actor,
+        return _success_payload(
+            connection_id=state.connection_id,
+            integration_id=state.integration_id,
+            action=action,
+            actor=actor,
+            policy=policy,
             run_id=run_id,
             trace_id=trace_id,
             result=result,
-            audit_id=audit_id,
-            audit_recorded=audit_id is not None,
-            duration_ms=duration_ms,
             attempts=attempts,
-            extra={"profile": policy.profile, "context_id": policy.context_id},
+            started=started,
+            fingerprint=state.fingerprint,
         )
-        payload_out = envelope.as_dict()
-        if policy.idempotency_key:
-            store_idempotency(policy.idempotency_key, fingerprint, payload_out)
-        return payload_out
     except ConnectorError as exc:
-        if outcome == "allowed":
-            if isinstance(
-                exc, (ConnectorPolicyError, ConnectorAuthError, ConnectorCapabilityError)
-            ):
-                outcome = "denied"
-            else:
-                outcome = "error"
-        duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
-        audit_id = _record_audit(
-            capability_id=resolved_action,
-            principal_id=actor.principal_id or actor.actor_id,
-            context_id=policy.context_id,
+        _attach_failure(
+            exc,
+            connection_id=state.connection_id,
+            integration_id=state.integration_id,
+            action=action,
+            actor=actor,
+            policy=policy,
+            run_id=run_id,
+            trace_id=trace_id,
             outcome=outcome,
-            reason=reason or redact_text(str(exc)),
-            duration_ms=duration_ms,
-            profile=policy.profile,
-            connection_id=connection_id,
-            action=resolved_action,
-            actor_id=actor.actor_id,
-            agent_id=actor.agent_id,
-            run_id=run_id,
-            trace_id=trace_id,
-            idempotency_key=policy.idempotency_key,
-            error_code=error_code or exc.code,
+            reason=reason,
+            error_code=error_code,
+            attempts=attempts,
+            started=started,
         )
-        failed = ExecutionResult(
-            ok=False,
-            connection_id=connection_id,
-            action=resolved_action,
-            integration_id=integration_id,
-            toolkit=integration_id,
-            identity=actor,
-            run_id=run_id,
-            trace_id=trace_id,
-            error=ExecutionError(
-                code=exc.code,
-                message=redact_text(str(exc)),
-                retryable=is_retryable(exc),
-            ),
-            audit_id=audit_id,
-            audit_recorded=audit_id is not None,
-            duration_ms=duration_ms,
-            attempts=max(attempts, 1),
-            extra={"profile": policy.profile, "context_id": policy.context_id},
-        )
-        exc.execution = failed.as_dict()
         raise

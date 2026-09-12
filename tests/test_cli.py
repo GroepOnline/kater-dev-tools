@@ -8,7 +8,7 @@ import typer
 from typer.testing import CliRunner
 
 from kater.cli import _prepare_public_bind_environment, app
-from kater.settings import invalidate_settings_cache
+from kater.settings import invalidate_settings_cache, settings_path
 
 runner = CliRunner()
 
@@ -623,6 +623,24 @@ def test_serve_mcp_only(monkeypatch) -> None:
     result = runner.invoke(app, ["serve", "--mcp-only", "--host", "127.0.0.1"])
     # Should reach serve() without starting a real server
     assert result.exit_code == 0 or called.get("serve") is True
+
+
+def test_serve_mcp_only_rejects_malformed_resource_auth_without_leaking_it(
+    monkeypatch, tmp_path
+) -> None:
+    secret = "persisted-cli-resource-auth-secret"
+    monkeypatch.chdir(tmp_path)
+    path = settings_path()
+    path.parent.mkdir()
+    path.write_text(json.dumps({"resource_auth": {"enabled": True, "issuer": secret}}))
+    monkeypatch.setattr("kater.envfile.load_project_env", lambda *a, **kw: [])
+    monkeypatch.setattr("kater.envfile.resolve_use_proxy", lambda **kw: False)
+    monkeypatch.setattr("kater.mcp_server.serve", lambda *a, **kw: pytest.fail("must not serve"))
+    result = runner.invoke(app, ["serve", "--mcp-only", "--host", "127.0.0.1"])
+
+    assert result.exit_code == 1
+    assert "resource_auth_configuration_error" in result.output
+    assert secret not in result.output
 
 
 def test_serve_api_only(monkeypatch) -> None:

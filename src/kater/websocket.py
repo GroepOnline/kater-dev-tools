@@ -10,6 +10,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from kater.resource_auth import ResourceAuthConfigurationError
 from kater.settings import (
     allow_query_api_key,
     cors_allow_origin,
@@ -160,7 +161,11 @@ class WSHandler(BaseHTTPRequestHandler):
         # CORS origin — this blocks cross-site WebSocket hijacking.
         origin = self.headers.get("Origin")
         if origin:
-            settings = load_settings()
+            try:
+                settings = load_settings()
+            except ResourceAuthConfigurationError:
+                self._send_resource_auth_configuration_error()
+                return False
             if not cors_allow_origin(settings, origin):
                 self.send_response(403)
                 self.send_header("Content-Type", "text/plain")
@@ -304,34 +309,38 @@ class WSHandler(BaseHTTPRequestHandler):
         from kater.authgate import AuthContext, authenticate
         from kater.settings import load_settings
 
-        parsed = urlparse(self.path)
-        query = parse_qs(parsed.query)
-        settings = load_settings()
-        # Throttle connection attempts the same way REST/MCP are.
-        client_ip = resolve_client_ip(
-            self.headers.get("X-Forwarded-For"),
-            self.client_address[0] if self.client_address else "unknown",
-        )
-        if not check_transport_rate_limit(client_ip):
-            self.send_response(429)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": "Rate limit exceeded."}).encode())
-            return False
-        if consume_ws_ticket(query.get("ticket", [None])[0]):
-            return True
-        decision = authenticate(
-            AuthContext(
-                settings=settings,
-                authorization_header=self._authorization_header(
-                    query,
-                    allow_query_token=not is_public_settings(settings),
-                ),
-                query_api_key=(
-                    query.get("api_key", [None])[0] if allow_query_api_key(settings) else None
-                ),
+        try:
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            settings = load_settings()
+            # Throttle connection attempts the same way REST/MCP are.
+            client_ip = resolve_client_ip(
+                self.headers.get("X-Forwarded-For"),
+                self.client_address[0] if self.client_address else "unknown",
             )
-        )
+            if not check_transport_rate_limit(client_ip):
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Rate limit exceeded."}).encode())
+                return False
+            if consume_ws_ticket(query.get("ticket", [None])[0]):
+                return True
+            decision = authenticate(
+                AuthContext(
+                    settings=settings,
+                    authorization_header=self._authorization_header(
+                        query,
+                        allow_query_token=not is_public_settings(settings),
+                    ),
+                    query_api_key=(
+                        query.get("api_key", [None])[0] if allow_query_api_key(settings) else None
+                    ),
+                )
+            )
+        except ResourceAuthConfigurationError:
+            self._send_resource_auth_configuration_error()
+            return False
         if not decision.allowed:
             self.send_response(401)
             self.send_header("Content-Type", "application/json")
@@ -339,6 +348,14 @@ class WSHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": decision.error}).encode())
             return False
         return True
+
+    def _send_resource_auth_configuration_error(self) -> None:
+        body = json.dumps({"error": ResourceAuthConfigurationError.code}).encode()
+        self.send_response(503)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def log_message(self, fmt: str, *args: Any) -> None:
         pass

@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import shutil
 import ssl
 import subprocess
 import threading
+from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
 
+from kater.api import Request, create_api_server
+from kater.api.server import handle
 from kater.resource_auth import (
     AuthUnavailable,
     InsufficientScope,
@@ -22,7 +26,8 @@ from kater.resource_auth import (
     ResourceAuthDisabled,
     parse_introspection,
 )
-from kater.settings import KaterSettings, load_settings, save_settings, settings_path
+from kater.runtime import KaterRuntime
+from kater.settings import KaterSettings, ListenConfig, load_settings, save_settings, settings_path
 
 ISSUER = "https://auth.example.test"
 RESOURCE = "https://tools.example.test/mcp"
@@ -100,6 +105,84 @@ def test_other_invalid_settings_cannot_disable_an_enabled_contract(tmp_path, con
     path.write_text(json.dumps({"resource_auth": config.model_dump(), "api_port": "invalid"}))
     with pytest.raises(ResourceAuthConfigurationError):
         load_settings(tmp_path)
+
+
+def _persist_malformed_resource_auth(tmp_path, *, secret: str) -> None:
+    path = settings_path(tmp_path)
+    path.parent.mkdir()
+    path.write_text(json.dumps({"resource_auth": {"enabled": True, "issuer": secret}}))
+
+
+def test_gateway_configuration_errors_are_redacted_at_auth_and_body_size_boundaries(
+    tmp_path, monkeypatch
+):
+    """Malformed resource auth state must not crash or reveal the persisted contract."""
+    secret = "persisted-resource-auth-secret"
+    monkeypatch.chdir(tmp_path)
+    _persist_malformed_resource_auth(tmp_path, secret=secret)
+
+    # Skip the separate rate-limit settings read to reach the authentication boundary.
+    monkeypatch.setattr(
+        "kater.api.server._get_rate_limiter", lambda: MagicMock(check=lambda _: True)
+    )
+    auth_response = handle(
+        Request(
+            method="GET",
+            path="/api/profiles",
+            query={},
+            headers={},
+            raw_body=b"",
+            client_ip="127.0.0.1",
+            base_url="http://127.0.0.1",
+        )
+    )
+    assert auth_response.status == 503
+    assert auth_response.payload == {"error": "resource_auth_configuration_error"}
+    assert secret not in auth_response.encoded().decode()
+
+    server = create_api_server("127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        connection.request(
+            "POST",
+            "/api/settings",
+            body=b"{}",
+            headers={"Content-Type": "application/json", "Content-Length": "1048577"},
+        )
+        response = connection.getresponse()
+        body = response.read().decode()
+        assert response.status == 503
+        assert json.loads(body) == {"error": "resource_auth_configuration_error"}
+        assert secret not in body
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_runtime_refuses_malformed_resource_auth_without_leaking_configuration(
+    tmp_path, monkeypatch, caplog
+):
+    secret = "persisted-resource-auth-secret"
+    monkeypatch.chdir(tmp_path)
+    _persist_malformed_resource_auth(tmp_path, secret=secret)
+    runtime = KaterRuntime(
+        profile="core",
+        listen=ListenConfig(host="127.0.0.1", api_port=0, mcp_port=0, ws_port=0),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="kater.runtime"):
+        with pytest.raises(ResourceAuthConfigurationError) as error:
+            runtime.start()
+
+    assert error.value.code == "resource_auth_configuration_error"
+    assert "resource_auth_configuration_error" in caplog.text
+    assert secret not in caplog.text
+    assert runtime._started is False
+    assert runtime._api_server is None
 
 
 @pytest.mark.parametrize(
@@ -369,6 +452,7 @@ def test_real_https_validation_revocation_and_untrusted_certificate(tmp_path, mo
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.minimum_version = ssl.TLSVersion.TLSv1_2
     tls.load_cert_chain(certificate, private_key)
     server.socket = tls.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

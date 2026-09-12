@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import uvicorn
 
+from kater.resource_auth import ResourceAuthConfigurationError
 from kater.settings import ListenConfig
 
 _log = logging.getLogger("kater.runtime")
@@ -66,7 +67,11 @@ class KaterRuntime:
         from kater.settings import load_settings
 
         load_project_env()
-        load_settings().apply_credentials_to_env()
+        try:
+            load_settings().apply_credentials_to_env()
+        except ResourceAuthConfigurationError:
+            _log.error("resource_auth_configuration_error; refusing to start")
+            raise
 
         from kater.migrations import ensure_migrated
 

@@ -27,6 +27,7 @@ jobs:
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.conclusion == 'success')
     runs-on: [self-hosted, Linux, X64, company-control]
+    environment: production
     timeout-minutes: 20
     env:
       REQUESTED_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.sha }}
@@ -70,6 +71,13 @@ jobs:
           KATER_DEPLOY_TARGET: ${{ vars.KATER_DEPLOY_TARGET }}
           KATER_DEPLOY_SERVICE: ${{ vars.KATER_DEPLOY_SERVICE }}
           KATER_DEPLOY_API_PORT: ${{ vars.KATER_DEPLOY_API_PORT }}
+          KATER_PRODUCT_MCP_PORT: ${{ vars.KATER_PRODUCT_MCP_PORT }}
+          KATER_RESOURCE_AUTH_ENABLED: '1'
+          KATER_RESOURCE_AUTH_ISSUER: ${{ vars.KATER_RESOURCE_AUTH_ISSUER }}
+          KATER_RESOURCE_AUTH_RESOURCE: ${{ vars.KATER_RESOURCE_AUTH_RESOURCE }}
+          KATER_RESOURCE_AUTH_SCOPES: ${{ vars.KATER_RESOURCE_AUTH_SCOPES }}
+          KATER_RESOURCE_AUTH_SERVICE_KEY_ENV: KATER_RESOURCE_AUTH_SERVICE_KEY
+          KATER_RESOURCE_AUTH_SERVICE_KEY: ${{ secrets.KATER_RESOURCE_AUTH_SERVICE_KEY }}
         run: ./scripts/deploy-company-control.sh
 
       - name: Record deployment transaction

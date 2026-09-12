@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "deploy-company-control.sh"
+REMOTE_SCRIPT = Path(__file__).parents[1] / "scripts" / "deploy-company-control-remote.sh"
 
 
 def _script() -> str:
-    return SCRIPT.read_text(encoding="utf-8")
+    return SCRIPT.read_text(encoding="utf-8") + REMOTE_SCRIPT.read_text(encoding="utf-8")
 
 
 def test_release_traversability_is_fail_closed_before_cutover() -> None:
@@ -63,3 +64,38 @@ def test_product_readiness_is_checked_while_rollback_is_armed() -> None:
     done = text.index("CUTOVER=0", cutover)
     assert cutover < readiness < done
     assert 'curl --fail-with-body -sS --max-time 15' in text[:readiness]
+    assert 'get("product_mcp",{}).get("status")=="ok"' in text[readiness:done]
+
+
+def test_product_configuration_is_secret_scoped_and_rollback_aware() -> None:
+    text = _script()
+    cutover = text.index("CUTOVER=1")
+    applied = text.index("CONFIG_APPLIED=1", cutover)
+    done = text.index("CUTOVER=0", applied)
+
+    assert "KATER_RESOURCE_AUTH_SERVICE_KEY" in text[:cutover]
+    assert "product-secrets.env" in text
+    assert "EnvironmentFile=/etc/chef/kater/product-secrets.env" in text
+    assert "restore_product_config" in text[text.index("rollback() {") : cutover]
+    assert cutover < applied < done
+    assert text.count("discard_config_backup") >= 3
+
+
+def test_product_listener_gets_direct_metadata_and_bearer_probes() -> None:
+    text = _script()
+    readiness = text.index("product/Auth readiness failed")
+    done = text.index("CUTOVER=0", readiness)
+
+    assert "/.well-known/oauth-protected-resource/mcp" in text[readiness:done]
+    assert 'anonymous_status" == 401' in text[readiness:done]
+
+
+def test_secret_staging_and_cleanup_share_one_ssh_session() -> None:
+    launcher = SCRIPT.read_text(encoding="utf-8")
+
+    assert launcher.count("ssh -o BatchMode=yes") == 2
+    assert "tar -C \"$TMP\" -cf - product.env product-secrets.env" in launcher
+    assert "stage=\\$(mktemp -d)" in launcher
+    assert "trap 'find" in launcher
+    assert "-depth -delete' EXIT" in launcher
+    assert "/tmp/kater-product" not in launcher

@@ -1124,16 +1124,20 @@ def _executor_execute(req: Request) -> Response:
     policy_raw = body.get("policy_context")
     if policy_raw is not None and not isinstance(policy_raw, dict):
         return Response.json(400, {"error": "policy_context must be an object"})
-    identity = ActorIdentity.from_mapping(
-        identity_raw,
-        default_actor=str(body.get("principal_id") or "api"),
-    )
-    policy = PolicyContext.from_mapping(
-        policy_raw,
-        profile=str(body.get("profile") or "core"),
-        context_id=(str(body["context_id"]) if body.get("context_id") else None),
-    )
     try:
+        identity = ActorIdentity.from_mapping(
+            identity_raw,
+            default_actor=str(body.get("principal_id") or "api"),
+        )
+        policy = PolicyContext.from_mapping(
+            policy_raw,
+            profile=str(body.get("profile") or "core"),
+            context_id=(str(body["context_id"]) if body.get("context_id") else None),
+        )
+        timeout_raw = body.get("timeout_seconds")
+        timeout_seconds = float(timeout_raw) if timeout_raw is not None else None
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
         result = execute(
             capability_id or None,
             arguments,
@@ -1146,15 +1150,15 @@ def _executor_execute(req: Request) -> Response:
             connector_id=(str(body["connector_id"]) if body.get("connector_id") else None),
             principal_id=str(body.get("principal_id") or identity.actor_id),
             context_id=(str(body["context_id"]) if body.get("context_id") else None),
-            timeout_seconds=(
-                float(body["timeout_seconds"]) if body.get("timeout_seconds") is not None else None
-            ),
+            timeout_seconds=timeout_seconds,
             idempotency_key=(
                 str(body["idempotency_key"]) if body.get("idempotency_key") else None
             ),
             run_id=(str(body["run_id"]) if body.get("run_id") else None),
             trace_id=(str(body["trace_id"]) if body.get("trace_id") else None),
         )
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
     except ConnectorError as exc:
         return _connector_error_response(exc)
     return Response.json(200, result)

@@ -410,7 +410,17 @@ def _matches(item: CatalogItem, *, query: str, profile: str) -> bool:
 
 def connection_items() -> list[CatalogItem]:
     items: list[CatalogItem] = []
-    for view in list_connection_views(records=_connector_map()):
+    records = _connector_map()
+    sources = {source.name: source for source in visible_tool_sources()}
+    for view in list_connection_views(records=records):
+        record = records.get(view.integration)
+        source = sources.get(view.integration)
+        if record is not None:
+            item_profiles = _visible_profiles(record.profiles)
+        elif source is not None:
+            item_profiles = _visible_profiles(source.profiles)
+        else:
+            item_profiles = ()
         items.append(
             CatalogItem(
                 id=f"connection:{view.id}",
@@ -419,6 +429,7 @@ def connection_items() -> list[CatalogItem]:
                 description=f"{view.integration} connection ({view.origin})",
                 plugin_id="kater-core",
                 transport=view.auth_kind,
+                profiles=item_profiles,
                 capabilities=(),
                 enabled=view.configured,
                 configured=view.configured,
@@ -438,9 +449,19 @@ def connection_items() -> list[CatalogItem]:
 def action_items() -> list[CatalogItem]:
     items: list[CatalogItem] = []
     seen: set[str] = set()
-    for record in _connector_map().values():
+    records = _connector_map()
+    sources = {source.name: source for source in visible_tool_sources()}
+    settings = load_settings()
+    for record in records.values():
         for capability in record.capabilities:
+            if capability.id in seen:
+                continue
             seen.add(capability.id)
+            source = sources.get(record.id)
+            if source is not None:
+                configured = source_is_configured(source, settings)
+            else:
+                configured = binding_is_satisfied(record.auth_binding, connector_id=record.id)
             items.append(
                 CatalogItem(
                     id=f"action:{capability.id}",
@@ -449,9 +470,10 @@ def action_items() -> list[CatalogItem]:
                     description=capability.description,
                     plugin_id="kater-core",
                     transport=record.transport.kind,
+                    profiles=_visible_profiles(record.profiles),
                     capabilities=(capability.id,),
                     enabled=record.status.value == "enabled",
-                    configured=True,
+                    configured=configured,
                     status=record.status.value,
                     origin=record.origin,
                     metadata={
@@ -467,6 +489,17 @@ def action_items() -> list[CatalogItem]:
             )
     for toolkit in toolkit_manifests():
         integration = toolkit.integrations[0] if toolkit.integrations else toolkit.id
+        owner = records.get(integration)
+        source = sources.get(integration)
+        if source is not None:
+            configured = source_is_configured(source, settings)
+            item_profiles = _visible_profiles(source.profiles)
+        elif owner is not None:
+            configured = binding_is_satisfied(owner.auth_binding, connector_id=owner.id)
+            item_profiles = _visible_profiles(owner.profiles)
+        else:
+            configured = False
+            item_profiles = ()
         for action_id in toolkit.actions:
             if action_id in seen:
                 continue
@@ -479,9 +512,10 @@ def action_items() -> list[CatalogItem]:
                     description=f"{toolkit.name} native action",
                     plugin_id="kater-core",
                     transport="native",
+                    profiles=item_profiles,
                     capabilities=(action_id,),
                     enabled=True,
-                    configured=True,
+                    configured=configured,
                     status="available",
                     origin="builtin",
                     metadata={

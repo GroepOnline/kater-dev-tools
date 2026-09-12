@@ -1,6 +1,6 @@
 # Merge train — 2026-09-12
 
-Current plan for the five open PRs on `GroepOnline/kater-dev-tools`.
+Current plan for the five open PRs on this repository.
 Supersedes the “Remaining open items” in `docs/branch-triage-20260912.md`
 (#104, morning snapshot). Kronkel-lens:
 [`architecture/runtime-kronkel.md`](architecture/runtime-kronkel.md).
@@ -12,14 +12,14 @@ human APPROVE on the exact head SHA. This file is the plan, not a merge.
 
 | Slot | PR | Head | Actie |
 | --- | --- | --- | --- |
-| 1 | [#103](https://github.com/GroepOnline/kater-dev-tools/pull/103) | `adac162` | **MERGE** — docs-only dashboard/frontend. Known erratum: Studio exists. |
-| 2 | [#105](https://github.com/GroepOnline/kater-dev-tools/pull/105) | `dd230fb` | **MERGE** — taste scorecard + signal ack. Generated state; low risk. |
-| 3 | [#95](https://github.com/GroepOnline/kater-dev-tools/pull/95) | `eda7bb2` | **MERGE** — Execution Foundation. Supersedes #102. |
-| 4 | [#102](https://github.com/GroepOnline/kater-dev-tools/pull/102) | `3d1dccc` | **CLOSE** after #95. Do not merge. Cherry-pick leftovers later. |
-| 5 | [#104](https://github.com/GroepOnline/kater-dev-tools/pull/104) | `326c9cc` | **MERGE** as historical morning triage. Do not rewrite; this file is the evening plan. |
+| 1 | #103 | `adac162` | **MERGE** — docs-only dashboard/frontend. Known erratum: Studio exists. |
+| 2 | #105 | `dd230fb` | **MERGE** — taste scorecard + signal ack. Generated state; low risk. |
+| 3 | #95 | `eda7bb2` | **MERGE** — Execution Foundation. Supersedes #102. |
+| 4 | #102 | `3d1dccc` | **CLOSE** after #95. Do not merge. Cherry-pick leftovers later. |
+| 5 | #104 | `326c9cc` | **MERGE** as historical morning triage. Do not rewrite; this file is the evening plan. |
 
-Recovery / palette / UDO branches: already archive-tagged `archive/20260912/*`
-and deleted from `origin`. Not in the train.
+Recovery / palette / private-overlay branches: already archive-tagged
+`archive/20260912/*` and deleted from `origin`. Not in the train.
 
 ## Why this order
 
@@ -44,7 +44,7 @@ All five: required CI green (`validate`, `lint-type`, unit 3.11–3.14,
 None have an independent human APPROVE. `pr-gate` write path stays
 **BLOCK** until that exists on the pinned head.
 
-#95 extra: 17 unresolved bot threads (CodeRabbit / Sentry). v0 follow-up,
+#95 extra: unresolved bot threads (CodeRabbit / Sentry). v0 follow-up,
 not kronkel-fails. Accept in the review note, or resolve as “won’t fix
 in this PR”, before merge if policy treats `UNRESOLVED_THREAD` as hard.
 

@@ -7,6 +7,7 @@ import time
 import pytest
 from typer.testing import CliRunner
 
+from kater import profiles as profiles_mod
 from kater.capabilities.audit import (
     clear_capability_audit,
     query_capability_audit,
@@ -19,7 +20,12 @@ from kater.connections import (
     integration_manifest,
     list_connection_views,
 )
-from kater.connectors.errors import ConnectorPolicyError, ConnectorUnavailableError
+from kater.connectors.errors import (
+    ConnectorAuthError,
+    ConnectorCapabilityError,
+    ConnectorPolicyError,
+    ConnectorUnavailableError,
+)
 from kater.connectors.internal import register_internal_handler, unregister_internal_handler
 from kater.connectors.models import (
     AuthBindingKind,
@@ -37,7 +43,13 @@ from kater.executor import execute
 from kater.fabric_catalog import CatalogKind, catalog_payload
 from kater.mcp_server import _wrap_native_handler
 from kater.plugins import PluginManifest
-from kater.profiles import OAuthConnectConfig, RiskLevel, ToolSource, Transport
+from kater.profiles import (
+    McpServerConfig,
+    OAuthConnectConfig,
+    RiskLevel,
+    ToolSource,
+    Transport,
+)
 from kater.registry import execute_tool, pr_list_tool, pr_merge_tool
 from kater.settings import KaterSettings, ServerConnection, ServerOverride, save_settings
 from kater.toolkits import GITHUB_TOOLKIT
@@ -392,6 +404,114 @@ def test_timeout_is_structured_and_audited():
     rows = query_capability_audit(capability_id="demoexec.items.create")
     assert rows[0]["outcome"] == "error"
     assert rows[0]["error_code"] == "timeout"
+
+
+def test_hidden_default_connection_is_not_found(monkeypatch):
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    hidden = ToolSource(
+        name="private-source",
+        description="hidden",
+        transport=Transport.HTTP,
+        risk=RiskLevel.LOW,
+        profiles={"secret-profile"},
+        mcp=McpServerConfig(url="https://example.test/mcp"),
+    )
+    monkeypatch.setattr(profiles_mod, "_BUILTIN_TOOL_SOURCES", (hidden,))
+    monkeypatch.setattr(profiles_mod, "_private_profiles", lambda: frozenset({"secret-profile"}))
+    assert get_connection_view("private-source:default") is None
+    assert get_connection_view("private-source") is None
+    missing = call("GET", "/api/connections/private-source:default")
+    assert missing.status == 404
+
+
+def test_native_github_action_rejects_foreign_connection():
+    upsert_connector(_internal())
+    register_internal_handler("demoexec", lambda *_args: {"ok": True})
+    with pytest.raises(ConnectorCapabilityError, match="not registered"):
+        execute(
+            connection="demoexec:default",
+            action="github.pr.list",
+            input={},
+            identity=ActorIdentity(actor_id="agent-9"),
+            policy_context=PolicyContext(profile="ops"),
+        )
+
+
+def test_idempotency_is_scoped_to_principal():
+    upsert_connector(_internal())
+    calls = {"n": 0}
+
+    def handler(_record, _cap, args):
+        calls["n"] += 1
+        return {"created": args["name"], "n": calls["n"]}
+
+    register_internal_handler("demoexec", handler)
+    first = execute(
+        connection="demoexec:default",
+        action="demoexec.items.create",
+        input={"name": "same"},
+        identity=ActorIdentity(actor_id="agent-a"),
+        policy_context=PolicyContext(profile="ops", idempotency_key="shared-key"),
+    )
+    other = execute(
+        connection="demoexec:default",
+        action="demoexec.items.create",
+        input={"name": "same"},
+        identity=ActorIdentity(actor_id="agent-b"),
+        policy_context=PolicyContext(profile="ops", idempotency_key="shared-key"),
+    )
+    assert first["result"]["n"] == 1
+    assert other["idempotency_replay"] is False
+    assert other["result"]["n"] == 2
+
+
+def test_rest_execute_rejects_invalid_timeout_and_connection():
+    upsert_connector(_internal())
+    register_internal_handler("demoexec", lambda *_args: {"ok": True})
+    headers = {"authorization": "Bearer admin-secret"}
+    bad_timeout = call(
+        "POST",
+        "/api/execute",
+        body={
+            "connection": "demoexec:default",
+            "action": "demoexec.items.create",
+            "input": {"name": "x"},
+            "policy_context": {"profile": "ops", "timeout_seconds": 0},
+        },
+        headers=headers,
+    )
+    assert bad_timeout.status == 400
+    bad_id = call(
+        "POST",
+        "/api/execute",
+        body={
+            "connection": "github:",
+            "action": "demoexec.items.create",
+            "input": {"name": "x"},
+            "policy_context": {"profile": "ops"},
+        },
+        headers=headers,
+    )
+    assert bad_id.status == 400
+
+
+def test_plugin_coerce_returns_none_for_invalid_mapping():
+    assert PluginManifest.coerce({"id": "", "name": ""}) is None
+    assert PluginManifest.coerce({"description": "no id"}) is None
+
+
+def test_github_merge_requires_configured_connection():
+    from kater.connectors.seed import seed_builtin_connectors
+
+    seed_builtin_connectors()
+    with pytest.raises(ConnectorAuthError, match="missing credentials"):
+        execute(
+            connection="github:default",
+            action="github.pr.merge",
+            input={"number": 1, "expected_head_sha": "abc123"},
+            identity=ActorIdentity(actor_id="reviewer"),
+            policy_context=PolicyContext(profile="core"),
+        )
 
 
 def test_idempotency_conflict_and_dangerous_policy():

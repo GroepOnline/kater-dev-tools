@@ -6,6 +6,21 @@ into the taste loop (see `.agents/README.md`) instead.
 
 ---
 
+## Execute catalog leaks hide behind list filters
+
+`list_*` can hide private integrations while `get_*(id)` / `:default`
+synthesis / `search_tools` still return them. Public-mode tests must
+cover detail routes and execute, not only list payloads. Native toolkit
+actions need an owner integration; a hardcoded provider fallback lets
+any WRITE connection dispatch that toolkit.
+
+## Merge-train docs trip no-org-leak
+
+Do not put the GitHub org slug or `\bUDO\b` in unallowlisted docs.
+Link PRs as `#95`, not `github.com/<org>/…`. Unit job inner `timeout`
+must stay above the slowest matrix interpreter; 3.13 can hit 480s at
+~99% with a growing suite.
+
 ## Merge train: #95 supersedes #102; docs/state first
 
 Open PRs op 2026-09-12: merge #103 → #105 → #95, close #102, keep #104

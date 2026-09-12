@@ -53,6 +53,15 @@ def native_action_ids() -> frozenset[str]:
     return frozenset(_HANDLERS)
 
 
+def native_action_owner(action: str) -> str | None:
+    for toolkit in toolkit_manifests():
+        if action in toolkit.actions:
+            if toolkit.integrations:
+                return toolkit.integrations[0]
+            return toolkit.id
+    return None
+
+
 def invoke_native_action(action: str, arguments: dict[str, Any]) -> dict[str, Any]:
     handler = _HANDLERS.get(action)
     if handler is None:

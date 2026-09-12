@@ -11,6 +11,7 @@ from typing import Any
 
 from kater.connect import list_connections, source_is_configured
 from kater.connectors.auth import binding_is_satisfied, missing_auth_names
+from kater.connectors.errors import ConnectorCapabilityError, ConnectorValidationError
 from kater.connectors.models import AuthBindingKind, ConnectorRecord
 from kater.connectors.store import get_connector, list_connectors
 from kater.profiles import (
@@ -113,7 +114,20 @@ def _default_view(
     settings = load_settings()
     if record is not None:
         configured = binding_is_satisfied(record.auth_binding, connector_id=record.id)
+        if (
+            record.auth_binding.kind is AuthBindingKind.NONE
+            and source is not None
+            and integration_id == "github"
+        ):
+            configured = source_is_configured(source, settings)
         missing = tuple(missing_auth_names(record.auth_binding, connector_id=record.id))
+        if (
+            record.auth_binding.kind is AuthBindingKind.NONE
+            and integration_id == "github"
+            and source is not None
+            and not configured
+        ):
+            missing = tuple(source.env)
         status = "ready" if configured else ("auth_missing" if missing else record.status.value)
         auth_kind = record.auth_binding.kind.value
     elif source is not None:
@@ -157,7 +171,7 @@ def _oauth_views(source: ToolSource) -> list[ConnectionView]:
     return views
 
 
-def _hidden_integration_ids() -> set[str]:
+def hidden_integration_ids() -> set[str]:
     if not is_public_mode():
         return set()
     return {source.name for source in all_tool_sources() if is_private_source(source)}
@@ -173,7 +187,7 @@ def list_connection_views(
             records = {record.id: record for record in list_connectors()}
         except Exception:
             records = {}
-    hidden = _hidden_integration_ids()
+    hidden = hidden_integration_ids()
     views: list[ConnectionView] = []
     seen: set[str] = set()
     for integration_id in sorted(set(sources) | set(records)):
@@ -199,10 +213,15 @@ def get_connection_view(connection_id: str) -> ConnectionView | None:
     wanted = (connection_id or "").strip()
     if not wanted:
         return None
+    try:
+        integration, suffix = parse_connection_id(wanted)
+    except ValueError:
+        return None
+    if integration in hidden_integration_ids():
+        return None
     for view in list_connection_views():
         if view.id == wanted:
             return view
-    integration, suffix = parse_connection_id(wanted)
     if suffix == "default":
         record = get_connector(integration)
         source = next((item for item in visible_tool_sources() if item.name == integration), None)
@@ -215,7 +234,7 @@ def get_connection_view(connection_id: str) -> ConnectionView | None:
 def integration_manifest(integration_id: str) -> IntegrationManifest | None:
     """Build a secret-free integration manifest from the live catalog."""
     wanted = (integration_id or "").strip()
-    if not wanted:
+    if not wanted or wanted in hidden_integration_ids():
         return None
     record = get_connector(wanted)
     source = next((item for item in visible_tool_sources() if item.name == wanted), None)
@@ -247,8 +266,15 @@ def integration_manifest(integration_id: str) -> IntegrationManifest | None:
 
 def resolve_integration_id(connection_id: str | None, *, fallback: str | None = None) -> str:
     if connection_id:
-        integration, _suffix = parse_connection_id(connection_id)
+        try:
+            integration, _suffix = parse_connection_id(connection_id)
+        except ValueError as exc:
+            raise ConnectorValidationError(str(exc)) from exc
+        if integration in hidden_integration_ids():
+            raise ConnectorCapabilityError(
+                f"connection {connection_id!r} is not registered",
+            )
         return integration
     if fallback:
         return fallback
-    raise ValueError("connection or integration is required")
+    raise ConnectorValidationError("connection or integration is required")

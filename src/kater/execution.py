@@ -8,8 +8,6 @@ import sqlite3
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,7 +18,7 @@ from jsonschema.exceptions import ValidationError as JsonSchemaError
 from kater.connectors.errors import ConnectorCapabilityError, ConnectorUnavailableError
 from kater.settings import load_settings
 
-_RETRYABLE = frozenset({"unavailable", "timeout"})
+_RETRYABLE = frozenset({"unavailable"})
 _DANGEROUS_TOKENS = frozenset({"merge", "delete", "destroy", "admin", "drop"})
 
 _lock = threading.RLock()
@@ -29,12 +27,17 @@ _db_path_cache: str | None = None
 
 _IDEMPOTENCY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS execution_idempotency (
-    idempotency_key TEXT PRIMARY KEY,
+    principal_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
     fingerprint TEXT NOT NULL,
-    result_json TEXT NOT NULL,
-    created_at REAL NOT NULL
+    status TEXT NOT NULL,
+    result_json TEXT,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (principal_id, idempotency_key)
 );
 """
+_PENDING = "pending"
+_COMPLETED = "completed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,16 +203,26 @@ def validate_action_input(schema: dict[str, Any] | None, payload: dict[str, Any]
 def run_with_timeout(func: Any, timeout_seconds: float | None) -> Any:
     if timeout_seconds is None:
         return func()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(func)
+    box: dict[str, Any] = {}
+
+    def runner() -> None:
         try:
-            return future.result(timeout=float(timeout_seconds))
-        except FuturesTimeout as exc:
-            future.cancel()
-            raise ConnectorUnavailableError(
-                f"action timed out after {timeout_seconds}s",
-                code="timeout",
-            ) from exc
+            box["value"] = func()
+        except BaseException as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join(float(timeout_seconds))
+    if thread.is_alive():
+        raise ConnectorUnavailableError(
+            f"action timed out after {timeout_seconds}s",
+            code="timeout",
+        )
+    error = box.get("error")
+    if isinstance(error, BaseException):
+        raise error
+    return box.get("value")
 
 
 def is_retryable(exc: BaseException) -> bool:
@@ -254,11 +267,18 @@ def _get_db() -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=10.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.executescript(_IDEMPOTENCY_SCHEMA)
+    _ensure_idempotency_schema(conn)
     conn.commit()
     _db_cache = conn
     _db_path_cache = db_path
     return conn
+
+
+def _ensure_idempotency_schema(conn: sqlite3.Connection) -> None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(execution_idempotency)")}
+    if columns and "principal_id" not in columns:
+        conn.execute("DROP TABLE execution_idempotency")
+    conn.executescript(_IDEMPOTENCY_SCHEMA)
 
 
 def reset_idempotency_cache() -> None:
@@ -270,14 +290,21 @@ def reset_idempotency_cache() -> None:
         _db_path_cache = None
 
 
-def lookup_idempotency(key: str, fingerprint: str) -> dict[str, Any] | None:
+def _principal_scope(principal_id: str | None) -> str:
+    return (principal_id or "anonymous").strip() or "anonymous"
+
+
+def lookup_idempotency(
+    key: str, fingerprint: str, *, principal_id: str | None = None
+) -> dict[str, Any] | None:
+    scope = _principal_scope(principal_id)
     with _lock:
         row = (
             _get_db()
             .execute(
-                "SELECT fingerprint, result_json FROM execution_idempotency"
-                " WHERE idempotency_key = ?",
-                (key,),
+                "SELECT fingerprint, status, result_json FROM execution_idempotency"
+                " WHERE principal_id = ? AND idempotency_key = ?",
+                (scope, key),
             )
             .fetchone()
         )
@@ -287,16 +314,78 @@ def lookup_idempotency(key: str, fingerprint: str) -> dict[str, Any] | None:
         raise ConnectorCapabilityError(
             "idempotency key reused with different action input",
         )
+    if str(row["status"]) != _COMPLETED or row["result_json"] is None:
+        return None
     return json.loads(str(row["result_json"]))
 
 
-def store_idempotency(key: str, fingerprint: str, result: dict[str, Any]) -> None:
+def reserve_idempotency(
+    key: str, fingerprint: str, *, principal_id: str | None = None
+) -> dict[str, Any] | None:
+    scope = _principal_scope(principal_id)
+    with _lock:
+        db = _get_db()
+        row = db.execute(
+            "SELECT fingerprint, status, result_json FROM execution_idempotency"
+            " WHERE principal_id = ? AND idempotency_key = ?",
+            (scope, key),
+        ).fetchone()
+        if row is None:
+            try:
+                db.execute(
+                    """INSERT INTO execution_idempotency
+                       (principal_id, idempotency_key, fingerprint, status,
+                        result_json, created_at)
+                       VALUES (?, ?, ?, ?, NULL, ?)""",
+                    (scope, key, fingerprint, _PENDING, time.time()),
+                )
+                db.commit()
+                return None
+            except sqlite3.IntegrityError:
+                row = db.execute(
+                    "SELECT fingerprint, status, result_json FROM execution_idempotency"
+                    " WHERE principal_id = ? AND idempotency_key = ?",
+                    (scope, key),
+                ).fetchone()
+                if row is None:
+                    raise ConnectorUnavailableError(
+                        "idempotency key reservation failed"
+                    ) from None
+        if str(row["fingerprint"]) != fingerprint:
+            raise ConnectorCapabilityError(
+                "idempotency key reused with different action input",
+            )
+        if str(row["status"]) == _COMPLETED and row["result_json"] is not None:
+            return json.loads(str(row["result_json"]))
+        raise ConnectorUnavailableError("idempotency key is already in progress")
+
+
+def store_idempotency(
+    key: str,
+    fingerprint: str,
+    result: dict[str, Any],
+    *,
+    principal_id: str | None = None,
+) -> None:
+    scope = _principal_scope(principal_id)
     with _lock:
         db = _get_db()
         db.execute(
-            """INSERT OR REPLACE INTO execution_idempotency
-               (idempotency_key, fingerprint, result_json, created_at)
-               VALUES (?, ?, ?, ?)""",
-            (key, fingerprint, json.dumps(result, default=str), time.time()),
+            """UPDATE execution_idempotency
+               SET fingerprint = ?, status = ?, result_json = ?, created_at = ?
+               WHERE principal_id = ? AND idempotency_key = ?""",
+            (fingerprint, _COMPLETED, json.dumps(result, default=str), time.time(), scope, key),
+        )
+        db.commit()
+
+
+def release_idempotency(key: str, *, principal_id: str | None = None) -> None:
+    scope = _principal_scope(principal_id)
+    with _lock:
+        db = _get_db()
+        db.execute(
+            "DELETE FROM execution_idempotency"
+            " WHERE principal_id = ? AND idempotency_key = ? AND status = ?",
+            (scope, key, _PENDING),
         )
         db.commit()

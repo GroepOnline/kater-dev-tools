@@ -22,6 +22,7 @@ from kater.capabilities.audit import record_capability_audit
 from kater.connections import (
     default_connection_id,
     get_connection_view,
+    hidden_integration_ids,
     parse_connection_id,
     resolve_integration_id,
 )
@@ -31,6 +32,7 @@ from kater.connectors.errors import (
     ConnectorAuthError,
     ConnectorCapabilityError,
     ConnectorError,
+    ConnectorNotFoundError,
     ConnectorPolicyError,
     ConnectorUnavailableError,
 )
@@ -46,13 +48,15 @@ from kater.execution import (
     action_is_dangerous,
     input_fingerprint,
     is_retryable,
-    lookup_idempotency,
     new_ids,
+    release_idempotency,
+    reserve_idempotency,
     run_with_timeout,
     store_idempotency,
     validate_action_input,
 )
-from kater.toolkits import invoke_native_action, native_action_ids
+from kater.toolkits import invoke_native_action, native_action_owner
+from kater.toolkits.github import GITHUB_PR_ACTIONS
 
 _WORD = re.compile(r"[a-z0-9_.:-]+", re.IGNORECASE)
 _AVAILABLE_HEALTH = frozenset({HealthState.HEALTHY, HealthState.DEGRADED})
@@ -124,7 +128,10 @@ def search_tools(
     bounded_limit = max(1, min(int(limit), 50))
     matches: list[dict[str, Any]] = []
 
+    hidden = hidden_integration_ids()
     for record in list_connectors():
+        if record.id in hidden:
+            continue
         health = evaluate_health(record, profile=profile)
         granted = record.permission_for(profile)
         for capability in record.capabilities:
@@ -176,10 +183,9 @@ def _resolve_connector(capability_id: str, connector_id: str | None) -> str:
     if connector_id:
         record = get_connector(connector_id)
         if record is None:
-            from kater.connectors.errors import ConnectorNotFoundError
-
             raise ConnectorNotFoundError(connector_id)
-        if record.capability(capability_id) is None and capability_id not in native_action_ids():
+        owner = native_action_owner(capability_id)
+        if record.capability(capability_id) is None and owner != connector_id:
             raise ConnectorCapabilityError(
                 f"capability {capability_id!r} not found on connector {connector_id!r}",
                 connector_id=connector_id,
@@ -189,16 +195,18 @@ def _resolve_connector(capability_id: str, connector_id: str | None) -> str:
     prefix = capability_id.split(".", 1)[0] if "." in capability_id else ""
     if prefix:
         record = get_connector(prefix)
+        owner = native_action_owner(capability_id)
         if record is not None and (
-            record.capability(capability_id) is not None or capability_id in native_action_ids()
+            record.capability(capability_id) is not None or owner == prefix
         ):
             return prefix
 
     owners = [
         record.id for record in list_connectors() if record.capability(capability_id) is not None
     ]
-    if capability_id in native_action_ids() and "github" not in owners:
-        owners.append("github")
+    owner = native_action_owner(capability_id)
+    if owner and owner not in owners:
+        owners.append(owner)
     if not owners:
         raise ConnectorCapabilityError(f"capability {capability_id!r} is not registered")
     if len(owners) > 1:
@@ -308,9 +316,8 @@ def _resolve_action_capability(
         found = record.capability(action)
         if found is not None:
             return found
-    if action in native_action_ids():
-        from kater.toolkits.github import GITHUB_PR_ACTIONS
-
+    owner = native_action_owner(action)
+    if owner == integration_id:
         for item in GITHUB_PR_ACTIONS:
             if item.id == action:
                 return item
@@ -324,7 +331,13 @@ def _dispatch(
     *,
     profile: str,
 ) -> dict[str, Any]:
-    if action in native_action_ids():
+    owner = native_action_owner(action)
+    if owner is not None:
+        if owner != integration_id:
+            raise ConnectorCapabilityError(
+                f"action {action!r} is not available on {integration_id!r}",
+                connector_id=integration_id,
+            )
         return invoke_native_action(action, payload)
     return connector_registry.invoke(
         integration_id,
@@ -334,17 +347,30 @@ def _dispatch(
     )
 
 
-def _assert_connection(connection_id: str, integration_id: str) -> None:
+def _assert_connection(
+    connection_id: str,
+    integration_id: str,
+    *,
+    require_configured: bool = False,
+) -> None:
     view = get_connection_view(connection_id)
     if view is None:
         raise ConnectorCapabilityError(
             f"connection {connection_id!r} is not registered",
             connector_id=integration_id,
         )
-    parsed, _suffix = parse_connection_id(connection_id)
+    try:
+        parsed, _suffix = parse_connection_id(connection_id)
+    except ValueError as exc:
+        raise ConnectorCapabilityError(str(exc), connector_id=integration_id) from exc
     if parsed != integration_id:
         raise ConnectorCapabilityError(
             f"connection {connection_id!r} does not belong to {integration_id!r}",
+            connector_id=integration_id,
+        )
+    if require_configured and not view.configured:
+        raise ConnectorAuthError(
+            f"connection {connection_id!r} is missing credentials",
             connector_id=integration_id,
         )
 
@@ -434,7 +460,7 @@ def _authorize_action(
     actor: ActorIdentity,
 ) -> None:
     capability = _resolve_action_capability(integration_id, action)
-    if capability is None and action not in native_action_ids():
+    if capability is None:
         raise ConnectorCapabilityError(
             f"action {action!r} is not registered",
             connector_id=integration_id,
@@ -480,16 +506,35 @@ def _prepare(
     _seed_catalog()
     state.integration_id = _resolve_integration(connection, connector_id, action)
     state.connection_id = connection or default_connection_id(state.integration_id)
+    capability = _resolve_action_capability(state.integration_id, action)
     _assert_connection(state.connection_id, state.integration_id)
     state.payload = _apply_merge_sha(action, state.payload, policy)
     _authorize_action(state.integration_id, action, state.payload, policy, actor)
+    if (
+        capability is not None
+        and capability.mutation
+        and native_action_owner(action) == state.integration_id
+    ):
+        _assert_connection(
+            state.connection_id,
+            state.integration_id,
+            require_configured=True,
+        )
     state.fingerprint = input_fingerprint(state.connection_id, action, state.payload)
 
 
-def _replay_idempotent(policy: PolicyContext, fingerprint: str) -> dict[str, Any] | None:
+def _reserve_idempotent(
+    policy: PolicyContext,
+    fingerprint: str,
+    actor: ActorIdentity,
+) -> dict[str, Any] | None:
     if not policy.idempotency_key:
         return None
-    cached = lookup_idempotency(policy.idempotency_key, fingerprint)
+    cached = reserve_idempotency(
+        policy.idempotency_key,
+        fingerprint,
+        principal_id=actor.principal_id or actor.actor_id,
+    )
     if cached is None:
         return None
     replay = dict(cached)
@@ -629,7 +674,12 @@ def _success_payload(
         extra={"profile": policy.profile, "context_id": policy.context_id},
     ).as_dict()
     if policy.idempotency_key:
-        store_idempotency(policy.idempotency_key, fingerprint, payload_out)
+        store_idempotency(
+            policy.idempotency_key,
+            fingerprint,
+            payload_out,
+            principal_id=actor.principal_id or actor.actor_id,
+        )
     return payload_out
 
 
@@ -758,6 +808,7 @@ def _invoke(
     reason: str | None = None
     error_code: str | None = None
     attempts = 0
+    reserved = False
     try:
         _prepare(
             state,
@@ -767,9 +818,10 @@ def _invoke(
             policy=policy,
             actor=actor,
         )
-        replay = _replay_idempotent(policy, state.fingerprint)
+        replay = _reserve_idempotent(policy, state.fingerprint, actor)
         if replay is not None:
             return replay
+        reserved = bool(policy.idempotency_key)
         result, last_error, attempts = _run_attempts(
             state.integration_id, action, state.payload, policy
         )
@@ -795,6 +847,11 @@ def _invoke(
             fingerprint=state.fingerprint,
         )
     except ConnectorError as exc:
+        if reserved and policy.idempotency_key:
+            release_idempotency(
+                policy.idempotency_key,
+                principal_id=actor.principal_id or actor.actor_id,
+            )
         _attach_failure(
             exc,
             connection_id=state.connection_id,

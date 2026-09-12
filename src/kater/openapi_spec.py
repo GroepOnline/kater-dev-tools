@@ -985,6 +985,10 @@ def _build_paths() -> dict[str, Any]:
                     "application/json": {
                         "schema": {
                             "type": "object",
+                            "anyOf": [
+                                {"required": ["action"]},
+                                {"required": ["capability_id"]},
+                            ],
                             "properties": {
                                 "connection": {"type": "string"},
                                 "action": {"type": "string"},
@@ -997,7 +1001,10 @@ def _build_paths() -> dict[str, Any]:
                                 "connector_id": {"type": "string"},
                                 "principal_id": {"type": "string"},
                                 "context_id": {"type": "string"},
-                                "timeout_seconds": {"type": "number"},
+                                "timeout_seconds": {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0,
+                                },
                                 "idempotency_key": {"type": "string"},
                                 "run_id": {"type": "string"},
                                 "trace_id": {"type": "string"},

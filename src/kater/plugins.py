@@ -63,7 +63,10 @@ class PluginManifest:
         if isinstance(raw, cls):
             return raw
         if isinstance(raw, dict):
-            manifest = cls.from_mapping(raw)
+            try:
+                manifest = cls.from_mapping(raw)
+            except (TypeError, ValueError):
+                return None
             return manifest if manifest.id else None
         if hasattr(raw, "as_dict"):
             return cls.coerce(raw.as_dict())

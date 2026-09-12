@@ -1,64 +1,57 @@
-# PR #95 review — Execution Foundation
+# PR #95 review — Execution Foundation (strict fix pass)
 
 Lens: `docs/architecture/runtime-kronkel.md` +
 `docs/architecture/execution-foundation.md`.
-Head at review time: `eda7bb2` (merge-train plan + CodeFactor split).
-Train: slot 3 — `docs/merge-train-20260912.md`.
+Head before this pass: `b464cd2`. Train: slot 3.
 
 ## Verdict
 
-**MERGE after human APPROVE** (train slot 3). Foundation is aligned:
-Kater blijft execute-plane, GitHub is de eerste toolkit, `kater_pr_*`
-zijn wrappers. Niet mergen als “volledig systeem” of als startsein
-voor een Rust/Redis-daemon.
+**MERGE after human APPROVE** once CI is green on the new head.
+Foundation stays execute-plane. This pass closed the write-path and
+catalog-visibility holes that blocked a strict merge.
 
-Gate (one-shot): CI green, `CLEAN`, not draft. Blockers for write-path:
-geen independent APPROVE; 17 unresolved bot-threads (v0 follow-up).
-Supersedes #102.
+## CI (pre-fix)
 
-## Plane check
+- `no-org-leak`: `docs/merge-train-20260912.md` had an org handle and
+  `\bUDO\b` (private data-plane regex). Rewritten to PR numbers only.
+- `unit (3.13)`: job `timeout 480s` (exit 124) at ~99%, not an assertion.
+  Suite is slower on 3.13 than 3.11/3.12/3.14. Raised to `timeout 600s`.
+- `gate`: failed because unit failed.
 
-| Eis | Diff | Ok? |
-| --- | --- | --- |
-| Catalog `toolkit → integration → connection → action` | `PluginManifest`, `ConnectionView`, `IntegrationManifest`, `/api/connections`, `/api/actions` | ja |
-| `execute(connection, action, input, identity, policy_context)` | `src/kater/executor.py`, REST, MCP, CLI | ja |
-| GitHub gemigreerd | `github.pr.*` + wrappers in `registry.py` | ja |
-| Secrets uit views | `ConnectionView` / OAuth-test zonder tokenwaarden | ja |
-| Policy op dangerous writes | merge eist non-anonymous + `expected_head_sha`; `allow_dangerous` | ja |
-| Docs lock split | `docs/architecture/execution-foundation.md` | ja |
-| Geen Commander/Factory/OCX-creep | geen run-graph, geen deploy, geen model routing | ja |
-| Geen Redis/Rust rewrite | niet in deze PR | ja |
+## Must-fix (landed)
 
-## Findings (niet blokkerend voor foundation, wél reviewen)
+1. **Hidden `:default` leak** — `get_connection_view` / manifests now
+   honor `hidden_integration_ids()` before synthesizing a view.
+   `GET /api/connections/{id}` for a private source is 404.
+2. **Native `github.pr.*` binding** — owner comes from the toolkit
+   manifest, not a hardcoded `"github"` fallback. Foreign connections
+   cannot dispatch GitHub actions.
+3. **GitHub mutation credentials** — `github.pr.merge` requires a
+   configured GitHub connection (`source_is_configured` on the PAT env).
+   Doctor still uses `AuthBindingKind.NONE`.
+4. **Idempotency** — scoped by `principal_id`; pending reservation
+   before dispatch; release on failure. Timeout is no longer retryable.
+5. **Timeout** — daemon thread + `join`; caller returns at the deadline
+   instead of waiting on `ThreadPoolExecutor.shutdown(wait=True)`.
+6. **400 mapping** — bad `timeout_seconds` / malformed connection ids
+   are 400, not 500.
+7. **Plugin coerce** — invalid mappings return `None`.
+8. **Catalog** — `profiles` populated; duplicate action ids skipped;
+   `configured` derived from binding/source, not hardcoded `True`.
+9. **`search_tools`** — skips hidden integrations in public mode.
 
-1. **`allow_dangerous` default True.** Mutations zonder merge/delete-token
-   blijven anonymous-ok (`linear.issues.create`). Alleen token-gevaarlijke
-   acties eisen actor. Bewust; niet “alles is dangerous”.
-2. **Idempotency replay checkt identity niet opnieuw.** Zelfde key +
-   fingerprint geeft de cached envelope terug. Caller met andere
-   `actor_id` kan een resultaat herhalen. Acceptabel voor v0 als keys
-   caller-scoped blijven; later key = identity + fingerprint.
-3. **GitHub `AuthBindingKind.NONE` op core.** Doctor blijft groen zonder
-   PAT; WRITE blijft via aparte `env_ok`. Reviewers: dit is core-cloud
-   hygiene, geen “GitHub zonder credentials in ops”.
-4. **Timeouts via `ThreadPoolExecutor`.** Werkt; geen async cancel van de
-   provider-call. Geen reden om Redis/Rust in te trekken.
-5. **`list_connection_views` slikt store-fouten.** Nodig voor
-   catalog-visibility tests die SQLite verbieden. Publieke catalog mag
-   geen writer openen.
-6. **CodeFactor Complex Method** op het oude `execute()` is gefixt door
-   split (`_prepare`, `_run_attempts`, `_invoke`). Geen taalwissel.
+## Acceptable v0 / out of scope
 
-## Out of scope (kronkel)
-
-Rust+Zig daemon, Redis als MCP-bus, “één volledig systeem”. Dat is
-afgewezen tot er gemeten fan-out/p99 is. Zie de kronkel-doc.
+- Body `identity` remains the local/loopback actor label. REST without
+  admin key is loopback-trusted. Not a second auth plane.
+- `allow_dangerous` default True; only merge/delete/admin/drop tokens.
+- MCP `kater_pr_merge` still uses actor `"mcp"` + `expected_head_sha`.
+- No Redis/Rust rewrite. No Commander/Factory/OCX creep.
+- Cloud `curl | sh` uv bootstrap left as-is (Cloud install path).
 
 ## Verify
 
 ```bash
 uv run ruff check . && uv run mypy && uv run pytest --no-cov
+python3 scripts/no_org_leak.py --base origin/main
 ```
-
-Laatst lokaal: ruff/mypy groen; foundation + executor + API/CLI 129
-passed; full suite was 1976 passed / 13 skipped op `5337df3`.

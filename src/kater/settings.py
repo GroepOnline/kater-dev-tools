@@ -10,7 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+
+from kater.resource_auth import ResourceAuthConfig, ResourceAuthConfigurationError
 
 # Environment keys materialized from persisted settings, rather than supplied externally.
 persisted_env_keys: set[str] = set()
@@ -49,6 +51,7 @@ class KaterSettings(BaseModel):
     version: int = 2
     default_profile: str = "core"
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    resource_auth: ResourceAuthConfig = Field(default_factory=ResourceAuthConfig)
     server_overrides: dict[str, ServerOverride] = Field(default_factory=dict)
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     rate_limit_per_min: int = 0
@@ -186,6 +189,11 @@ def load_settings(project_dir: Path | None = None) -> KaterSettings:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             settings = KaterSettings.from_dict(data)
+        except ValidationError:
+            if isinstance(data, dict) and "resource_auth" in data:
+                # An invalid resource contract must never silently become disabled.
+                raise ResourceAuthConfigurationError() from None
+            settings = _settings_from_env()
         except (json.JSONDecodeError, ValueError):
             settings = _settings_from_env()
     else:

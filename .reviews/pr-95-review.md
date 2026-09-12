@@ -2,7 +2,7 @@
 
 Lens: `docs/architecture/runtime-kronkel.md` +
 `docs/architecture/execution-foundation.md`.
-Head at review time: `30564a5` (post CodeFactor split).
+Head at review time: `4d87019` (kronkel-docs + CodeFactor split).
 
 ## Verdict
 

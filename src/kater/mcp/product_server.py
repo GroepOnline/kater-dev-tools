@@ -65,15 +65,28 @@ class ProductAuthMiddleware:
         self._metadata_url = str(build_resource_metadata_url(AnyHttpUrl(config.resource)))
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        if scope.get("type") != "http" or (
-            scope.get("method") == "GET" and scope.get("path") == urlsplit(self._metadata_url).path
-        ):
+        if scope.get("type") != "http":
             await self._app(scope, receive, send)
             return
         headers = {
             key.decode("latin-1").lower(): value.decode("latin-1")
             for key, value in scope.get("headers", [])
         }
+        from kater.api import check_transport_rate_limit
+        from kater.settings import resolve_client_ip
+
+        # Reuse the REST/private MCP quota and forwarding trust policy before
+        # spending an Auth request. A caller cannot rotate a forged XFF header
+        # to evade its peer-IP quota.
+        client = scope.get("client")
+        peer_ip = client[0] if client else "unknown"
+        client_ip = resolve_client_ip(headers.get("x-forwarded-for"), peer_ip)
+        if not check_transport_rate_limit(client_ip):
+            await self._error(send, 429, "rate_limit_exceeded", include_challenge=False)
+            return
+        if scope.get("method") == "GET" and scope.get("path") == urlsplit(self._metadata_url).path:
+            await self._app(scope, receive, send)
+            return
         authorization = headers.get("authorization", "")
         if not authorization.lower().startswith("bearer "):
             await self._error(send, 401, "invalid_token")

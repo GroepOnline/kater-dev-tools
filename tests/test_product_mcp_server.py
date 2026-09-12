@@ -216,3 +216,72 @@ def test_openai_metadata_adapter_does_not_buffer_sse():
 
     asyncio.run(OpenAIToolSecurityMiddleware(app)({"type": "http"}, None, send))
     assert sent[1]["more_body"] is True
+
+
+@pytest.mark.parametrize(
+    "peer,expected_second_status",
+    [("8.8.8.8", 429), ("127.0.0.1", 200)],
+)
+def test_rate_limit_uses_shared_gate_and_trusted_peer_policy(
+    config, monkeypatch, peer, expected_second_status
+):
+    import asyncio
+
+    from kater.mcp.product_server import ProductAuthMiddleware
+    from kater.settings import RateLimiter
+
+    monkeypatch.delenv("KATER_TRUST_PROXY", raising=False)
+    monkeypatch.setattr("kater.api.server._rate_limiter", RateLimiter(1))
+    introspections = _install_introspection(monkeypatch)
+
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    middleware = ProductAuthMiddleware(app, config)
+
+    async def request(forwarded):
+        messages = []
+
+        async def send(message):
+            messages.append(message)
+
+        await middleware(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/mcp",
+                "client": (peer, 12345),
+                "headers": [
+                    (b"authorization", b"Bearer sensitive-token"),
+                    (b"x-forwarded-for", forwarded),
+                ],
+            },
+            None,
+            send,
+        )
+        return messages
+
+    first = asyncio.run(request(b"198.51.100.1"))
+    second = asyncio.run(request(b"198.51.100.2"))
+    assert first[0]["status"] == 200
+    assert second[0]["status"] == expected_second_status
+    assert len(introspections) == (1 if expected_second_status == 429 else 2)
+    if expected_second_status == 429:
+        assert json.loads(second[1]["body"]) == {"error": "rate_limit_exceeded"}
+        assert b"sensitive-token" not in second[1]["body"]
+        assert b"www-authenticate" not in dict(second[0]["headers"])
+        assert dict(second[0]["headers"])[b"cache-control"] == b"no-store"
+
+
+def test_metadata_uses_same_rate_limit_without_introspection(config, monkeypatch):
+    from kater.settings import RateLimiter
+
+    monkeypatch.setattr("kater.api.server._rate_limiter", RateLimiter(1))
+    calls = _install_introspection(monkeypatch)
+    with TestClient(build_product_mcp_app(config), base_url="https://tools.example.test") as client:
+        metadata = client.get("/.well-known/oauth-protected-resource/mcp")
+        limited = _rpc(client, "tools/list", {})
+    assert metadata.status_code == 200
+    assert limited.status_code == 429
+    assert calls == []

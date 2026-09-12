@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 import uvicorn
 
+from kater.resource_auth import ResourceAuthConfigurationError
 from kater.settings import ListenConfig
 
 _log = logging.getLogger("kater.runtime")
@@ -72,25 +73,29 @@ class KaterRuntime:
         from kater.settings import load_settings
 
         load_project_env()
-        settings = load_settings()
-        if self._explicit_listen is None:
-            from kater.settings import resolve_listen_config
+        try:
+            settings = load_settings()
+            if self._explicit_listen is None:
+                from kater.settings import resolve_listen_config
 
-            self._listen = resolve_listen_config(settings=settings)
-        settings.apply_credentials_to_env()
-        product_app = None
-        if settings.resource_auth.enabled:
-            from kater.mcp.product_server import build_product_mcp_app
-            from kater.resource_auth import IntrospectionClient
+                self._listen = resolve_listen_config(settings=settings)
+            settings.apply_credentials_to_env()
+            product_app = None
+            if settings.resource_auth.enabled:
+                from kater.mcp.product_server import build_product_mcp_app
+                from kater.resource_auth import IntrospectionClient
 
-            IntrospectionClient(settings.resource_auth).validate_configuration()
-            if self._listen.product_mcp_port in {
-                self._listen.api_port,
-                self._listen.mcp_port,
-                self._listen.ws_port,
-            }:
-                raise ValueError("Product MCP must use a dedicated listener port")
-            product_app = build_product_mcp_app(settings.resource_auth)
+                IntrospectionClient(settings.resource_auth).validate_configuration()
+                if self._listen.product_mcp_port in {
+                    self._listen.api_port,
+                    self._listen.mcp_port,
+                    self._listen.ws_port,
+                }:
+                    raise ValueError("Product MCP must use a dedicated listener port")
+                product_app = build_product_mcp_app(settings.resource_auth)
+        except ResourceAuthConfigurationError:
+            _log.error("resource_auth_configuration_error; refusing to start")
+            raise
 
         from kater.migrations import ensure_migrated
 

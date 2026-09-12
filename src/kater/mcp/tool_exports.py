@@ -1,9 +1,9 @@
 """Disabled ChefGroep product MCP contract, separate from generic native/proxy tools.
 
-No server, settings loader or extension discovery enables this registry. A future
-transport must opt in explicitly and supply a ResourcePrincipal obtained from
-IntrospectionClient for this resource. Principals are trusted server context, never
-tool arguments. This module does not authenticate caller-supplied claim objects.
+Only the opt-in dedicated product transport enables this registry. It supplies a
+ResourcePrincipal obtained from IntrospectionClient for this resource. Principals
+are trusted server context, never tool arguments. This module does not authenticate
+caller-supplied claim objects or join private native/proxy registries.
 
 Only descriptor search is implemented locally. Backend operations return typed
 unavailable errors until resource-scoped, read-only adapters have been reviewed.
@@ -201,7 +201,7 @@ def _result(payload: dict[str, object], *, is_error: bool) -> CallToolResult:
 
 
 class ProductToolRegistry:
-    """Explicit opt-in seam for list, search and call; no live transport binding.
+    """Explicit opt-in registry for the dedicated product transport.
 
     `auth` is operator configuration. `principal` on each method is authenticated
     server context. The caller cannot choose a profile, principal, URL or token

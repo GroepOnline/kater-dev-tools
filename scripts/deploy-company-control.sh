@@ -144,6 +144,18 @@ if [[ "$healthy" != 1 ]]; then
   echo "deploy: new runtime did not become healthy" >&2
   false
 fi
+# Readiness includes the enabled product listener, exact resource metadata,
+# bearer rejection and live Auth introspection. Failure keeps rollback armed.
+ready=0
+ready_deadline=$((SECONDS + 30))
+while (( SECONDS < ready_deadline )); do
+  if curl --fail-with-body -sS --max-time 15 "http://127.0.0.1:$API_PORT/health/ready"; then
+    ready=1
+    break
+  fi
+  sleep 0.5
+done
+[[ "$ready" == 1 ]] || { echo "deploy: product/Auth readiness failed" >&2; false; }
 [[ "$(cat "$CURRENT/.deployed-sha")" == "$SHA" ]] || { echo "deploy: active SHA mismatch" >&2; false; }
 for dependent in "${ACTIVE_DEPENDENTS[@]}"; do
   sudo -n systemctl start "$dependent"

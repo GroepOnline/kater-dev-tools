@@ -309,6 +309,15 @@ def _health_ready(_: Request) -> Response:
         }
         degraded = True
 
+    if settings is not None and settings.resource_auth.enabled:
+        from kater.mcp.product_server import product_mcp_ready
+
+        ready = product_mcp_ready(
+            settings.resource_auth, settings.host, settings.product_mcp_port
+        )
+        components["product_mcp"] = {"status": "ok" if ready else "unavailable"}
+        unhealthy = unhealthy or not ready
+
     # UTRECHT_REPO_PATH is optional in current live env; when unset the Utrecht
     # CLI tools degrade, but the gateway itself remains up. Report that clearly.
     utrecht_path = os.environ.get("UTRECHT_REPO_PATH")
@@ -359,7 +368,7 @@ def _health_ready(_: Request) -> Response:
     status = "unhealthy" if unhealthy else "degraded" if degraded else "ok"
 
     return Response.json(
-        200,
+        503 if unhealthy else 200,
         {
             "status": status,
             "service": "kater",

@@ -373,6 +373,15 @@ AGENT_SESSION_TRANSPORT_SCHEMA = (
     ),
 )
 
+_EXECUTION_FOUNDATION_V11 = (
+    """CREATE TABLE IF NOT EXISTS execution_idempotency (
+        idempotency_key TEXT PRIMARY KEY,
+        fingerprint TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        created_at REAL NOT NULL
+    )""",
+)
+
 #: Ordered, append-only. Add new versions at the end; never edit a released one.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="baseline", statements=_BASELINE),
@@ -393,6 +402,7 @@ MIGRATIONS: tuple[Migration, ...] = (
         name="agent_session_transport",
         statements=AGENT_SESSION_TRANSPORT_SCHEMA,
     ),
+    Migration(version=11, name="execution_foundation", statements=_EXECUTION_FOUNDATION_V11),
 )
 
 _CREATE_SCHEMA_TABLE = f"""CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (

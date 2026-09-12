@@ -24,6 +24,8 @@ CATALOG_PATHS = (
     "/api/fabric",
     "/api/toolkits",
     "/api/integrations",
+    "/api/connections",
+    "/api/actions",
     "/api/plugins",
     "/api/mcp/catalog",
 )

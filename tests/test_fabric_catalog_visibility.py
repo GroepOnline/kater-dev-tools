@@ -12,7 +12,15 @@ from kater.authgate import RequestIdentity
 from kater.connectors.models import ConnectorRecord, ConnectorTransport, ConnectorType
 from kater.profiles import McpServerConfig, RiskLevel, ToolSource, Transport
 
-PATHS = ("/api/fabric", "/api/toolkits", "/api/integrations", "/api/plugins", "/api/mcp/catalog")
+PATHS = (
+    "/api/fabric",
+    "/api/toolkits",
+    "/api/integrations",
+    "/api/plugins",
+    "/api/mcp/catalog",
+    "/api/connections",
+    "/api/actions",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -92,7 +100,8 @@ def clean_kater_state(monkeypatch, tmp_path):
 def response_for(path, query=None):
     matched = ROUTER.match("GET", path)
     assert matched is not None
-    return matched[0].handler(
+    route, params = matched
+    return route.handler(
         Request(
             method="GET",
             path=path,
@@ -101,6 +110,7 @@ def response_for(path, query=None):
             raw_body=b"",
             client_ip="127.0.0.1",
             base_url="http://localhost:9091",
+            params=params,
         )
     )
 
@@ -165,6 +175,12 @@ def test_capability_restriction_still_precedes_catalog_read(monkeypatch, path):
     assert response.status == 403
     assert response.payload["code"] == "capability_denied"
     forbidden.assert_not_called()
+
+
+def test_hidden_connection_detail_is_not_found():
+    response = response_for("/api/connections/private-source:default")
+    assert response.status == 404
+    assert response.payload["code"] == "not_found"
 
 
 def test_private_only_extension_does_not_reappear_as_implicit_plugin(

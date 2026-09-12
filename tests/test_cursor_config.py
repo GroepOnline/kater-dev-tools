@@ -37,9 +37,11 @@ def test_environment_json_is_valid_json() -> None:
 
 def test_environment_json_install_bootstraps_hooks_and_deps(environment_json) -> None:
     install = environment_json["install"]
-    assert "fetch-cursor-artifacts.sh" in install
+    assert "cloud-agent-install.sh" in install
     assert "chmod +x" in install
-    assert "uv sync --dev" in install
+    script = (ROOT / "scripts/cloud-agent-install.sh").read_text(encoding="utf-8")
+    assert "fetch-cursor-artifacts.sh" in script
+    assert "uv sync --dev" in script
 
 
 def test_environment_json_terminal_serves_core_profile_without_proxy(environment_json) -> None:

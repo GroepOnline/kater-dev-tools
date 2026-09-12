@@ -3,20 +3,21 @@
 Kater exposes two agent-facing tools for connector work:
 
 - `kater_tool_search` finds registered capabilities for a task.
-- `kater_execute` runs one capability through the connector's existing auth, profile permission, transport, and audit path.
+- `kater_execute` runs one action through
+  `execute(connection, action, input, identity, policy_context)`.
 
-Agents do not need every provider tool in their MCP context. They search the catalog first, then execute the selected capability.
+Agents do not need every provider tool in their MCP context. They search the catalog first, then execute the selected action.
 
 ```text
 agent intent
 -> kater_tool_search
--> connector capability
+-> toolkit / connection / action
 -> kater_execute
--> auth check
--> profile permission
--> connector transport
+-> schema + policy + identity
+-> connection binding
+-> toolkit handler or connector transport
 -> provider
--> capability audit
+-> capability audit (run_id / trace_id)
 ```
 
 ## Search for a capability
@@ -41,11 +42,11 @@ kater execute linear.issues.create \
   --args '{"title":"Fix release gate"}'
 ```
 
-`kater_execute` does not bypass connector rules. The existing connector registry still owns auth checks, read or write permission, connector state, and transport dispatch.
+`kater_execute` does not bypass connector rules. The existing connector registry still owns auth checks, read or write permission, connector state, and transport dispatch. Native toolkit actions (GitHub PR/gate first) use the same execute envelope; `kater_pr_*` is a compatibility wrapper.
 
 If more than one connector owns the same capability id, pass an explicit connector id. Kater rejects ambiguous execution instead of choosing one implicitly.
 
-Every execution writes a capability-audit row with the capability id, principal, context id, outcome, duration, and profile. Kater records denied and failed calls as well as successful calls.
+Every execution writes a capability-audit row with the capability id, connection, action, actor/agent, run/trace ids, outcome, duration, and profile. Kater records denied and failed calls as well as successful calls. Optional timeout, retries, and idempotency keys live on `policy_context`.
 
 ## Add a connector
 

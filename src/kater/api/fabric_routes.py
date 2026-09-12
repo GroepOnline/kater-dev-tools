@@ -20,6 +20,7 @@ from kater.capabilities.audit import list_audited_capabilities, query_capability
 from kater.capabilities.discovery import discover
 from kater.capabilities.models import CapabilityManifest, DiscoveryContext, RiskClass
 from kater.capabilities.registry import get_default_registry
+from kater.connections import get_connection_view
 from kater.control_plane import contexts as remote_contexts
 from kater.control_plane.tokens import token_expires_at
 
@@ -717,6 +718,33 @@ def _mcp_catalog(req: Request) -> Response:
     return _catalog_response(req, "mcp")
 
 
+@route("GET", "/api/connections")
+def _connections_catalog(req: Request) -> Response:
+    return _catalog_response(req, "connection")
+
+
+@route("GET", "/api/actions")
+def _actions_catalog(req: Request) -> Response:
+    return _catalog_response(req, "action")
+
+
+@route("GET", "/api/connections/{connection_id}")
+def _connection_detail(req: Request) -> Response:
+    identity = get_request_identity()
+    if identity.allowed_capabilities is not None:
+        return Response.json(
+            403,
+            {
+                "error": "Catalog metadata requires unrestricted capability discovery",
+                "code": "capability_denied",
+            },
+        )
+    view = get_connection_view(req.params["connection_id"])
+    if view is None:
+        return Response.json(404, {"error": "connection not found", "code": "not_found"})
+    return Response.json(200, view.as_dict())
+
+
 _CATALOG_RESPONSE = {
     "200": {
         "description": "Kater product catalog view.",
@@ -748,7 +776,14 @@ FABRIC_OPENAPI_PATHS.update(
                         "required": False,
                         "schema": {
                             "type": "string",
-                            "enum": ["toolkit", "integration", "plugin", "mcp"],
+                            "enum": [
+                                "toolkit",
+                                "integration",
+                                "connection",
+                                "action",
+                                "plugin",
+                                "mcp",
+                            ],
                         },
                     },
                     *_CATALOG_FILTER_PARAMETERS,
@@ -780,6 +815,37 @@ FABRIC_OPENAPI_PATHS.update(
         "/api/mcp/catalog": {
             "get": {
                 "summary": "List Kater MCP surfaces",
+                "parameters": _CATALOG_FILTER_PARAMETERS,
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/connections": {
+            "get": {
+                "summary": "List secret-free Kater connections",
+                "parameters": _CATALOG_FILTER_PARAMETERS,
+                "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/connections/{connection_id}": {
+            "get": {
+                "summary": "Get one secret-free connection view",
+                "parameters": [
+                    {
+                        "name": "connection_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    }
+                ],
+                "responses": {
+                    **_CATALOG_RESPONSE,
+                    "404": {"description": "Connection not found."},
+                },
+            }
+        },
+        "/api/actions": {
+            "get": {
+                "summary": "List versioned toolkit actions",
                 "parameters": _CATALOG_FILTER_PARAMETERS,
                 "responses": _CATALOG_RESPONSE,
             }

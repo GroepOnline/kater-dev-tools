@@ -11,6 +11,8 @@ Kater is ChefGroep's generic execution/integration gateway: tools, connections,
 actions, policy, audit, and retries. It is not Commander (runs/workflows), not
 Factory (deploy/fleet), and not OCX (model routing). See
 [`architecture/execution-foundation.md`](architecture/execution-foundation.md).
+PR-review lens / runtime-kronkel (Python blijft, geen Redis-MCP-systeem):
+[`architecture/runtime-kronkel.md`](architecture/runtime-kronkel.md).
 
 Kater is a single Python package (`uv`-managed, Python 3.11–3.14) that runs an
 MCP gateway. `kater serve` is **one process** exposing three listeners:

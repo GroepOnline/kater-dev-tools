@@ -6,6 +6,14 @@ into the taste loop (see `.agents/README.md`) instead.
 
 ---
 
+## Runtime kronkel: Python blijft; geen Redis-MCP-systeem
+
+Kater is execute-plane (catalog, connections, policy, audit), niet een
+connection-bus. PRs reviewen tegen `docs/architecture/runtime-kronkel.md`.
+Fail: Redis/NATS in het execute-pad, Rust/Zig rewrite zonder gemeten p99,
+MCP-als-architectuur, of run-graphs (Commander). Later mag een Rust
+execute-worker *naast* Python, contract ongewijzigd.
+
 ## Branch lifecycle must never classify `main`/`origin` as would-delete
 
 `git for-each-ref refs/remotes/origin` with `%(refname:short)` yields `origin/main` (normalizes to `main`) and sometimes a bare `origin` remote ref. Unique-count vs `main` is 0, so a naive stale scanner emits `would-delete main`. Skip protected refs (`main`, `master`, `origin`, `HEAD`) in parse/scan/`git_delete_ref`.

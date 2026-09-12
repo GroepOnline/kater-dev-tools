@@ -55,3 +55,6 @@ reviewer / exact-head authority is one policy, not Kater's product purpose.
 | CLI | `kater execute`, `kater connections`, `kater actions` |
 
 Compatibility: `capability_id` / `arguments` still resolve to `action` / `input`.
+
+Runtime-keuze, Redis/MCP-kronkel, en de PR-review lens:
+[`runtime-kronkel.md`](runtime-kronkel.md).

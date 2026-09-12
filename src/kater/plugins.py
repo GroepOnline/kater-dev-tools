@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from kater.extensions import extension_attr
-from kater.profiles import TOOL_SOURCES, visible_tool_sources
+from kater.profiles import TOOL_SOURCES, ToolSource, Transport, visible_tool_sources
 
 _PLUGIN_ID = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
 _VERSION = re.compile(r"^v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?$")
@@ -78,18 +78,26 @@ def _manifest_mapping(raw: Any) -> dict[str, Any]:
     return dict(getattr(raw, "__dict__", {}))
 
 
+def _toolkits_profiles(sources: tuple[ToolSource, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    return (
+        tuple(sorted(source.name for source in sources)),
+        tuple(sorted({p for source in sources for p in source.profiles})),
+    )
+
+
 def _core_manifest() -> PluginManifest:
     from kater import __version__
 
-    sources = tuple(source for source in TOOL_SOURCES if source.transport.value != "native")
+    sources = tuple(source for source in TOOL_SOURCES if source.transport is not Transport.NATIVE)
+    toolkits, profiles = _toolkits_profiles(sources)
     return PluginManifest(
         id="kater-core",
         name="Kater Core",
         version=__version__,
         description="Built-in Kater toolkit, integration, and MCP providers.",
         publisher="GroepOnline",
-        toolkits=tuple(sorted(source.name for source in sources)),
-        profiles=tuple(sorted({p for source in sources for p in source.profiles})),
+        toolkits=toolkits,
+        profiles=profiles,
         homepage="https://github.com/GroepOnline/kater-dev-tools",
         status="installed",
         origin="builtin",
@@ -101,6 +109,7 @@ def list_plugin_manifests() -> list[PluginManifest]:
     raw_plugins = tuple(extension_attr("PLUGINS", ()))
     manifests.extend(PluginManifest.from_mapping(_manifest_mapping(raw)) for raw in raw_plugins)
     if raw_plugins:
+        # Explicit PLUGINS take precedence; the implicit module manifest is fallback only.
         return manifests
     module = os.environ.get("KATER_EXTENSIONS_MODULE", "").strip()
     if not module:
@@ -109,8 +118,9 @@ def list_plugin_manifests() -> list[PluginManifest]:
     extension_sources = [
         source
         for source in visible_tool_sources()
-        if source.name not in builtin_names and source.transport.value != "native"
+        if source.name not in builtin_names and source.transport is not Transport.NATIVE
     ]
+    toolkits, profiles = _toolkits_profiles(tuple(extension_sources))
     manifests.append(
         PluginManifest(
             id=re.sub(r"[^a-z0-9._-]+", "-", module.lower()).strip("-") or "extension",
@@ -118,8 +128,8 @@ def list_plugin_manifests() -> list[PluginManifest]:
             version="0.0.0",
             description="Implicit Kater extension plugin.",
             publisher="extension",
-            toolkits=tuple(sorted(source.name for source in extension_sources)),
-            profiles=tuple(sorted({p for source in extension_sources for p in source.profiles})),
+            toolkits=toolkits,
+            profiles=profiles,
             status="installed",
             origin="extension",
         )
@@ -128,6 +138,8 @@ def list_plugin_manifests() -> list[PluginManifest]:
 
 
 def get_plugin_manifest(plugin_id: str) -> PluginManifest | None:
+    if plugin_id == "kater-core":
+        return _core_manifest()
     for manifest in list_plugin_manifests():
         if manifest.id == plugin_id:
             return manifest

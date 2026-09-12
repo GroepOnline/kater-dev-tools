@@ -7,6 +7,7 @@ agents can own those surfaces without merge fights.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from kater.api.models import Request, Response, route
@@ -797,9 +798,7 @@ def _connections_catalog(req: Request) -> Response:
         profile=req.query1("profile") or "",
         integration=req.query1("integration") or "",
     )
-    by_integration: dict[str, int] = {}
-    for row in rows:
-        by_integration[row.integration] = by_integration.get(row.integration, 0) + 1
+    by_integration = dict(Counter(row.integration for row in rows))
     return Response.json(
         200,
         {

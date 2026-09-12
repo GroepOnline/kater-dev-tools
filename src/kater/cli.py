@@ -262,7 +262,7 @@ def connections_command(
     for row in rows:
         typer.echo(
             f"{row.id} [{row.auth_kind}/{row.storage}] "
-            f"{row.label} configured={str(row.configured).lower()}"
+            f"{row.label} configured={'true' if row.configured else 'false'}"
         )
 
 

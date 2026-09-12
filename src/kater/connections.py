@@ -41,9 +41,11 @@ class ConnectionView:
         }
 
 
+_BUILTIN_NAMES = frozenset(item.name for item in TOOL_SOURCES)
+
+
 def _plugin_id(source: ToolSource) -> str:
-    builtin = {item.name for item in TOOL_SOURCES}
-    if source.name in builtin:
+    if source.name in _BUILTIN_NAMES:
         return "kater-core"
     module = os.environ.get("KATER_EXTENSIONS_MODULE", "").strip()
     return module or "extension"
@@ -126,6 +128,7 @@ def list_connection_views(
         if stored:
             candidates = stored
         else:
+            # Stored connections take precedence over the synthetic env row.
             runtime = _runtime_view(source, settings)
             candidates = [runtime] if runtime is not None else []
         for row in candidates:

@@ -3,10 +3,11 @@
 [![CI](https://github.com/GroepOnline/kater-dev-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/kater-dev-tools/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Kater is an open-source capability fabric for AI agents. It brings toolkits,
-integrations, plugins, and MCP providers behind one discoverable surface while
-keeping credentials, connection state, and provider wiring out of agent prompts.
-MCP is an important Kater transport, not the whole product.
+Kater is ChefGroep's open-source execution/integration gateway for AI agents.
+It brings toolkits, integrations, connections, actions, and MCP providers
+behind one discoverable surface while keeping credentials and provider wiring
+out of agent prompts. MCP is an important Kater transport, not the whole product.
+Commander owns runs; Factory owns deploy; OCX owns models.
 
 ```text
   Agent (Cursor / Claude / ChatGPT / API)
@@ -30,11 +31,14 @@ MCP is an important Kater transport, not the whole product.
 
 - **Toolkit** — an agent-facing capability bundle such as GitHub, Linear, or Cloudflare.
 - **Integration** — the concrete provider binding/adapter behind a toolkit, including auth and health.
+- **Connection** — a secret-free account/credential binding used by `kater.execute`.
+- **Action** — one invocable operation on a connection (`github.pr.merge`, …).
 - **Plugin** — an installable bundle that can contribute toolkits, capabilities, and provider wiring.
 - **MCP** — one transport and exposure surface for Kater; providers may also use HTTP, native, or bridge transports.
 
 The product catalog is available at `/api/fabric` and can be filtered into
-`/api/toolkits`, `/api/integrations`, `/api/plugins`, and `/api/mcp/catalog`.
+`/api/toolkits`, `/api/integrations`, `/api/connections`, `/api/actions`,
+`/api/plugins`, and `/api/mcp/catalog`.
 These rich catalog routes require unrestricted capability discovery; capability-restricted
 callers receive `403` and retain access to the existing capability-filtered discovery
 and invocation APIs. The `q` and `profile` parameters filter the view, not authorization.

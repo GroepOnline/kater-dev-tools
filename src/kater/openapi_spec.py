@@ -985,14 +985,22 @@ def _build_paths() -> dict[str, Any]:
                     "application/json": {
                         "schema": {
                             "type": "object",
-                            "required": ["capability_id"],
                             "properties": {
+                                "connection": {"type": "string"},
+                                "action": {"type": "string"},
+                                "input": {"type": "object"},
+                                "identity": {"type": "object"},
+                                "policy_context": {"type": "object"},
                                 "capability_id": {"type": "string"},
                                 "arguments": {"type": "object"},
                                 "profile": {"type": "string"},
                                 "connector_id": {"type": "string"},
                                 "principal_id": {"type": "string"},
                                 "context_id": {"type": "string"},
+                                "timeout_seconds": {"type": "number"},
+                                "idempotency_key": {"type": "string"},
+                                "run_id": {"type": "string"},
+                                "trace_id": {"type": "string"},
                             },
                         }
                     }

@@ -16,10 +16,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from kater.connect import source_is_configured
+from kater.connections import list_connection_views
 from kater.connectors.auth import binding_is_satisfied
 from kater.connectors.models import ConnectorRecord, ConnectorType
 from kater.connectors.store import list_connectors
+from kater.execution import action_is_dangerous
 from kater.extensions import extension_attr
+from kater.plugins import PluginManifest
 from kater.profiles import (
     TOOL_SOURCES,
     ToolSource,
@@ -30,11 +33,14 @@ from kater.profiles import (
     visible_tool_sources,
 )
 from kater.settings import load_settings
+from kater.toolkits import toolkit_manifests
 
 
 class CatalogKind(StrEnum):
     TOOLKIT = "toolkit"
     INTEGRATION = "integration"
+    CONNECTION = "connection"
+    ACTION = "action"
     PLUGIN = "plugin"
     MCP = "mcp"
 
@@ -149,9 +155,14 @@ def toolkit_items() -> list[CatalogItem]:
     settings = load_settings()
     connectors = _connector_map()
     items: list[CatalogItem] = []
+    manifests = {item.id: item for item in toolkit_manifests()}
     for source in visible_tool_sources():
         if source.transport.value == "native":
             continue
+        capabilities = _source_capabilities(source, connectors)
+        manifest = manifests.get(source.name)
+        if manifest is not None:
+            capabilities = tuple(dict.fromkeys([*capabilities, *manifest.actions]))
         items.append(
             CatalogItem(
                 id=f"toolkit:{source.name}",
@@ -161,7 +172,7 @@ def toolkit_items() -> list[CatalogItem]:
                 plugin_id=_plugin_id_for_source(source),
                 transport=source.transport.value,
                 profiles=_visible_profiles(source.profiles),
-                capabilities=_source_capabilities(source, connectors),
+                capabilities=capabilities,
                 enabled=settings.is_server_enabled(source.name, default=True),
                 configured=source_is_configured(source, settings),
                 status=_source_status(source, connectors),
@@ -171,6 +182,14 @@ def toolkit_items() -> list[CatalogItem]:
                     "risk": source.risk.value,
                     "context_cost": source.context_cost,
                     "has_mcp_surface": source.mcp is not None,
+                    **(
+                        {
+                            "integrations": list(manifest.integrations),
+                            "native_actions": list(manifest.actions),
+                        }
+                        if manifest is not None
+                        else {}
+                    ),
                 },
             )
         )
@@ -206,6 +225,8 @@ def integration_items() -> list[CatalogItem]:
                 metadata={
                     "connector_type": record.type.value,
                     "auth_binding_kind": record.auth_binding.kind.value,
+                    "toolkit": connector_id,
+                    "actions": sorted(cap.id for cap in record.capabilities),
                 },
             )
         )
@@ -289,38 +310,28 @@ def _extension_plugin_items() -> list[CatalogItem]:
     hidden_sources = _hidden_source_names()
     items: list[CatalogItem] = []
     for raw in raw_plugins:
-        if isinstance(raw, dict):
-            data = raw
-        elif hasattr(raw, "__dataclass_fields__") and not isinstance(raw, type):
-            data = {name: getattr(raw, name) for name in raw.__dataclass_fields__}
-        elif hasattr(raw, "as_dict"):
-            data = raw.as_dict()
-        else:
-            data = getattr(raw, "__dict__", {})
-        plugin_id = str(data.get("id") or data.get("name") or "").strip()
-        if not plugin_id:
+        manifest = PluginManifest.coerce(raw)
+        if manifest is None:
             continue
-        profiles = tuple(str(item) for item in data.get("profiles", ()))
-        visible_profiles = _visible_profiles(profiles)
-        if profiles and not visible_profiles:
+        visible_profiles = _visible_profiles(manifest.profiles)
+        if manifest.profiles and not visible_profiles:
             continue
-        declared_toolkits = tuple(str(item) for item in data.get("toolkits", ()))
-        toolkits = tuple(sorted(item for item in declared_toolkits if item not in hidden_sources))
-        if declared_toolkits and not toolkits:
+        toolkits = tuple(sorted(item for item in manifest.toolkits if item not in hidden_sources))
+        if manifest.toolkits and not toolkits:
             continue
         items.append(
             CatalogItem(
-                id=f"plugin:{plugin_id}",
-                name=str(data.get("name") or plugin_id),
+                id=f"plugin:{manifest.id}",
+                name=manifest.name,
                 kind=CatalogKind.PLUGIN,
-                description=str(data.get("description") or ""),
-                plugin_id=plugin_id,
+                description=manifest.description,
+                plugin_id=manifest.id,
                 profiles=visible_profiles,
                 capabilities=toolkits,
-                status=str(data.get("status") or "installed"),
-                origin=str(data.get("origin") or "extension"),
+                status=manifest.status,
+                origin=manifest.origin,
                 metadata={
-                    "version": str(data.get("version") or ""),
+                    "version": manifest.version,
                     "toolkits": list(toolkits),
                 },
             )
@@ -397,10 +408,100 @@ def _matches(item: CatalogItem, *, query: str, profile: str) -> bool:
     return query in haystack
 
 
+def connection_items() -> list[CatalogItem]:
+    items: list[CatalogItem] = []
+    for view in list_connection_views():
+        items.append(
+            CatalogItem(
+                id=f"connection:{view.id}",
+                name=view.label or view.id,
+                kind=CatalogKind.CONNECTION,
+                description=f"{view.integration} connection ({view.origin})",
+                plugin_id="kater-core",
+                transport=view.auth_kind,
+                capabilities=(),
+                enabled=view.configured,
+                configured=view.configured,
+                status=view.status,
+                origin=view.origin,
+                metadata={
+                    "toolkit": view.toolkit,
+                    "integration": view.integration,
+                    "connection_id": view.id,
+                    "auth_kind": view.auth_kind,
+                },
+            )
+        )
+    return items
+
+
+def action_items() -> list[CatalogItem]:
+    items: list[CatalogItem] = []
+    seen: set[str] = set()
+    for record in _connector_map().values():
+        for capability in record.capabilities:
+            seen.add(capability.id)
+            items.append(
+                CatalogItem(
+                    id=f"action:{capability.id}",
+                    name=capability.id,
+                    kind=CatalogKind.ACTION,
+                    description=capability.description,
+                    plugin_id="kater-core",
+                    transport=record.transport.kind,
+                    capabilities=(capability.id,),
+                    enabled=record.status.value == "enabled",
+                    configured=True,
+                    status=record.status.value,
+                    origin=record.origin,
+                    metadata={
+                        "toolkit": record.id,
+                        "integration": record.id,
+                        "connection_id": f"{record.id}:default",
+                        "mutation": capability.mutation,
+                        "dangerous": action_is_dangerous(
+                            capability.id, mutation=capability.mutation
+                        ),
+                    },
+                )
+            )
+    for toolkit in toolkit_manifests():
+        integration = toolkit.integrations[0] if toolkit.integrations else toolkit.id
+        for action_id in toolkit.actions:
+            if action_id in seen:
+                continue
+            seen.add(action_id)
+            items.append(
+                CatalogItem(
+                    id=f"action:{action_id}",
+                    name=action_id,
+                    kind=CatalogKind.ACTION,
+                    description=f"{toolkit.name} native action",
+                    plugin_id="kater-core",
+                    transport="native",
+                    capabilities=(action_id,),
+                    enabled=True,
+                    configured=True,
+                    status="available",
+                    origin="builtin",
+                    metadata={
+                        "toolkit": toolkit.id,
+                        "integration": integration,
+                        "connection_id": f"{integration}:default",
+                        "mutation": action_is_dangerous(action_id),
+                        "dangerous": action_is_dangerous(action_id),
+                    },
+                )
+            )
+    return items
+
+
 def catalog_items(kind: CatalogKind | None = None) -> list[CatalogItem]:
     providers = {
         CatalogKind.TOOLKIT: toolkit_items,
         CatalogKind.INTEGRATION: integration_items,
+        CatalogKind.CONNECTION: connection_items,
+        CatalogKind.ACTION: action_items,
         CatalogKind.PLUGIN: plugin_items,
         CatalogKind.MCP: mcp_items,
     }
@@ -430,6 +531,8 @@ def catalog_payload(
         "items": [item.as_dict() for item in items],
         "toolkits": grouped[CatalogKind.TOOLKIT.value],
         "integrations": grouped[CatalogKind.INTEGRATION.value],
+        "connections": grouped[CatalogKind.CONNECTION.value],
+        "actions": grouped[CatalogKind.ACTION.value],
         "plugins": grouped[CatalogKind.PLUGIN.value],
         "mcp": grouped[CatalogKind.MCP.value],
     }

@@ -174,8 +174,13 @@ def tools_command(
 
 
 def _catalog_cli(kind: str | None, query: str, profile: str, json_output: bool) -> None:
+    from kater.connectors.seed import seed_builtin_connectors
     from kater.fabric_catalog import CatalogKind, catalog_payload
 
+    try:
+        seed_builtin_connectors()
+    except Exception:
+        pass
     parsed_kind = CatalogKind(kind) if kind else None
     payload = catalog_payload(query=query, profile=profile, kind=parsed_kind)
     if json_output:
@@ -195,7 +200,10 @@ def _catalog_cli(kind: str | None, query: str, profile: str, json_output: bool) 
 def catalog_command(
     kind: Annotated[
         str | None,
-        typer.Option("--kind", help="toolkit, integration, plugin, or mcp."),
+        typer.Option(
+            "--kind",
+            help="toolkit, integration, connection, action, plugin, or mcp.",
+        ),
     ] = None,
     query: Annotated[str, typer.Option("--query", "-q", help="Search the catalog.")] = "",
     profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
@@ -208,7 +216,9 @@ def catalog_command(
         try:
             CatalogKind(kind)
         except ValueError as exc:
-            raise typer.BadParameter("kind must be toolkit, integration, plugin, or mcp") from exc
+            raise typer.BadParameter(
+                "kind must be toolkit, integration, connection, action, plugin, or mcp"
+            ) from exc
     _catalog_cli(kind, query, profile, json_output)
 
 
@@ -230,6 +240,16 @@ def integrations_command(
 ) -> None:
     """List provider integrations and connection readiness."""
     _catalog_cli("integration", query, profile, json_output)
+
+
+@app.command("actions")
+def actions_command(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search actions.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List toolkit actions on the generic execute path."""
+    _catalog_cli("action", query, profile, json_output)
 
 
 @app.command("plugins")
@@ -494,7 +514,9 @@ def search_tools_command(
 
 @app.command("execute")
 def execute_command(
-    capability_id: Annotated[str, typer.Argument(help="Capability id returned by search-tools.")],
+    capability_id: Annotated[
+        str, typer.Argument(help="Action or capability id (compatibility).")
+    ] = "",
     profile: Annotated[
         str, typer.Option("--profile", help="Permission profile.")
     ] = DEFAULT_PROFILE,
@@ -502,28 +524,64 @@ def execute_command(
         str | None,
         typer.Option("--connector", help="Explicit connector for ambiguous capability ids."),
     ] = None,
+    connection: Annotated[
+        str | None,
+        typer.Option("--connection", help="Connection id (toolkit:account)."),
+    ] = None,
+    action: Annotated[
+        str | None,
+        typer.Option("--action", help="Canonical action id."),
+    ] = None,
     args_json: Annotated[str, typer.Option("--args", help="JSON object of arguments.")] = "{}",
+    actor: Annotated[str, typer.Option("--actor", help="Actor id for audit.")] = "cli",
+    run_id: Annotated[str | None, typer.Option("--run-id", help="Caller run id.")] = None,
+    trace_id: Annotated[str | None, typer.Option("--trace-id", help="Trace id.")] = None,
+    idempotency_key: Annotated[
+        str | None, typer.Option("--idempotency-key", help="Idempotency key.")
+    ] = None,
 ) -> None:
-    """Execute one capability through connector auth, policy, transport, and audit."""
+    """Execute one action through connection, policy, transport, and audit."""
     from kater.connectors.auth import redact_text
     from kater.connectors.errors import ConnectorError
+    from kater.execution import ActorIdentity, PolicyContext
     from kater.executor import execute
 
     try:
         arguments = json.loads(args_json or "{}")
         if not isinstance(arguments, dict):
             raise ValueError("--args must be a JSON object")
+        resolved_action = (action or capability_id or "").strip()
+        if not resolved_action:
+            raise ValueError("action or capability id is required")
         result = execute(
-            capability_id,
+            resolved_action,
             arguments,
+            connection=connection,
+            action=action,
+            input=arguments,
+            identity=ActorIdentity(actor_id=actor, kind="human", principal_id=actor),
+            policy_context=PolicyContext(
+                profile=profile,
+                run_id=run_id,
+                trace_id=trace_id,
+                idempotency_key=idempotency_key,
+            ),
             profile=profile,
             connector_id=connector_id,
-            principal_id="cli",
+            principal_id=actor,
         )
     except (ConnectorError, ValueError) as exc:
         typer.echo(redact_text(str(exc)), err=True)
         raise typer.Exit(code=1) from exc
     _print_json(result)
+
+
+@app.command("connections")
+def connections_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List secret-free connection views."""
+    _catalog_cli("connection", "", "", json_output)
 
 
 # ── connector catalog (behind the native tools) ─────────────────────

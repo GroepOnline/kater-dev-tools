@@ -17,6 +17,7 @@ from kater.connectors.models import (
 )
 from kater.connectors.store import get_connector, upsert_connector
 from kater.profiles import ToolSource, Transport, all_tool_sources
+from kater.toolkits.github import GITHUB_PR_ACTIONS
 
 _IN_SCOPE = frozenset({"github", "linear", "sentry", "cloudflare"})
 _OUT_OF_SCOPE = frozenset({"gitlab", "upstash", "slack", "postgres", "notion"})
@@ -36,6 +37,7 @@ _BUILTIN_CAPABILITIES: dict[str, tuple[ConnectorCapability, ...]] = {
             description="Create or update pull requests",
             mutation=True,
         ),
+        *GITHUB_PR_ACTIONS,
     ),
     "linear": (
         ConnectorCapability(id="linear.issues.read", description="Read Linear issues"),
@@ -100,6 +102,13 @@ def _transport_from_source(source: ToolSource) -> ConnectorTransport:
 def _permissions_for(name: str, *, env_ok: bool) -> dict[str, PermissionLevel]:
     if name in _OUT_OF_SCOPE:
         return {"ops": PermissionLevel.DISABLED}
+    if name == "github":
+        return {
+            "core": PermissionLevel.WRITE,
+            "ops": PermissionLevel.WRITE if env_ok else PermissionLevel.READ,
+            "analysis": PermissionLevel.READ,
+            "code": PermissionLevel.READ,
+        }
     if not env_ok:
         return {}
     if name == "sentry":
@@ -120,6 +129,8 @@ def _permissions_for(name: str, *, env_ok: bool) -> dict[str, PermissionLevel]:
 def _status_for(name: str, *, env_ok: bool) -> ConnectorStatus:
     if name in _OUT_OF_SCOPE:
         return ConnectorStatus.DISABLED
+    if name == "github":
+        return ConnectorStatus.ENABLED
     if name in _IN_SCOPE and env_ok:
         return ConnectorStatus.ENABLED
     return ConnectorStatus.DISABLED
@@ -137,7 +148,10 @@ def _record_from_source(source: ToolSource) -> ConnectorRecord:
     caps = _BUILTIN_CAPABILITIES.get(source.name, ())
     profiles = frozenset(source.profiles)
     if source.name in _IN_SCOPE:
-        profiles = frozenset(set(source.profiles) | {"analysis", "code"})
+        extra = {"analysis", "code"}
+        if source.name == "github":
+            extra.add("core")
+        profiles = frozenset(set(source.profiles) | extra)
     return ConnectorRecord(
         id=source.name,
         display_name=source.name,

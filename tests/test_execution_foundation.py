@@ -465,7 +465,7 @@ def test_idempotency_is_scoped_to_principal():
     assert other["result"]["n"] == 2
 
 
-def test_rest_execute_rejects_invalid_timeout_and_connection():
+def test_rest_execute_rejects_invalid_policy_values_and_connection():
     upsert_connector(_internal())
     register_internal_handler("demoexec", lambda *_args: {"ok": True})
     headers = {"authorization": "Bearer admin-secret"}
@@ -481,6 +481,18 @@ def test_rest_execute_rejects_invalid_timeout_and_connection():
         headers=headers,
     )
     assert bad_timeout.status == 400
+    bad_allow_dangerous = call(
+        "POST",
+        "/api/execute",
+        body={
+            "connection": "demoexec:default",
+            "action": "demoexec.items.create",
+            "input": {"name": "x"},
+            "policy_context": {"profile": "ops", "allow_dangerous": "false"},
+        },
+        headers=headers,
+    )
+    assert bad_allow_dangerous.status == 400
     bad_id = call(
         "POST",
         "/api/execute",

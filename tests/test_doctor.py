@@ -112,9 +112,12 @@ def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
 
     assert report.profiles == ["core"]
     assert [source["name"] for source in report.sources] == ["kater"]
-    # Informational browser-lane probe is allowed; no warnings/errors on core.
+    # Core may also report the GitHub native toolkit as an info-level connector.
     assert all(f.severity == "info" for f in report.findings)
-    assert all(f.code.startswith("browser_lane_") for f in report.findings)
+    assert all(
+        f.code.startswith("browser_lane_") or f.code.startswith("connector_")
+        for f in report.findings
+    )
 
 
 def test_doctor_ops_skips_high_risk_missing_env_warnings(monkeypatch, tmp_path) -> None:

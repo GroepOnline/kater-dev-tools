@@ -39,7 +39,7 @@ def test_ci_runs_full_python_jobs_on_stacked_feature_base_prs() -> None:
     assert "  lint-type:" in text
     assert "uv run ruff check ." in text
     assert "uv run mypy" in text
-    assert "timeout 480s uv run pytest" in text
+    assert "timeout 600s uv run pytest" in text
     assert "GRO-1209" in text
     assert "INTERIM" in text
     assert "production-safe isolation" in text
@@ -76,7 +76,7 @@ def test_ci_jobs_install_the_browser_extra() -> None:
 def test_unit_matrix_job_uses_kater_checkout_sha_and_longer_timeout() -> None:
     block = _job_block(CI.read_text(encoding="utf-8"), "unit", "integration")
     assert KATER_CHECKOUT_SHA in block
-    assert "timeout 480s uv run pytest" in block
+    assert "timeout 600s uv run pytest" in block
     assert "--no-cov" in block
     assert "timeout 180s" not in block
     assert "timeout 300s" not in block

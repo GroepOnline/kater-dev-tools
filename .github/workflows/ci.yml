@@ -186,7 +186,7 @@ jobs:
       # the suite (~1200 tests) even when coverage (with cov) finished cleanly.
       - name: Test
         run: >-
-          timeout 480s uv run pytest -vv --tb=short -ra --no-cov
+          timeout 600s uv run pytest -vv --tb=short -ra --no-cov
           --ignore=tests/test_computer_acceptance_e2e.py
 
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──

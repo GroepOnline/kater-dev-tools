@@ -8,9 +8,11 @@ Kater's public product model has four first-class views:
 - **MCP** is a supported transport and exposure surface, not Kater's entire architecture.
 
 The existing connector layer remains the internal runtime abstraction for integrations.
+The public execution model is `toolkit → integration → connection → action`.
 A new vendor integration normally does not require a new native Kater MCP tool.
-GitHub, Linear, Sentry, Cloudflare, ClickHouse, downstream MCP servers, and
-future APIs can all sit behind the same product catalog and connector lifecycle.
+GitHub is the first fully migrated toolkit (`github.pr.*` via generic execute).
+Linear, Sentry, Cloudflare, ClickHouse, downstream MCP servers, and
+future APIs share that path.
 
 ```text
 Cursor / ChatGPT / Agent
@@ -138,6 +140,12 @@ github.issues.read
 github.issues.write
 github.pull_requests.read
 github.pull_requests.write
+github.pr.list
+github.pr.status
+github.pr.gate
+github.pr.policy
+github.pr.audit
+github.pr.merge
 sentry.issues.read
 sentry.events.read
 clickhouse.ping

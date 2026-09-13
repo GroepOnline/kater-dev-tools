@@ -18,15 +18,8 @@ from kater.browser.tools import (
 )
 from kater.chains import list_chains
 from kater.doctor import parse_profiles, run_doctor
+from kater.execution import ActorIdentity, PolicyContext
 from kater.executor import execute, search_tools
-from kater.pr_control import (
-    pr_audit_tool,
-    pr_gate_tool,
-    pr_list_tool,
-    pr_merge_tool,
-    pr_policy_tool,
-    pr_status_tool,
-)
 from kater.profiles import list_profiles
 from kater.session_tools import (
     kater_session_append,
@@ -111,20 +104,109 @@ def tool_search_tool(
 
 
 def execute_tool(
-    capability_id: str,
-    arguments: dict[str, Any],
+    capability_id: str = "",
+    arguments: dict[str, Any] | None = None,
     profile: str = "core",
     connector_id: str | None = None,
     principal_id: str = "anonymous",
     context_id: str | None = None,
+    connection: str | None = None,
+    action: str | None = None,
+    input: dict[str, Any] | None = None,
+    actor_id: str | None = None,
+    agent_id: str | None = None,
+    run_id: str | None = None,
+    trace_id: str | None = None,
+    idempotency_key: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
+    identity = ActorIdentity(
+        actor_id=actor_id or principal_id,
+        kind="agent",
+        agent_id=agent_id,
+        principal_id=principal_id,
+    )
+    policy = PolicyContext(
+        profile=profile,
+        context_id=context_id,
+        run_id=run_id,
+        trace_id=trace_id,
+        idempotency_key=idempotency_key,
+        timeout_seconds=timeout_seconds,
+    )
     return execute(
-        capability_id,
+        capability_id or None,
         arguments,
+        connection=connection,
+        action=action,
+        input=input,
+        identity=identity,
+        policy_context=policy,
         profile=profile,
         connector_id=connector_id,
         principal_id=principal_id,
         context_id=context_id,
+    )
+
+
+def _github_pr_execute(
+    action: str,
+    payload: dict[str, Any],
+    *,
+    actor_id: str = "mcp",
+) -> dict[str, Any]:
+    result = execute(
+        connection="github:default",
+        action=action,
+        input=payload,
+        identity=ActorIdentity(actor_id=actor_id, kind="agent", principal_id=actor_id),
+        policy_context=PolicyContext(profile="core"),
+    )
+    inner = result.get("result")
+    return inner if isinstance(inner, dict) else result
+
+
+def pr_list_tool(state: str = "open", limit: int = 30, repo: str = "") -> dict[str, Any]:
+    return _github_pr_execute(
+        "github.pr.list",
+        {"state": state, "limit": limit, "repo": repo},
+    )
+
+
+def pr_status_tool(number: int, repo: str = "") -> dict[str, Any]:
+    return _github_pr_execute("github.pr.status", {"number": number, "repo": repo})
+
+
+def pr_gate_tool(number: int, expected_head_sha: str = "", repo: str = "") -> dict[str, Any]:
+    return _github_pr_execute(
+        "github.pr.gate",
+        {"number": number, "expected_head_sha": expected_head_sha, "repo": repo},
+    )
+
+
+def pr_policy_tool(policy_path: str = "") -> dict[str, Any]:
+    return _github_pr_execute("github.pr.policy", {"policy_path": policy_path})
+
+
+def pr_audit_tool(pr_number: int = 0, limit: int = 100) -> dict[str, Any]:
+    return _github_pr_execute(
+        "github.pr.audit",
+        {"pr_number": pr_number, "limit": limit},
+    )
+
+
+def pr_merge_tool(
+    number: int, expected_head_sha: str = "", actor: str = "", repo: str = ""
+) -> dict[str, Any]:
+    return _github_pr_execute(
+        "github.pr.merge",
+        {
+            "number": number,
+            "expected_head_sha": expected_head_sha,
+            "actor": actor or "mcp",
+            "repo": repo,
+        },
+        actor_id=actor or "mcp",
     )
 
 
@@ -287,7 +369,7 @@ def build_native_tools() -> list[NativeTool]:
         NativeTool(
             name="kater_execute",
             description=(
-                "Execute one registered connector capability through Kater policy and audit."
+                "Execute one toolkit action: connection, action, input, identity, policy."
             ),
             profile="core",
             risk="high",

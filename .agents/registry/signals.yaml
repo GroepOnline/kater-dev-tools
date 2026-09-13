@@ -9,3 +9,12 @@ entries:
   refs: []
   score_hint: 1.0
   status: acked
+- id: 2026-09-11T02-21-04Z-score-refresh
+  ts: '2026-09-11T02:21:04Z'
+  plane: agent-taste
+  kind: score_refresh
+  source: schedule
+  signal: eval-score pass
+  refs: []
+  score_hint: 1.0
+  status: acked

@@ -143,7 +143,7 @@ def _audit(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def _merge(arguments: dict[str, Any]) -> dict[str, Any]:
-    from kater.pr_control import pr_merge_tool
+    from kater.pr_control import MergeRejected, pr_merge_tool
 
     sha = _str(arguments, "expected_head_sha").strip()
     if not sha:
@@ -152,12 +152,19 @@ def _merge(arguments: dict[str, Any]) -> dict[str, Any]:
             connector_id="github",
             code="policy_blocked",
         )
-    return pr_merge_tool(
-        number=_int(arguments, "number"),
-        expected_head_sha=sha,
-        actor=_str(arguments, "actor"),
-        repo=_str(arguments, "repo"),
-    )
+    try:
+        return pr_merge_tool(
+            number=_int(arguments, "number"),
+            expected_head_sha=sha,
+            actor=_str(arguments, "actor"),
+            repo=_str(arguments, "repo"),
+        )
+    except MergeRejected as exc:
+        raise ConnectorPolicyError(
+            str(exc),
+            connector_id="github",
+            code="policy_blocked",
+        ) from exc
 
 
 HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {

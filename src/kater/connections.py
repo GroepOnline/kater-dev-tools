@@ -126,12 +126,12 @@ def list_connection_views(
         if profile and profile != "core" and profile not in source.profiles:
             continue
         stored = _stored_views(source, settings)
-        if stored:
+        if any(row.configured for row in stored):
             candidates = stored
         else:
-            # Stored connections take precedence over the synthetic env row.
+            # A usable runtime environment is preferred to incomplete saved rows.
             runtime = _runtime_view(source, settings)
-            candidates = [runtime] if runtime is not None else []
+            candidates = [runtime] if runtime is not None else stored
         for row in candidates:
             if wanted:
                 haystack = f"{row.id} {row.integration} {row.label} {row.auth_kind}".lower()

@@ -27,6 +27,7 @@ CATALOG_PATHS = (
     "/api/plugins",
     "/api/mcp/catalog",
 )
+RESTRICTED_CATALOG_PATHS = (*CATALOG_PATHS, "/api/connections", "/api/plugins/kater-core")
 
 
 def _request(
@@ -45,7 +46,7 @@ def _request(
     )
 
 
-@pytest.mark.parametrize("path", CATALOG_PATHS)
+@pytest.mark.parametrize("path", RESTRICTED_CATALOG_PATHS)
 @pytest.mark.parametrize("allowed", [frozenset(), frozenset({"kater.profiles.list"})])
 @pytest.mark.parametrize("profile", ["", "core", "ops"])
 def test_restricted_catalog_never_reads_metadata(monkeypatch, path, allowed, profile) -> None:

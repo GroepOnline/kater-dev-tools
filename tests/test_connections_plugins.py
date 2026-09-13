@@ -37,6 +37,33 @@ def test_plugin_registry_exposes_core_and_extension() -> None:
     assert any(manifest.origin == "extension" for manifest in manifests)
 
 
+def test_public_mode_hides_private_explicit_plugin(monkeypatch) -> None:
+    monkeypatch.setenv("KATER_PUBLIC", "1")
+    monkeypatch.setattr(
+        "kater.extensions.extension_attr",
+        lambda name, default=(): {"secret-profile"}
+        if name == "PRIVATE_PROFILES"
+        else default,
+    )
+    monkeypatch.setattr(
+        "kater.plugins.extension_attr",
+        lambda name, default=(): (
+            (
+                {
+                    "id": "private-plugin",
+                    "name": "Private plugin",
+                    "profiles": ["secret-profile"],
+                },
+            )
+            if name == "PLUGINS"
+            else default
+        ),
+    )
+
+    assert [manifest.id for manifest in list_plugin_manifests()] == ["kater-core"]
+    assert get_plugin_manifest("private-plugin") is None
+
+
 def test_stored_connection_inventory_never_emits_secret() -> None:
     settings = KaterSettings(
         server_overrides={
@@ -68,6 +95,22 @@ def test_runtime_connection_inventory_uses_synthetic_env_id(monkeypatch) -> None
     assert rows[0].storage == "environment"
     assert rows[0].configured is True
     assert "sentry_runtime_secret" not in json.dumps(rows[0].as_dict())
+
+
+def test_runtime_connection_replaces_incomplete_saved_connection(monkeypatch) -> None:
+    monkeypatch.setenv("LINEAR_API_KEY", "linear_runtime_secret")
+    settings = KaterSettings(
+        server_overrides={
+            "linear": ServerOverride(connections=[ServerConnection(id="work", env={})])
+        }
+    )
+
+    rows = list_connection_views(integration="linear", settings=settings)
+
+    assert [(row.id, row.storage, row.configured) for row in rows] == [
+        ("linear:env", "environment", True)
+    ]
+    assert "linear_runtime_secret" not in json.dumps(rows[0].as_dict())
 
 
 def test_unconfigured_integration_has_no_connection_row(monkeypatch) -> None:
@@ -148,6 +191,17 @@ def test_malformed_extension_plugin_entry_is_skipped(monkeypatch) -> None:
     manifests = list_plugin_manifests()
     assert all(manifest.id != "Bad Plugin id!!" for manifest in manifests)
     assert "kater-core" in {manifest.id for manifest in manifests}
+
+
+def test_unmappable_extension_plugin_entry_is_skipped(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kater.plugins.extension_attr",
+        lambda name, default=(): (object(),),
+    )
+
+    manifests = list_plugin_manifests()
+
+    assert [manifest.id for manifest in manifests] == ["kater-core"]
 
 
 def test_connection_plugin_id_matches_manifest_id(monkeypatch) -> None:

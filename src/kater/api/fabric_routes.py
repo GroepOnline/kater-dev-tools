@@ -660,11 +660,8 @@ import kater.api.usage_routes as _usage_routes  # noqa: E402, F401
 # Product-facing catalog: MCP is a transport/surface, integrations are concrete
 # provider bindings, plugins are installable extension bundles, and toolkits are
 # agent-facing capability bundles. Existing connector/capability APIs remain valid.
-def _catalog_response(req: Request, kind: str | None = None) -> Response:
-    from kater.fabric_catalog import CatalogKind, catalog_payload
-
-    identity = get_request_identity()
-    if identity.allowed_capabilities is not None:
+def _catalog_metadata_denied() -> Response | None:
+    if get_request_identity().allowed_capabilities is not None:
         return Response.json(
             403,
             {
@@ -672,6 +669,14 @@ def _catalog_response(req: Request, kind: str | None = None) -> Response:
                 "code": "capability_denied",
             },
         )
+    return None
+
+
+def _catalog_response(req: Request, kind: str | None = None) -> Response:
+    from kater.fabric_catalog import CatalogKind, catalog_payload
+
+    if denied := _catalog_metadata_denied():
+        return denied
 
     requested = kind or (req.query1("kind") or "").strip().lower()
     parsed_kind = None
@@ -793,6 +798,8 @@ FABRIC_OPENAPI_PATHS.update(
 def _connections_catalog(req: Request) -> Response:
     from kater.connections import list_connection_views
 
+    if denied := _catalog_metadata_denied():
+        return denied
     rows = list_connection_views(
         query=req.query1("q") or "",
         profile=req.query1("profile") or "",
@@ -813,6 +820,8 @@ def _connections_catalog(req: Request) -> Response:
 def _plugin_manifest_get(req: Request) -> Response:
     from kater.plugins import get_plugin_manifest
 
+    if denied := _catalog_metadata_denied():
+        return denied
     manifest = get_plugin_manifest(req.params["plugin_id"])
     if manifest is None:
         return Response.json(404, {"error": "plugin not found"})

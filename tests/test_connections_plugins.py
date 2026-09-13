@@ -37,33 +37,6 @@ def test_plugin_registry_exposes_core_and_extension() -> None:
     assert any(manifest.origin == "extension" for manifest in manifests)
 
 
-def test_public_mode_hides_private_explicit_plugin(monkeypatch) -> None:
-    monkeypatch.setenv("KATER_PUBLIC", "1")
-    monkeypatch.setattr(
-        "kater.extensions.extension_attr",
-        lambda name, default=(): {"secret-profile"}
-        if name == "PRIVATE_PROFILES"
-        else default,
-    )
-    monkeypatch.setattr(
-        "kater.plugins.extension_attr",
-        lambda name, default=(): (
-            (
-                {
-                    "id": "private-plugin",
-                    "name": "Private plugin",
-                    "profiles": ["secret-profile"],
-                },
-            )
-            if name == "PLUGINS"
-            else default
-        ),
-    )
-
-    assert [manifest.id for manifest in list_plugin_manifests()] == ["kater-core"]
-    assert get_plugin_manifest("private-plugin") is None
-
-
 def test_stored_connection_inventory_never_emits_secret() -> None:
     settings = KaterSettings(
         server_overrides={

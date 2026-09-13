@@ -215,6 +215,27 @@ def test_github_merge_requires_expected_head_sha():
         pr_merge_tool(1, expected_head_sha="", actor="reviewer")
 
 
+def test_github_merge_gate_rejection_is_not_retryable(monkeypatch):
+    from kater.connectors.seed import seed_builtin_connectors
+    from kater.pr_control import MergeRejected
+
+    seed_builtin_connectors()
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "kater.pr_control.pr_merge_tool",
+        lambda **_kwargs: (_ for _ in ()).throw(MergeRejected("head is stale")),
+    )
+    with pytest.raises(ConnectorPolicyError, match="head is stale") as raised:
+        execute(
+            connection="github:default",
+            action="github.pr.merge",
+            input={"number": 1, "expected_head_sha": "abc123"},
+            identity=ActorIdentity(actor_id="reviewer"),
+            policy_context=PolicyContext(profile="core"),
+        )
+    assert raised.value.code == "policy_blocked"
+
+
 def test_rest_connections_and_canonical_execute():
     upsert_connector(_internal())
     register_internal_handler("demoexec", lambda _record, _cap, args: {"created": args["name"]})

@@ -90,6 +90,13 @@ def test_product_listener_gets_direct_metadata_and_bearer_probes() -> None:
     assert 'anonymous_status" == 401' in text[readiness:done]
 
 
+def test_staged_product_env_cleanup_is_single_file_safe() -> None:
+    text = REMOTE_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'unlink "$PRODUCT_ENV_STAGE" "$PRODUCT_SECRET_STAGE"' not in text
+    assert 'rm -f -- "$PRODUCT_ENV_STAGE" "$PRODUCT_SECRET_STAGE"' in text
+
+
 def test_secret_staging_and_cleanup_share_one_ssh_session() -> None:
     launcher = SCRIPT.read_text(encoding="utf-8")
 

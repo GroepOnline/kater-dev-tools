@@ -19,7 +19,7 @@ CONFIG_BACKUP="$CONFIG_DIR/.rollback-$SHA-$TS"
 CONFIG_APPLIED=0
 
 cleanup_staged_config() {
-  unlink "$PRODUCT_ENV_STAGE" "$PRODUCT_SECRET_STAGE" 2>/dev/null || true
+  rm -f -- "$PRODUCT_ENV_STAGE" "$PRODUCT_SECRET_STAGE"
 }
 trap cleanup_staged_config EXIT
 
@@ -144,7 +144,7 @@ printf '%s\n' '[Service]' \
   'EnvironmentFile=/etc/chef/kater/product-secrets.env' | \
   sudo -n tee "$PRODUCT_DROPIN" >/dev/null
 sudo -n chmod 0644 "$PRODUCT_DROPIN"
-unlink "$PRODUCT_ENV_STAGE" "$PRODUCT_SECRET_STAGE"
+rm -f -- "$PRODUCT_ENV_STAGE" "$PRODUCT_SECRET_STAGE"
 CONFIG_APPLIED=1
 sudo -n systemctl daemon-reload
 sudo -n systemctl start "$SERVICE"

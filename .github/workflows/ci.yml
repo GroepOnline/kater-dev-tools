@@ -32,7 +32,7 @@ jobs:
   # audit trail.
   # ── validate: lockfile, config, generated files, docs, metadata ────────
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -123,7 +123,7 @@ jobs:
 
   # ── lint-type: ruff, format, mypy on the 3.11 syntax baseline ──────────
   lint-type:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -149,7 +149,7 @@ jobs:
   # ── unit: matrix across supported Python versions ─────────────────────
   unit:
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -192,7 +192,7 @@ jobs:
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──
   integration:
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -219,7 +219,7 @@ jobs:
   # auditable skip while the public unit/integration/e2e gates remain required.
   computer-acceptance:
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Explain skipped private acceptance
@@ -295,7 +295,7 @@ jobs:
   # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
   e2e:
     needs: [unit, integration, computer-acceptance]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -336,7 +336,7 @@ jobs:
   # ── package: wheel/sdist build + clean-venv install smoke ─────────────
   package:
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -385,7 +385,7 @@ jobs:
   #  python + actions, so we don't upload a second SARIF here.)
   security-pr:
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -437,7 +437,7 @@ jobs:
   # ── coverage: project-wide coverage gate (runs the full test suite) ──
   coverage:
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -478,7 +478,7 @@ jobs:
       - package
       - security-pr
       - coverage
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     if: always()
     steps:
@@ -520,7 +520,7 @@ jobs:
       - package
       - security-pr
       - gate
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     if: always()
     permissions:

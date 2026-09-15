@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Stamped runtime identity on `/health`, `/health/live`, `/health/ready`,
+  `/api/status`, and `kater version` (`version`, `source_sha`, `release`,
+  `artifact_digest`). Missing or malformed fields are null. Release assets
+  now include `SHA256SUMS`.
 - Runtime-authoritative agent-session work/event transport keyed by
   existing remote contexts (`/api/contexts/{id}/session/*`, MCP tools,
   OpenAPI). Studio composer is a replaceable client over that contract.

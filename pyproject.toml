@@ -119,6 +119,8 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 "scripts/sync_cursor_plugins.py" = ["S603", "S607"]
 # release contract validator runs git with list-form argv (operator-controlled).
 "scripts/validate_release.py" = ["S603", "S607"]
+# install-time identity stamp may call git describe / rev-parse on the checkout.
+"scripts/stamp-build-identity.py" = ["S603", "S607"]
 # no_org_leak.py runs git with list-form argv (operator-controlled).
 "scripts/no_org_leak.py" = ["S603", "S607"]
 # kater-with-chefvault bootstrap runs list-form argv against operator-controlled

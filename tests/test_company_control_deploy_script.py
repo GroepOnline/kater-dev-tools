@@ -90,6 +90,18 @@ def test_product_listener_gets_direct_metadata_and_bearer_probes() -> None:
     assert 'anonymous_status" == 401' in text[readiness:done]
 
 
+def test_controller_stamps_build_identity_before_rsync() -> None:
+    launcher = SCRIPT.read_text(encoding="utf-8")
+    archive = launcher.index('git archive "$SHA"')
+    stamp = launcher.index("stamp-build-identity.py")
+    rsync = launcher.index("rsync -a --delete")
+    assert archive < stamp < rsync
+    assert "git describe --exact-match --tags" in launcher
+    assert '--root "$ARCHIVE"' in launcher
+    assert '--sha "$SHA"' in launcher
+    assert "CUTOVER=1" not in launcher[:stamp]
+
+
 def test_secret_staging_and_cleanup_share_one_ssh_session() -> None:
     launcher = SCRIPT.read_text(encoding="utf-8")
 

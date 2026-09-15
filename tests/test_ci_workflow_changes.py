@@ -130,6 +130,18 @@ def test_release_workflow_bumps_checkout_action() -> None:
     assert "actions/checkout@v7" not in text
 
 
+def test_release_workflow_records_checksums_and_stamps_identity() -> None:
+    text = RELEASE.read_text(encoding="utf-8")
+    assert 'tags:\n      - "v*"' in text
+    assert "stamp-build-identity.py" in text
+    assert "--no-git" in text
+    assert "sha256sum -- *.whl *.tar.gz" in text
+    assert "tee SHA256SUMS" in text
+    assert "dist/*.whl dist/*.tar.gz dist/SHA256SUMS" in text
+    assert "# - name: Publish to PyPI" in text
+    assert "#   uses: pypa/gh-action-pypi-publish@release/v1" in text
+
+
 def test_no_org_leak_workflow_matches_shared_checkout_sha() -> None:
     text = NO_ORG_LEAK.read_text(encoding="utf-8")
     assert KATER_CHECKOUT_SHA in text

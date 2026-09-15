@@ -224,6 +224,12 @@ def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
 # ── Public endpoints (no auth) ─────────────────────────────────────
 
 
+def _runtime_identity() -> dict[str, str | None]:
+    from kater.build_identity import load_build_identity
+
+    return load_build_identity()
+
+
 @route("GET", "/health", public=True)
 def _health(_: Request) -> Response:
     from kater import __version__
@@ -231,7 +237,12 @@ def _health(_: Request) -> Response:
     settings = load_settings()
     return Response.json(
         200,
-        {"status": "ok", "version": __version__, "auth_mode": settings.auth.mode},
+        {
+            "status": "ok",
+            "version": __version__,
+            "auth_mode": settings.auth.mode,
+            "identity": _runtime_identity(),
+        },
     )
 
 
@@ -248,7 +259,12 @@ def _health_live(_: Request) -> Response:
         auth_mode = "unknown"
     return Response.json(
         200,
-        {"status": "ok", "version": __version__, "auth_mode": auth_mode},
+        {
+            "status": "ok",
+            "version": __version__,
+            "auth_mode": auth_mode,
+            "identity": _runtime_identity(),
+        },
     )
 
 
@@ -374,6 +390,7 @@ def _health_ready(_: Request) -> Response:
             "service": "kater",
             "version": __version__,
             "auth_mode": auth_mode,
+            "identity": _runtime_identity(),
             "components": components,
         },
     )

@@ -21,6 +21,7 @@ DOC_AUTH_MESH = ROOT / "docs" / "ops" / "auth-mesh-vs-cf-access.md"
 DOC_SECURITY = ROOT / "SECURITY.md"
 CONFIG_OIDC_README = ROOT / "config" / "oidc" / "README.md"
 OIDC_CANARY = ROOT / "scripts" / "oidc-canary.sh"
+DOC_RELEASE = ROOT / "docs" / "release.md"
 
 
 class TestEnvExampleChefGroepAuthPointers:
@@ -96,6 +97,16 @@ class TestEnvExampleBrowserLane:
         ]
         for var in expected_vars:
             assert var in text, f"missing expected browser env line: {var!r}"
+
+
+class TestEnvExampleBuildIdentity:
+    def test_documents_build_identity_vars(self) -> None:
+        text = ENV_EXAMPLE.read_text(encoding="utf-8")
+        assert "KATER_BUILD_VERSION=" in text
+        assert "KATER_BUILD_SHA=" in text
+        assert "KATER_BUILD_RELEASE=" in text
+        assert "KATER_BUILD_ARTIFACT_DIGEST=" in text
+        assert "malformed values become null" in text
 
 
 class TestEnvExampleComputerConnector:
@@ -242,6 +253,17 @@ class TestOidcCanaryScript:
         assert "Never prints AUTH_OIDC_CLIENT_SECRET" in text
         assert "chefgroep" + ".online" not in text
         assert "sk-" not in text
+
+
+class TestDocRelease:
+    def test_documents_identity_route_and_unknown_until_stamp(self) -> None:
+        text = DOC_RELEASE.read_text(encoding="utf-8")
+        assert "Visible runtime identity" in text
+        assert "What remains UNKNOWN until a stamped deploy" in text
+        assert "src/kater/_build_identity.json" in text
+        assert "SHA256SUMS" in text
+        assert "identity.version" in text
+        assert "never a runtime `git` read" in text
 
 
 class TestDocCatalogConnect:

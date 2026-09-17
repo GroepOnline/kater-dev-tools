@@ -198,6 +198,8 @@ class TestDocAuthMeshVsCfAccess:
         text = DOC_AUTH_MESH.read_text(encoding="utf-8")
         assert "Cloudflare Access" in text
         assert ":9000" in text
+        assert "chefgroep-kater-oidc" in text
+        assert "no Docker" in text or "no Docker daemon" in text
         assert "config/oidc" in text
         assert "./scripts/dev-health.sh" in text
 

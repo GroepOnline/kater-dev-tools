@@ -1,8 +1,9 @@
-# OIDC / OAuth client placeholders (ChefGroep Auth greenfield)
+# OIDC / OAuth client placeholders (ChefGroep Auth)
 
-Version-controlled **templates only** — no client secrets. When Authentik (or mesh
-Auth on chef-authvault) exposes providers, create matching applications from the
-`*.example.yaml` files and store credentials in ChefVault / `.kater/.env`.
+Version-controlled **templates only** — no client secrets. Mesh Authentik already
+registers **`chefgroep-kater-oidc`** on chef-authvault (smoke GREEN); public
+issuer cutover is in flight. Store credentials in ChefVault / `.kater/.env`.
+HTTPS redirect URIs live in [deploy-server.md](../../docs/deploy-server.md#chefgroep-mesh-auth-operator-status).
 
 | File | Purpose |
 | --- | --- |

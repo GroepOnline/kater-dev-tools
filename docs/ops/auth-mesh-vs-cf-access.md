@@ -1,25 +1,26 @@
 # Mesh Auth vs Cloudflare Access (Kater)
 
-Kater on **bc-scan-arm** (Tailscale GREEN, REST `:9091`) is already reachable at
-**kater.chefgroep.online** behind **Cloudflare Access** (human/browser gate).
-**Product Auth** via Authentik on **chef-authvault** is greenfield; the mesh Auth
-issuer will listen on **`:9000`** until the public `auth.chefgroep.online` contract
-is cut over.
+Kater on **bc-scan-arm** (Tailscale GREEN, REST `:9091`) is reachable at the public
+Kater hostname behind **Cloudflare Access** (human/browser gate). **ChefGroep mesh Auth**
+on **chef-authvault** has **greenfield smoke GREEN** on **`:9000`**; CoS **GO’d** public
+**public auth hostname** Cloudflare apply (**in flight**; see deploy-server). Authentik already has
+the mesh OIDC app **`chefgroep-kater-oidc`**. Public issuer cutover is **in progress** —
+there is still **no public Vault** endpoint. This repo does not apply DNS or CF changes.
 
-This document is the operator map for **today** vs **target** — no DNS changes
-from this repo.
+Operator map (canonical production URLs and redirect URIs):
+[deploy-server.md](../deploy-server.md#chefgroep-mesh-auth-operator-status).
 
 ## Surfaces
 
 | Surface | Port | Auth today | Auth target |
 | --- | --- | --- | --- |
-| REST + dashboard | 9091 | CF Access in front of HTTPS; Kater may use `KATER_AUTH_MODE=none` on loopback | Optional gateway OIDC (`KATER_OAUTH_*`) |
+| REST + dashboard | 9091 | CF Access in front of HTTPS; Kater may use `KATER_AUTH_MODE=none` on loopback | Gateway OIDC via `chefgroep-kater-oidc` (`KATER_OAUTH_*`) when wired |
 | Private MCP SSE | 9090 | Same as REST path when tunneled | Bearer / API key at Kater |
 | Product MCP | 9093 | Off unless `KATER_RESOURCE_AUTH_ENABLED=1` | OAuth bearer + Auth introspection |
 
 ## Cloudflare Access (today)
 
-Use this path when operators or agents hit **kater.chefgroep.online** in a browser
+Use this path when operators or agents hit the public Kater hostname in a browser
 or through Access-aware tunnels:
 
 1. User authenticates at Cloudflare Access (identity provider configured in CF Zero Trust).
@@ -32,33 +33,34 @@ or through Access-aware tunnels:
 ```bash
 cp .env.example .env
 ./scripts/dev-boot.sh native
-# or: ./scripts/dev-boot.sh compose
 ./scripts/dev-health.sh
 ```
 
-## Mesh Auth / Authentik (greenfield, chef-authvault `:9000`)
+**Docker Compose dev stack** (laptop or **Dev Containers**): `./scripts/dev-boot.sh compose`
+with `docker-compose.dev.yml`. **Cursor Cloud** agent VMs often have **no Docker daemon** —
+use the **native** path above instead of Compose.
 
-ChefGroep Auth will issue tokens and register OAuth clients (ChatGPT product MCP,
-future dashboard OIDC). Kater only **validates** tokens for the product listener
-(`KATER_RESOURCE_AUTH_*`); it does not register clients or store provider secrets
-in git.
+## Mesh Auth / Authentik (chef-authvault)
+
+Mesh Auth issues tokens; Kater **validates** (product listener via `KATER_RESOURCE_AUTH_*`)
+and will consume gateway OIDC once `KATER_OAUTH_*` points at the public issuer. Kater does
+not register clients or commit secrets.
 
 | Concern | Where it lives |
 | --- | --- |
-| OAuth client IDs, redirect URIs, PKCE | Authentik on chef-authvault (templates in `config/oidc/`) |
+| Live mesh client id | `chefgroep-kater-oidc` (Authentik on chef-authvault) |
+| Redirect URI allowlist | [deploy-server.md](../deploy-server.md#chefgroep-mesh-auth-operator-status) + `config/oidc/*.example.yaml` |
 | Service introspection key | Secret authority → `KATER_RESOURCE_AUTH_SERVICE_KEY` |
-| Issuer / JWKS URLs | `KATER_RESOURCE_AUTH_ISSUER`, gateway `KATER_OAUTH_*` in `.env` |
-| Redirect URI allowlist | `config/oidc/*.example.yaml` (local loopback + `kater.chefgroep.online`) |
+| Issuer / JWKS | `KATER_RESOURCE_AUTH_ISSUER`, gateway `KATER_OAUTH_*` in `.env` (after public cutover) |
 
-Until providers exist:
+Until public issuer HTTPS is live and Kater env is wired:
 
-- Keep **product MCP disabled** (`KATER_RESOURCE_AUTH_ENABLED` unset or `0`).
-- Use **local dev** compose override (`docker-compose.dev.yml`) or `kater serve --no-proxy` with `KATER_AUTH_MODE=none`.
-- Do **not** commit client secrets; copy placeholders from `config/oidc/` into Authentik when ready.
+- Keep **product MCP disabled** (`KATER_RESOURCE_AUTH_ENABLED` unset or `0`) unless introspection is configured.
+- Use **local dev** (`docker-compose.dev.yml` or `kater serve --no-proxy` with `KATER_AUTH_MODE=none`).
+- Store client secrets only in ChefVault / `.kater/.env` — never in git.
 
-When mesh Auth is up on `:9000`, point staging `.env` at the HTTPS issuer hostname
-(documented in `config/oidc/authentik-product-mcp-client.example.yaml`). Production
-values match [deploy-server.md](../deploy-server.md#dedicated-chefgroep-product-transport).
+After cutover, mirror issuer URLs in `config/oidc/authentik-product-mcp-client.example.yaml` and
+[deploy-server.md](../deploy-server.md#dedicated-chefgroep-product-transport).
 
 ## Product MCP vs Access
 
@@ -73,7 +75,7 @@ All other public paths may remain behind Access. See deploy-server for tunnel ro
 ## Verify
 
 ```bash
-# Loopback / compose dev
+# Loopback / native (Cloud agents) or after compose on laptop
 ./scripts/dev-health.sh
 
 # With gateway running (CI parity)

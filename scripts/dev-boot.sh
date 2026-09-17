@@ -4,7 +4,7 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-MODE="${1:-}"
+MODE="${1:-native}"
 
 if [ ! -f .env ]; then
   cp .env.example .env
@@ -12,7 +12,7 @@ if [ ! -f .env ]; then
 fi
 
 case "$MODE" in
-  ""|compose)
+  compose)
     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
     ;;
   native)
@@ -36,7 +36,7 @@ case "$MODE" in
     ;;
 esac
 
-if [ "$MODE" = "" ] || [ "$MODE" = "compose" ]; then
+if [ "$MODE" = "compose" ]; then
   for _ in $(seq 1 30); do
     if curl -sf --max-time 2 http://127.0.0.1:9091/health >/dev/null 2>&1; then
       break

@@ -4,14 +4,14 @@
 
 ```bash
 cp .env.example .env          # skipped when you use ./scripts/dev-boot.sh
-./scripts/dev-boot.sh         # docker compose dev stack (default)
+./scripts/dev-boot.sh native  # default on Cursor Cloud (often no Docker)
 ./scripts/dev-health.sh       # /health, /health/live, /health/ready
 ```
 
-Native loopback (no Docker): `./scripts/dev-boot.sh native` (runs `uv sync` + `kater serve`).
-
-VS Code / Cursor **Dev Containers**: open `.devcontainer/devcontainer.json` (uses
-`docker-compose.yml` + `docker-compose.dev.yml`).
+**Docker Compose** (laptop or Dev Containers): `./scripts/dev-boot.sh compose` (or
+`compose` explicitly). **Cursor Cloud** agent VMs frequently lack a Docker daemon —
+use **native** above; reserve Compose for local machines or
+`.devcontainer/devcontainer.json` (`docker-compose.yml` + `docker-compose.dev.yml`).
 
 ChefGroep Auth (mesh `:9000` vs Cloudflare Access): [ops/auth-mesh-vs-cf-access.md](ops/auth-mesh-vs-cf-access.md).
 OIDC client placeholders (no secrets): [../config/oidc/README.md](../config/oidc/README.md).

@@ -239,7 +239,7 @@ settings; see [docs/ops/catalog-connect.md](docs/ops/catalog-connect.md).
 ### Docker (local)
 
 ```bash
-./scripts/dev-boot.sh          # compose dev stack; creates .env if missing
+./scripts/dev-boot.sh          # native loopback (Cloud); use `compose` for Docker
 ./scripts/dev-health.sh
 ```
 

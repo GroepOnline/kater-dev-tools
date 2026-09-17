@@ -50,6 +50,11 @@ EOF
 printf 'KATER_RESOURCE_AUTH_SERVICE_KEY=%s\n' "$KATER_RESOURCE_AUTH_SERVICE_KEY" > "$TMP/product-secrets.env"
 chmod 600 "$TMP/product.env" "$TMP/product-secrets.env"
 git archive "$SHA" | tar -x -C "$ARCHIVE"
+# Stamp identity in the release tree from this controller checkout. The archive
+# has no .git; git describe runs here only. Missing exact tag => release null.
+RELEASE_TAG="$(git describe --exact-match --tags "$SHA" 2>/dev/null || true)"
+python3 scripts/stamp-build-identity.py --root "$ARCHIVE" --sha "$SHA" \
+  ${RELEASE_TAG:+--release "$RELEASE_TAG"}
 ssh -o BatchMode=yes "$TARGET" \
   "mkdir -p '$RELEASE_ROOT/$SHA' '$(dirname "$STATE")'"
 

@@ -118,6 +118,15 @@ class TestBuildSchemas:
         schemas = _build_schemas()
         assert len(schemas) > 0
 
+    def test_health_identity_is_nullable_and_required(self):
+        schemas = _build_schemas()
+        identity = schemas["BuildIdentity"]
+        assert identity["required"] == ["version", "source_sha", "release", "artifact_digest"]
+        for field in identity["required"]:
+            assert identity["properties"][field]["type"] == ["string", "null"]
+        assert "identity" in schemas["Health"]["required"]
+        assert "identity" in schemas["HealthReady"]["required"]
+
     def test_schemas_are_valid_structure(self):
         schemas = _build_schemas()
         for name, schema in schemas.items():

@@ -831,8 +831,10 @@ def serve_command(
 
     if api_only:
         from kater.api import serve_api
+        from kater.build_identity import format_identity_log
 
         typer.echo(f"Kater API on http://{host}:{api_port}")
+        typer.echo(f"kater identity {format_identity_log()}")
         serve_api(host, api_port)
         return
 
@@ -846,10 +848,13 @@ def serve_command(
         serve(profile=profile, host=host, port=mcp_port, use_proxy=use_proxy)
         return
 
+    from kater.build_identity import format_identity_log
+
     typer.echo(
         f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port} "
         f"(proxy={'on' if use_proxy else 'off'})"
     )
+    typer.echo(f"kater identity {format_identity_log()}")
     from kater.serve import serve_unified
     from kater.settings import resolve_listen_config
 
@@ -946,10 +951,10 @@ def mcp_serve_command(
 
 @app.command("version")
 def version_command() -> None:
-    """Show the Kater version."""
-    from kater import __version__
+    """Show package version plus stamped runtime identity as JSON."""
+    from kater.build_identity import cli_version_payload
 
-    typer.echo(__version__)
+    _print_json(cli_version_payload())
 
 
 # ── enable / disable / toggle ─────────────────────────────────────

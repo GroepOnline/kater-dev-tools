@@ -1,0 +1,36 @@
+# Authentik OAuth2/OIDC application — Kater gateway / dashboard (greenfield)
+# Wire KATER_OAUTH_* in .env once the provider exists. Until then, local dev
+# uses KATER_AUTH_MODE=none (see docker-compose.dev.yml).
+#
+# Do not commit client_secret values.
+
+application:
+  name: kater-gateway
+  slug: kater-gateway
+  provider_type: oauth2
+
+oauth2_provider:
+  client_type: confidential
+  client_id: PLACEHOLDER_ISSUED_BY_AUTHENTIK
+  client_secret: PLACEHOLDER_IN_CHEFVAULT
+  redirect_uris:
+    - http://127.0.0.1:9091/dashboard
+    - http://localhost:9091/dashboard
+    - https://kater.chefgroep.online/dashboard
+  allowed_origins:
+    - http://127.0.0.1:9091
+    - http://localhost:9091
+    - https://kater.chefgroep.online
+
+kater_env_mapping:
+  KATER_AUTH_MODE: oauth
+  KATER_PUBLIC: "1"
+  KATER_OAUTH_ISSUER: https://auth.chefgroep.online
+  KATER_OAUTH_AUDIENCE: kater-gateway
+  KATER_OAUTH_JWKS_URL: https://auth.chefgroep.online/.well-known/jwks.json
+  KATER_CONNECT_PUBLIC_BASE_URL: https://kater.chefgroep.online
+  KATER_CORS_ORIGINS: https://kater.chefgroep.online
+
+catalog_connect_callback:
+  note: Outbound provider OAuth (Slack, Microsoft, …) uses a fixed callback path.
+  redirect_uri_pattern: "{KATER_CONNECT_PUBLIC_BASE_URL}/api/mcp/oauth/callback"

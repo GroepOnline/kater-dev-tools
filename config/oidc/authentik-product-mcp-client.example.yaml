@@ -1,0 +1,30 @@
+# Authentik / mesh Auth — dedicated product MCP listener (:9093)
+# ChatGPT Remote MCP and other product clients register here. Kater validates
+# bearer tokens via Auth introspection; it does not issue tokens.
+#
+# Mesh issuer (greenfield): chef-authvault :9000 — public HTTPS issuer URL below
+# until the edge hostname is live. See docs/ops/auth-mesh-vs-cf-access.md.
+
+application:
+  name: kater-product-mcp
+  slug: kater-product-mcp
+  provider_type: oauth2
+
+oauth2_provider:
+  client_type: public
+  client_id: PLACEHOLDER_ISSUED_BY_AUTHENTIK
+  redirect_uris:
+    - https://kater.chefgroep.online/mcp/oauth/callback
+  note: Exact ChatGPT callback paths are owned by Auth; add them when the provider exists.
+
+kater_service_env:
+  KATER_RESOURCE_AUTH_ENABLED: "1"
+  KATER_RESOURCE_AUTH_ISSUER: https://auth.chefgroep.online
+  KATER_RESOURCE_AUTH_RESOURCE: https://kater.chefgroep.online/mcp
+  KATER_RESOURCE_AUTH_SCOPES: kater:read brain:read chefshare:read
+  KATER_RESOURCE_AUTH_SERVICE_KEY_ENV: KATER_RESOURCE_AUTH_SERVICE_KEY
+  KATER_PRODUCT_MCP_PORT: "9093"
+
+public_routes_without_cf_access_login:
+  - /mcp
+  - /.well-known/oauth-protected-resource/mcp

@@ -1,0 +1,32 @@
+# Authentik OAuth2/OIDC — Kater gateway / dashboard
+# Live mesh client id on chef-authvault: chefgroep-kater-oidc (no secrets in git).
+# HTTPS redirect URIs: docs/deploy-server.md#chefgroep-mesh-auth-operator-status
+
+application:
+  name: chefgroep-kater-oidc
+  slug: chefgroep-kater-oidc
+  provider_type: oauth2
+
+oauth2_provider:
+  client_type: confidential
+  client_id: chefgroep-kater-oidc
+  client_secret: PLACEHOLDER_IN_CHEFVAULT
+  redirect_uris:
+    - http://127.0.0.1:9091/dashboard
+    - http://localhost:9091/dashboard
+  allowed_origins:
+    - http://127.0.0.1:9091
+    - http://localhost:9091
+
+kater_env_mapping:
+  KATER_AUTH_MODE: oauth
+  KATER_PUBLIC: "1"
+  KATER_OAUTH_ISSUER: https://auth.example.com
+  KATER_OAUTH_AUDIENCE: chefgroep-kater-oidc
+  KATER_OAUTH_JWKS_URL: https://auth.example.com/.well-known/jwks.json
+  KATER_CONNECT_PUBLIC_BASE_URL: https://kater.example.com
+  KATER_CORS_ORIGINS: https://kater.example.com
+
+catalog_connect_callback:
+  note: Outbound provider OAuth uses a fixed callback path on the public Kater origin.
+  redirect_uri_pattern: "{KATER_CONNECT_PUBLIC_BASE_URL}/api/mcp/oauth/callback"

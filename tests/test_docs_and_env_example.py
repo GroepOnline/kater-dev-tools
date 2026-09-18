@@ -17,7 +17,17 @@ DOC_BROWSER = ROOT / "docs" / "browser.md"
 DOC_DEPLOY_LOCAL = ROOT / "docs" / "deploy-local.md"
 DOC_DEPLOY_SERVER = ROOT / "docs" / "deploy-server.md"
 DOC_CATALOG_CONNECT = ROOT / "docs" / "ops" / "catalog-connect.md"
+DOC_AUTH_MESH = ROOT / "docs" / "ops" / "auth-mesh-vs-cf-access.md"
 DOC_SECURITY = ROOT / "SECURITY.md"
+CONFIG_OIDC_README = ROOT / "config" / "oidc" / "README.md"
+
+
+class TestEnvExampleChefGroepAuthPointers:
+    def test_points_at_oidc_placeholders_without_prod_domains(self) -> None:
+        text = ENV_EXAMPLE.read_text(encoding="utf-8")
+        assert "config/oidc/*.example.yaml" in text
+        assert "docs/ops/auth-mesh-vs-cf-access.md" in text
+        assert "chefgroep" + ".online" not in text
 
 
 class TestEnvExampleCatalogConnectPolicy:
@@ -138,6 +148,9 @@ class TestDocDeployLocalMd:
     def test_documents_health_check(self) -> None:
         text = DOC_DEPLOY_LOCAL.read_text(encoding="utf-8")
         assert "curl -fsS http://127.0.0.1:9091/health" in text
+        assert "health/ready" in text
+        assert "./scripts/dev-boot.sh" in text
+        assert "./scripts/dev-health.sh" in text
 
     def test_documents_migrate_and_backup_cli(self) -> None:
         text = DOC_DEPLOY_LOCAL.read_text(encoding="utf-8")
@@ -178,6 +191,24 @@ class TestDocDeployServerMd:
         assert "CDP/remote providers avoid shipping a browser" in text
         assert "KATER_CONNECT_PUBLIC_BASE_URL" in text
         assert "docs/ops/catalog-connect.md" in text
+
+
+class TestDocAuthMeshVsCfAccess:
+    def test_documents_mesh_and_access_split(self) -> None:
+        text = DOC_AUTH_MESH.read_text(encoding="utf-8")
+        assert "Cloudflare Access" in text
+        assert ":9000" in text
+        assert "chefgroep-kater-oidc" in text
+        assert "no Docker" in text or "no Docker daemon" in text
+        assert "config/oidc" in text
+        assert "./scripts/dev-health.sh" in text
+
+
+class TestConfigOidcReadme:
+    def test_points_at_example_clients(self) -> None:
+        text = CONFIG_OIDC_README.read_text(encoding="utf-8")
+        assert "authentik-gateway-client.example.yaml" in text
+        assert "authentik-product-mcp-client.example.yaml" in text
 
 
 class TestDocCatalogConnect:

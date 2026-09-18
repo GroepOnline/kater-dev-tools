@@ -1,3 +1,5 @@
+# Local dev: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# See docs/deploy-local.md and ./scripts/dev-boot.sh
 services:
   kater:
     build:

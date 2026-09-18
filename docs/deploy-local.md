@@ -1,8 +1,28 @@
-# Local Docker Deploy
+# Local development (one path)
+
+## Quick boot
 
 ```bash
-cp .env.example .env
-docker compose up --build
+cp .env.example .env          # skipped when you use ./scripts/dev-boot.sh
+./scripts/dev-boot.sh native  # default on Cursor Cloud (often no Docker)
+./scripts/dev-health.sh       # /health, /health/live, /health/ready
+```
+
+**Docker Compose** (laptop or Dev Containers): `./scripts/dev-boot.sh compose` (or
+`compose` explicitly). **Cursor Cloud** agent VMs frequently lack a Docker daemon —
+use **native** above; reserve Compose for local machines or
+`.devcontainer/devcontainer.json` (`docker-compose.yml` + `docker-compose.dev.yml`).
+
+ChefGroep Auth (mesh `:9000` vs Cloudflare Access): [ops/auth-mesh-vs-cf-access.md](ops/auth-mesh-vs-cf-access.md).
+OIDC client placeholders (no secrets): [../config/oidc/README.md](../config/oidc/README.md).
+
+## Local Docker Deploy (public-shaped compose)
+
+The default `docker-compose.yml` mirrors a public deploy (`KATER_PUBLIC=1`,
+`KATER_AUTH_MODE=oauth`). For everyday local work, prefer the dev override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 `kater serve` listens on three ports by default:
@@ -13,7 +33,13 @@ docker compose up --build
 | 9091 | REST API + dashboard |
 | 9092 | WebSocket telemetry |
 
-Health check: `curl -fsS http://127.0.0.1:9091/health`.
+Health checks:
+
+```bash
+curl -fsS http://127.0.0.1:9091/health
+curl -fsS http://127.0.0.1:9091/health/ready
+# or: ./scripts/dev-health.sh
+```
 
 Cursor MCP snippet:
 

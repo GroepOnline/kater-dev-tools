@@ -239,9 +239,12 @@ settings; see [docs/ops/catalog-connect.md](docs/ops/catalog-connect.md).
 ### Docker (local)
 
 ```bash
-cp .env.example .env
-docker compose up -d
+./scripts/dev-boot.sh          # native loopback (Cloud); use `compose` for Docker
+./scripts/dev-health.sh
 ```
+
+Details: [docs/deploy-local.md](docs/deploy-local.md). ChefGroep Auth placeholders:
+[config/oidc/](config/oidc/) and [docs/ops/auth-mesh-vs-cf-access.md](docs/ops/auth-mesh-vs-cf-access.md).
 
 ### Cloudflare Tunnel (ChatGPT — OAuth built in)
 

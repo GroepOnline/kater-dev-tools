@@ -154,6 +154,25 @@ export KATER_REGISTRATION_TOKEN="$(openssl rand -hex 24)"
 
 See [SECURITY.md](../SECURITY.md) for the full threat model.
 
+## ChefGroep mesh Auth (operator status)
+
+Auth greenfield **smoke is GREEN** on **chef-authvault** (mesh issuer on **`:9000`**).
+CoS approved **public `auth.chefgroep.online`** Cloudflare apply (**in flight**); there is
+still **no public Vault** endpoint. Authentik already exposes the mesh OIDC application
+**`chefgroep-kater-oidc`** (client id only — secrets stay in ChefVault / `.kater/.env`).
+
+Canonical HTTPS redirect URIs for that client (register in Authentik if not already present):
+
+| Use | URI |
+| --- | --- |
+| Local dashboard | `http://127.0.0.1:9091/dashboard` |
+| Local dashboard (alt) | `http://localhost:9091/dashboard` |
+| Public dashboard | `https://kater.chefgroep.online/dashboard` |
+| Catalog Connect callback | `https://kater.chefgroep.online/api/mcp/oauth/callback` |
+
+Repo templates (no secrets): `config/oidc/authentik-gateway-client.example.yaml`.
+Mesh vs Cloudflare Access runbook: [ops/auth-mesh-vs-cf-access.md](ops/auth-mesh-vs-cf-access.md).
+
 ## Dedicated ChefGroep product transport
 
 The opt-in product listener serves only the fixed ChefGroep product tool registry.

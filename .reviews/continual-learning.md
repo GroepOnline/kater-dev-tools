@@ -6,6 +6,14 @@ into the taste loop (see `.agents/README.md`) instead.
 
 ---
 
+## Authentik issuer slug is not the client id
+
+Public discovery for `chefgroep-kater-oidc` is
+`/application/o/kater/.well-known/openid-configuration`, not
+`/application/o/chefgroep-kater-oidc/`. Prefer `AUTH_OIDC_*` as the product
+gate; do not leave Cloudflare Access in front of `/oidc/callback`. No prod
+domains in `.env.example` or `.cursor/`.
+
 ## Execute catalog leaks hide behind list filters
 
 `list_*` can hide private integrations while `get_*(id)` / `:default`

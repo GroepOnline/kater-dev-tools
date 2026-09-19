@@ -29,6 +29,9 @@ Kater exposes MCP tools over HTTP/SSE. Treat a public instance like an API gatew
 
 1. **Never expose `/sse` without auth.** Set `KATER_PUBLIC=1` and `KATER_AUTH_MODE=oauth` or `apikey`.
 2. **Use OAuth for ChatGPT Remote MCP** — built-in PKCE flow at `/authorize` and `/token`.
+   When `AUTH_OIDC_ISSUER` + `AUTH_OIDC_CLIENT_ID` are set, `/authorize` is gated by
+   Authentik (`/oidc/callback`); prefer that product gate over Cloudflare Access.
+   Client secrets stay in ChefVault / `.kater/.env`. See `docs/ops/auth-mesh-vs-cf-access.md`.
 3. **Use API keys for Cursor/agents** — `Authorization: Bearer <key>` on MCP and REST requests.
 4. **Enable rate limiting** — `KATER_RATE_LIMIT=60` (default when public). Applied to REST, MCP `/sse`, and WebSocket; `X-Forwarded-For` is honored only from loopback/private proxy peers or with `KATER_TRUST_PROXY=1`.
 5. **Restrict CORS** — avoid `*` on public deployments; set `KATER_CORS_ORIGINS`.

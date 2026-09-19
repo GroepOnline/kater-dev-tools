@@ -1,10 +1,11 @@
-# Authentik OAuth2/OIDC — Kater gateway / dashboard
+# Authentik OAuth2/OIDC — Kater gateway / dashboard (product RP)
 # Live mesh client id on chef-authvault: chefgroep-kater-oidc (no secrets in git).
+# Live issuer path is /application/o/kater/ (slug), not the client-id slug.
 # HTTPS redirect URIs: docs/deploy-server.md#chefgroep-mesh-auth-operator-status
 
 application:
   name: chefgroep-kater-oidc
-  slug: chefgroep-kater-oidc
+  slug: kater
   provider_type: oauth2
 
 oauth2_provider:
@@ -12,20 +13,36 @@ oauth2_provider:
   client_id: chefgroep-kater-oidc
   client_secret: PLACEHOLDER_IN_CHEFVAULT
   redirect_uris:
+    - http://127.0.0.1:9091/oidc/callback
+    - http://localhost:9091/oidc/callback
+    - https://kater.chefgroep.online/oidc/callback
     - http://127.0.0.1:9091/dashboard
     - http://localhost:9091/dashboard
   allowed_origins:
     - http://127.0.0.1:9091
     - http://localhost:9091
+    - https://kater.chefgroep.online
 
 kater_env_mapping:
   KATER_AUTH_MODE: oauth
   KATER_PUBLIC: "1"
-  KATER_OAUTH_ISSUER: https://auth.example.com
+  AUTH_OIDC_ISSUER: https://auth.chefgroep.online/application/o/kater/
+  AUTH_OIDC_CLIENT_ID: chefgroep-kater-oidc
+  AUTH_OIDC_REDIRECT_URI: https://kater.chefgroep.online/oidc/callback
+  AUTH_OIDC_SCOPES: openid
+  KATER_OAUTH_ISSUER: https://auth.chefgroep.online/application/o/kater/
   KATER_OAUTH_AUDIENCE: chefgroep-kater-oidc
-  KATER_OAUTH_JWKS_URL: https://auth.example.com/.well-known/jwks.json
-  KATER_CONNECT_PUBLIC_BASE_URL: https://kater.example.com
-  KATER_CORS_ORIGINS: https://kater.example.com
+  KATER_OAUTH_JWKS_URL: https://auth.chefgroep.online/application/o/kater/jwks/
+  KATER_CONNECT_PUBLIC_BASE_URL: https://kater.chefgroep.online
+  KATER_CORS_ORIGINS: https://kater.chefgroep.online
+
+local_dev_env_mapping:
+  KATER_AUTH_MODE: oauth
+  AUTH_OIDC_ISSUER: https://auth.chefgroep.online/application/o/kater/
+  AUTH_OIDC_CLIENT_ID: chefgroep-kater-oidc
+  AUTH_OIDC_REDIRECT_URI: http://127.0.0.1:9091/oidc/callback
+  AUTH_OIDC_SCOPES: openid
+  note: Copy client secret into gitignored .kater/.env only.
 
 catalog_connect_callback:
   note: Outbound provider OAuth uses a fixed callback path on the public Kater origin.

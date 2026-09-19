@@ -13,8 +13,10 @@ cp .env.example .env          # skipped when you use ./scripts/dev-boot.sh
 use **native** above; reserve Compose for local machines or
 `.devcontainer/devcontainer.json` (`docker-compose.yml` + `docker-compose.dev.yml`).
 
-ChefGroep Auth (mesh `:9000` vs Cloudflare Access): [ops/auth-mesh-vs-cf-access.md](ops/auth-mesh-vs-cf-access.md).
+ChefGroep Auth (Authentik product gate vs Cloudflare Access): [ops/auth-mesh-vs-cf-access.md](ops/auth-mesh-vs-cf-access.md).
 OIDC client placeholders (no secrets): [../config/oidc/README.md](../config/oidc/README.md).
+Local OIDC path: set `AUTH_OIDC_*` in `.kater/.env` (issuer + client id; secret from ChefVault),
+then `./scripts/oidc-canary.sh` with the gateway running.
 
 ## Local Docker Deploy (public-shaped compose)
 

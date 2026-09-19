@@ -6,13 +6,28 @@ for specific pinned versions/flags rather than executed, since these files
 only run inside GitHub Actions.
 """
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CI = ROOT / ".github/workflows/ci.yml"
-AUTOMERGE = ROOT / ".github/workflows/automerge.yml"
-RELEASE = ROOT / ".github/workflows/release.yml"
-NO_ORG_LEAK = ROOT / ".github/workflows/no-org-leak.yml"
+WORKFLOWS = ROOT / ".github/workflows"
+CI = WORKFLOWS / "ci.yml"
+AUTOMERGE = WORKFLOWS / "automerge.yml"
+RELEASE = WORKFLOWS / "release.yml"
+NO_ORG_LEAK = WORKFLOWS / "no-org-leak.yml"
+AGENT_TASTE = WORKFLOWS / "agent-taste-eval.yml"
+DESIGN_SYSTEM = WORKFLOWS / "design-system-contract.yml"
+
+HOSTED_RUNNER = re.compile(
+    r"^\s*runs-on:\s*.*(ubuntu-latest|macos-latest|windows-latest)",
+    re.MULTILINE,
+)
+FLEET_PR_OR_HEAVY = (
+    "runs-on: ${{ github.event_name == 'pull_request' && "
+    "fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"pr-isolated\"]') || "
+    "fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"heavy\"]') }}"
+)
+FLEET_HEAVY = "runs-on: [self-hosted, Linux, X64, heavy]"
 PYPROJECT = ROOT / "pyproject.toml"
 E2E_MCP = ROOT / "scripts/e2e-mcp.sh"
 
@@ -22,6 +37,26 @@ GITHUB_SCRIPT_SHA = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da
 
 def _job_block(text: str, job: str, next_job: str) -> str:
     return text.split(f"  {job}:\n", 1)[1].split(f"\n  {next_job}:\n", 1)[0]
+
+
+def test_workflows_forbid_github_hosted_runners() -> None:
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        match = HOSTED_RUNNER.search(text)
+        assert match is None, f"{path.name} still pins a hosted runner: {match.group(0)}"
+
+
+def test_mixed_trigger_workflows_use_pr_isolated_or_heavy() -> None:
+    for path in (CI, AUTOMERGE, NO_ORG_LEAK, DESIGN_SYSTEM):
+        text = path.read_text(encoding="utf-8")
+        assert FLEET_PR_OR_HEAVY in text, path.name
+        assert HOSTED_RUNNER.search(text) is None, path.name
+    assert CI.read_text(encoding="utf-8").count(FLEET_PR_OR_HEAVY) == 11
+
+
+def test_push_only_workflows_use_heavy() -> None:
+    assert FLEET_HEAVY in AGENT_TASTE.read_text(encoding="utf-8")
+    assert FLEET_HEAVY in RELEASE.read_text(encoding="utf-8")
 
 
 def test_automerge_uses_github_script_v9() -> None:

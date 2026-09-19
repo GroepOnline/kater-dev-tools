@@ -100,7 +100,9 @@ Until `AUTH_OIDC_*` is wired on bc-scan-arm:
 This PR does **not** apply Cloudflare DNS, Access apps, or tunnel config.
 A human on the CF/CoS lane must:
 
-1. **Authentik** — confirm `chefgroep-kater-oidc` redirect URIs include:
+1. **Authentik** — register `chefgroep-kater-oidc` redirect URIs (live authorize
+   currently returns **400 invalid redirect_uri** for loopback and public
+   candidates until this allowlist exists):
    - `http://127.0.0.1:9091/oidc/callback`
    - `http://localhost:9091/oidc/callback`
    - `https://kater.chefgroep.online/oidc/callback`

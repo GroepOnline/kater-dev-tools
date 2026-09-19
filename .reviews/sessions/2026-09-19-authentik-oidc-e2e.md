@@ -13,6 +13,8 @@
 - Discovery 200 at `/application/o/kater/.well-known/openid-configuration`
 - Client id `chefgroep-kater-oidc` (issuer slug is `kater`, not the client-id slug)
 - Alternate public TLD discovery 403 from this VM (CF); treat the primary public host as canonical
+- Live `/application/o/authorize/` returns 400 invalid redirect_uri for
+  loopback and public candidates until CoS registers `/oidc/callback`
 
 ## Pickup
 

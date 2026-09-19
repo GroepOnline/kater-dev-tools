@@ -20,6 +20,7 @@ DOC_CATALOG_CONNECT = ROOT / "docs" / "ops" / "catalog-connect.md"
 DOC_AUTH_MESH = ROOT / "docs" / "ops" / "auth-mesh-vs-cf-access.md"
 DOC_SECURITY = ROOT / "SECURITY.md"
 CONFIG_OIDC_README = ROOT / "config" / "oidc" / "README.md"
+OIDC_CANARY = ROOT / "scripts" / "oidc-canary.sh"
 
 
 class TestEnvExampleChefGroepAuthPointers:
@@ -28,6 +29,15 @@ class TestEnvExampleChefGroepAuthPointers:
         assert "config/oidc/*.example.yaml" in text
         assert "docs/ops/auth-mesh-vs-cf-access.md" in text
         assert "chefgroep" + ".online" not in text
+
+    def test_documents_product_oidc_env(self) -> None:
+        text = ENV_EXAMPLE.read_text(encoding="utf-8")
+        assert "AUTH_OIDC_ISSUER=" in text
+        assert "AUTH_OIDC_CLIENT_ID=" in text
+        assert "AUTH_OIDC_CLIENT_SECRET=" in text
+        assert "AUTH_OIDC_REDIRECT_URI=" in text
+        assert "AUTH_OIDC_SCOPES=openid" in text
+        assert "prefers Authentik" in text
 
 
 class TestEnvExampleCatalogConnectPolicy:
@@ -203,12 +213,35 @@ class TestDocAuthMeshVsCfAccess:
         assert "config/oidc" in text
         assert "./scripts/dev-health.sh" in text
 
+    def test_documents_authentik_preference_and_cutover(self) -> None:
+        text = DOC_AUTH_MESH.read_text(encoding="utf-8")
+        assert "AUTH_OIDC_ISSUER" in text
+        assert "/oidc/callback" in text
+        assert "./scripts/oidc-canary.sh" in text
+        assert "does **not** apply Cloudflare DNS" in text or "does not apply" in text.lower()
+        assert "/oidc/login" in text
+        assert "Bypass" in text or "bypass" in text
+
 
 class TestConfigOidcReadme:
     def test_points_at_example_clients(self) -> None:
         text = CONFIG_OIDC_README.read_text(encoding="utf-8")
         assert "authentik-gateway-client.example.yaml" in text
         assert "authentik-product-mcp-client.example.yaml" in text
+        assert "AUTH_OIDC_" in text
+        assert "./scripts/oidc-canary.sh" in text
+
+
+class TestOidcCanaryScript:
+    def test_exists_and_has_no_secrets_or_prod_domains(self) -> None:
+        assert OIDC_CANARY.is_file()
+        text = OIDC_CANARY.read_text(encoding="utf-8")
+        assert "AUTH_OIDC_ISSUER" in text
+        assert "/oidc/login" in text
+        assert "/oidc/callback" in text
+        assert "Never prints AUTH_OIDC_CLIENT_SECRET" in text
+        assert "chefgroep" + ".online" not in text
+        assert "sk-" not in text
 
 
 class TestDocCatalogConnect:

@@ -5,59 +5,92 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]: https://github.com/GroepOnline/kater-dev-tools/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/GroepOnline/kater-dev-tools/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/GroepOnline/kater-dev-tools/releases/tag/v1.2.0
+[1.1.1]: https://github.com/GroepOnline/kater-dev-tools/releases/tag/v1.1.1
 [1.1.0]: https://github.com/GroepOnline/kater-dev-tools/releases/tag/v1.1.0
 [1.0.0]: https://github.com/GroepOnline/kater-dev-tools/releases/tag/v1.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-19
+
+Execution Foundation train plus the company-control deploy path. Product
+model is toolkit → integration → connection → action.
+
 ### Added
 
+- Execution Foundation catalog and generic execute (`#95`):
+  `execute(connection, action, input, identity, policy_context)`,
+  `GET /api/connections`, admin-gated `POST /api/execute`, MCP
+  `kater_tool_search` / `kater_execute`. Search ranks registered
+  capabilities without loading every provider tool into agent context.
+- Isolated ChefGroep product transport and disabled product export
+  registry (`#92`, `#93`).
+- External resource introspection client (`#91`) and Authentik OIDC RP
+  (`#117`), with local-dev OIDC placeholders (`#114`).
+- Company-control auto-deploy on green main CI (`#87`), including a
+  healthy product MCP listener gate.
+- Catalog unification of toolkits, integrations, plugins, and MCP (`#83`).
 - Runtime-authoritative agent-session work/event transport keyed by
   existing remote contexts (`/api/contexts/{id}/session/*`, MCP tools,
   OpenAPI). Studio composer is a replaceable client over that contract.
+- Studio Agent Activity focused on sessions and a refined material
+  operator shell.
 - Dashboard profile recovery (`Switch profile to core`) and browser
   Go/Reload/Close loading feedback (`aria-busy` + busy labels).
 - Dry-run branch lifecycle scanner with terminal-name tombstones and
   exact-SHA receipts; unique patches are never auto-deleted.
-- Agent execution layer with `kater_tool_search` and `kater_execute`. Search ranks registered connector capabilities without loading every provider tool into agent context. Execute reuses connector auth, profile permissions, transport dispatch, and capability audit.
-
-- `GET /api/tools/search`, admin-gated `POST /api/execute`, and CLI `search-tools` / `execute` commands. Runtime profile checks reject profiles outside `KATER_PROFILE`.
-
-- Admin-gated dynamic connector registration via `POST /api/connectors` and
-  `kater connector add <definition.json>`; new connectors always start disabled
-  with no permissions, and credential values remain out of the catalog.
-- Bounded GitHub transport for PR-gate tools: typed errors, secret redaction,
-  configurable subprocess timeout, and a strict read-only retry budget
-  (`docs/ops/pr-gate.md`).
+- Admin-gated dynamic connector registration via `POST /api/connectors`
+  and `kater connector add <definition.json>`; new connectors always
+  start disabled with no permissions, and credential values remain out
+  of the catalog.
+- Bounded GitHub transport for PR-gate tools: typed errors, secret
+  redaction, configurable subprocess timeout, and a strict read-only
+  retry budget (`docs/ops/pr-gate.md`).
 
 ### Changed
 
-- `kater_pr_gate` treats a nonempty `expected_head_sha` mismatch as `HEAD_STALE`
-  BLOCK. Merge still requires the same exact-head pin.
-- Independent APPROVE on a nonempty pin must cover that review commit OID.
-  Empty review lists no longer inherit GitHub `reviewDecision`. `gate_for_pr`
-  loads the same overlay policy as merge.
-- GitHub-mapped commit authors are not auto-classified as fixers. Independent
-  review is author ≠ reviewer ≠ policy `fixer_logins`, pinned to the exact
-  head SHA. The SSH push login may differ from the PR author.
-- Default policy no longer blocks a protected base. GitHub branch protection
-  is expected; `block_base_protected` remains an opt-in overlay. Required
-  checks, independent APPROVE, P1, and the head pin are unchanged.
-- PR body/list I/O prefers GitHub REST (`gh api`) when `KATER_PR_REPO` is set.
-  GraphQL stays only for `reviewThreads`.
-- Doctor reports GitHub token env precedence and a SHA-256 fingerprint only.
-  Never the token value.
+- `kater_pr_gate` treats a nonempty `expected_head_sha` mismatch as
+  `HEAD_STALE` BLOCK. Merge still requires the same exact-head pin.
+- Independent APPROVE on a nonempty pin must cover that review commit
+  OID. Empty review lists no longer inherit GitHub `reviewDecision`.
+  `gate_for_pr` loads the same overlay policy as merge.
+- GitHub-mapped commit authors are not auto-classified as fixers.
+  Independent review is author ≠ reviewer ≠ policy `fixer_logins`,
+  pinned to the exact head SHA.
+- Default policy no longer blocks a protected base. GitHub branch
+  protection is expected; `block_base_protected` remains an opt-in
+  overlay.
+- PR body/list I/O prefers GitHub REST (`gh api`) when `KATER_PR_REPO`
+  is set. GraphQL stays only for `reviewThreads`.
+- Doctor reports GitHub token env precedence and a SHA-256 fingerprint
+  only. Never the token value.
+- CI bans GitHub-hosted runners and uses fleet self-hosted labels
+  (`#116`).
 
 ### Fixed
 
+- Company-control cutover no longer dies on GNU `unlink` with two
+  staged env paths (`#108`).
+- Execution rejects malformed dangerous policy and preserves merge
+  policy failures (`#106`).
+- Catalog leaks closed; execute gates hardened.
+- Restored database is validated before replacing live state (`#82`).
+- Deploy writes use `sudo tee`; fetch before `cat-file`; fail closed
+  on service-user release traversal; restore active reverse dependents.
+- Auth fails closed on unreadable resource config.
 - PR-gate `gh` calls no longer run as one-shot unbounded subprocesses.
 - Branch-protection lookup no longer fail-opens on timeout/5xx/429.
-- Merge writes never retry; a write timeout is reconciled by a bounded read
-  and only reports success when `merged=true` at the original pin.
-- `gh api` GET query parameters are placed in the URL. Field flags (`-f`)
-  switched the method to POST and 404'd commit check-runs, which the gate
-  reported as `REQUIRED_CHECK_LOOKUP` even when Actions were green.
+- Merge writes never retry; a write timeout is reconciled by a bounded
+  read and only reports success when `merged=true` at the original pin.
+- `gh api` GET query parameters are placed in the URL. Field flags
+  (`-f`) switched the method to POST and 404'd commit check-runs.
+
+## [1.1.1] - 2026-09-01
+
+Patch tag on the 1.1.x line. Package sources were bumped; this changelog
+section was missing until 1.2.0.
 
 ## [1.1.0] - 2026-08-18
 

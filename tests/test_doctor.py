@@ -320,6 +320,29 @@ def test_doctor_ok_for_public_oauth(monkeypatch, tmp_path) -> None:
     assert any(f.code == "public_connect_base_url_missing" for f in report.findings)
 
 
+def test_doctor_flags_partial_oidc(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTH_OIDC_ISSUER", "https://auth.example.com/application/o/kater/")
+    monkeypatch.delenv("AUTH_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("AUTH_OIDC_CLIENT_SECRET", raising=False)
+
+    report = run_doctor(profiles={"core"})
+
+    assert any(f.code == "oidc_partial" and f.severity == "error" for f in report.findings)
+
+
+def test_doctor_oidc_ready_and_secret_warning(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTH_OIDC_ISSUER", "https://auth.example.com/application/o/kater/")
+    monkeypatch.setenv("AUTH_OIDC_CLIENT_ID", "demo-client")
+    monkeypatch.delenv("AUTH_OIDC_CLIENT_SECRET", raising=False)
+
+    report = run_doctor(profiles={"core"})
+
+    assert any(f.code == "oidc_ready" for f in report.findings)
+    assert any(f.code == "oidc_secret_missing" for f in report.findings)
+
+
 def test_doctor_flags_dynamic_registration_without_token(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KATER_PUBLIC", "1")

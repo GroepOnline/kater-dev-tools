@@ -44,7 +44,7 @@ build-backend = "uv_build"
 
 [tool.uv]
 # CI pip-audit scans the venv bootstrap pip; keep it on a patched release.
-constraint-dependencies = ["pip>=26.2"]
+constraint-dependencies = ["pip>=26.2", "anyio==4.14.2"]
 
 [dependency-groups]
 dev = [

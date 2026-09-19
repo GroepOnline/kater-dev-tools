@@ -150,6 +150,34 @@ def _build_paths() -> dict[str, Any]:
             },
         }
     }
+    paths["/oidc/status"] = {
+        "get": _response(
+            "Product OIDC gate status (Authentik). No secrets.",
+            {"type": "object"},
+        )
+    }
+    paths["/oidc/login"] = {
+        "get": {
+            "summary": "Start Authentik OIDC login (302 to IdP authorize)",
+            "parameters": [_qp("next", default_val="/dashboard")],
+            "responses": {
+                "302": {"description": "Redirect to AUTH_OIDC issuer authorize."},
+                "404": _error_ref(),
+                "503": _error_ref(),
+            },
+        }
+    }
+    paths["/oidc/callback"] = {
+        "get": {
+            "summary": "OIDC authorization-code callback (Authentik → local /authorize code)",
+            "parameters": [_qp("code"), _qp("state"), _qp("error")],
+            "responses": {
+                "302": {"description": "Redirect to the original OAuth client or dashboard."},
+                "400": _error_ref(),
+                "503": _error_ref(),
+            },
+        }
+    }
     paths["/token"] = {
         "post": {
             "summary": "OAuth 2.0 token endpoint (authorization_code + PKCE)",
@@ -1280,6 +1308,7 @@ def _build_schemas() -> dict[str, Any]:
                 "status": {"type": "string"},
                 "version": {"type": "string"},
                 "auth_mode": {"type": "string"},
+                "oidc": {"type": "object"},
             },
         },
         "HealthReady": {

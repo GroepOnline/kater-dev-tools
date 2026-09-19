@@ -156,22 +156,38 @@ See [SECURITY.md](../SECURITY.md) for the full threat model.
 
 ## ChefGroep mesh Auth (operator status)
 
-Auth greenfield **smoke is GREEN** on **chef-authvault** (mesh issuer on **`:9000`**).
-CoS approved **public `auth.chefgroep.online`** Cloudflare apply (**in flight**); there is
-still **no public Vault** endpoint. Authentik already exposes the mesh OIDC application
-**`chefgroep-kater-oidc`** (client id only — secrets stay in ChefVault / `.kater/.env`).
+Auth greenfield **smoke is GREEN** on **chef-authvault**. Public Authentik is live
+at **`https://auth.chefgroep.online`** (healthz/readyz 200; `.nl` is a mesh alias).
+There is still **no public Vault** endpoint. Authentik exposes the mesh OIDC
+application **`chefgroep-kater-oidc`** (client id only — secrets stay in ChefVault
+/ `.kater/.env`). Issuer slug is **`kater`**:
 
-Canonical HTTPS redirect URIs for that client (register in Authentik if not already present):
+`https://auth.chefgroep.online/application/o/kater/`
+
+Kater on **bc-scan-arm** is still primarily Cloudflare Access gated until
+`AUTH_OIDC_*` is set and the Access policy is updated. This repo does **not**
+apply Cloudflare DNS.
+
+When `AUTH_OIDC_ISSUER` + `AUTH_OIDC_CLIENT_ID` are set, `/authorize` redirects
+to Authentik and `/oidc/callback` finishes the code flow (local `/token` PKCE
+unchanged). Prefer that product gate over Access.
+
+Canonical redirect URIs for `chefgroep-kater-oidc` (register in Authentik if missing):
 
 | Use | URI |
 | --- | --- |
-| Local dashboard | `http://127.0.0.1:9091/dashboard` |
+| Local OIDC callback | `http://127.0.0.1:9091/oidc/callback` |
+| Local OIDC callback (alt) | `http://localhost:9091/oidc/callback` |
+| Public OIDC callback | `https://kater.chefgroep.online/oidc/callback` |
+| Local dashboard (legacy) | `http://127.0.0.1:9091/dashboard` |
 | Local dashboard (alt) | `http://localhost:9091/dashboard` |
 | Public dashboard | `https://kater.chefgroep.online/dashboard` |
 | Catalog Connect callback | `https://kater.chefgroep.online/api/mcp/oauth/callback` |
 
 Repo templates (no secrets): `config/oidc/authentik-gateway-client.example.yaml`.
-Mesh vs Cloudflare Access runbook: [ops/auth-mesh-vs-cf-access.md](ops/auth-mesh-vs-cf-access.md).
+Access vs Authentik modes, CF Access policy change, and cutover checklist:
+[ops/auth-mesh-vs-cf-access.md](ops/auth-mesh-vs-cf-access.md).
+Loopback canary: `./scripts/oidc-canary.sh`.
 
 ## Dedicated ChefGroep product transport
 

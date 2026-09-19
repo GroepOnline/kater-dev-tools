@@ -233,6 +233,7 @@ def _runtime_identity() -> dict[str, str | None]:
 @route("GET", "/health", public=True)
 def _health(_: Request) -> Response:
     from kater import __version__
+    from kater.oidc import oidc_public_status
 
     settings = load_settings()
     return Response.json(
@@ -242,6 +243,7 @@ def _health(_: Request) -> Response:
             "version": __version__,
             "auth_mode": settings.auth.mode,
             "identity": _runtime_identity(),
+            "oidc": oidc_public_status(),
         },
     )
 
@@ -333,6 +335,16 @@ def _health_ready(_: Request) -> Response:
         )
         components["product_mcp"] = {"status": "ok" if ready else "unavailable"}
         unhealthy = unhealthy or not ready
+
+    from kater.oidc import oidc_enabled, oidc_partial
+
+    if oidc_partial():
+        components["oidc"] = {"status": "unavailable", "reason": "partial_config"}
+        degraded = True
+    elif oidc_enabled():
+        components["oidc"] = {"status": "ok", "reason": "configured"}
+    else:
+        components["oidc"] = {"status": "ok", "reason": "unset"}
 
     # UTRECHT_REPO_PATH is optional in current live env; when unset the Utrecht
     # CLI tools degrade, but the gateway itself remains up. Report that clearly.
@@ -500,6 +512,29 @@ def _authorize(req: Request) -> Response:
         sep = "&" if "?" in redirect_uri else "?"
         return Response.redirect(f"{redirect_uri}{sep}error=access_denied")
 
+    from kater.oidc import OidcError, begin_authorize_login, oidc_enabled, resolve_callback_uri
+
+    if oidc_enabled():
+        try:
+            location = begin_authorize_login(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                code_challenge=challenge,
+                code_challenge_method=method,
+                scope=scope,
+                state=state,
+                profile=profile,
+                callback_uri=resolve_callback_uri(
+                    req.base_url, public=is_public_settings(load_settings())
+                ),
+            )
+        except OidcError as exc:
+            return Response.json(
+                503,
+                {"error": exc.code, "detail": exc.safe_message},
+            )
+        return Response.redirect(location)
+
     consent_params = {
         "response_type": "code",
         "client_id": client_id,
@@ -529,6 +564,106 @@ def _authorize(req: Request) -> Response:
         f"Max-Age={_CONSENT_TTL_SECONDS}"
     )
     return response
+
+
+def _safe_oidc_next(path: str) -> str:
+    if not path.startswith("/") or path.startswith("//"):
+        return "/dashboard"
+    return path
+
+
+def _oidc_error_status(code: str) -> int:
+    if code in {"oidc_not_configured", "oidc_partial"}:
+        return 404
+    if code in {
+        "oidc_callback_missing",
+        "oidc_state_invalid",
+        "oidc_redirect_invalid",
+        "oidc_id_token_invalid",
+        "oidc_id_token_iss",
+        "oidc_id_token_aud",
+        "oidc_id_token_exp",
+        "oidc_id_token_expired",
+        "oidc_id_token_nonce",
+        "oidc_id_token_sub",
+        "oidc_denied",
+    }:
+        return 400
+    return 503
+
+
+@route("GET", "/oidc/status", public=True)
+def _oidc_status(_: Request) -> Response:
+    from kater.oidc import oidc_public_status
+
+    return Response.json(200, oidc_public_status())
+
+
+@route("GET", "/oidc/login", public=True)
+def _oidc_login(req: Request) -> Response:
+    from kater.oidc import OidcError, begin_login, oidc_enabled, resolve_callback_uri
+
+    if not oidc_enabled():
+        return Response.json(404, {"error": "oidc_not_configured"})
+    try:
+        location = begin_login(
+            callback_uri=resolve_callback_uri(
+                req.base_url, public=is_public_settings(load_settings())
+            ),
+            next_path=_safe_oidc_next(req.query1("next") or "/dashboard"),
+        )
+    except OidcError as exc:
+        return Response.json(
+            _oidc_error_status(exc.code),
+            {"error": exc.code, "detail": exc.safe_message},
+        )
+    return Response.redirect(location)
+
+
+@route("GET", "/oidc/callback", public=True)
+def _oidc_callback(req: Request) -> Response:
+    from kater.oauth import create_auth_code, create_token
+    from kater.oidc import OidcError, complete_callback
+
+    denied = req.query1("error") or ""
+    if denied:
+        return Response.json(400, {"error": "oidc_denied", "detail": denied})
+    try:
+        result = complete_callback(
+            code=req.query1("code") or "",
+            state=req.query1("state") or "",
+        )
+    except OidcError as exc:
+        return Response.json(
+            _oidc_error_status(exc.code),
+            {"error": exc.code, "detail": exc.safe_message},
+        )
+    if result.pending is not None:
+        try:
+            code = create_auth_code(
+                client_id=result.pending.client_id,
+                redirect_uri=result.pending.redirect_uri,
+                code_challenge=result.pending.code_challenge,
+                code_challenge_method=result.pending.code_challenge_method,
+                scope=result.pending.scope,
+                state=result.pending.state,
+                profile=result.pending.profile,
+            )
+        except ValueError:
+            return Response.json(
+                400,
+                {"error": "invalid_request", "detail": "unsupported code_challenge_method"},
+            )
+        sep = "&" if "?" in result.pending.redirect_uri else "?"
+        location = f"{result.pending.redirect_uri}{sep}code={quote(code, safe='')}"
+        if result.pending.state:
+            location += f"&state={quote(result.pending.state, safe='')}"
+        return Response.redirect(location)
+
+    token = create_token(client_id="kater-dashboard", scope="openid tools")
+    next_path = _safe_oidc_next(result.next_path)
+    sep = "&" if "?" in next_path else "?"
+    return Response.redirect(f"{next_path}{sep}api_key={quote(token['access_token'], safe='')}")
 
 
 @route("POST", "/token", public=True)

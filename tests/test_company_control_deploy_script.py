@@ -102,6 +102,13 @@ def test_controller_stamps_build_identity_before_rsync() -> None:
     assert "CUTOVER=1" not in launcher[:stamp]
 
 
+def test_staged_product_env_cleanup_is_single_file_safe() -> None:
+    text = REMOTE_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'unlink "$PRODUCT_ENV_STAGE" "$PRODUCT_SECRET_STAGE"' not in text
+    assert 'rm -f -- "$PRODUCT_ENV_STAGE" "$PRODUCT_SECRET_STAGE"' in text
+
+
 def test_secret_staging_and_cleanup_share_one_ssh_session() -> None:
     launcher = SCRIPT.read_text(encoding="utf-8")
 

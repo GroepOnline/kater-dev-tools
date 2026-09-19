@@ -76,6 +76,12 @@ class TestBuildPaths:
         paths = _build_paths()
         assert "/authorize" in paths
 
+    def test_oidc_endpoints_exist(self):
+        paths = _build_paths()
+        assert "/oidc/login" in paths
+        assert "/oidc/callback" in paths
+        assert "/oidc/status" in paths
+
     def test_token_endpoint_exists(self):
         paths = _build_paths()
         assert "/token" in paths

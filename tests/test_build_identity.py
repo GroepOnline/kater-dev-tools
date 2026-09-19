@@ -102,6 +102,28 @@ def test_env_overrides_file_and_malformed_env_does_not_fall_back(
     assert identity["artifact_digest"] == f"sha256:{VALID_DIGEST}"
 
 
+def test_blank_env_override_does_not_fall_back_to_stamp(
+    monkeypatch, tmp_path: Path
+) -> None:
+    stamp = tmp_path / "_build_identity.json"
+    write_stamp(
+        stamp,
+        version="1.1.1",
+        source_sha=VALID_SHA,
+        release="v1.1.1",
+        artifact_digest=VALID_DIGEST,
+    )
+    monkeypatch.setenv("KATER_BUILD_VERSION", "")
+    monkeypatch.setenv("KATER_BUILD_SHA", "   ")
+    monkeypatch.delenv("KATER_BUILD_RELEASE", raising=False)
+    monkeypatch.delenv("KATER_BUILD_ARTIFACT_DIGEST", raising=False)
+    identity = load_build_identity(stamp=stamp)
+    assert identity["version"] is None
+    assert identity["source_sha"] is None
+    assert identity["release"] == "v1.1.1"
+    assert identity["artifact_digest"] == f"sha256:{VALID_DIGEST}"
+
+
 def test_malformed_json_is_null(monkeypatch, tmp_path: Path) -> None:
     _clear_env(monkeypatch)
     stamp = tmp_path / "_build_identity.json"
@@ -126,35 +148,12 @@ def test_identity_log_uses_null_token() -> None:
     )
 
 
-def test_stamp_script_writes_validated_file(tmp_path: Path, monkeypatch) -> None:
+def test_stamp_script_writes_validated_file(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "kater"\nversion = "1.1.1"\n',
         encoding="utf-8",
     )
     (tmp_path / "src" / "kater").mkdir(parents=True)
-    
-    # Mock subprocess to avoid timeout on self-hosted runners
-    def mock_subprocess_run(*args, **kwargs):
-        # Simulate successful stamp script execution
-        stamp_file = tmp_path / "src" / "kater" / "_build_identity.json"
-        stamp_file.write_text(
-            json.dumps({
-                "version": "1.1.1",
-                "source_sha": VALID_SHA,
-                "release": "v1.1.1",
-                "artifact_digest": None
-            }),
-            encoding="utf-8"
-        )
-        return subprocess.CompletedProcess(
-            args=args[0],
-            returncode=0,
-            stdout="",
-            stderr=""
-        )
-    
-    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
-    
     result = subprocess.run(
         [
             sys.executable,

@@ -7,11 +7,15 @@ Thanks for helping improve Kater! This project is a developer MCP gateway — ke
 ```bash
 git clone https://github.com/GroepOnline/kater-dev-tools.git
 cd kater-dev-tools
-uv sync --dev
+cp .env.example .env
+./scripts/dev-boot.sh native   # or: ./scripts/dev-boot.sh compose
+./scripts/dev-health.sh
 uv run pytest -v
 uv run ruff check .
-./scripts/smoke.sh
+./scripts/smoke.sh             # server must be stopped
 ```
+
+See [docs/deploy-local.md](docs/deploy-local.md) for Docker, Dev Containers, and health checks.
 
 ## Pull requests
 

@@ -77,7 +77,7 @@ def load_build_identity(*, stamp: Path | None = None) -> dict[str, str | None]:
     file_data = _read_stamp_file(stamp if stamp is not None else stamp_path())
     identity = empty_identity()
     for field, env_name in _ENV_FOR_FIELD.items():
-        if env_name in os.environ and os.environ[env_name].strip() != "":
+        if env_name in os.environ:
             identity[field] = validate_identity_field(field, os.environ[env_name])
         else:
             identity[field] = validate_identity_field(field, file_data.get(field))

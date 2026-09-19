@@ -109,6 +109,9 @@ class PolicyContext:
     ) -> PolicyContext:
         payload = dict(data or {})
         timeout = payload.get("timeout_seconds")
+        allow_dangerous = payload.get("allow_dangerous", True)
+        if not isinstance(allow_dangerous, bool):
+            raise ValueError("allow_dangerous must be a boolean")
         return cls(
             profile=str(payload.get("profile") or profile or "core"),
             run_id=(str(payload["run_id"]) if payload.get("run_id") else None),
@@ -119,7 +122,7 @@ class PolicyContext:
             idempotency_key=(
                 str(payload["idempotency_key"]) if payload.get("idempotency_key") else None
             ),
-            allow_dangerous=bool(payload.get("allow_dangerous", True)),
+            allow_dangerous=allow_dangerous,
             expected_head_sha=(
                 str(payload["expected_head_sha"]) if payload.get("expected_head_sha") else None
             ),

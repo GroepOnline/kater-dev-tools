@@ -10,7 +10,7 @@ from kater.api.usage_routes import USAGE_OPENAPI_PATHS
 
 OPENAPI_VERSION = "3.1.0"
 API_TITLE = "Kater MCP Gateway API"
-API_VERSION = "1.1.1"
+API_VERSION = "1.2.0"
 DEFAULT_SERVER = "http://localhost:9091"
 
 _JSON: dict[str, Any] = {"application/json": {}}
@@ -147,6 +147,34 @@ def _build_paths() -> dict[str, Any]:
                 "200": {"description": "Consent page HTML.", "content": _HTML},
                 "302": {"description": "Authorization code redirect."},
                 "400": _error_ref(),
+            },
+        }
+    }
+    paths["/oidc/status"] = {
+        "get": _response(
+            "Product OIDC gate status (Authentik). No secrets.",
+            {"type": "object"},
+        )
+    }
+    paths["/oidc/login"] = {
+        "get": {
+            "summary": "Start Authentik OIDC login (302 to IdP authorize)",
+            "parameters": [_qp("next", default_val="/dashboard")],
+            "responses": {
+                "302": {"description": "Redirect to AUTH_OIDC issuer authorize."},
+                "404": _error_ref(),
+                "503": _error_ref(),
+            },
+        }
+    }
+    paths["/oidc/callback"] = {
+        "get": {
+            "summary": "OIDC authorization-code callback (Authentik → local /authorize code)",
+            "parameters": [_qp("code"), _qp("state"), _qp("error")],
+            "responses": {
+                "302": {"description": "Redirect to the original OAuth client or dashboard."},
+                "400": _error_ref(),
+                "503": _error_ref(),
             },
         }
     }
@@ -1291,6 +1319,7 @@ def _build_schemas() -> dict[str, Any]:
                 "version": {"type": "string"},
                 "auth_mode": {"type": "string"},
                 "identity": {"$ref": "#/components/schemas/BuildIdentity"},
+                "oidc": {"type": "object"},
             },
         },
         "HealthReady": {

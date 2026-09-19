@@ -215,6 +215,27 @@ def test_github_merge_requires_expected_head_sha():
         pr_merge_tool(1, expected_head_sha="", actor="reviewer")
 
 
+def test_github_merge_gate_rejection_is_not_retryable(monkeypatch):
+    from kater.connectors.seed import seed_builtin_connectors
+    from kater.pr_control import MergeRejected
+
+    seed_builtin_connectors()
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "kater.pr_control.pr_merge_tool",
+        lambda **_kwargs: (_ for _ in ()).throw(MergeRejected("head is stale")),
+    )
+    with pytest.raises(ConnectorPolicyError, match="head is stale") as raised:
+        execute(
+            connection="github:default",
+            action="github.pr.merge",
+            input={"number": 1, "expected_head_sha": "abc123"},
+            identity=ActorIdentity(actor_id="reviewer"),
+            policy_context=PolicyContext(profile="core"),
+        )
+    assert raised.value.code == "policy_blocked"
+
+
 def test_rest_connections_and_canonical_execute():
     upsert_connector(_internal())
     register_internal_handler("demoexec", lambda _record, _cap, args: {"created": args["name"]})
@@ -465,7 +486,7 @@ def test_idempotency_is_scoped_to_principal():
     assert other["result"]["n"] == 2
 
 
-def test_rest_execute_rejects_invalid_timeout_and_connection():
+def test_rest_execute_rejects_invalid_policy_values_and_connection():
     upsert_connector(_internal())
     register_internal_handler("demoexec", lambda *_args: {"ok": True})
     headers = {"authorization": "Bearer admin-secret"}
@@ -481,6 +502,18 @@ def test_rest_execute_rejects_invalid_timeout_and_connection():
         headers=headers,
     )
     assert bad_timeout.status == 400
+    bad_allow_dangerous = call(
+        "POST",
+        "/api/execute",
+        body={
+            "connection": "demoexec:default",
+            "action": "demoexec.items.create",
+            "input": {"name": "x"},
+            "policy_context": {"profile": "ops", "allow_dangerous": "false"},
+        },
+        headers=headers,
+    )
+    assert bad_allow_dangerous.status == 400
     bad_id = call(
         "POST",
         "/api/execute",

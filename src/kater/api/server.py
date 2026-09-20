@@ -91,7 +91,35 @@ def handle(request: Request) -> Response:
         if rate_limited:
             return Response.json(429, {"error": "Rate limit exceeded. Try again later."})
 
-    if not matched_route.public:
+    from kater.browser_auth import SESSION_COOKIE, authenticate_session, cookie_value, valid_origin
+    from kater.oidc import OidcError, oidc_enabled, oidc_partial
+
+    browser_pages = {"/", "/dashboard", "/studio"}
+    product_browser = oidc_enabled() and request.path in browser_pages
+    session_value = cookie_value(request.header("cookie"), SESSION_COOKIE)
+    if session_value and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        if not request.header("authorization") and not valid_origin(request.header("origin")):
+            return Response.json(403, {"error": "origin_required"})
+    if oidc_partial() and (not matched_route.public or request.path in browser_pages):
+        return Response.json(503, {"error": "oidc_partial"})
+    use_session = oidc_enabled() and session_value and not request.header("authorization")
+    if product_browser and use_session:
+        from kater.authgate import RequestIdentity, set_request_identity
+        try:
+            session = authenticate_session(session_value)
+        except OidcError as exc:
+            status = 401 if exc.code == "oidc_session_invalid" else (
+                403 if exc.code == "oidc_entitlement_required" else 503
+            )
+            return Response.json(status, {"error": exc.code})
+        set_request_identity(RequestIdentity(principal_id=session.subject))
+    elif product_browser:
+        from urllib.parse import urlencode
+        return_to = request.path
+        if request.query:
+            return_to += "?" + urlencode(request.query, doseq=True)
+        return Response.redirect("/oidc/login?" + urlencode({"returnTo": return_to}))
+    elif not matched_route.public:
         from kater.authgate import AuthContext, authenticate
 
         try:

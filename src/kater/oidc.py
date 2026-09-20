@@ -6,9 +6,9 @@ to the IdP and ``/oidc/callback`` finishes the code flow, then issues a local
 gateway auth code (existing ``/token`` PKCE exchange).
 
 No client secrets belong in git. Discovery and token exchange use HTTPS
-(or loopback HTTP for local mock IdPs). ID-token signature is not verified
-here — trust is the TLS token endpoint of the discovered issuer; claims
-(iss, aud, exp, nonce) are still checked.
+(or loopback HTTP for local mock IdPs). ID tokens are verified against the
+discovered JWKS with RS256; issuer, audience, expiry, nonce and subject are
+checked before granting a session.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import secrets
 import threading
@@ -25,6 +26,8 @@ from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+import jwt
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _MAX_BODY = 65536
@@ -97,6 +100,8 @@ class LoginSession:
     created_at: float
     pending: PendingAuthorize | None = None
     next_path: str = "/dashboard"
+    browser_binding: str = ""
+    consumed: bool = False
 
 
 @dataclass(frozen=True)
@@ -370,6 +375,7 @@ def begin_login(
     callback_uri: str,
     pending: PendingAuthorize | None = None,
     next_path: str = "/dashboard",
+    browser_binding: str = "",
     config: OidcConfig | None = None,
     transport: HttpTransport | None = None,
 ) -> str:
@@ -390,6 +396,7 @@ def begin_login(
         created_at=time.time(),
         pending=pending,
         next_path=next_path or "/dashboard",
+        browser_binding=browser_binding,
     )
     now = time.time()
     with _pending_lock:
@@ -417,6 +424,7 @@ def begin_authorize_login(
     scope: str = "",
     state: str | None = None,
     profile: str = "core",
+    browser_binding: str = "",
     config: OidcConfig | None = None,
     transport: HttpTransport | None = None,
 ) -> str:
@@ -432,6 +440,7 @@ def begin_authorize_login(
     return begin_login(
         callback_uri=callback_uri,
         pending=pending,
+        browser_binding=browser_binding,
         config=config,
         transport=transport,
     )
@@ -466,7 +475,13 @@ def validate_id_token_claims(
     if _normalize_issuer(iss) != _normalize_issuer(discovery.issuer):
         raise OidcError("oidc_id_token_iss")
     aud = claims.get("aud")
-    audiences = [aud] if isinstance(aud, str) else list(aud or [])
+    audiences = [aud] if isinstance(aud, str) else aud
+    if not isinstance(audiences, list) or not all(isinstance(a, str) for a in audiences):
+        raise OidcError("oidc_id_token_aud")
+    if len(audiences) > 1 and claims.get("azp") != config.client_id:
+        raise OidcError("oidc_id_token_aud")
+    if "azp" in claims and claims["azp"] != config.client_id:
+        raise OidcError("oidc_id_token_aud")
     if config.client_id not in audiences:
         raise OidcError("oidc_id_token_aud")
     if config.audience and config.audience not in audiences:
@@ -475,7 +490,7 @@ def validate_id_token_claims(
         exp = float(claims["exp"])
     except (KeyError, TypeError, ValueError) as exc:
         raise OidcError("oidc_id_token_exp") from exc
-    if exp <= current:
+    if not math.isfinite(exp) or exp <= current:
         raise OidcError("oidc_id_token_expired")
     if str(claims.get("nonce") or "") != nonce:
         raise OidcError("oidc_id_token_nonce")
@@ -526,6 +541,8 @@ def exchange_code(
 @dataclass
 class OidcCallbackResult:
     subject: str
+    access_token: str = ""
+    expires_at: float = 0.0
     claims: dict[str, Any] = field(default_factory=dict)
     pending: PendingAuthorize | None = None
     next_path: str = "/dashboard"
@@ -535,6 +552,7 @@ def complete_callback(
     *,
     code: str,
     state: str,
+    browser_binding: str = "",
     config: OidcConfig | None = None,
     transport: HttpTransport | None = None,
 ) -> OidcCallbackResult:
@@ -547,8 +565,10 @@ def complete_callback(
     with _pending_lock:
         _purge_pending_locked(now)
         session = _pending.get(state)
-    if session is None:
-        raise OidcError("oidc_state_invalid")
+        if (session is None or session.consumed
+                or not secrets.compare_digest(session.browser_binding, browser_binding)):
+            raise OidcError("oidc_state_invalid")
+        session.consumed = True
     try:
         discovery = discover(cfg.issuer, transport=transport)
         token_payload = exchange_code(
@@ -558,17 +578,85 @@ def complete_callback(
             discovery=discovery,
             transport=transport,
         )
-        claims = decode_jwt_payload(str(token_payload["id_token"]))
+        claims = verify_id_token(str(token_payload["id_token"]), discovery, cfg, transport)
         validate_id_token_claims(claims, config=cfg, discovery=discovery, nonce=session.nonce)
         subject = str(claims.get("sub") or "")
         if not subject:
             raise OidcError("oidc_id_token_sub")
+        access_token = token_payload.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise OidcError("oidc_token_invalid")
+        try:
+            expires_in = float(token_payload["expires_in"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OidcError("oidc_token_invalid") from exc
+        if not math.isfinite(expires_in) or expires_in <= 0:
+            raise OidcError("oidc_token_invalid")
+        expires_at = min(float(claims["exp"]), now + expires_in, now + 3600)
     finally:
         with _pending_lock:
             _pending.pop(state, None)
     return OidcCallbackResult(
         subject=subject,
+        access_token=access_token,
+        expires_at=expires_at,
         claims=claims,
         pending=session.pending,
         next_path=session.next_path,
     )
+
+
+def verify_id_token(
+    token: str, discovery: OidcDiscovery, config: OidcConfig,
+    transport: HttpTransport | None = None,
+) -> dict[str, Any]:
+    """Pin RS256 and fetch the current issuer keys without trusting token URLs."""
+    if not discovery.jwks_uri or not _is_allowed_idp_url(discovery.jwks_uri):
+        raise OidcError("oidc_jwks_invalid")
+    response = (transport or _transport).request(
+        "GET", discovery.jwks_uri, headers={"Accept": "application/json"}
+    )
+    if response.status != 200:
+        raise OidcError("oidc_jwks_unavailable")
+    try:
+        header = jwt.get_unverified_header(token)
+        if header.get("alg") != "RS256" or not header.get("kid"):
+            raise OidcError("oidc_id_token_invalid")
+        keys = json.loads(response.body)["keys"]
+        matching = [key for key in keys if key.get("kid") == header["kid"]
+                    and key.get("use", "sig") == "sig"
+                    and key.get("alg", "RS256") == "RS256"]
+        if len(matching) != 1:
+            raise OidcError("oidc_id_token_invalid")
+        key = jwt.PyJWK.from_dict(matching[0], algorithm="RS256").key
+        return jwt.decode(token, key, algorithms=["RS256"], audience=config.client_id,
+                          issuer=discovery.issuer,
+                          options={"require": ["exp", "iat", "sub", "iss", "aud", "nonce"]})
+    except (jwt.PyJWTError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise OidcError("oidc_id_token_invalid") from exc
+
+
+def userinfo(access_token: str, subject: str) -> dict[str, Any]:
+    """Uncached provider check: revoked and expired access tokens stop working immediately."""
+    cfg = load_oidc_config()
+    discovery = discover(cfg.issuer)
+    if not discovery.userinfo_endpoint or not _is_allowed_idp_url(discovery.userinfo_endpoint):
+        raise OidcError("oidc_userinfo_unavailable")
+    response = _transport.request("GET", discovery.userinfo_endpoint, headers={
+        "Accept": "application/json", "Authorization": f"Bearer {access_token}",
+    })
+    if response.status in {401, 403}:
+        raise OidcError("oidc_session_invalid")
+    if response.status != 200:
+        raise OidcError("oidc_userinfo_unavailable")
+    try:
+        claims = json.loads(response.body)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise OidcError("oidc_userinfo_unavailable") from exc
+    if not isinstance(claims, dict) or claims.get("sub") != subject:
+        raise OidcError("oidc_session_invalid")
+    required_groups = set(_env("AUTH_OIDC_REQUIRED_GROUPS").split())
+    if required_groups and (not isinstance(claims.get("groups"), list)
+                            or not required_groups.intersection(claims["groups"])):
+        raise OidcError("oidc_entitlement_required")
+    return claims

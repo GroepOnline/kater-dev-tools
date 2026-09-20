@@ -10,7 +10,7 @@ from kater.api.usage_routes import USAGE_OPENAPI_PATHS
 
 OPENAPI_VERSION = "3.1.0"
 API_TITLE = "Kater MCP Gateway API"
-API_VERSION = "1.1.1"
+API_VERSION = "1.2.0"
 DEFAULT_SERVER = "http://localhost:9091"
 
 _JSON: dict[str, Any] = {"application/json": {}}
@@ -175,6 +175,18 @@ def _build_paths() -> dict[str, Any]:
                 "302": {"description": "Redirect to the original OAuth client or dashboard."},
                 "400": _error_ref(),
                 "503": _error_ref(),
+            },
+        }
+    }
+    paths["/oidc/logout"] = {
+        "post": {
+            "summary": "Clear browser OIDC session (HttpOnly kater_session cookie)",
+            "responses": {
+                "200": {
+                    "description": "Logged out.",
+                    "content": {"application/json": {"schema": {"type": "object"}}},
+                },
+                "403": _error_ref(),
             },
         }
     }

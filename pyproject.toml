@@ -21,6 +21,7 @@ dependencies = [
     "jsonschema>=4.26",
     "mcp>=2.1.1",
     "pydantic>=2.13.5",
+    "pyjwt[crypto]>=2.13.0",
     "typer>=0.27.2",
 ]
 

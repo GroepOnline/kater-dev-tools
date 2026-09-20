@@ -19,10 +19,23 @@ Operator map (canonical production URLs and redirect URIs):
 | **Authentik (product)** | `AUTH_OIDC_ISSUER` + `AUTH_OIDC_CLIENT_ID` set | Authentik OIDC (`/authorize` → IdP → `/oidc/callback`) |
 | **Local none** | Loopback / `docker-compose.dev.yml` | No gate (`KATER_AUTH_MODE=none`) |
 
-**Prefer Authentik** whenever `AUTH_OIDC_*` is fully set. Do not run both
-interactive Access login *and* Authentik on the same browser path — Access
-will swallow the OIDC redirect. Keep Access as a temporary edge wrap only
-until the cutover checklist below is done.
+**Dual-run (current production choice):** Cloudflare Access stays in front of
+`https://kater.chefgroep.online/` while product OIDC is rolled out. Authentik
+handles human login via `/oidc/login` → `/oidc/callback` and an **HttpOnly
+browser session** (`kater_session`); that cookie does **not** authorize MCP,
+REST `/api/*`, or product transport `:9093`. Machine access keeps using
+Bearer/API keys and, when enabled, `KATER_RESOURCE_AUTH_*` introspection on
+product MCP — revocation is enforced on the next introspect/userinfo call, not
+by piggybacking on the browser cookie.
+
+Do not run interactive Access login *and* Authentik on the **same** browser
+path — Access will swallow the OIDC redirect. Until cutover, bypass Access only
+on the OIDC/OAuth paths listed below; keep Access on the dashboard hostname for
+defence in depth.
+
+**Prefer Authentik** whenever `AUTH_OIDC_*` is fully set on the Kater process
+(loopback or after CF bypass on OIDC routes). Full removal of Access is a
+separate CoS step in the cutover checklist.
 
 ## Surfaces
 

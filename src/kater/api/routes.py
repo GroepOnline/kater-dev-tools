@@ -470,7 +470,12 @@ def _authorize(req: Request) -> Response:
     if not validate_redirect_uri(client, redirect_uri):
         return Response.json(400, {"error": "invalid_redirect_uri"})
 
-    if approve == "1":
+    from kater.oidc import oidc_enabled, oidc_partial
+
+    if oidc_partial():
+        return Response.json(503, {"error": "oidc_partial"})
+
+    if approve == "1" and not oidc_enabled():
         if not _consume_consent_nonce(req):
             return Response.json(403, {"error": "consent_required"})
         try:
@@ -502,6 +507,9 @@ def _authorize(req: Request) -> Response:
     from kater.oidc import OidcError, begin_authorize_login, oidc_enabled, resolve_callback_uri
 
     if oidc_enabled():
+        from kater.browser_auth import LOGIN_COOKIE, cookie
+
+        binding = secrets.token_urlsafe(32)
         try:
             location = begin_authorize_login(
                 client_id=client_id,
@@ -511,6 +519,7 @@ def _authorize(req: Request) -> Response:
                 scope=scope,
                 state=state,
                 profile=profile,
+                browser_binding=binding,
                 callback_uri=resolve_callback_uri(
                     req.base_url, public=is_public_settings(load_settings())
                 ),
@@ -520,7 +529,10 @@ def _authorize(req: Request) -> Response:
                 503,
                 {"error": exc.code, "detail": exc.safe_message},
             )
-        return Response.redirect(location)
+        response = Response.redirect(location)
+        response.headers["Set-Cookie"] = cookie(LOGIN_COOKIE, binding, max_age=600)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     consent_params = {
         "response_type": "code",
@@ -554,12 +566,14 @@ def _authorize(req: Request) -> Response:
 
 
 def _safe_oidc_next(path: str) -> str:
-    if not path.startswith("/") or path.startswith("//"):
-        return "/dashboard"
-    return path
+    from kater.browser_auth import safe_return_to
+
+    return safe_return_to(path)
 
 
 def _oidc_error_status(code: str) -> int:
+    if code == "oidc_entitlement_required":
+        return 403
     if code in {"oidc_not_configured", "oidc_partial"}:
         return 404
     if code in {
@@ -592,24 +606,40 @@ def _oidc_login(req: Request) -> Response:
 
     if not oidc_enabled():
         return Response.json(404, {"error": "oidc_not_configured"})
+    from kater.browser_auth import LOGIN_COOKIE, cookie
+
+    binding = secrets.token_urlsafe(32)
     try:
         location = begin_login(
             callback_uri=resolve_callback_uri(
                 req.base_url, public=is_public_settings(load_settings())
             ),
-            next_path=_safe_oidc_next(req.query1("next") or "/dashboard"),
+            next_path=_safe_oidc_next(
+                req.query1("returnTo") or req.query1("next") or "/dashboard"
+            ),
+            browser_binding=binding,
         )
     except OidcError as exc:
         return Response.json(
             _oidc_error_status(exc.code),
             {"error": exc.code, "detail": exc.safe_message},
         )
-    return Response.redirect(location)
+    response = Response.redirect(location)
+    response.headers["Set-Cookie"] = cookie(LOGIN_COOKIE, binding, max_age=600)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @route("GET", "/oidc/callback", public=True)
 def _oidc_callback(req: Request) -> Response:
-    from kater.oauth import create_auth_code, create_token
+    from kater.browser_auth import (
+        LOGIN_COOKIE,
+        SESSION_COOKIE,
+        cookie,
+        cookie_value,
+        create_session,
+    )
+    from kater.oauth import create_auth_code
     from kater.oidc import OidcError, complete_callback
 
     denied = req.query1("error") or ""
@@ -619,7 +649,9 @@ def _oidc_callback(req: Request) -> Response:
         result = complete_callback(
             code=req.query1("code") or "",
             state=req.query1("state") or "",
+            browser_binding=cookie_value(req.header("cookie"), LOGIN_COOKIE),
         )
+        session_value = create_session(result)
     except OidcError as exc:
         return Response.json(
             _oidc_error_status(exc.code),
@@ -647,10 +679,32 @@ def _oidc_callback(req: Request) -> Response:
             location += f"&state={quote(result.pending.state, safe='')}"
         return Response.redirect(location)
 
-    token = create_token(client_id="kater-dashboard", scope="openid tools")
-    next_path = _safe_oidc_next(result.next_path)
-    sep = "&" if "?" in next_path else "?"
-    return Response.redirect(f"{next_path}{sep}api_key={quote(token['access_token'], safe='')}")
+    response = Response.redirect(_safe_oidc_next(result.next_path))
+    response.headers["Set-Cookie"] = cookie(
+        SESSION_COOKIE, session_value, max_age=max(0, int(result.expires_at - time.time())),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@route("POST", "/oidc/logout", public=True)
+def _oidc_logout(req: Request) -> Response:
+    from kater.browser_auth import (
+        SESSION_COOKIE,
+        cookie,
+        cookie_value,
+        revoke_session,
+        valid_origin,
+    )
+
+    if not valid_origin(req.header("origin")):
+        return Response.json(403, {"error": "origin_required"})
+    revoke_session(cookie_value(req.header("cookie"), SESSION_COOKIE))
+    response = Response.json(200, {"logged_out": True, "scope": "kater"})
+    response.headers["Set-Cookie"] = cookie(SESSION_COOKIE, "", max_age=0)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @route("POST", "/token", public=True)

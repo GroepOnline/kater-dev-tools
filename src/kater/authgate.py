@@ -33,6 +33,7 @@ PUBLIC_API_PATHS = frozenset(
         "/oidc/login",
         "/oidc/callback",
         "/oidc/status",
+        "/oidc/logout",
         "/api/mcp/oauth/callback",
     }
 )

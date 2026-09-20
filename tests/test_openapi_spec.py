@@ -80,6 +80,7 @@ class TestBuildPaths:
         paths = _build_paths()
         assert "/oidc/login" in paths
         assert "/oidc/callback" in paths
+        assert "/oidc/logout" in paths
         assert "/oidc/status" in paths
 
     def test_token_endpoint_exists(self):

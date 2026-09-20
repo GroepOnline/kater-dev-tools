@@ -9,6 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from typing import Any
 
 import jwt
 import pytest
@@ -316,6 +317,30 @@ def _opener() -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(_NoRedirect())
 
 
+def _assert_loopback_test_url(url: str) -> None:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    assert parts.scheme in {"http", "https"}
+    assert parts.hostname in {"127.0.0.1", "localhost"}
+
+
+def _test_http_open(
+    target: str | urllib.request.Request,
+    *,
+    follow_redirects: bool = True,
+) -> Any:
+    """HTTP client for the in-process test API server (loopback URLs only)."""
+    raw = target if isinstance(target, str) else target.full_url
+    _assert_loopback_test_url(raw)
+    opener = (
+        urllib.request.build_opener()
+        if follow_redirects
+        else _opener()
+    )
+    return opener.open(target)  # nosec B310 — URL scheme/host validated above
+
+
 def _cookie_value(set_cookie: str | None, name: str) -> str:
     if not set_cookie:
         return ""
@@ -350,20 +375,20 @@ def _port(server) -> int:
 
 def test_oidc_status_and_login_unset(api_server) -> None:
     port = _port(api_server)
-    status = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/oidc/status").read())
+    status = json.loads(_test_http_open(f"http://127.0.0.1:{port}/oidc/status").read())
     assert status["enabled"] is False
     with pytest.raises(urllib.error.HTTPError) as exc:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/oidc/login")
+        _test_http_open(f"http://127.0.0.1:{port}/oidc/login")
     assert exc.value.code == 404
     with pytest.raises(urllib.error.HTTPError) as exc:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/oidc/callback")
+        _test_http_open(f"http://127.0.0.1:{port}/oidc/callback")
     assert exc.value.code == 400
 
 
 def test_authorize_stays_local_consent_when_oidc_unset(api_server) -> None:
     port = _port(api_server)
     client = register_client("App", [f"http://127.0.0.1:{port}/cb"])
-    resp = urllib.request.urlopen(
+    resp = _test_http_open(
         f"http://127.0.0.1:{port}/authorize?client_id={client.client_id}"
         f"&redirect_uri=http://127.0.0.1:{port}/cb"
         "&code_challenge=test&code_challenge_method=S256"
@@ -382,10 +407,11 @@ def test_authorize_to_callback_with_mock_idp(oidc_env: OidcConfig, api_server) -
     )
     client = register_client("App", [f"http://127.0.0.1:{port}/cb"])
     try:
-        _opener().open(
+        _test_http_open(
             f"http://127.0.0.1:{port}/authorize?client_id={client.client_id}"
             f"&redirect_uri=http://127.0.0.1:{port}/cb"
-            f"&code_challenge={challenge}&code_challenge_method=S256&state=cli"
+            f"&code_challenge={challenge}&code_challenge_method=S256&state=cli",
+            follow_redirects=False,
         )
         raise AssertionError("expected 302")
     except urllib.error.HTTPError as exc:
@@ -397,11 +423,12 @@ def test_authorize_to_callback_with_mock_idp(oidc_env: OidcConfig, api_server) -
 
     state = parse_qs(urlparse(location).query)["state"][0]
     try:
-        _opener().open(
+        _test_http_open(
             urllib.request.Request(
                 f"http://127.0.0.1:{port}/oidc/callback?code=from-idp&state={state}",
                 headers={"Cookie": f"{LOGIN_COOKIE}={login_cookie}"},
-            )
+            ),
+            follow_redirects=False,
         )
         raise AssertionError("expected 302")
     except urllib.error.HTTPError as exc:
@@ -417,7 +444,7 @@ def test_authorize_to_callback_with_mock_idp(oidc_env: OidcConfig, api_server) -
 
 def test_health_includes_oidc(api_server) -> None:
     port = _port(api_server)
-    data = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/health").read())
+    data = json.loads(_test_http_open(f"http://127.0.0.1:{port}/health").read())
     assert "oidc" in data
     assert data["oidc"]["enabled"] is False
 
@@ -526,7 +553,10 @@ def test_entitlement_required(
 def test_oidc_login_callback_dashboard_flow(oidc_env: OidcConfig, api_server) -> None:
     port = _port(api_server)
     try:
-        _opener().open(f"http://127.0.0.1:{port}/oidc/login?next=/dashboard")
+        _test_http_open(
+            f"http://127.0.0.1:{port}/oidc/login?next=/dashboard",
+            follow_redirects=False,
+        )
         raise AssertionError("expected 302")
     except urllib.error.HTTPError as exc:
         assert exc.code == 302
@@ -536,11 +566,12 @@ def test_oidc_login_callback_dashboard_flow(oidc_env: OidcConfig, api_server) ->
 
     state = parse_qs(urlparse(idp_location).query)["state"][0]
     try:
-        _opener().open(
+        _test_http_open(
             urllib.request.Request(
                 f"http://127.0.0.1:{port}/oidc/callback?code=from-idp&state={state}",
                 headers={"Cookie": f"{LOGIN_COOKIE}={login_cookie}"},
-            )
+            ),
+            follow_redirects=False,
         )
         raise AssertionError("expected 302")
     except urllib.error.HTTPError as cb_exc:
@@ -549,7 +580,7 @@ def test_oidc_login_callback_dashboard_flow(oidc_env: OidcConfig, api_server) ->
         assert "api_key=" not in cb_exc.headers["Location"]
         session_cookie = _cookie_value(cb_exc.headers.get("Set-Cookie"), SESSION_COOKIE)
     assert session_cookie
-    resp = urllib.request.urlopen(
+    resp = _test_http_open(
         urllib.request.Request(
             f"http://127.0.0.1:{port}/dashboard",
             headers={"Cookie": f"{SESSION_COOKIE}={session_cookie}"},
@@ -561,7 +592,7 @@ def test_oidc_login_callback_dashboard_flow(oidc_env: OidcConfig, api_server) ->
 def test_dashboard_unauthorized_without_session(oidc_env: OidcConfig, api_server) -> None:
     port = _port(api_server)
     with pytest.raises(urllib.error.HTTPError) as exc:
-        _opener().open(f"http://127.0.0.1:{port}/dashboard")
+        _test_http_open(f"http://127.0.0.1:{port}/dashboard", follow_redirects=False)
     assert exc.value.code == 302
     assert "/oidc/login" in exc.value.headers["Location"]
 
@@ -584,7 +615,7 @@ def test_dashboard_forbidden_without_entitlement(
     session_value = create_session(result)
     mock_idp.userinfo_groups = []
     with pytest.raises(urllib.error.HTTPError) as exc:
-        urllib.request.urlopen(
+        _test_http_open(
             urllib.request.Request(
                 f"http://127.0.0.1:{port}/dashboard",
                 headers={"Cookie": f"{SESSION_COOKIE}={session_value}"},
@@ -604,28 +635,31 @@ def test_oidc_logout_clears_session(oidc_env: OidcConfig, api_server) -> None:
 
     state = parse_qs(urlparse(location).query)["state"][0]
     try:
-        _opener().open(
+        _test_http_open(
             urllib.request.Request(
                 f"http://127.0.0.1:{port}/oidc/callback?code=from-idp&state={state}",
                 headers={"Cookie": f"{LOGIN_COOKIE}={binding}"},
-            )
+            ),
+            follow_redirects=False,
         )
         raise AssertionError("expected 302")
     except urllib.error.HTTPError as exc:
         session_cookie = _cookie_value(exc.headers.get("Set-Cookie"), SESSION_COOKIE)
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}/oidc/logout",
-        data=b"",
-        method="POST",
-        headers={
-            "Cookie": f"{SESSION_COOKIE}={session_cookie}",
-            "Origin": "http://127.0.0.1:9091",
-        },
+    resp = _test_http_open(
+        urllib.request.Request(
+            f"http://127.0.0.1:{port}/oidc/logout",
+            data=b"",
+            method="POST",
+            headers={
+                "Cookie": f"{SESSION_COOKIE}={session_cookie}",
+                "Origin": "http://127.0.0.1:9091",
+            },
+        ),
+        follow_redirects=False,
     )
-    resp = _opener().open(req)
     assert resp.status == 200
     with pytest.raises(urllib.error.HTTPError) as exc:
-        urllib.request.urlopen(
+        _test_http_open(
             urllib.request.Request(
                 f"http://127.0.0.1:{port}/dashboard",
                 headers={"Cookie": f"{SESSION_COOKIE}={session_cookie}"},
@@ -650,7 +684,7 @@ def test_api_still_requires_bearer_without_browser_session(
     result = complete_callback(code="authz-code", state=state, browser_binding=binding)
     session_value = create_session(result)
     with pytest.raises(urllib.error.HTTPError) as exc:
-        urllib.request.urlopen(
+        _test_http_open(
             urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/mcp/servers",
                 headers={"Cookie": f"{SESSION_COOKIE}={session_value}"},

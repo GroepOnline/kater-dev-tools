@@ -289,6 +289,7 @@ jobs:
           name: computer-acceptance-evidence
           path: ${{ runner.temp }}/computer-acceptance-evidence.json
           if-no-files-found: error
+          retention-days: 7
 
   # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
   e2e:
@@ -464,6 +465,7 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: warn
+          retention-days: 7
 
   # ── gate: single stable required check aggregating the mandatory jobs ──
   gate:

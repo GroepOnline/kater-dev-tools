@@ -114,6 +114,7 @@ def test_health(api_server) -> None:
     assert data["status"] == "ok"
     assert "version" in data
     assert data["auth_mode"] == "none"
+    assert "oidc" in data
     _assert_identity_shape(data)
 
 

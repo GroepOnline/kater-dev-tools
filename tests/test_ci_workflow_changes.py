@@ -22,41 +22,58 @@ HOSTED_RUNNER = re.compile(
     r"^\s*runs-on:\s*.*(ubuntu-latest|macos-latest|windows-latest)",
     re.MULTILINE,
 )
+UBUNTU_LATEST = "runs-on: ubuntu-latest"
 FLEET_PR_OR_HEAVY = (
     "runs-on: ${{ github.event_name == 'pull_request' && "
     "fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"pr-isolated\"]') || "
     "fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"heavy\"]') }}"
 )
 FLEET_HEAVY = "runs-on: [self-hosted, Linux, X64, heavy]"
+COMPANY_CONTROL = "runs-on: [self-hosted, Linux, X64, company-control]"
+COMPANY_CONTROL_WF = WORKFLOWS / "company-control-deploy.yml"
 PYPROJECT = ROOT / "pyproject.toml"
 E2E_MCP = ROOT / "scripts/e2e-mcp.sh"
 
 KATER_CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 GITHUB_SCRIPT_SHA = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3"
+SETUP_UV_V10_1 = "astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0"
+SETUP_UV_V10_0 = "astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d"
 
 
 def _job_block(text: str, job: str, next_job: str) -> str:
     return text.split(f"  {job}:\n", 1)[1].split(f"\n  {next_job}:\n", 1)[0]
 
 
-def test_workflows_forbid_github_hosted_runners() -> None:
-    for path in sorted(WORKFLOWS.glob("*.yml")):
+def test_public_workflows_use_ubuntu_latest() -> None:
+    for path in (CI, AUTOMERGE, NO_ORG_LEAK, DESIGN_SYSTEM, AGENT_TASTE, RELEASE):
         text = path.read_text(encoding="utf-8")
-        match = HOSTED_RUNNER.search(text)
-        assert match is None, f"{path.name} still pins a hosted runner: {match.group(0)}"
+        assert UBUNTU_LATEST in text, path.name
+        assert FLEET_PR_OR_HEAVY not in text, path.name
+        assert FLEET_HEAVY not in text, path.name
+    assert CI.read_text(encoding="utf-8").count(UBUNTU_LATEST) == 11
 
 
-def test_mixed_trigger_workflows_use_pr_isolated_or_heavy() -> None:
-    for path in (CI, AUTOMERGE, NO_ORG_LEAK, DESIGN_SYSTEM):
+def test_company_control_deploy_stays_on_private_fleet() -> None:
+    text = COMPANY_CONTROL_WF.read_text(encoding="utf-8")
+    assert COMPANY_CONTROL in text
+    assert HOSTED_RUNNER.search(text) is None
+
+
+def test_setup_uv_is_pinned_to_v10_1_0() -> None:
+    for path in (CI, NO_ORG_LEAK, AGENT_TASTE, RELEASE):
         text = path.read_text(encoding="utf-8")
-        assert FLEET_PR_OR_HEAVY in text, path.name
-        assert HOSTED_RUNNER.search(text) is None, path.name
-    assert CI.read_text(encoding="utf-8").count(FLEET_PR_OR_HEAVY) == 11
+        assert SETUP_UV_V10_1 in text, path.name
+        assert SETUP_UV_V10_0 not in text, path.name
+    assert CI.read_text(encoding="utf-8").count(SETUP_UV_V10_1) == 9
 
 
-def test_push_only_workflows_use_heavy() -> None:
-    assert FLEET_HEAVY in AGENT_TASTE.read_text(encoding="utf-8")
-    assert FLEET_HEAVY in RELEASE.read_text(encoding="utf-8")
+def test_ci_upload_artifacts_expire_after_seven_days() -> None:
+    text = CI.read_text(encoding="utf-8")
+    assert text.count("retention-days: 7") == 2
+    acceptance = _job_block(text, "computer-acceptance", "e2e")
+    coverage = _job_block(text, "coverage", "gate")
+    assert "retention-days: 7" in acceptance
+    assert "retention-days: 7" in coverage
 
 
 def test_automerge_uses_github_script_v9() -> None:

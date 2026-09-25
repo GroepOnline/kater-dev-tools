@@ -434,6 +434,10 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/integrations/{name}/credentials"] = paths["/api/mcp/servers/{name}/credentials"]
+    paths["/api/integrations/{name}/oauth/start"] = paths["/api/mcp/servers/{name}/oauth/start"]
+    paths["/api/integrations/{name}/connections"] = paths["/api/mcp/servers/{name}/connections"]
+
     paths["/api/mcp/servers/{name}/connections/{conn_id}"] = {
         "delete": {
             "summary": "Remove a saved catalog connection",
@@ -453,6 +457,10 @@ def _build_paths() -> dict[str, Any]:
             },
         }
     }
+
+    paths["/api/integrations/{name}/connections/{conn_id}"] = paths[
+        "/api/mcp/servers/{name}/connections/{conn_id}"
+    ]
 
     paths["/api/settings"] = {
         "get": _response("Get settings", _ref("Settings")),

@@ -46,6 +46,9 @@ Catalog metadata excludes launch arguments, environment/header templates and cre
 references. HTTP endpoint and homepage URLs expose only their origin, without userinfo,
 paths, queries or fragments.
 Existing connector and MCP-server APIs remain compatible.
+One plugin manifest is available at `/api/plugins/{plugin_id}`.
+Credential, OAuth, and connection routes also live under
+`/api/integrations/{name}/...` and alias the MCP-server handlers.
 
 ## Quick Start
 
@@ -107,6 +110,7 @@ Client-side multi-server configs remain available via `kater config --profile op
 | `kater toolkits` | List agent-facing capability bundles |
 | `kater integrations` | List provider bindings and connection readiness |
 | `kater plugins` | List installed plugin bundles |
+| `kater connections` | List secret-free connection views |
 | `kater mcp list` | Browse all 29 MCP servers |
 | `kater mcp status <name>` | Server detail with launch config |
 | `kater connector add connector.json` | Register a new dynamic connector (disabled by default) |

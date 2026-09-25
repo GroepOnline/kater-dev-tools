@@ -39,3 +39,8 @@
 
 **Learning:** For application dashboards filtered/partitioned by profiles, when an operator switches to a custom profile that yields zero results, rendering a direct "Switch profile to core" recovery button offers a keyboard-safe, screen-reader-friendly way back to a populated state. This minimizes dead-ends and helps the operator realize they are filtering by a custom profile.
 **Action:** When views are partitioned by customizable filters or profiles, always provide a primary fallback action (like switching to 'core' or clearing filters) directly inside the zero-result view.
+
+## 2026-07-24 - [Context-Safe Async Button States]
+
+**Learning:** For asynchronous action buttons in control views, passing the calling element to JavaScript using `this` allows contextual loading feedback and disabled states to be applied directly. This prevents duplicate in-flight requests without extra DOM lookups.
+**Action:** Async button handlers should accept the calling element, expose `aria-busy`, disable during the operation, and restore their idle state in `finally`.

@@ -14,4 +14,8 @@
 
 ## Foundation
 
-Branch `cursor/ci-hosted-runners-fold-1cd5` folds #109 + #122 and reverts #116 for public jobs.
+Branch `cursor/ci-hosted-runners-fold-1cd5` → PR #123 folds #109 + #122 and reverts #116 for public jobs.
+
+## Identity
+
+Branch `cursor/runtime-identity-1cd5` → stacked PR (base #123) is the rebased #112 without self-hosted runner commits.

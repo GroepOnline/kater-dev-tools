@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Stamped runtime identity on `/health`, `/health/live`, `/health/ready`,
+  `/api/status`, and `kater version` (`version`, `source_sha`, `release`,
+  `artifact_digest`). Missing or malformed fields are null. Release assets
+  now include `SHA256SUMS`.
+
 ## [1.2.0] - 2026-09-19
 
 Execution Foundation train plus the company-control deploy path. Product

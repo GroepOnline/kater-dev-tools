@@ -192,6 +192,9 @@ class KaterRuntime:
         self._maintenance_thread.start()
 
         self._started = True
+        from kater.build_identity import format_identity_log
+
+        _log.info("runtime identity %s", format_identity_log())
         if product_app is not None:
             try:
                 # Bind synchronously so a collision fails startup, never only a daemon thread.

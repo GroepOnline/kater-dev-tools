@@ -26,11 +26,12 @@ jobs:
   # self-hosted pr-isolated and heavy chef-ci listeners. Those are persistent
   # listeners, not ephemeral job sandboxes: listener credentials remain in the
   # guest and a workspace wipe is not a HOME/process boundary, so that lane was
-  # never production-safe isolation. GitHub-hosted ubuntu-latest is banned; fleet
-  # labels only (PR → pr-isolated; else → heavy). INTERIM note kept for audit trail.
+  # never production-safe isolation. INTERIM #116 fleet labels are reverted:
+  # public jobs use GitHub-hosted ubuntu-latest (free for a public repo).
+  # company-control-deploy stays on the private fleet for bc-scan-arm.
   # ── validate: lockfile, config, generated files, docs, metadata ────────
   validate:
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -46,7 +47,7 @@ jobs:
           cache-dependency-path: studio/package-lock.json
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
@@ -121,7 +122,7 @@ jobs:
 
   # ── lint-type: ruff, format, mypy on the 3.11 syntax baseline ──────────
   lint-type:
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -130,7 +131,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: "3.11"
           enable-cache: true
@@ -147,7 +148,7 @@ jobs:
   # ── unit: matrix across supported Python versions ─────────────────────
   unit:
     needs: [validate]
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -160,7 +161,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -190,7 +191,7 @@ jobs:
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──
   integration:
     needs: [validate]
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -199,7 +200,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: "3.12"
           enable-cache: true
@@ -217,7 +218,7 @@ jobs:
   # auditable skip while the public unit/integration/e2e gates remain required.
   computer-acceptance:
     needs: [validate]
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Explain skipped private acceptance
@@ -261,7 +262,7 @@ jobs:
 
       - name: Install uv
         if: steps.udo.outputs.available == 'true'
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: "3.12"
           enable-cache: true
@@ -289,11 +290,12 @@ jobs:
           name: computer-acceptance-evidence
           path: ${{ runner.temp }}/computer-acceptance-evidence.json
           if-no-files-found: error
+          retention-days: 7
 
   # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
   e2e:
     needs: [unit, integration, computer-acceptance]
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -302,7 +304,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: "3.12"
           enable-cache: true
@@ -334,7 +336,7 @@ jobs:
   # ── package: wheel/sdist build + clean-venv install smoke ─────────────
   package:
     needs: [validate]
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -343,7 +345,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
@@ -383,7 +385,7 @@ jobs:
   #  python + actions, so we don't upload a second SARIF here.)
   security-pr:
     needs: [validate]
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -394,7 +396,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
@@ -435,7 +437,7 @@ jobs:
   # ── coverage: project-wide coverage gate (runs the full test suite) ──
   coverage:
     needs: [validate]
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -443,7 +445,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       - name: Sync project
@@ -464,6 +466,7 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: warn
+          retention-days: 7
 
   # ── gate: single stable required check aggregating the mandatory jobs ──
   gate:
@@ -476,7 +479,7 @@ jobs:
       - package
       - security-pr
       - coverage
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
     steps:
@@ -518,7 +521,7 @@ jobs:
       - package
       - security-pr
       - gate
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
     permissions:

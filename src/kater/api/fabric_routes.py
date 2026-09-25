@@ -23,6 +23,7 @@ from kater.capabilities.registry import get_default_registry
 from kater.connections import get_connection_view
 from kater.control_plane import contexts as remote_contexts
 from kater.control_plane.tokens import token_expires_at
+from kater.fabric_catalog import plugin_items
 
 # OpenAPI path fragments merged by ``openapi_spec._build_paths``.
 FABRIC_OPENAPI_PATHS: dict[str, Any] = {
@@ -713,6 +714,24 @@ def _plugins_catalog(req: Request) -> Response:
     return _catalog_response(req, "plugin")
 
 
+@route("GET", "/api/plugins/{plugin_id}")
+def _plugin_detail(req: Request) -> Response:
+    identity = get_request_identity()
+    if identity.allowed_capabilities is not None:
+        return Response.json(
+            403,
+            {
+                "error": "Catalog metadata requires unrestricted capability discovery",
+                "code": "capability_denied",
+            },
+        )
+    plugin_id = req.params["plugin_id"]
+    match = next((item for item in plugin_items() if item.plugin_id == plugin_id), None)
+    if match is None:
+        return Response.json(404, {"error": "plugin not found", "code": "not_found"})
+    return Response.json(200, {"plugin": match.as_dict()})
+
+
 @route("GET", "/api/mcp/catalog")
 def _mcp_catalog(req: Request) -> Response:
     return _catalog_response(req, "mcp")
@@ -810,6 +829,23 @@ FABRIC_OPENAPI_PATHS.update(
                 "summary": "List Kater plugins",
                 "parameters": _CATALOG_FILTER_PARAMETERS,
                 "responses": _CATALOG_RESPONSE,
+            }
+        },
+        "/api/plugins/{plugin_id}": {
+            "get": {
+                "summary": "Get one Kater plugin manifest",
+                "parameters": [
+                    {
+                        "name": "plugin_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    }
+                ],
+                "responses": {
+                    **_CATALOG_RESPONSE,
+                    "404": {"description": "Plugin not found."},
+                },
             }
         },
         "/api/mcp/catalog": {

@@ -9,10 +9,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.7.8 /uv /usr/local/bin/uv
 # Install dependencies first (cached unless pyproject/lock change), then add
 # source so a code edit does not invalidate the dependency layer.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --no-dev --production --no-install-project
+RUN uv sync --no-dev --no-install-project
 
 COPY src ./src
-RUN uv sync --no-dev --production
+RUN uv sync --no-dev
 
 # ── runtime ───────────────────────────────────────────────────────
 FROM python:3.14-slim

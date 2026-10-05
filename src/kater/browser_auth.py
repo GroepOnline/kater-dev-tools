@@ -112,7 +112,18 @@ def reset_sessions() -> None:
         _sessions.clear()
 
 
-def valid_origin(origin: str | None) -> bool:
+def valid_origin(origin: str | None, request_base_url: str | None = None) -> bool:
+    if not origin:
+        return False
     callback = load_oidc_config().redirect_uri or ""
-    parts = urlsplit(callback)
-    return bool(origin and parts.netloc and origin == f"{parts.scheme}://{parts.netloc}")
+    if callback:
+        parts = urlsplit(callback)
+        return bool(parts.netloc and origin == f"{parts.scheme}://{parts.netloc}")
+    request_parts = urlsplit(request_base_url or "")
+    if (
+        request_parts.scheme not in {"http", "https"}
+        or request_parts.hostname not in {"127.0.0.1", "localhost", "::1"}
+        or not request_parts.netloc
+    ):
+        return False
+    return origin == f"{request_parts.scheme}://{request_parts.netloc}"

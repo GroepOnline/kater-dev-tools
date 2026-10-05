@@ -392,5 +392,8 @@ def create_api_server(host: str = "127.0.0.1", port: int = 9091) -> ThreadingHTT
 
 
 def serve_api(host: str = "127.0.0.1", port: int = 9091) -> None:
+    from kater.build_identity import format_identity_log
+
+    _log.info("runtime identity %s", format_identity_log())
     server = create_api_server(host, port)
     server.serve_forever()

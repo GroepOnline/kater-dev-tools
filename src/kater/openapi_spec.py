@@ -434,6 +434,10 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/integrations/{name}/credentials"] = paths["/api/mcp/servers/{name}/credentials"]
+    paths["/api/integrations/{name}/oauth/start"] = paths["/api/mcp/servers/{name}/oauth/start"]
+    paths["/api/integrations/{name}/connections"] = paths["/api/mcp/servers/{name}/connections"]
+
     paths["/api/mcp/servers/{name}/connections/{conn_id}"] = {
         "delete": {
             "summary": "Remove a saved catalog connection",
@@ -453,6 +457,10 @@ def _build_paths() -> dict[str, Any]:
             },
         }
     }
+
+    paths["/api/integrations/{name}/connections/{conn_id}"] = paths[
+        "/api/mcp/servers/{name}/connections/{conn_id}"
+    ]
 
     paths["/api/settings"] = {
         "get": _response("Get settings", _ref("Settings")),
@@ -1313,19 +1321,30 @@ def _automation_id_param() -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def _build_schemas() -> dict[str, Any]:
     return {
+        "BuildIdentity": {
+            "type": "object",
+            "required": ["version", "source_sha", "release", "artifact_digest"],
+            "properties": {
+                "version": {"type": ["string", "null"]},
+                "source_sha": {"type": ["string", "null"]},
+                "release": {"type": ["string", "null"]},
+                "artifact_digest": {"type": ["string", "null"]},
+            },
+        },
         "Health": {
             "type": "object",
-            "required": ["status", "version", "auth_mode"],
+            "required": ["status", "version", "auth_mode", "identity", "oidc"],
             "properties": {
                 "status": {"type": "string"},
                 "version": {"type": "string"},
                 "auth_mode": {"type": "string"},
+                "identity": {"$ref": "#/components/schemas/BuildIdentity"},
                 "oidc": {"type": "object"},
             },
         },
         "HealthReady": {
             "type": "object",
-            "required": ["status", "service", "version", "auth_mode", "components"],
+            "required": ["status", "service", "version", "auth_mode", "identity", "components"],
             "properties": {
                 "status": {
                     "type": "string",
@@ -1334,6 +1353,7 @@ def _build_schemas() -> dict[str, Any]:
                 "service": {"type": "string"},
                 "version": {"type": "string"},
                 "auth_mode": {"type": "string"},
+                "identity": {"$ref": "#/components/schemas/BuildIdentity"},
                 "components": {
                     "type": "object",
                     "additionalProperties": {

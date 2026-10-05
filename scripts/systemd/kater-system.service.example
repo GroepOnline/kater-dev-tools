@@ -8,7 +8,9 @@ Wants=network-online.target
 Type=simple
 User=kater
 Group=kater
-WorkingDirectory=/opt/kater/current
+# Kater resolves .kater/settings.json and .kater/kater.db from cwd. Keep all
+# mutable state under StateDirectory, never in the immutable release.
+WorkingDirectory=/var/lib/kater
 
 # Non-secret host config only. Secrets come from kater-with-chefvault.py.
 EnvironmentFile=-/etc/kater/kater.conf
@@ -18,7 +20,7 @@ Environment=KATER_AUTH_MODE=none
 Environment=KATER_RATE_LIMIT=120
 Environment=CHEF_VAULT_BROKER_TOKEN_FILE=/etc/kater/broker-token
 Environment=CHEF_VAULT_RUNTIME_DIR=/run/kater/chefvault
-# uv must be on PATH for scripts/kater-with-chefvault.py (adjust if installed elsewhere).
+# chefvault-profile and chefvault-profile-mcp must be installed here.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # Fail closed: materialize ChefVault secrets, then exec kater serve.
@@ -47,11 +49,7 @@ LockPersonality=true
 UMask=0077
 CapabilityBoundingSet=
 AmbientCapabilities=
-# /opt/kater/current/.kater must exist before the unit starts: systemd sets up the
-# ProtectSystem=strict namespace before ExecStart, and the wrapper only creates the
-# directory once it is already running. The release install step provisions it as
-# kater:kater 0700 (see docs/ops/bc-scan-arm-runtime.md).
-ReadWritePaths=/var/lib/kater /var/cache/kater /run/kater /opt/kater/current/.kater
+ReadWritePaths=/var/lib/kater /var/cache/kater /run/kater
 RuntimeDirectory=kater
 RuntimeDirectoryMode=0700
 StateDirectory=kater

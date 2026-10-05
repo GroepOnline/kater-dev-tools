@@ -74,16 +74,19 @@ sudo rsync -a --delete \
   --exclude .git --exclude .venv --exclude .kater \
   /path/to/checkout/ "/opt/kater/releases/$SHA/"
 sudo chown -R kater:kater "/opt/kater/releases/$SHA"
-# Runtime state dir the unit lists in ReadWritePaths; systemd needs it to exist
-# before ExecStart, and rsync excluded it from the release.
-sudo install -d -o kater -g kater -m 0700 "/opt/kater/releases/$SHA/.kater"
+sudo -u kater bash -lc "cd /opt/kater/releases/$SHA && uv sync --frozen"
+# Freeze code and the project-local virtualenv after dependency installation.
+sudo chown -R root:root "/opt/kater/releases/$SHA"
+sudo chmod -R a-w "/opt/kater/releases/$SHA"
 sudo ln -sfn "/opt/kater/releases/$SHA" /opt/kater/current
-sudo -u kater bash -lc 'cd /opt/kater/current && uv sync --frozen'
+# Durable settings and SQLite state live outside the immutable release.
+sudo install -d -o kater -g kater -m 0700 /var/lib/kater/.kater
 ```
 
-The release must be owned by `kater` before `uv sync`: the virtualenv is created
-project-local at `/opt/kater/current/.venv`, and the unit's `ExecStart` depends on
-`/opt/kater/current/.venv/bin/python` existing.
+The unit runs with `WorkingDirectory=/var/lib/kater`, so relative Kater state is
+stored under `/var/lib/kater/.kater`. The wrapper executes the `kater` entry point
+beside `/opt/kater/current/.venv/bin/python`; it does not depend on project discovery
+from the working directory.
 
 ## Fleet cache bootstrap
 

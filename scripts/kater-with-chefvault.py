@@ -11,10 +11,10 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 _ENV_LINE = re.compile(r"^([A-Z_][A-Z0-9_]*)=(.*)$")
@@ -121,70 +121,89 @@ def _run_checked(command: list[str], *, env: dict[str, str], label: str) -> None
         capture_output=True,
     )
     if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
-        raise SystemExit(f"{label} failed: {detail}")
+        # The child may include broker responses or provider values in its output.
+        # Keep startup diagnostics useful without copying credential data to journald.
+        raise SystemExit(f"{label} failed with exit code {completed.returncode}")
+
+
+def _prepare_runtime_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise SystemExit(f"ChefVault runtime path is not a private directory: {path}")
+    path.chmod(0o700)
+
+
+def _materialize_secrets(
+    *, env: dict[str, str], profile_command: str, runtime_dir: Path
+) -> dict[str, str]:
+    """Resolve credentials through a short-lived file under the runtime directory."""
+    _prepare_runtime_dir(runtime_dir)
+    previous_umask = os.umask(0o077)
+    try:
+        with tempfile.TemporaryDirectory(prefix=".bootstrap-", dir=runtime_dir) as temp_dir:
+            output = Path(temp_dir) / "profile.env"
+            _run_checked(
+                [
+                    profile_command,
+                    "--json",
+                    "materialize",
+                    "kater-dev-tools/ops",
+                    "--output",
+                    str(output),
+                ],
+                env=env,
+                label="ChefVault profile materialization",
+            )
+            _secure_materialized_file(output)
+            return _read_materialized(output)
+    finally:
+        os.umask(previous_umask)
+
+
+def _kater_executable() -> str:
+    """Resolve Kater beside the trusted Python interpreter running this wrapper."""
+    executable = Path(sys.executable).with_name("kater")
+    if not executable.is_file():
+        raise SystemExit(f"kater executable not found beside Python: {executable}")
+    return str(executable)
 
 
 def main() -> None:
-    # Resolve uv against the trusted process PATH now, before any broker-supplied
-    # values are in play, so the child cannot redirect which uv binary runs.
-    uv_bin = shutil.which("uv")
-    if uv_bin is None:
-        raise SystemExit("uv executable not found on PATH")
-
+    # Resolve the executable before broker-supplied values enter the environment.
+    # This also lets systemd use /var/lib/kater as cwd while code stays in /opt.
+    kater_bin = _kater_executable()
     root = Path.cwd()
-    output = root / ".kater" / ".env.chefvault"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    # The state dir holds materialized credentials; keep it owner-only.
-    output.parent.chmod(0o700)
 
     env = os.environ.copy()
     env["CHEF_VAULT_BROKER_TOKEN"] = _broker_token()
     env.setdefault("CHEF_VAULT_BROKER_URL", "http://127.0.0.1:8322")
     env.setdefault("CHEF_VAULT_RUNTIME_DIR", str(root / ".kater" / "runtime" / "chefvault"))
 
+    runtime_dir = Path(env["CHEF_VAULT_RUNTIME_DIR"]).expanduser()
     profile_command = env.get("CHEF_VAULT_PROFILE_COMMAND", "chefvault-profile")
-    # Materialize under a restrictive umask so the file is created private even
-    # before the explicit chmod below closes any residual window.
-    previous_umask = os.umask(0o077)
-    try:
-        _run_checked(
-            [
-                profile_command,
-                "--json",
-                "materialize",
-                "kater-dev-tools/ops",
-                "--output",
-                str(output),
-            ],
+    env.update(
+        _materialize_secrets(
             env=env,
-            label="ChefVault profile materialization",
+            profile_command=profile_command,
+            runtime_dir=runtime_dir,
         )
-    finally:
-        os.umask(previous_umask)
-    # Verify and lock down the credential file before it is read or handed off.
-    _secure_materialized_file(output)
-
-    env.update(_read_materialized(output))
+    )
     env["KATER_EXTENSIONS_MODULE"] = "kater.chefvault_extension"
-    profiles = {
-        part.strip()
-        for part in env.get("KATER_PROFILE", "ops").split(",")
-        if part.strip()
-    }
+    profiles = {part.strip() for part in env.get("KATER_PROFILE", "ops").split(",") if part.strip()}
     profiles.add("chef-vault")
     env["KATER_PROFILE"] = ",".join(sorted(profiles))
 
     # High-risk backends are disabled by default. Persist an explicit enable for
     # this private source so the wrapper is a complete bootstrap, not a partial hint.
     _run_checked(
-        [uv_bin, "run", "kater", "enable", "chefvault"],
+        [kater_bin, "enable", "chefvault"],
         env=env,
         label="Kater ChefVault backend enable",
     )
 
     args = sys.argv[1:] or ["up"]
-    os.execve(uv_bin, [uv_bin, "run", "kater", *args], env)
+    os.execve(kater_bin, [kater_bin, *args], env)
 
 
 if __name__ == "__main__":

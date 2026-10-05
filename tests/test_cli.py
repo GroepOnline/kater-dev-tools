@@ -50,7 +50,17 @@ def _restore_bind_env():
 def test_version() -> None:
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert result.stdout.strip()
+    data = json.loads(result.stdout)
+    assert data["package_version"]
+    assert set(data) == {
+        "package_version",
+        "version",
+        "source_sha",
+        "release",
+        "artifact_digest",
+    }
+    for key in ("version", "source_sha", "release", "artifact_digest"):
+        assert data[key] is None or isinstance(data[key], str)
 
 
 # ── profiles ───────────────────────────────────────────────────────
@@ -329,6 +339,7 @@ def test_status_json() -> None:
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert "version" in data
+    assert set(data["identity"]) == {"version", "source_sha", "release", "artifact_digest"}
 
 
 def test_status_text() -> None:

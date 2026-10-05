@@ -343,6 +343,7 @@ def status_overview() -> dict[str, Any]:
     import os
 
     from kater import __version__
+    from kater.build_identity import load_build_identity
     from kater.connect import source_is_configured
     from kater.profiles import all_tool_sources
     from kater.settings import load_settings
@@ -381,6 +382,7 @@ def status_overview() -> dict[str, Any]:
 
     return {
         "version": __version__,
+        "identity": load_build_identity(),
         "profile": os.environ.get("KATER_PROFILE", "core"),
         "auth_mode": settings.auth.mode,
         "api_port": settings.api_port,

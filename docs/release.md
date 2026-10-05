@@ -54,7 +54,8 @@ Both channels tag from `main` only.
 
 ## Version sources
 
-Version is the single source of truth in two files that must match exactly:
+Tag and package version is the single source of truth in two files that must
+match exactly:
 
 - `pyproject.toml` — `[project] version = "X.Y.Z"`
 - `src/kater/__init__.py` — `__version__ = "X.Y.Z"`
@@ -62,6 +63,61 @@ Version is the single source of truth in two files that must match exactly:
 The validator rejects any tag whose version does not match both sources.
 Tests in `tests/test_validate_release.py` read those sources; they must not
 hardcode a frozen `v1.0.0`.
+
+Package version alone is **not** the running-build identity. That is the
+deploy/build stamp described below.
+
+## Visible runtime identity
+
+The route from declared version to a running process is:
+
+1. **Version source** — bump `pyproject.toml` and `__version__` on a dedicated PR.
+2. **Product tag** — annotated `vX.Y.Z` on updated `origin/main`.
+3. **GitHub Release** — `release.yml` on tag push `v*`.
+4. **Immutable artifact** — `uv build` wheel + sdist, plus `dist/SHA256SUMS`.
+5. **Deploy evidence** — install scripts write `src/kater/_build_identity.json`
+   (and may set `KATER_BUILD_VERSION` / `KATER_BUILD_SHA` / `KATER_BUILD_RELEASE`
+   / `KATER_BUILD_ARTIFACT_DIGEST`).
+6. **Visible identity** — `GET /health` (also `/health/live`, `/health/ready`,
+   `/api/status`) includes `identity`, and `kater version` prints JSON.
+
+`identity` shape (every field null when missing or malformed; never a default,
+never a runtime `git` read):
+
+```json
+{
+  "version": "1.1.1",
+  "source_sha": "0123456789abcdef0123456789abcdef01234567",
+  "release": "v1.1.1",
+  "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+```
+
+`version` next to `status` on `/health` remains the declared package version so
+existing clients keep working. `identity.version` is the stamped application
+version from the actually running build.
+
+Company-control deploy (`scripts/deploy-company-control.sh`) archives an exact
+main SHA, then stamps from that SHA and `git describe --exact-match --tags`
+on the **controller checkout** (the host tree is a git archive, not a checkout).
+`artifact_digest` stays null on that path because the payload is the archive,
+not a downloaded wheel.
+
+Git-checkout installs (see `docs/ops/bc-scan-arm-runtime.md`) must run
+`scripts/stamp-build-identity.py` in the install script only. That helper may
+call `git describe --exact-match --tags` and `git rev-parse HEAD` at install
+time. The running service does not.
+
+### What remains UNKNOWN until a stamped deploy
+
+Until a host has been installed or released with this stamp:
+
+- `/health.identity.*` is all `null`
+- `kater version` reports `package_version` but stamped fields are `null`
+- which SHA/tag actually runs on kater-shadow is still UNKNOWN
+
+A green GitHub Release does not prove live runtime identity. Curl
+`http://127.0.0.1:9091/health` on the host after cutover and read `identity`.
 
 ## Cutting a release
 

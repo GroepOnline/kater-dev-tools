@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "jsonschema>=4.26",
-    "mcp>=2.1.1",
+    "mcp>=2.2.0",
     "pydantic>=2.13.5",
     "pyjwt[crypto]>=2.15.0",
     "typer>=0.27.2",
@@ -37,10 +37,10 @@ kater-routes = "kater.control_plane.cli:app"
 kater-capabilities = "kater.capabilities.cli:app"
 
 [project.optional-dependencies]
-browser = ["playwright>=1.62.0"]
+browser = ["playwright>=1.63.0"]
 
 [build-system]
-requires = ["uv_build>=0.12.9,<0.13"]
+requires = ["uv_build>=0.12.13,<0.13"]
 build-backend = "uv_build"
 
 [tool.uv]
@@ -51,11 +51,11 @@ constraint-dependencies = ["pip>=26.2", "anyio==4.14.2"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.16.6",
+    "ruff>=0.16.8",
     "mypy>=2.3.1",
     "pyyaml>=6.0",
     "pip-audit>=2.9.0",
-    "playwright>=1.62.0",
+    "playwright>=1.63.0",
 ]
 
 [tool.pytest.ini_options]
@@ -120,6 +120,8 @@ select = ["E", "F", "I", "UP", "B", "S", "RUF"]
 "scripts/sync_cursor_plugins.py" = ["S603", "S607"]
 # release contract validator runs git with list-form argv (operator-controlled).
 "scripts/validate_release.py" = ["S603", "S607"]
+# install-time identity stamp may call git describe / rev-parse on the checkout.
+"scripts/stamp-build-identity.py" = ["S603", "S607"]
 # no_org_leak.py runs git with list-form argv (operator-controlled).
 "scripts/no_org_leak.py" = ["S603", "S607"]
 # kater-with-chefvault bootstrap runs list-form argv against operator-controlled

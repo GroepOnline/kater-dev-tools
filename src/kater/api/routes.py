@@ -653,7 +653,7 @@ def _oidc_callback(req: Request) -> Response:
         create_session,
     )
     from kater.oauth import create_auth_code
-    from kater.oidc import OidcError, complete_callback
+    from kater.oidc import OidcError, complete_callback, userinfo
 
     denied = req.query1("error") or ""
     if denied:
@@ -670,6 +670,13 @@ def _oidc_callback(req: Request) -> Response:
             {"error": exc.code, "detail": exc.safe_message},
         )
     if result.pending is not None:
+        try:
+            userinfo(result.access_token, result.subject)
+        except OidcError as exc:
+            return Response.json(
+                _oidc_error_status(exc.code),
+                {"error": exc.code, "detail": exc.safe_message},
+            )
         try:
             code = create_auth_code(
                 client_id=result.pending.client_id,

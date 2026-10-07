@@ -407,7 +407,6 @@ def test_authorize_to_callback_with_mock_idp(
     import hashlib
 
     monkeypatch.setenv("AUTH_OIDC_REQUIRED_GROUPS", "owner")
-    mock_idp.userinfo_groups = []
     port = _port(api_server)
     verifier = "verifier12345678901234567890"
     challenge = (
@@ -448,6 +447,52 @@ def test_authorize_to_callback_with_mock_idp(
     token = exchange_code(code, client.client_id, verifier)
     assert token is not None
     assert token["access_token"].startswith("tok_")
+
+
+def test_authorize_callback_rejects_missing_required_group(
+    oidc_env: OidcConfig,
+    mock_idp: FakeIdP,
+    api_server,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hashlib
+
+    monkeypatch.setenv("AUTH_OIDC_REQUIRED_GROUPS", "owner")
+    mock_idp.userinfo_groups = []
+    port = _port(api_server)
+    verifier = "verifier12345678901234567890"
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    )
+    client = register_client("App", [f"http://127.0.0.1:{port}/cb"])
+    try:
+        _test_http_open(
+            f"http://127.0.0.1:{port}/authorize?client_id={client.client_id}"
+            f"&redirect_uri=http://127.0.0.1:{port}/cb"
+            f"&code_challenge={challenge}&code_challenge_method=S256&state=cli",
+            follow_redirects=False,
+        )
+        raise AssertionError("expected 302")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 302
+        location = exc.headers["Location"]
+        login_cookie = _cookie_value(exc.headers.get("Set-Cookie"), LOGIN_COOKIE)
+    from urllib.parse import parse_qs, urlparse
+
+    state = parse_qs(urlparse(location).query)["state"][0]
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        _test_http_open(
+            urllib.request.Request(
+                f"http://127.0.0.1:{port}/oidc/callback?code=from-idp&state={state}",
+                headers={"Cookie": f"{LOGIN_COOKIE}={login_cookie}"},
+            ),
+            follow_redirects=False,
+        )
+    exc = exc_info.value
+    assert exc.code == 403
+    assert exc.headers.get("Location") is None
+    payload = json.loads(exc.read())
+    assert payload["error"] == "oidc_entitlement_required"
 
 
 def test_health_includes_oidc(api_server) -> None:

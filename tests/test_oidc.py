@@ -25,6 +25,7 @@ from kater.browser_auth import (
     reset_sessions,
     revoke_session,
     safe_return_to,
+    valid_origin,
 )
 from kater.oauth import create_auth_code, exchange_code, register_client, reset_state
 from kater.oidc import (
@@ -397,9 +398,15 @@ def test_authorize_stays_local_consent_when_oidc_unset(api_server) -> None:
     assert b"Allow" in resp.read()
 
 
-def test_authorize_to_callback_with_mock_idp(oidc_env: OidcConfig, api_server) -> None:
+def test_authorize_to_callback_with_mock_idp(
+    oidc_env: OidcConfig,
+    mock_idp: FakeIdP,
+    api_server,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import hashlib
 
+    monkeypatch.setenv("AUTH_OIDC_REQUIRED_GROUPS", "owner")
     port = _port(api_server)
     verifier = "verifier12345678901234567890"
     challenge = (
@@ -442,6 +449,52 @@ def test_authorize_to_callback_with_mock_idp(oidc_env: OidcConfig, api_server) -
     assert token["access_token"].startswith("tok_")
 
 
+def test_authorize_callback_rejects_missing_required_group(
+    oidc_env: OidcConfig,
+    mock_idp: FakeIdP,
+    api_server,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hashlib
+
+    monkeypatch.setenv("AUTH_OIDC_REQUIRED_GROUPS", "owner")
+    mock_idp.userinfo_groups = []
+    port = _port(api_server)
+    verifier = "verifier12345678901234567890"
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    )
+    client = register_client("App", [f"http://127.0.0.1:{port}/cb"])
+    try:
+        _test_http_open(
+            f"http://127.0.0.1:{port}/authorize?client_id={client.client_id}"
+            f"&redirect_uri=http://127.0.0.1:{port}/cb"
+            f"&code_challenge={challenge}&code_challenge_method=S256&state=cli",
+            follow_redirects=False,
+        )
+        raise AssertionError("expected 302")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 302
+        location = exc.headers["Location"]
+        login_cookie = _cookie_value(exc.headers.get("Set-Cookie"), LOGIN_COOKIE)
+    from urllib.parse import parse_qs, urlparse
+
+    state = parse_qs(urlparse(location).query)["state"][0]
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        _test_http_open(
+            urllib.request.Request(
+                f"http://127.0.0.1:{port}/oidc/callback?code=from-idp&state={state}",
+                headers={"Cookie": f"{LOGIN_COOKIE}={login_cookie}"},
+            ),
+            follow_redirects=False,
+        )
+    exc = exc_info.value
+    assert exc.code == 403
+    assert exc.headers.get("Location") is None
+    payload = json.loads(exc.read())
+    assert payload["error"] == "oidc_entitlement_required"
+
+
 def test_health_includes_oidc(api_server) -> None:
     port = _port(api_server)
     data = json.loads(_test_http_open(f"http://127.0.0.1:{port}/health").read())
@@ -454,6 +507,15 @@ def test_safe_return_to_rejects_open_redirects() -> None:
     assert safe_return_to("//evil.example/phish") == "/dashboard"
     assert safe_return_to("https://evil.example/x") == "/dashboard"
     assert safe_return_to("/%2f%2fevil.example") == "/dashboard"
+
+
+def test_valid_origin_falls_back_to_loopback_request_base(
+    oidc_env: OidcConfig, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AUTH_OIDC_REDIRECT_URI", raising=False)
+    assert valid_origin("http://127.0.0.1:9091", "http://127.0.0.1:9091")
+    assert not valid_origin("http://127.0.0.1:9092", "http://127.0.0.1:9091")
+    assert not valid_origin("https://app.example", "https://app.example")
 
 
 def test_verify_id_token_wrong_issuer(oidc_env: OidcConfig, mock_idp: FakeIdP) -> None:
@@ -624,7 +686,10 @@ def test_dashboard_forbidden_without_entitlement(
     assert exc.value.code == 403
 
 
-def test_oidc_logout_clears_session(oidc_env: OidcConfig, api_server) -> None:
+def test_oidc_logout_clears_session(
+    oidc_env: OidcConfig, api_server, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AUTH_OIDC_REDIRECT_URI", raising=False)
     port = _port(api_server)
     binding = secrets.token_urlsafe(16)
     location = begin_login(
@@ -652,7 +717,7 @@ def test_oidc_logout_clears_session(oidc_env: OidcConfig, api_server) -> None:
             method="POST",
             headers={
                 "Cookie": f"{SESSION_COOKIE}={session_cookie}",
-                "Origin": "http://127.0.0.1:9091",
+                "Origin": f"http://127.0.0.1:{port}",
             },
         ),
         follow_redirects=False,

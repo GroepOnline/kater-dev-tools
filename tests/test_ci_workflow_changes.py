@@ -36,6 +36,7 @@ E2E_MCP = ROOT / "scripts/e2e-mcp.sh"
 
 KATER_CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 GITHUB_SCRIPT_SHA = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3"
+SETUP_UV_V10_3 = "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0"
 SETUP_UV_V10_1 = "astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0"
 SETUP_UV_V10_0 = "astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d"
 
@@ -59,12 +60,13 @@ def test_company_control_deploy_stays_on_private_fleet() -> None:
     assert HOSTED_RUNNER.search(text) is None
 
 
-def test_setup_uv_is_pinned_to_v10_1_0() -> None:
+def test_setup_uv_is_pinned_to_v10_3_0() -> None:
     for path in (CI, NO_ORG_LEAK, AGENT_TASTE, RELEASE):
         text = path.read_text(encoding="utf-8")
-        assert SETUP_UV_V10_1 in text, path.name
+        assert SETUP_UV_V10_3 in text, path.name
+        assert SETUP_UV_V10_1 not in text, path.name
         assert SETUP_UV_V10_0 not in text, path.name
-    assert CI.read_text(encoding="utf-8").count(SETUP_UV_V10_1) == 9
+    assert CI.read_text(encoding="utf-8").count(SETUP_UV_V10_3) == 9
 
 
 def test_ci_upload_artifacts_expire_after_seven_days() -> None:

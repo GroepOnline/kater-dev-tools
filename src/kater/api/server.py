@@ -90,7 +90,7 @@ def _enforce_session_origin_for_mutations(request: Request, session_value: str) 
 
     if not session_value or request.method in _SAFE_READ_METHODS:
         return None
-    if request.header("authorization") or valid_origin(request.header("origin")):
+    if request.header("authorization") or valid_origin(request.header("origin"), request.base_url):
         return None
     return Response.json(403, {"error": "origin_required"})
 

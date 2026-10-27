@@ -653,7 +653,7 @@ def _oidc_callback(req: Request) -> Response:
         create_session,
     )
     from kater.oauth import create_auth_code
-    from kater.oidc import OidcError, complete_callback
+    from kater.oidc import OidcError, complete_callback, userinfo
 
     denied = req.query1("error") or ""
     if denied:
@@ -664,13 +664,19 @@ def _oidc_callback(req: Request) -> Response:
             state=req.query1("state") or "",
             browser_binding=cookie_value(req.header("cookie"), LOGIN_COOKIE),
         )
-        session_value = create_session(result)
     except OidcError as exc:
         return Response.json(
             _oidc_error_status(exc.code),
             {"error": exc.code, "detail": exc.safe_message},
         )
     if result.pending is not None:
+        try:
+            userinfo(result.access_token, result.subject)
+        except OidcError as exc:
+            return Response.json(
+                _oidc_error_status(exc.code),
+                {"error": exc.code, "detail": exc.safe_message},
+            )
         try:
             code = create_auth_code(
                 client_id=result.pending.client_id,
@@ -692,6 +698,13 @@ def _oidc_callback(req: Request) -> Response:
             location += f"&state={quote(result.pending.state, safe='')}"
         return Response.redirect(location)
 
+    try:
+        session_value = create_session(result)
+    except OidcError as exc:
+        return Response.json(
+            _oidc_error_status(exc.code),
+            {"error": exc.code, "detail": exc.safe_message},
+        )
     response = Response.redirect(_safe_oidc_next(result.next_path))
     response.headers["Set-Cookie"] = cookie(
         SESSION_COOKIE, session_value, max_age=max(0, int(result.expires_at - time.time())),
@@ -711,7 +724,7 @@ def _oidc_logout(req: Request) -> Response:
         valid_origin,
     )
 
-    if not valid_origin(req.header("origin")):
+    if not valid_origin(req.header("origin"), req.base_url):
         return Response.json(403, {"error": "origin_required"})
     revoke_session(cookie_value(req.header("cookie"), SESSION_COOKIE))
     response = Response.json(200, {"logged_out": True, "scope": "kater"})

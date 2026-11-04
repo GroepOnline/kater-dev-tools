@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "transcriptsRoot": "/home/jan/.cursor/projects/home-jan-Groeponline-kater-dev-tools/agent-transcripts",
+  "updatedAt": "2026-09-12T09:51:14+0200",
+  "transcripts": {
+    "0fe38d3c-72f8-4f46-a9f9-c5c330f376fa/0fe38d3c-72f8-4f46-a9f9-c5c330f376fa.jsonl": {
+      "mtime": 1789078511,
+      "mtime_ns": 1789078511730872560,
+      "size": 22981
+    },
+    "33c2d8fc-81d2-4b4b-9fb8-e49287ec8bb4/33c2d8fc-81d2-4b4b-9fb8-e49287ec8bb4.jsonl": {
+      "mtime": 1789198695,
+      "mtime_ns": 1789198695933338004,
+      "size": 44061
+    },
+    "37c653f5-06e3-48f2-a084-675b8b9df565/37c653f5-06e3-48f2-a084-675b8b9df565.jsonl": {
+      "mtime": 1789093478,
+      "mtime_ns": 1789093478228457409,
+      "size": 73034
+    },
+    "4288a3e7-2409-4569-907a-50537702ca76/4288a3e7-2409-4569-907a-50537702ca76.jsonl": {
+      "mtime": 1789198648,
+      "mtime_ns": 1789198648689085325,
+      "size": 31099
+    },
+    "4d2b1a47-685c-494a-a8a7-ff7854ba349a/4d2b1a47-685c-494a-a8a7-ff7854ba349a.jsonl": {
+      "mtime": 1789126211,
+      "mtime_ns": 1789126211444572499,
+      "size": 96710
+    },
+    "5ba6450c-a58f-4de3-a7bb-46db081b8797/5ba6450c-a58f-4de3-a7bb-46db081b8797.jsonl": {
+      "mtime": 1789199470,
+      "mtime_ns": 1789199470505315855,
+      "size": 13854
+    },
+    "69d30d60-331f-4d86-9743-de414e49438b/69d30d60-331f-4d86-9743-de414e49438b.jsonl": {
+      "mtime": 1789199337,
+      "mtime_ns": 1789199337052644564,
+      "size": 70505
+    },
+    "785b2b01-9b9b-4034-8f34-551ed89b2383/785b2b01-9b9b-4034-8f34-551ed89b2383.jsonl": {
+      "mtime": 1789078478,
+      "mtime_ns": 1789078478722695149,
+      "size": 15843
+    },
+    "93fe1903-692c-4b23-9799-40109fb2bf48/93fe1903-692c-4b23-9799-40109fb2bf48.jsonl": {
+      "mtime": 1789198646,
+      "mtime_ns": 1789198646581074007,
+      "size": 34736
+    },
+    "9cd8d1ae-18ec-4c06-8bc1-f170dc769ae1/9cd8d1ae-18ec-4c06-8bc1-f170dc769ae1.jsonl": {
+      "mtime": 1789079855,
+      "mtime_ns": 1789079855550186930,
+      "size": 25631
+    },
+    "9d5188ce-aa94-4da6-bad6-b3a431c7cd73/9d5188ce-aa94-4da6-bad6-b3a431c7cd73.jsonl": {
+      "mtime": 1789093470,
+      "mtime_ns": 1789093470712417133,
+      "size": 6944
+    },
+    "d05289f8-d86e-4e30-991f-fc1339a8d915/d05289f8-d86e-4e30-991f-fc1339a8d915.jsonl": {
+      "mtime": 1789078365,
+      "mtime_ns": 1789078365966088945,
+      "size": 14222
+    },
+    "d3a178c6-a317-4aac-a038-c07078c74e40/d3a178c6-a317-4aac-a038-c07078c74e40.jsonl": {
+      "mtime": 1789198603,
+      "mtime_ns": 1789198603216840323,
+      "size": 36185
+    },
+    "f2bb44a0-d67e-46eb-aa70-482899989c53/f2bb44a0-d67e-46eb-aa70-482899989c53.jsonl": {
+      "mtime": 1789078459,
+      "mtime_ns": 1789078459178590098,
+      "size": 20785
+    }
+  }
+}

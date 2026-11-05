@@ -171,6 +171,8 @@ class AutomationEngine:
         return self._store.upsert(record)
 
     def delete(self, automation_id: str) -> bool:
+        with self._lock:
+            self._skip_recorded.discard(automation_id)
         return self._store.delete(automation_id)
 
     def list_runs(
@@ -212,11 +214,11 @@ class AutomationEngine:
                 self._in_flight.add(automation.id)
                 self._skip_recorded.discard(automation.id)
                 due.append(automation)
-        for automation_id in blocked:
-            self._record_skip(automation_id, trigger="schedule")
         ran = 0
         unreached = [automation.id for automation in due]
         try:
+            for automation_id in blocked:
+                self._record_skip(automation_id, started_at=now, trigger="schedule")
             for automation in due:
                 try:
                     self._execute(automation, ran_at=now, trigger="schedule")
@@ -248,7 +250,7 @@ class AutomationEngine:
                 self._in_flight.add(automation_id)
                 self._skip_recorded.discard(automation_id)
         if already_running:
-            self._record_skip(automation_id, trigger="manual")
+            self._record_skip(automation_id, started_at=float(self._clock()), trigger="manual")
             raise ValueError(f"automation {automation_id} is already running")
         try:
             return self._execute(automation, ran_at=float(self._clock()), trigger="manual")
@@ -324,16 +326,23 @@ class AutomationEngine:
         except (sqlite3.Error, ValueError) as exc:
             _log.warning("automation run %d history finish failed: %s", run_id, exc)
 
-    def _record_skip(self, automation_id: str, *, trigger: str) -> None:
-        # History is best-effort: a failed history write must not block the tick.
+    def _record_skip(
+        self, automation_id: str, *, started_at: float, trigger: str
+    ) -> None:
+        # History is best-effort: a failed write must never block a run. A
+        # scheduled skip gives its dedupe mark back so the next blocked tick
+        # retries instead of losing the row.
         try:
             self._store.record_skipped_run(
                 automation_id,
-                started_at=float(self._clock()),
+                started_at=started_at,
                 trigger=trigger,
                 reason=SKIP_ALREADY_RUNNING,
             )
-        except (sqlite3.Error, RuntimeError) as exc:
+        except Exception as exc:
+            if trigger == "schedule":
+                with self._lock:
+                    self._skip_recorded.discard(automation_id)
             _log.warning("automation %s run history skip failed: %s", automation_id, exc)
 
     def _broadcast(self, result: AutomationRunResult) -> None:

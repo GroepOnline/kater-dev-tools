@@ -2146,6 +2146,9 @@ def _automations_runs(req: Request) -> Response:
         return denied
     automation_id = req.params["id"]
     try:
+        raw_limit = req.query1("limit")
+        if raw_limit is not None and int(raw_limit) < 1:
+            raise ValueError(f"Invalid limit: {raw_limit!r}")
         limit = _parse_limit(req, default=50, maximum=RUN_HISTORY_KEEP)
     except ValueError as exc:
         return Response.json(400, {"error": str(exc)})

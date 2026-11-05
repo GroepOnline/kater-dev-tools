@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -375,6 +376,48 @@ def test_runs_recorded_for_schedule_and_manual_triggers():
     assert runs[0].to_dict()["duration_ms"] == 0.0
 
 
+def test_scheduled_runs_record_their_own_start_time():
+    clock = {"now": 1000.0}
+    engine = AutomationEngine(clock=lambda: clock["now"])
+    engine.upsert(id="auto_first", name="First", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_second", name="Second", kind="browser_reap", schedule_seconds=60)
+
+    def _slow_reap() -> int:
+        clock["now"] += 5.0
+        return 0
+
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        manager = _reap_manager(manager_factory)
+        manager.reap_expired.side_effect = _slow_reap
+        assert engine.tick() == 2
+
+    (first,) = engine.list_runs("auto_first")
+    (second,) = engine.list_runs("auto_second")
+    assert (first.started_at, first.finished_at) == (1000.0, 1005.0)
+    assert (second.started_at, second.finished_at) == (1005.0, 1010.0)
+    loaded = engine.get("auto_second")
+    assert loaded is not None
+    assert loaded.last_run_at == 1000.0
+
+
+def test_history_write_gives_up_fast_on_locked_db_and_restores_timeout(tmp_path):
+    db = automations_store._get_db()
+    blocker = sqlite3.connect(tmp_path / ".kater" / "kater.db", timeout=0)
+    try:
+        blocker.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            automations_store.start_run("auto_x", started_at=1.0, trigger="manual")
+        assert time.monotonic() - started < 5.0
+    finally:
+        blocker.rollback()
+        blocker.close()
+    assert db.execute("PRAGMA busy_timeout").fetchone()[0] == 10000
+    assert not db.in_transaction
+    automations_store.start_run("auto_x", started_at=2.0, trigger="manual")
+    assert [r.started_at for r in automations_store.list_runs("auto_x")] == [2.0]
+
+
 def test_run_errors_are_recorded_in_history():
     engine = AutomationEngine(clock=lambda: 42.0)
     engine.upsert(id="auto_bad_hist", name="Bad", kind="doctor_watch", schedule_seconds=60)
@@ -465,7 +508,8 @@ def test_prune_runs_keeps_newest_per_automation_and_drops_orphans():
     assert len(engine.list_runs("auto_b")) == 1
     assert engine.list_runs("auto_gone") == []
 
-    assert engine.delete("auto_b") is True
+    deleted = engine.delete("auto_b")
+    assert deleted is True
     assert engine.list_runs("auto_b") == []
 
 
@@ -483,9 +527,9 @@ def test_api_runs_endpoint():
     assert resp.payload["runs"][0]["status"] == "unknown"
     assert resp.payload["runs"][0]["trigger"] == "manual"
 
-    assert call(
-        "GET", "/api/automations/auto_api_runs/runs", query={"limit": ["nope"]}
-    ).status == 400
+    for bad in ("nope", "0", "-3"):
+        rejected = call("GET", "/api/automations/auto_api_runs/runs", query={"limit": [bad]})
+        assert rejected.status == 400, bad
     assert call("GET", "/api/automations/auto_missing/runs").status == 404
 
 

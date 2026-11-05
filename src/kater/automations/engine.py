@@ -207,7 +207,10 @@ class AutomationEngine:
     def _execute(
         self, automation: Automation, *, ran_at: float, trigger: str
     ) -> AutomationRunResult:
-        run_id = self._start_run(automation.id, ran_at=ran_at, trigger=trigger)
+        # ``ran_at`` is the tick's schedule timestamp; later runs in one tick start later.
+        run_id = self._start_run(
+            automation.id, started_at=float(self._clock()), trigger=trigger
+        )
         started = time.perf_counter()
         status = "ok"
         error: str | None = None
@@ -246,10 +249,12 @@ class AutomationEngine:
         self._broadcast(result)
         return result
 
-    def _start_run(self, automation_id: str, *, ran_at: float, trigger: str) -> int | None:
+    def _start_run(
+        self, automation_id: str, *, started_at: float, trigger: str
+    ) -> int | None:
         # History is best-effort: a failed history write must not block the run.
         try:
-            return self._store.start_run(automation_id, started_at=ran_at, trigger=trigger)
+            return self._store.start_run(automation_id, started_at=started_at, trigger=trigger)
         except (sqlite3.Error, RuntimeError) as exc:
             _log.warning("automation %s run history start failed: %s", automation_id, exc)
             return None

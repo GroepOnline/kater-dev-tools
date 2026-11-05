@@ -737,6 +737,40 @@ def test_skip_write_permanent_error_is_not_retried_every_tick():
     assert engine._skip_recorded == {"auto_perm"}
 
 
+def test_skip_write_abort_returns_marks_for_unattempted_blocked_automations():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    for name in ("auto_b1", "auto_b2", "auto_b3"):
+        engine.upsert(id=name, name=name, kind="browser_reap", schedule_seconds=60)
+        engine._in_flight.add(name)
+
+    calls = {"n": 0}
+
+    def _abort(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt
+        return 1
+
+    with (
+        patch.object(automations_store.AutomationStore, "record_skipped_run", _abort),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        engine.tick()
+    # auto_b1 was written before the abort; auto_b2 returned its own mark and
+    # auto_b3 never got a turn, so both stay retryable.
+    assert engine._skip_recorded == {"auto_b1"}
+
+    engine.tick()
+    recorded = [
+        run.automation_id
+        for name in ("auto_b1", "auto_b2", "auto_b3")
+        for run in engine.list_runs(name)
+    ]
+    # The tail's skips land on the next tick; auto_b1 keeps its mark from the
+    # write that did happen, so it is not duplicated.
+    assert sorted(recorded) == ["auto_b2", "auto_b3"]
+
+
 def test_store_rejects_bad_trigger_for_skipped_run():
     engine = AutomationEngine(clock=lambda: 1.0)
     engine.upsert(id="auto_x", name="X", kind="browser_reap", schedule_seconds=60)

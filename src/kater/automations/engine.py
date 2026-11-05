@@ -25,6 +25,14 @@ _log = logging.getLogger("kater.automations.engine")
 #: previous run of the same automation was still in flight.
 SKIP_ALREADY_RUNNING = "already running"
 
+#: SQLite codes worth retrying a history write for: another writer held the lock.
+_TRANSIENT_SQLITE_CODES = frozenset(
+    {
+        getattr(sqlite3, "SQLITE_BUSY", 5),
+        getattr(sqlite3, "SQLITE_LOCKED", 6),
+    }
+)
+
 # A timed-out run may or may not have done its work, so it is recorded as
 # ``unknown`` rather than ``error``.
 _TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (TimeoutError, subprocess.TimeoutExpired)
@@ -49,6 +57,16 @@ def _is_timeout(exc: BaseException) -> bool:
     if isinstance(exc, _TIMEOUT_ERRORS):
         return True
     return any(cls.__name__ in _TIMEOUT_CLASS_NAMES for cls in type(exc).__mro__)
+
+
+def _is_transient_history_error(exc: BaseException) -> bool:
+    """True when retrying a failed history write can plausibly succeed."""
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        return code in _TRANSIENT_SQLITE_CODES
+    return isinstance(exc, sqlite3.OperationalError) and any(
+        token in str(exc).lower() for token in ("locked", "busy")
+    )
 
 DEFAULT_AUTOMATIONS: tuple[dict[str, Any], ...] = (
     {
@@ -172,8 +190,9 @@ class AutomationEngine:
 
     def delete(self, automation_id: str) -> bool:
         with self._lock:
+            deleted = self._store.delete(automation_id)
             self._skip_recorded.discard(automation_id)
-        return self._store.delete(automation_id)
+        return deleted
 
     def list_runs(
         self, automation_id: str, *, limit: int = 50
@@ -217,8 +236,15 @@ class AutomationEngine:
         ran = 0
         unreached = [automation.id for automation in due]
         try:
-            for automation_id in blocked:
-                self._record_skip(automation_id, started_at=now, trigger="schedule")
+            for index, automation_id in enumerate(blocked):
+                try:
+                    self._record_skip(automation_id, started_at=now, trigger="schedule")
+                except BaseException:
+                    # Abort before the tail is written: give its marks back so a
+                    # later tick can still record those skips.
+                    with self._lock:
+                        self._skip_recorded.difference_update(blocked[index + 1 :])
+                    raise
             for automation in due:
                 try:
                     self._execute(automation, ran_at=now, trigger="schedule")
@@ -341,7 +367,7 @@ class AutomationEngine:
                 reason=SKIP_ALREADY_RUNNING,
             )
         except BaseException as exc:
-            retry = isinstance(exc, sqlite3.OperationalError) or not isinstance(exc, Exception)
+            retry = _is_transient_history_error(exc) or not isinstance(exc, Exception)
             if retry and trigger == "schedule":
                 with self._lock:
                     self._skip_recorded.discard(automation_id)

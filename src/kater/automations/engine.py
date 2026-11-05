@@ -25,13 +25,9 @@ _log = logging.getLogger("kater.automations.engine")
 #: previous run of the same automation was still in flight.
 SKIP_ALREADY_RUNNING = "already running"
 
-#: SQLite codes worth retrying a history write for: another writer held the lock.
-_TRANSIENT_SQLITE_CODES = frozenset(
-    {
-        getattr(sqlite3, "SQLITE_BUSY", 5),
-        getattr(sqlite3, "SQLITE_LOCKED", 6),
-    }
-)
+#: SQLite primary result codes worth retrying a history write for: another
+#: writer held the lock.
+_TRANSIENT_SQLITE_CODES = frozenset({sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED})
 
 # A timed-out run may or may not have done its work, so it is recorded as
 # ``unknown`` rather than ``error``.
@@ -63,7 +59,9 @@ def _is_transient_history_error(exc: BaseException) -> bool:
     """True when retrying a failed history write can plausibly succeed."""
     code = getattr(exc, "sqlite_errorcode", None)
     if isinstance(code, int):
-        return code in _TRANSIENT_SQLITE_CODES
+        # Extended codes carry the primary code in the low byte (e.g. 517 is
+        # SQLITE_BUSY_SNAPSHOT), so classify on the primary code.
+        return (code & 0xFF) in _TRANSIENT_SQLITE_CODES
     return isinstance(exc, sqlite3.OperationalError) and any(
         token in str(exc).lower() for token in ("locked", "busy")
     )

@@ -771,6 +771,28 @@ def test_skip_write_abort_returns_marks_for_unattempted_blocked_automations():
     assert sorted(recorded) == ["auto_b2", "auto_b3"]
 
 
+def test_skip_retry_classifies_extended_busy_codes_as_transient():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_ext", name="Ext", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_ext")
+
+    snapshot_busy = sqlite3.OperationalError("database is locked")
+    snapshot_busy.sqlite_errorcode = 517  # SQLITE_BUSY_SNAPSHOT
+    with patch.object(
+        automations_store.AutomationStore, "record_skipped_run", side_effect=snapshot_busy
+    ):
+        engine.tick()
+    assert engine._skip_recorded == set()
+
+    read_only = sqlite3.OperationalError("attempt to write a readonly database")
+    read_only.sqlite_errorcode = 8  # SQLITE_READONLY
+    with patch.object(
+        automations_store.AutomationStore, "record_skipped_run", side_effect=read_only
+    ):
+        engine.tick()
+    assert engine._skip_recorded == {"auto_ext"}
+
+
 def test_store_rejects_bad_trigger_for_skipped_run():
     engine = AutomationEngine(clock=lambda: 1.0)
     engine.upsert(id="auto_x", name="X", kind="browser_reap", schedule_seconds=60)

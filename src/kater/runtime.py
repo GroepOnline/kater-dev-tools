@@ -264,6 +264,14 @@ class KaterRuntime:
         except Exception as exc:
             _log.warning("janitor: telemetry prune failed: %s", exc)
         try:
+            from kater.automations import get_engine
+
+            removed = get_engine().prune_runs()
+            if removed:
+                _log.info("janitor: pruned %d automation run rows", removed)
+        except Exception as exc:
+            _log.warning("janitor: automation run prune failed: %s", exc)
+        try:
             from kater.control_plane import prune_control_plane_state
             from kater.control_plane.usage import prune_usage_events
 

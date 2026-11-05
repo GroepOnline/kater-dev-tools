@@ -382,6 +382,23 @@ _EXECUTION_FOUNDATION_V11 = (
     )""",
 )
 
+_AUTOMATION_RUNS_V12 = (
+    """CREATE TABLE IF NOT EXISTS automation_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        automation_id TEXT NOT NULL,
+        started_at REAL NOT NULL,
+        finished_at REAL,
+        status TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (status IN ('ok', 'error', 'skipped', 'unknown')),
+        error TEXT,
+        "trigger" TEXT NOT NULL CHECK ("trigger" IN ('schedule', 'manual'))
+    )""",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_automation_runs_automation "
+        "ON automation_runs(automation_id, started_at DESC, id DESC)"
+    ),
+)
+
 #: Ordered, append-only. Add new versions at the end; never edit a released one.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="baseline", statements=_BASELINE),
@@ -403,6 +420,7 @@ MIGRATIONS: tuple[Migration, ...] = (
         statements=AGENT_SESSION_TRANSPORT_SCHEMA,
     ),
     Migration(version=11, name="execution_foundation", statements=_EXECUTION_FOUNDATION_V11),
+    Migration(version=12, name="automation_runs", statements=_AUTOMATION_RUNS_V12),
 )
 
 _CREATE_SCHEMA_TABLE = f"""CREATE TABLE IF NOT EXISTS {SCHEMA_TABLE} (

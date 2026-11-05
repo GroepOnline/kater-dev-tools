@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/api/status`, and `kater version` (`version`, `source_sha`, `release`,
   `artifact_digest`). Missing or malformed fields are null. Release assets
   now include `SHA256SUMS`.
+- Automation run history: migration v12 adds `automation_runs`; the engine
+  records every scheduled and manual run (`ok`, `error`, `skipped`, or
+  `unknown` for timeouts and runs that never finished). Read it via
+  `GET /api/automations/{id}/runs?limit=` (capability `kater.automations.get`).
+  The janitor keeps the newest 200 runs per automation.
 
 ## [1.2.0] - 2026-09-19
 

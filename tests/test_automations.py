@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -345,6 +346,147 @@ def test_api_rejects_unknown_kind():
     assert resp.status == 400
     assert resp.payload is not None
     assert "unknown" in resp.payload["error"]
+
+
+def _reap_manager(manager_factory: MagicMock) -> MagicMock:
+    manager = MagicMock()
+    manager.reap_expired.return_value = 0
+    manager_factory.return_value = manager
+    return manager
+
+
+def test_runs_recorded_for_schedule_and_manual_triggers():
+    clock = {"now": 1000.0}
+    engine = AutomationEngine(clock=lambda: clock["now"])
+    engine.upsert(id="auto_hist", name="Hist", kind="browser_reap", schedule_seconds=60)
+
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        _reap_manager(manager_factory)
+        assert engine.tick() == 1
+        clock["now"] = 1010.0
+        engine.run_now("auto_hist")
+
+    runs = engine.list_runs("auto_hist")
+    assert [(r.trigger, r.status, r.started_at) for r in runs] == [
+        ("manual", "ok", 1010.0),
+        ("schedule", "ok", 1000.0),
+    ]
+    assert all(r.finished_at is not None and r.error is None for r in runs)
+    assert runs[0].to_dict()["duration_ms"] == 0.0
+
+
+def test_run_errors_are_recorded_in_history():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_bad_hist", name="Bad", kind="doctor_watch", schedule_seconds=60)
+    with patch("kater.automations.builtins.run_doctor", side_effect=RuntimeError("boom")):
+        engine.run_now("auto_bad_hist")
+    (run,) = engine.list_runs("auto_bad_hist")
+    assert (run.status, run.error, run.trigger) == ("error", "boom", "manual")
+
+
+def test_timeout_is_recorded_as_unknown():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_slow", name="Slow", kind="doctor_watch", schedule_seconds=60)
+    with patch("kater.automations.builtins.run_doctor", side_effect=TimeoutError("30s")):
+        result = engine.run_now("auto_slow")
+    assert result.status == "unknown"
+    (run,) = engine.list_runs("auto_slow")
+    assert run.status == "unknown"
+    assert run.error == "timeout: 30s"
+    assert run.finished_at is not None
+    loaded = engine.get("auto_slow")
+    assert loaded is not None
+    assert loaded.last_status == "unknown"
+
+
+def test_crash_mid_run_leaves_unknown_unfinished_run():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_crash", name="Crash", kind="doctor_watch", schedule_seconds=60)
+    with (
+        patch("kater.automations.builtins.run_doctor", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        engine.run_now("auto_crash")
+    (run,) = engine.list_runs("auto_crash")
+    assert run.status == "unknown"
+    assert run.finished_at is None
+    assert run.to_dict()["duration_ms"] is None
+
+
+def test_skipped_run_status():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_heal", name="Heal", kind="proxy_heal", schedule_seconds=60)
+    with patch("kater.automations.builtins.get_proxy") as proxy_factory:
+        proxy = MagicMock(spec=["started", "heal"])
+        proxy.started = False
+        proxy_factory.return_value = proxy
+        result = engine.run_now("auto_heal")
+    assert result.status == "skipped"
+    (run,) = engine.list_runs("auto_heal")
+    assert run.status == "skipped"
+
+
+def test_history_write_failure_does_not_block_run():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_nohist", name="NoHist", kind="browser_reap", schedule_seconds=60)
+    with (
+        patch.object(
+            automations_store.AutomationStore,
+            "start_run",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ),
+        patch("kater.automations.builtins.get_manager") as manager_factory,
+    ):
+        _reap_manager(manager_factory)
+        result = engine.run_now("auto_nohist")
+    assert result.status == "ok"
+    assert engine.list_runs("auto_nohist") == []
+
+
+def test_store_rejects_unknown_status_and_trigger():
+    with pytest.raises(ValueError, match="trigger"):
+        automations_store.start_run("auto_x", started_at=1.0, trigger="cron")
+    run_id = automations_store.start_run("auto_x", started_at=1.0, trigger="manual")
+    with pytest.raises(ValueError, match="status"):
+        automations_store.finish_run(run_id, finished_at=2.0, status="cancelled", error=None)
+
+
+def test_prune_runs_keeps_newest_per_automation_and_drops_orphans():
+    engine = AutomationEngine(clock=lambda: 1.0)
+    engine.upsert(id="auto_a", name="A", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_b", name="B", kind="browser_reap", schedule_seconds=60)
+    for i in range(5):
+        automations_store.start_run("auto_a", started_at=float(i), trigger="schedule")
+    automations_store.start_run("auto_b", started_at=1.0, trigger="schedule")
+    automations_store.start_run("auto_gone", started_at=1.0, trigger="manual")
+
+    assert automations_store.prune_runs(keep=2) == 4
+    assert [r.started_at for r in engine.list_runs("auto_a")] == [4.0, 3.0]
+    assert len(engine.list_runs("auto_b")) == 1
+    assert engine.list_runs("auto_gone") == []
+
+    assert engine.delete("auto_b") is True
+    assert engine.list_runs("auto_b") == []
+
+
+def test_api_runs_endpoint():
+    get_engine().upsert(id="auto_api_runs", name="Runs", kind="browser_reap", schedule_seconds=0)
+    for i in range(3):
+        automations_store.start_run("auto_api_runs", started_at=float(i), trigger="manual")
+
+    resp = call("GET", "/api/automations/auto_api_runs/runs", query={"limit": ["2"]})
+    assert resp.status == 200
+    assert resp.payload is not None
+    assert resp.payload["automation_id"] == "auto_api_runs"
+    assert resp.payload["total"] == 2
+    assert [r["started_at"] for r in resp.payload["runs"]] == [2.0, 1.0]
+    assert resp.payload["runs"][0]["status"] == "unknown"
+    assert resp.payload["runs"][0]["trigger"] == "manual"
+
+    assert call(
+        "GET", "/api/automations/auto_api_runs/runs", query={"limit": ["nope"]}
+    ).status == 400
+    assert call("GET", "/api/automations/auto_missing/runs").status == 404
 
 
 def test_get_engine_singleton_and_reset():

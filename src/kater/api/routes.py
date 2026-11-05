@@ -18,6 +18,7 @@ from kater.adapters.external import scan_adapters
 from kater.api.models import Request, Response, route
 from kater.authgate import capability_allowed, resolve_request_identity
 from kater.automations import get_engine
+from kater.automations.store import RUN_HISTORY_KEEP
 from kater.browser.models import BrowserAction
 from kater.browser.policy import PolicyViolation
 from kater.browser.providers import BrowserUnavailableError, probe_providers
@@ -2137,6 +2138,22 @@ def _automations_get(req: Request) -> Response:
     if automation is None:
         return Response.json(404, {"error": "automation not found"})
     return Response.json(200, automation.to_dict())
+
+
+@route("GET", "/api/automations/{id}/runs")
+def _automations_runs(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.get"):
+        return denied
+    automation_id = req.params["id"]
+    try:
+        limit = _parse_limit(req, default=50, maximum=RUN_HISTORY_KEEP)
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    engine = get_engine()
+    if engine.get(automation_id) is None:
+        return Response.json(404, {"error": "automation not found"})
+    runs = [run.to_dict() for run in engine.list_runs(automation_id, limit=limit)]
+    return Response.json(200, {"automation_id": automation_id, "runs": runs, "total": len(runs)})
 
 
 @route("POST", "/api/automations")

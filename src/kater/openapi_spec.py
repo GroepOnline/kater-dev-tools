@@ -990,6 +990,66 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/automations/{id}/runs"] = {
+        "get": {
+            "summary": "List recent runs of an automation",
+            "description": (
+                "Newest first. A run that timed out or never finished (crash, restart) "
+                "reports status `unknown`. History keeps the newest 200 runs per automation."
+            ),
+            "parameters": [
+                _automation_id_param(),
+                {
+                    "name": "limit",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+                },
+            ],
+            "responses": {
+                "200": {
+                    "description": "Run history.",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["automation_id", "runs", "total"],
+                                "properties": {
+                                    "automation_id": {"type": "string"},
+                                    "total": {"type": "integer"},
+                                    "runs": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "id": {"type": "integer"},
+                                                "automation_id": {"type": "string"},
+                                                "started_at": {"type": "number"},
+                                                "finished_at": {"type": ["number", "null"]},
+                                                "duration_ms": {"type": ["number", "null"]},
+                                                "status": {
+                                                    "type": "string",
+                                                    "enum": ["ok", "error", "skipped", "unknown"],
+                                                },
+                                                "error": {"type": ["string", "null"]},
+                                                "trigger": {
+                                                    "type": "string",
+                                                    "enum": ["schedule", "manual"],
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            }
+                        }
+                    },
+                },
+                "400": _error_ref(),
+                "404": _error_ref(),
+            },
+        }
+    }
+
     paths["/api/automations/{id}/enable"] = {
         "post": {
             "summary": "Enable an automation",

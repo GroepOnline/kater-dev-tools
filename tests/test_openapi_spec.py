@@ -118,6 +118,7 @@ class TestBuildPaths:
         assert {"get", "delete"} <= set(paths["/api/automations/{id}"])
         for suffix in ("run", "enable", "disable"):
             assert "post" in paths[f"/api/automations/{{id}}/{suffix}"]
+        assert "get" in paths["/api/automations/{id}/runs"]
 
 
 class TestBuildSchemas:

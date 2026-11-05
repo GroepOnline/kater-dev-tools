@@ -31,6 +31,7 @@ POST_BASELINE_TABLES = (
     "agent_session_work",
     "agent_session_events",
     "execution_idempotency",
+    "automation_runs",
 )
 
 LEGACY_EVENTS_DDL = """
@@ -80,7 +81,7 @@ def test_fresh_database_gets_the_full_baseline(db_path) -> None:
 
     status = migrations.schema_status(db_path)
     assert status["current_version"] == migrations.latest_version()
-    assert status["latest_version"] == 11
+    assert status["latest_version"] == 12
     assert any(m.name == "usage_events" for m in migrations.MIGRATIONS)
     assert status["pending"] == []
     assert status["dirty"] is False

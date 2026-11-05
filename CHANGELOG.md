@@ -23,7 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   records every scheduled and manual run (`ok`, `error`, `skipped`, or
   `unknown` for timeouts and runs that never finished). Read it via
   `GET /api/automations/{id}/runs?limit=` (capability `kater.automations.get`).
-  The janitor keeps the newest 200 runs per automation.
+  The janitor keeps the newest 200 runs per automation; between janitor passes
+  an automation can briefly hold more.
+- Automation `last_status`, the `POST /api/automations/{id}/run` result, and
+  `automation_run` events can now report `skipped` and `unknown` besides
+  `ok` and `error`. Clients that assume `ok|error` must handle both.
 
 ## [1.2.0] - 2026-09-19
 

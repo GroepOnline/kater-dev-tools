@@ -985,6 +985,10 @@ def _build_paths() -> dict[str, Any]:
     paths["/api/automations/{id}/run"] = {
         "post": {
             "summary": "Run an automation now",
+            "description": (
+                "Result `status` (and the automation's `last_status`) is one of "
+                "`ok`, `error`, `skipped`, or `unknown` (timed out)."
+            ),
             "parameters": [_automation_id_param()],
             "responses": {"200": _ok(), "400": _error_ref(), "404": _error_ref()},
         }

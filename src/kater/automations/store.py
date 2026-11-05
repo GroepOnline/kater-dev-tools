@@ -13,6 +13,8 @@ import json
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from kater.automations.models import RUN_STATUSES, RUN_TRIGGERS, Automation, AutomationRun
@@ -64,6 +66,11 @@ DEFAULTS_SEEDED_KEY = "defaults_seeded"
 
 #: Run-history rows kept per automation; older rows are pruned by the janitor.
 RUN_HISTORY_KEEP = 200
+
+# History writes sit on the run path, so they give up on a locked database
+# quickly instead of waiting out the connection's 10s busy timeout.
+_HISTORY_BUSY_TIMEOUT_MS = 500
+_DEFAULT_BUSY_TIMEOUT_MS = 10000
 
 _lock = threading.RLock()
 _db_cache: sqlite3.Connection | None = None
@@ -245,12 +252,12 @@ def start_run(automation_id: str, *, started_at: float, trigger: str) -> int:
         raise ValueError(f"unknown run trigger: {trigger}")
     with _lock:
         db = _get_db()
-        cursor = db.execute(
-            """INSERT INTO automation_runs (automation_id, started_at, status, "trigger")
-               VALUES (?, ?, 'unknown', ?)""",
-            (automation_id, started_at, trigger),
-        )
-        db.commit()
+        with _history_write(db):
+            cursor = db.execute(
+                """INSERT INTO automation_runs (automation_id, started_at, status, "trigger")
+                   VALUES (?, ?, 'unknown', ?)""",
+                (automation_id, started_at, trigger),
+            )
         if cursor.lastrowid is None:
             raise RuntimeError(f"automation run for {automation_id} not recorded")
         return int(cursor.lastrowid)
@@ -261,12 +268,34 @@ def finish_run(run_id: int, *, finished_at: float, status: str, error: str | Non
         raise ValueError(f"unknown run status: {status}")
     with _lock:
         db = _get_db()
-        db.execute(
-            """UPDATE automation_runs SET finished_at = ?, status = ?, error = ?
-               WHERE id = ?""",
-            (finished_at, status, error, run_id),
-        )
+        with _history_write(db):
+            db.execute(
+                """UPDATE automation_runs SET finished_at = ?, status = ?, error = ?
+                   WHERE id = ?""",
+                (finished_at, status, error, run_id),
+            )
+
+
+@contextmanager
+def _history_write(db: sqlite3.Connection) -> Iterator[None]:
+    """Commit one history write under a short busy timeout; roll back on failure."""
+    row = db.execute("PRAGMA busy_timeout").fetchone()
+    previous = int(row[0]) if row else _DEFAULT_BUSY_TIMEOUT_MS
+    # Writers serialize on _lock, so a transaction still open here was left by a
+    # failed earlier write; start clean instead of committing its partial work.
+    if db.in_transaction:
+        db.rollback()
+    db.execute(f"PRAGMA busy_timeout = {_HISTORY_BUSY_TIMEOUT_MS}")
+    try:
+        yield
         db.commit()
+    except BaseException:
+        with suppress(sqlite3.Error):
+            db.rollback()
+        raise
+    finally:
+        with suppress(sqlite3.Error):
+            db.execute(f"PRAGMA busy_timeout = {previous}")
 
 
 def list_runs(automation_id: str, *, limit: int = 50) -> list[AutomationRun]:

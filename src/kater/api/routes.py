@@ -2123,8 +2123,8 @@ def _browser_close_all(req: Request) -> Response:
 def _automations_list(req: Request) -> Response:
     if denied := _require_capability(req, "kater.automations.list"):
         return denied
+    # Runtime startup/maintenance own seeding; discovery must not activate jobs.
     engine = get_engine()
-    engine.ensure_defaults()
     items = [item.to_dict() for item in engine.list()]
     return Response.json(200, {"automations": items, "total": len(items)})
 

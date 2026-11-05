@@ -262,7 +262,7 @@ def test_builtins_do_not_crash_with_mocks():
 def test_api_list_does_not_seed_defaults():
     """A GET must not create enabled schedules in an uninitialized store."""
     assert automations_store.count() == 0
-    assert automations_store.defaults_seeded() is False
+    assert automations_store.AutomationStore().defaults_seeded() is False
 
     # Exercise the REST handler itself, not a mock read-only facade.
     with patch("kater.automations.engine.AutomationEngine.ensure_defaults") as seed:
@@ -271,7 +271,7 @@ def test_api_list_does_not_seed_defaults():
     assert resp.status == 200
     assert resp.payload == {"automations": [], "total": 0}
     assert automations_store.count() == 0
-    assert automations_store.defaults_seeded() is False
+    assert automations_store.AutomationStore().defaults_seeded() is False
 
     # Startup/maintenance explicitly seed defaults, preserving existing UX.
     seeded = get_engine().ensure_defaults()

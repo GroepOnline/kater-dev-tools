@@ -412,7 +412,10 @@ def test_history_write_gives_up_fast_on_locked_db_and_restores_timeout(tmp_path)
     finally:
         blocker.rollback()
         blocker.close()
-    assert db.execute("PRAGMA busy_timeout").fetchone()[0] == 10000
+    assert (
+        db.execute("PRAGMA busy_timeout").fetchone()[0]
+        == automations_store._DEFAULT_BUSY_TIMEOUT_MS
+    )
     assert not db.in_transaction
     automations_store.start_run("auto_x", started_at=2.0, trigger="manual")
     assert [r.started_at for r in automations_store.list_runs("auto_x")] == [2.0]
@@ -434,6 +437,33 @@ def test_tick_survives_locked_last_run_update():
         assert engine.tick() == 2
     assert manager.reap_expired.call_count == 2
     assert [r.status for r in engine.list_runs("auto_two")] == ["ok"]
+
+
+def test_tick_cleanup_keeps_claims_retaken_by_concurrent_run():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_one", name="One", kind="browser_reap", schedule_seconds=60)
+
+    class _RetakenClaims(set[str]):
+        def discard(self, item: str) -> None:
+            super().discard(item)
+            # Simulates a concurrent run_now claiming the id right after release.
+            self.add(item)
+
+    engine._in_flight = _RetakenClaims()
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        _reap_manager(manager_factory)
+        assert engine.tick() == 1
+    assert "auto_one" in engine._in_flight
+
+
+def test_non_timeout_error_with_timeout_in_name_is_error():
+    class InvalidTimeoutError(Exception):
+        pass
+
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_cfg", name="Cfg", kind="doctor_watch", schedule_seconds=60)
+    with patch("kater.automations.builtins.run_doctor", side_effect=InvalidTimeoutError("bad")):
+        assert engine.run_now("auto_cfg").status == "error"
 
 
 def test_aborted_tick_releases_unreached_claims():

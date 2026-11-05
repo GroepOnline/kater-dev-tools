@@ -14,7 +14,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from kater.automations.models import RUN_STATUSES, RUN_TRIGGERS, Automation, AutomationRun
@@ -281,15 +281,20 @@ def _history_write(db: sqlite3.Connection) -> Iterator[None]:
     """Commit one history write under a short busy timeout; roll back on failure."""
     row = db.execute("PRAGMA busy_timeout").fetchone()
     previous = int(row[0]) if row else _DEFAULT_BUSY_TIMEOUT_MS
+    # Never roll back a transaction another write path left open on the shared connection.
+    owns_transaction = not db.in_transaction
     db.execute(f"PRAGMA busy_timeout = {_HISTORY_BUSY_TIMEOUT_MS}")
     try:
         yield
         db.commit()
     except BaseException:
-        db.rollback()
+        if owns_transaction:
+            with suppress(sqlite3.Error):
+                db.rollback()
         raise
     finally:
-        db.execute(f"PRAGMA busy_timeout = {previous}")
+        with suppress(sqlite3.Error):
+            db.execute(f"PRAGMA busy_timeout = {previous}")
 
 
 def list_runs(automation_id: str, *, limit: int = 50) -> list[AutomationRun]:

@@ -26,12 +26,25 @@ _log = logging.getLogger("kater.automations.engine")
 _TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (TimeoutError, subprocess.TimeoutExpired)
 
 
+# HTTP client timeouts (httpx, requests, urllib3) do not subclass TimeoutError.
+_TIMEOUT_CLASS_NAMES = frozenset(
+    {
+        "TimeoutException",
+        "Timeout",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "ConnectTimeoutError",
+        "ReadTimeoutError",
+    }
+)
+
+
 def _is_timeout(exc: BaseException) -> bool:
-    # HTTP clients (httpx.TimeoutException, requests Timeout) do not subclass
-    # TimeoutError, so match their class names as well.
     if isinstance(exc, _TIMEOUT_ERRORS):
         return True
-    return any("timeout" in cls.__name__.lower() for cls in type(exc).__mro__)
+    return any(cls.__name__ in _TIMEOUT_CLASS_NAMES for cls in type(exc).__mro__)
 
 DEFAULT_AUTOMATIONS: tuple[dict[str, Any], ...] = (
     {
@@ -187,6 +200,7 @@ class AutomationEngine:
                 self._in_flight.add(automation.id)
                 due.append(automation)
         ran = 0
+        unreached = [automation.id for automation in due]
         try:
             for automation in due:
                 try:
@@ -195,10 +209,13 @@ class AutomationEngine:
                 finally:
                     with self._lock:
                         self._in_flight.discard(automation.id)
+                        unreached.remove(automation.id)
         finally:
-            # An aborted tick must not strand the claims of automations it never reached.
-            with self._lock:
-                self._in_flight.difference_update(a.id for a in due)
+            # Release only claims this tick never reached; a released id may
+            # already be re-claimed by a concurrent run_now.
+            if unreached:
+                with self._lock:
+                    self._in_flight.difference_update(unreached)
         return ran
 
     def run_now(self, automation_id: str, *, force: bool = False) -> AutomationRunResult:

@@ -279,6 +279,8 @@ def finish_run(run_id: int, *, finished_at: float, status: str, error: str | Non
 @contextmanager
 def _history_write(db: sqlite3.Connection) -> Iterator[None]:
     """Commit one history write under a short busy timeout; roll back on failure."""
+    row = db.execute("PRAGMA busy_timeout").fetchone()
+    previous = int(row[0]) if row else _DEFAULT_BUSY_TIMEOUT_MS
     db.execute(f"PRAGMA busy_timeout = {_HISTORY_BUSY_TIMEOUT_MS}")
     try:
         yield
@@ -287,7 +289,7 @@ def _history_write(db: sqlite3.Connection) -> Iterator[None]:
         db.rollback()
         raise
     finally:
-        db.execute(f"PRAGMA busy_timeout = {_DEFAULT_BUSY_TIMEOUT_MS}")
+        db.execute(f"PRAGMA busy_timeout = {previous}")
 
 
 def list_runs(automation_id: str, *, limit: int = 50) -> list[AutomationRun]:

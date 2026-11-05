@@ -442,6 +442,19 @@ def test_timeout_is_recorded_as_unknown():
     assert loaded.last_status == "unknown"
 
 
+def test_http_client_timeout_is_recorded_as_unknown():
+    class ReadTimeout(Exception):
+        pass
+
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_http", name="Http", kind="doctor_watch", schedule_seconds=60)
+    with patch("kater.automations.builtins.run_doctor", side_effect=ReadTimeout("read")):
+        result = engine.run_now("auto_http")
+    assert result.status == "unknown"
+    (run,) = engine.list_runs("auto_http")
+    assert (run.status, run.error) == ("unknown", "timeout: read")
+
+
 def test_crash_mid_run_leaves_unknown_unfinished_run():
     engine = AutomationEngine(clock=lambda: 42.0)
     engine.upsert(id="auto_crash", name="Crash", kind="doctor_watch", schedule_seconds=60)

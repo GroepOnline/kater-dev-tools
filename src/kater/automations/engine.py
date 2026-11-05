@@ -25,6 +25,14 @@ _log = logging.getLogger("kater.automations.engine")
 # ``unknown`` rather than ``error``.
 _TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (TimeoutError, subprocess.TimeoutExpired)
 
+
+def _is_timeout(exc: BaseException) -> bool:
+    # HTTP clients (httpx.TimeoutException, requests Timeout) do not subclass
+    # TimeoutError, so match their class names as well.
+    if isinstance(exc, _TIMEOUT_ERRORS):
+        return True
+    return any("timeout" in cls.__name__.lower() for cls in type(exc).__mro__)
+
 DEFAULT_AUTOMATIONS: tuple[dict[str, Any], ...] = (
     {
         "id": "auto_doctor_watch",
@@ -219,18 +227,19 @@ class AutomationEngine:
             detail = run_kind(automation.kind, automation.config)
             if detail.get("skipped"):
                 status = "skipped"
-        except _TIMEOUT_ERRORS as exc:
-            status = "unknown"
-            error = f"timeout: {exc}" if str(exc) else "timeout"
-            _log.warning(
-                "automation %s (%s) timed out: %s", automation.id, automation.kind, exc
-            )
         except Exception as exc:
-            status = "error"
-            error = str(exc)
-            _log.warning(
-                "automation %s (%s) failed: %s", automation.id, automation.kind, exc
-            )
+            if _is_timeout(exc):
+                status = "unknown"
+                error = f"timeout: {exc}" if str(exc) else "timeout"
+                _log.warning(
+                    "automation %s (%s) timed out: %s", automation.id, automation.kind, exc
+                )
+            else:
+                status = "error"
+                error = str(exc)
+                _log.warning(
+                    "automation %s (%s) failed: %s", automation.id, automation.kind, exc
+                )
         duration_ms = (time.perf_counter() - started) * 1000.0
         if run_id is not None:
             self._finish_run(run_id, status=status, error=error)
@@ -264,7 +273,7 @@ class AutomationEngine:
             self._store.finish_run(
                 run_id, finished_at=float(self._clock()), status=status, error=error
             )
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, ValueError) as exc:
             _log.warning("automation run %d history finish failed: %s", run_id, exc)
 
     def _broadcast(self, result: AutomationRunResult) -> None:

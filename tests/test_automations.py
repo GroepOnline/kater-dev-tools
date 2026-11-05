@@ -622,6 +622,206 @@ def test_api_runs_endpoint():
     assert call("GET", "/api/automations/auto_missing/runs").status == 404
 
 
+def test_tick_records_one_skipped_run_while_automation_is_in_flight():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_busy", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy")
+
+    assert engine.tick() == 0
+    assert engine.tick() == 0
+
+    (run,) = engine.list_runs("auto_busy")
+    assert run.status == "skipped"
+    assert run.trigger == "schedule"
+    assert run.error == "already running"
+    assert run.started_at == 1000.0
+    assert run.finished_at is not None
+    assert engine._in_flight == {"auto_busy"}
+
+
+def test_tick_records_a_new_skip_after_the_in_flight_run_finishes():
+    clock = [1000.0]
+    engine = AutomationEngine(clock=lambda: clock[0])
+    engine.upsert(id="auto_busy", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy")
+    engine.tick()
+    engine._in_flight.discard("auto_busy")
+
+    clock[0] = 1100.0
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        _reap_manager(manager_factory)
+        assert engine.tick() == 1
+
+    clock[0] = 1200.0
+    engine._in_flight.add("auto_busy")
+    engine.tick()
+
+    assert [r.status for r in engine.list_runs("auto_busy")] == ["skipped", "ok", "skipped"]
+
+
+def test_run_now_while_in_flight_records_skipped_run_and_still_raises():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_busy2", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy2")
+
+    with pytest.raises(ValueError, match="already running"):
+        engine.run_now("auto_busy2")
+
+    (run,) = engine.list_runs("auto_busy2")
+    assert (run.status, run.trigger, run.error) == ("skipped", "manual", "already running")
+    assert engine._in_flight == {"auto_busy2"}
+
+
+def test_skip_history_write_failure_does_not_block_tick():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_busy3", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy3")
+    with patch.object(
+        automations_store.AutomationStore,
+        "record_skipped_run",
+        side_effect=sqlite3.OperationalError("database is locked"),
+    ):
+        assert engine.tick() == 0
+    assert engine.list_runs("auto_busy3") == []
+    assert engine._in_flight == {"auto_busy3"}
+
+
+def test_failed_skip_write_is_retried_by_the_next_blocked_tick():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_retry", name="Retry", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_retry")
+    with patch.object(
+        automations_store.AutomationStore,
+        "record_skipped_run",
+        side_effect=sqlite3.OperationalError("database is locked"),
+    ):
+        engine.tick()
+    assert engine._skip_recorded == set()
+
+    engine.tick()
+    (run,) = engine.list_runs("auto_retry")
+    assert (run.status, run.trigger) == ("skipped", "schedule")
+
+
+def test_skip_write_crash_still_releases_claimed_automations():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_claim", name="Claim", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_busy4", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy4")
+
+    with (
+        patch.object(
+            automations_store.AutomationStore,
+            "record_skipped_run",
+            side_effect=KeyboardInterrupt,
+        ),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        engine.tick()
+    assert engine._in_flight == {"auto_busy4"}
+    assert engine._skip_recorded == set()
+
+
+def test_skip_write_permanent_error_is_not_retried_every_tick():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_perm", name="Perm", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_perm")
+    with patch.object(
+        automations_store.AutomationStore,
+        "record_skipped_run",
+        side_effect=sqlite3.DatabaseError("malformed database schema"),
+    ) as write:
+        engine.tick()
+        engine.tick()
+    assert write.call_count == 1
+    assert engine._skip_recorded == {"auto_perm"}
+
+
+def test_skip_write_abort_returns_marks_for_unattempted_blocked_automations():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    for name in ("auto_b1", "auto_b2", "auto_b3"):
+        engine.upsert(id=name, name=name, kind="browser_reap", schedule_seconds=60)
+        engine._in_flight.add(name)
+
+    calls = {"n": 0}
+
+    def _abort(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt
+        return 1
+
+    with (
+        patch.object(automations_store.AutomationStore, "record_skipped_run", _abort),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        engine.tick()
+    # auto_b1 was written before the abort; auto_b2 returned its own mark and
+    # auto_b3 never got a turn, so both stay retryable.
+    assert engine._skip_recorded == {"auto_b1"}
+
+    engine.tick()
+    recorded = [
+        run.automation_id
+        for name in ("auto_b1", "auto_b2", "auto_b3")
+        for run in engine.list_runs(name)
+    ]
+    # The tail's skips land on the next tick; auto_b1 keeps its mark from the
+    # write that did happen, so it is not duplicated.
+    assert sorted(recorded) == ["auto_b2", "auto_b3"]
+
+
+def test_skip_retry_classifies_extended_busy_codes_as_transient():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_ext", name="Ext", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_ext")
+
+    snapshot_busy = sqlite3.OperationalError("database is locked")
+    snapshot_busy.sqlite_errorcode = 517  # SQLITE_BUSY_SNAPSHOT
+    with patch.object(
+        automations_store.AutomationStore, "record_skipped_run", side_effect=snapshot_busy
+    ):
+        engine.tick()
+    assert engine._skip_recorded == set()
+
+    read_only = sqlite3.OperationalError("attempt to write a readonly database")
+    read_only.sqlite_errorcode = 8  # SQLITE_READONLY
+    with patch.object(
+        automations_store.AutomationStore, "record_skipped_run", side_effect=read_only
+    ):
+        engine.tick()
+    assert engine._skip_recorded == {"auto_ext"}
+
+
+def test_store_rejects_bad_trigger_for_skipped_run():
+    engine = AutomationEngine(clock=lambda: 1.0)
+    engine.upsert(id="auto_x", name="X", kind="browser_reap", schedule_seconds=60)
+    with pytest.raises(ValueError, match="trigger"):
+        automations_store.record_skipped_run(
+            "auto_x", started_at=1.0, trigger="cron", reason="already running"
+        )
+    run_id = automations_store.record_skipped_run(
+        "auto_x", started_at=1.0, trigger="manual", reason="already running"
+    )
+    assert run_id > 0
+    (run,) = automations_store.list_runs("auto_x")
+    assert (run.status, run.finished_at, run.error) == ("skipped", 1.0, "already running")
+
+
+def test_skipped_run_for_deleted_automation_writes_no_orphan_row():
+    engine = AutomationEngine(clock=lambda: 1.0)
+    engine.upsert(id="auto_gone", name="Gone", kind="browser_reap", schedule_seconds=60)
+    assert engine.delete("auto_gone") is True
+
+    assert (
+        automations_store.record_skipped_run(
+            "auto_gone", started_at=1.0, trigger="manual", reason="already running"
+        )
+        == 0
+    )
+    assert automations_store.list_runs("auto_gone") == []
+
+
 def test_get_engine_singleton_and_reset():
     first = get_engine()
     second = get_engine()

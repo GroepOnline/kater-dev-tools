@@ -24,7 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `unknown` for timeouts and runs that never finished). Read it via
   `GET /api/automations/{id}/runs?limit=` (capability `kater.automations.get`).
   The janitor keeps the newest 200 runs per automation; between janitor passes
-  an automation can briefly hold more.
+  an automation can briefly hold more. An attempt the engine refuses because
+  the previous run is still in flight is recorded as `skipped` with error
+  `already running` (one row per in-flight run for the scheduler, one per
+  refused `POST /api/automations/{id}/run`; a skip for an automation that was
+  deleted meanwhile writes nothing).
 - Automation `last_status`, the `POST /api/automations/{id}/run` result, and
   `automation_run` events can now report `skipped` and `unknown` besides
   `ok` and `error`. Clients that assume `ok|error` must handle both.

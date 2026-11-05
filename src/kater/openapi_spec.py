@@ -999,7 +999,9 @@ def _build_paths() -> dict[str, Any]:
             "summary": "List recent runs of an automation",
             "description": (
                 "Newest first. A run that timed out or never finished (crash, restart) "
-                "reports status `unknown`. History keeps the newest 200 runs per automation."
+                "reports status `unknown`; a scheduled or manual attempt refused while the "
+                "previous run was still in flight reports `skipped` with error "
+                "`already running`. History keeps the newest 200 runs per automation."
             ),
             "parameters": [
                 _automation_id_param(),

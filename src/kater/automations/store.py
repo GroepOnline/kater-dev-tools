@@ -263,6 +263,26 @@ def start_run(automation_id: str, *, started_at: float, trigger: str) -> int:
         return int(cursor.lastrowid)
 
 
+def record_skipped_run(
+    automation_id: str, *, started_at: float, trigger: str, reason: str
+) -> int:
+    """Record a run that never started because the automation was already running."""
+    if trigger not in RUN_TRIGGERS:
+        raise ValueError(f"unknown run trigger: {trigger}")
+    with _lock:
+        db = _get_db()
+        with _history_write(db):
+            cursor = db.execute(
+                """INSERT INTO automation_runs
+                       (automation_id, started_at, finished_at, status, error, "trigger")
+                   VALUES (?, ?, ?, 'skipped', ?, ?)""",
+                (automation_id, started_at, started_at, reason, trigger),
+            )
+        if cursor.lastrowid is None:
+            raise RuntimeError(f"automation skip for {automation_id} not recorded")
+        return int(cursor.lastrowid)
+
+
 def finish_run(run_id: int, *, finished_at: float, status: str, error: str | None) -> None:
     if status not in RUN_STATUSES:
         raise ValueError(f"unknown run status: {status}")
@@ -424,6 +444,13 @@ class AutomationStore:
 
     def start_run(self, automation_id: str, *, started_at: float, trigger: str) -> int:
         return start_run(automation_id, started_at=started_at, trigger=trigger)
+
+    def record_skipped_run(
+        self, automation_id: str, *, started_at: float, trigger: str, reason: str
+    ) -> int:
+        return record_skipped_run(
+            automation_id, started_at=started_at, trigger=trigger, reason=reason
+        )
 
     def finish_run(
         self, run_id: int, *, finished_at: float, status: str, error: str | None

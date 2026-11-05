@@ -622,6 +622,80 @@ def test_api_runs_endpoint():
     assert call("GET", "/api/automations/auto_missing/runs").status == 404
 
 
+def test_tick_records_one_skipped_run_while_automation_is_in_flight():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_busy", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy")
+
+    assert engine.tick() == 0
+    assert engine.tick() == 0
+
+    (run,) = engine.list_runs("auto_busy")
+    assert run.status == "skipped"
+    assert run.trigger == "schedule"
+    assert run.error == "already running"
+    assert run.finished_at is not None
+    assert engine._in_flight == {"auto_busy"}
+
+
+def test_tick_records_a_new_skip_after_the_in_flight_run_finishes():
+    clock = [1000.0]
+    engine = AutomationEngine(clock=lambda: clock[0])
+    engine.upsert(id="auto_busy", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy")
+    engine.tick()
+    engine._in_flight.discard("auto_busy")
+
+    clock[0] = 1100.0
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        _reap_manager(manager_factory)
+        assert engine.tick() == 1
+
+    clock[0] = 1200.0
+    engine._in_flight.add("auto_busy")
+    engine.tick()
+
+    assert [r.status for r in engine.list_runs("auto_busy")] == ["skipped", "ok", "skipped"]
+
+
+def test_run_now_while_in_flight_records_skipped_run_and_still_raises():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_busy2", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy2")
+
+    with pytest.raises(ValueError, match="already running"):
+        engine.run_now("auto_busy2")
+
+    (run,) = engine.list_runs("auto_busy2")
+    assert (run.status, run.trigger, run.error) == ("skipped", "manual", "already running")
+    assert engine._in_flight == {"auto_busy2"}
+
+
+def test_skip_history_write_failure_does_not_block_tick():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_busy3", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy3")
+    with patch.object(
+        automations_store.AutomationStore,
+        "record_skipped_run",
+        side_effect=sqlite3.OperationalError("database is locked"),
+    ):
+        assert engine.tick() == 0
+    assert engine.list_runs("auto_busy3") == []
+
+
+def test_store_rejects_bad_trigger_for_skipped_run():
+    with pytest.raises(ValueError, match="trigger"):
+        automations_store.record_skipped_run(
+            "auto_x", started_at=1.0, trigger="cron", reason="already running"
+        )
+    automations_store.record_skipped_run(
+        "auto_x", started_at=1.0, trigger="manual", reason="already running"
+    )
+    (run,) = automations_store.list_runs("auto_x")
+    assert (run.status, run.finished_at, run.error) == ("skipped", 1.0, "already running")
+
+
 def test_get_engine_singleton_and_reset():
     first = get_engine()
     second = get_engine()

@@ -281,16 +281,17 @@ def _history_write(db: sqlite3.Connection) -> Iterator[None]:
     """Commit one history write under a short busy timeout; roll back on failure."""
     row = db.execute("PRAGMA busy_timeout").fetchone()
     previous = int(row[0]) if row else _DEFAULT_BUSY_TIMEOUT_MS
-    # Never roll back a transaction another write path left open on the shared connection.
-    owns_transaction = not db.in_transaction
+    # Writers serialize on _lock, so a transaction still open here was left by a
+    # failed earlier write; start clean instead of committing its partial work.
+    if db.in_transaction:
+        db.rollback()
     db.execute(f"PRAGMA busy_timeout = {_HISTORY_BUSY_TIMEOUT_MS}")
     try:
         yield
         db.commit()
     except BaseException:
-        if owns_transaction:
-            with suppress(sqlite3.Error):
-                db.rollback()
+        with suppress(sqlite3.Error):
+            db.rollback()
         raise
     finally:
         with suppress(sqlite3.Error):

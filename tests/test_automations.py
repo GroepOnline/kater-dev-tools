@@ -444,10 +444,14 @@ def test_tick_cleanup_keeps_claims_retaken_by_concurrent_run():
     engine.upsert(id="auto_one", name="One", kind="browser_reap", schedule_seconds=60)
 
     class _RetakenClaims(set[str]):
+        retaken = False
+
         def discard(self, item: str) -> None:
             super().discard(item)
-            # Simulates a concurrent run_now claiming the id right after release.
-            self.add(item)
+            if not self.retaken:
+                # Simulates one concurrent run_now claiming the id right after release.
+                self.retaken = True
+                self.add(item)
 
     engine._in_flight = _RetakenClaims()
     with patch("kater.automations.builtins.get_manager") as manager_factory:
@@ -464,6 +468,18 @@ def test_non_timeout_error_with_timeout_in_name_is_error():
     engine.upsert(id="auto_cfg", name="Cfg", kind="doctor_watch", schedule_seconds=60)
     with patch("kater.automations.builtins.run_doctor", side_effect=InvalidTimeoutError("bad")):
         assert engine.run_now("auto_cfg").status == "error"
+
+
+def test_history_write_discards_stale_transaction():
+    db = automations_store._get_db()
+    db.execute("BEGIN")
+    db.execute(
+        """INSERT INTO automation_runs (automation_id, started_at, status, "trigger")
+           VALUES ('auto_stale', 1.0, 'unknown', 'manual')"""
+    )
+    automations_store.start_run("auto_x", started_at=2.0, trigger="manual")
+    assert automations_store.list_runs("auto_stale") == []
+    assert len(automations_store.list_runs("auto_x")) == 1
 
 
 def test_aborted_tick_releases_unreached_claims():

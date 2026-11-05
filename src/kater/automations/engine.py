@@ -187,13 +187,18 @@ class AutomationEngine:
                 self._in_flight.add(automation.id)
                 due.append(automation)
         ran = 0
-        for automation in due:
-            try:
-                self._execute(automation, ran_at=now, trigger="schedule")
-                ran += 1
-            finally:
-                with self._lock:
-                    self._in_flight.discard(automation.id)
+        try:
+            for automation in due:
+                try:
+                    self._execute(automation, ran_at=now, trigger="schedule")
+                    ran += 1
+                finally:
+                    with self._lock:
+                        self._in_flight.discard(automation.id)
+        finally:
+            # An aborted tick must not strand the claims of automations it never reached.
+            with self._lock:
+                self._in_flight.difference_update(a.id for a in due)
         return ran
 
     def run_now(self, automation_id: str, *, force: bool = False) -> AutomationRunResult:
@@ -243,9 +248,12 @@ class AutomationEngine:
         duration_ms = (time.perf_counter() - started) * 1000.0
         if run_id is not None:
             self._finish_run(run_id, status=status, error=error)
-        self._store.record_run(
-            automation.id, ran_at=ran_at, status=status, error=error
-        )
+        try:
+            self._store.record_run(
+                automation.id, ran_at=ran_at, status=status, error=error
+            )
+        except sqlite3.Error as exc:
+            _log.warning("automation %s last-run update failed: %s", automation.id, exc)
         result = AutomationRunResult(
             id=automation.id,
             kind=automation.kind,

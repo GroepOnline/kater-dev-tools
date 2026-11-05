@@ -408,7 +408,7 @@ def test_history_write_gives_up_fast_on_locked_db_and_restores_timeout(tmp_path)
         started = time.monotonic()
         with pytest.raises(sqlite3.OperationalError, match="locked"):
             automations_store.start_run("auto_x", started_at=1.0, trigger="manual")
-        assert time.monotonic() - started < 5.0
+        assert time.monotonic() - started < 2.0
     finally:
         blocker.rollback()
         blocker.close()
@@ -416,6 +416,36 @@ def test_history_write_gives_up_fast_on_locked_db_and_restores_timeout(tmp_path)
     assert not db.in_transaction
     automations_store.start_run("auto_x", started_at=2.0, trigger="manual")
     assert [r.started_at for r in automations_store.list_runs("auto_x")] == [2.0]
+
+
+def test_tick_survives_locked_last_run_update():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_one", name="One", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_two", name="Two", kind="browser_reap", schedule_seconds=60)
+    with (
+        patch.object(
+            automations_store.AutomationStore,
+            "record_run",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ),
+        patch("kater.automations.builtins.get_manager") as manager_factory,
+    ):
+        manager = _reap_manager(manager_factory)
+        assert engine.tick() == 2
+    assert manager.reap_expired.call_count == 2
+    assert [r.status for r in engine.list_runs("auto_two")] == ["ok"]
+
+
+def test_aborted_tick_releases_unreached_claims():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_one", name="One", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_two", name="Two", kind="browser_reap", schedule_seconds=60)
+    with (
+        patch.object(AutomationEngine, "_execute", side_effect=RuntimeError("boom")),
+        pytest.raises(RuntimeError),
+    ):
+        engine.tick()
+    assert engine._in_flight == set()
 
 
 def test_run_errors_are_recorded_in_history():

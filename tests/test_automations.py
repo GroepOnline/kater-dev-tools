@@ -259,12 +259,28 @@ def test_builtins_do_not_crash_with_mocks():
             record.assert_called_once()
 
 
-def test_api_list_seeds_defaults():
-    resp = call("GET", "/api/automations")
+def test_api_list_does_not_seed_defaults():
+    """A GET must not create enabled schedules in an uninitialized store."""
+    assert automations_store.count() == 0
+    assert automations_store.AutomationStore().defaults_seeded() is False
+
+    # Exercise the REST handler itself, not a mock read-only facade.
+    with patch("kater.automations.engine.AutomationEngine.ensure_defaults") as seed:
+        resp = call("GET", "/api/automations")
+    seed.assert_not_called()
     assert resp.status == 200
-    assert resp.payload is not None
-    assert resp.payload["total"] == len(DEFAULT_AUTOMATIONS)
-    assert len(resp.payload["automations"]) == len(DEFAULT_AUTOMATIONS)
+    assert resp.payload == {"automations": [], "total": 0}
+    assert automations_store.count() == 0
+    assert automations_store.AutomationStore().defaults_seeded() is False
+
+    # Startup/maintenance explicitly seed defaults, preserving existing UX.
+    seeded = get_engine().ensure_defaults()
+    assert len(seeded) == len(DEFAULT_AUTOMATIONS)
+    populated = call("GET", "/api/automations")
+    assert populated.status == 200
+    assert populated.payload is not None
+    assert populated.payload["total"] == len(DEFAULT_AUTOMATIONS)
+    assert len(populated.payload["automations"]) == len(DEFAULT_AUTOMATIONS)
 
 
 def test_api_crud_enable_run_delete():

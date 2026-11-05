@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an automation can briefly hold more. An attempt the engine refuses because
   the previous run is still in flight is recorded as `skipped` with error
   `already running` (one row per in-flight run for the scheduler, one per
-  refused `POST /api/automations/{id}/run`).
+  refused `POST /api/automations/{id}/run`; a skip for an automation that was
+  deleted meanwhile writes nothing).
 - Automation `last_status`, the `POST /api/automations/{id}/run` result, and
   `automation_run` events can now report `skipped` and `unknown` besides
   `ok` and `error`. Clients that assume `ok|error` must handle both.

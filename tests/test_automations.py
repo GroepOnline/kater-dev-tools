@@ -719,18 +719,51 @@ def test_skip_write_crash_still_releases_claimed_automations():
     ):
         engine.tick()
     assert engine._in_flight == {"auto_busy4"}
+    assert engine._skip_recorded == set()
+
+
+def test_skip_write_permanent_error_is_not_retried_every_tick():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_perm", name="Perm", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_perm")
+    with patch.object(
+        automations_store.AutomationStore,
+        "record_skipped_run",
+        side_effect=sqlite3.DatabaseError("malformed database schema"),
+    ) as write:
+        engine.tick()
+        engine.tick()
+    assert write.call_count == 1
+    assert engine._skip_recorded == {"auto_perm"}
 
 
 def test_store_rejects_bad_trigger_for_skipped_run():
+    engine = AutomationEngine(clock=lambda: 1.0)
+    engine.upsert(id="auto_x", name="X", kind="browser_reap", schedule_seconds=60)
     with pytest.raises(ValueError, match="trigger"):
         automations_store.record_skipped_run(
             "auto_x", started_at=1.0, trigger="cron", reason="already running"
         )
-    automations_store.record_skipped_run(
+    run_id = automations_store.record_skipped_run(
         "auto_x", started_at=1.0, trigger="manual", reason="already running"
     )
+    assert run_id > 0
     (run,) = automations_store.list_runs("auto_x")
     assert (run.status, run.finished_at, run.error) == ("skipped", 1.0, "already running")
+
+
+def test_skipped_run_for_deleted_automation_writes_no_orphan_row():
+    engine = AutomationEngine(clock=lambda: 1.0)
+    engine.upsert(id="auto_gone", name="Gone", kind="browser_reap", schedule_seconds=60)
+    assert engine.delete("auto_gone") is True
+
+    assert (
+        automations_store.record_skipped_run(
+            "auto_gone", started_at=1.0, trigger="manual", reason="already running"
+        )
+        == 0
+    )
+    assert automations_store.list_runs("auto_gone") == []
 
 
 def test_get_engine_singleton_and_reset():

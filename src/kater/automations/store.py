@@ -266,7 +266,11 @@ def start_run(automation_id: str, *, started_at: float, trigger: str) -> int:
 def record_skipped_run(
     automation_id: str, *, started_at: float, trigger: str, reason: str
 ) -> int:
-    """Record a run that never started because the automation was already running."""
+    """Record a run that never started because the automation was already running.
+
+    Returns 0 when the automation was deleted meanwhile, so a skip write racing
+    a delete cannot leave an orphan row.
+    """
     if trigger not in RUN_TRIGGERS:
         raise ValueError(f"unknown run trigger: {trigger}")
     with _lock:
@@ -275,11 +279,14 @@ def record_skipped_run(
             cursor = db.execute(
                 """INSERT INTO automation_runs
                        (automation_id, started_at, finished_at, status, error, "trigger")
-                   VALUES (?, ?, ?, 'skipped', ?, ?)""",
-                (automation_id, started_at, started_at, reason, trigger),
+                   SELECT ?, ?, ?, 'skipped', ?, ?
+                   WHERE EXISTS (SELECT 1 FROM automations WHERE id = ?)""",
+                (automation_id, started_at, started_at, reason, trigger, automation_id),
             )
-        if cursor.lastrowid is None:
-            raise RuntimeError(f"automation skip for {automation_id} not recorded")
+        # ``lastrowid`` keeps the connection's previous insert id when the
+        # guarded INSERT inserts nothing, so ``rowcount`` decides.
+        if cursor.rowcount <= 0 or cursor.lastrowid is None:
+            return 0
         return int(cursor.lastrowid)
 
 

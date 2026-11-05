@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
+import builtins
 import logging
+import sqlite3
+import subprocess
 import threading
 import time
 from typing import Any
 
 from kater.automations.builtins import KNOWN_KINDS, run_kind
-from kater.automations.models import Automation, AutomationRunResult, new_automation_id
+from kater.automations.models import (
+    Automation,
+    AutomationRun,
+    AutomationRunResult,
+    new_automation_id,
+)
 from kater.automations.store import AutomationStore, reset_cache
 
 _log = logging.getLogger("kater.automations.engine")
+
+# A timed-out run may or may not have done its work, so it is recorded as
+# ``unknown`` rather than ``error``.
+_TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (TimeoutError, subprocess.TimeoutExpired)
 
 DEFAULT_AUTOMATIONS: tuple[dict[str, Any], ...] = (
     {
@@ -133,6 +145,14 @@ class AutomationEngine:
     def delete(self, automation_id: str) -> bool:
         return self._store.delete(automation_id)
 
+    def list_runs(
+        self, automation_id: str, *, limit: int = 50
+    ) -> builtins.list[AutomationRun]:
+        return self._store.list_runs(automation_id, limit=limit)
+
+    def prune_runs(self) -> int:
+        return self._store.prune_runs()
+
     def tick(self) -> int:
         """Run every enabled automation that is due. Returns how many ran.
 
@@ -161,7 +181,7 @@ class AutomationEngine:
         ran = 0
         for automation in due:
             try:
-                self._execute(automation, ran_at=now)
+                self._execute(automation, ran_at=now, trigger="schedule")
                 ran += 1
             finally:
                 with self._lock:
@@ -179,18 +199,29 @@ class AutomationEngine:
                 raise ValueError(f"automation {automation_id} is already running")
             self._in_flight.add(automation_id)
         try:
-            return self._execute(automation, ran_at=float(self._clock()))
+            return self._execute(automation, ran_at=float(self._clock()), trigger="manual")
         finally:
             with self._lock:
                 self._in_flight.discard(automation_id)
 
-    def _execute(self, automation: Automation, *, ran_at: float) -> AutomationRunResult:
+    def _execute(
+        self, automation: Automation, *, ran_at: float, trigger: str
+    ) -> AutomationRunResult:
+        run_id = self._start_run(automation.id, ran_at=ran_at, trigger=trigger)
         started = time.perf_counter()
         status = "ok"
         error: str | None = None
         detail: dict[str, Any] = {}
         try:
             detail = run_kind(automation.kind, automation.config)
+            if detail.get("skipped"):
+                status = "skipped"
+        except _TIMEOUT_ERRORS as exc:
+            status = "unknown"
+            error = f"timeout: {exc}" if str(exc) else "timeout"
+            _log.warning(
+                "automation %s (%s) timed out: %s", automation.id, automation.kind, exc
+            )
         except Exception as exc:
             status = "error"
             error = str(exc)
@@ -198,6 +229,8 @@ class AutomationEngine:
                 "automation %s (%s) failed: %s", automation.id, automation.kind, exc
             )
         duration_ms = (time.perf_counter() - started) * 1000.0
+        if run_id is not None:
+            self._finish_run(run_id, status=status, error=error)
         self._store.record_run(
             automation.id, ran_at=ran_at, status=status, error=error
         )
@@ -212,6 +245,22 @@ class AutomationEngine:
         )
         self._broadcast(result)
         return result
+
+    def _start_run(self, automation_id: str, *, ran_at: float, trigger: str) -> int | None:
+        # History is best-effort: a failed history write must not block the run.
+        try:
+            return self._store.start_run(automation_id, started_at=ran_at, trigger=trigger)
+        except (sqlite3.Error, RuntimeError) as exc:
+            _log.warning("automation %s run history start failed: %s", automation_id, exc)
+            return None
+
+    def _finish_run(self, run_id: int, *, status: str, error: str | None) -> None:
+        try:
+            self._store.finish_run(
+                run_id, finished_at=float(self._clock()), status=status, error=error
+            )
+        except sqlite3.Error as exc:
+            _log.warning("automation run %d history finish failed: %s", run_id, exc)
 
     def _broadcast(self, result: AutomationRunResult) -> None:
         try:

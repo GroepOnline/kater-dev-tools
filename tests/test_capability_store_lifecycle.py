@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from kater.capabilities.builtins import BUILTIN_CAPABILITIES
 from kater.capabilities.models import LifecycleState
+from kater.capabilities.registry import reset_default_registry
 from kater.capabilities.store import (
     clear_capability_state,
     get_capability,
@@ -29,3 +30,79 @@ def test_manifest_refresh_preserves_persisted_revocation(tmp_path, monkeypatch) 
     assert persisted is not None
     assert persisted.lifecycle_state is LifecycleState.REVOKED
     clear_capability_state()
+    reset_default_registry()
+
+
+def test_register_file_preserves_http_fields(tmp_path, monkeypatch) -> None:
+    import json
+
+    from typer.testing import CliRunner
+
+    from kater.capabilities.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    document = {
+        "capability_id": "domain.search.hybrid",
+        "package_id": "domain",
+        "publisher_id": "overlay",
+        "version": "1.2.3",
+        "transport": "http",
+        "method": "POST",
+        "path": "/search",
+        "timeout_seconds": 4.5,
+        "mutation": True,
+        "idempotency_required": True,
+    }
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(document))
+
+    result = CliRunner().invoke(app, ["register", "--file", str(manifest_file)])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    for key in ("method", "path", "timeout_seconds", "mutation", "idempotency_required"):
+        assert payload[key] == document[key], key
+    persisted = get_capability("domain.search.hybrid", "1.2.3")
+    assert persisted is not None
+    assert persisted.method == "POST"
+    assert persisted.path == "/search"
+    assert persisted.timeout_seconds == 4.5
+    assert persisted.mutation is True
+    assert persisted.idempotency_required is True
+    clear_capability_state()
+    reset_default_registry()
+
+
+def test_register_file_rejects_string_booleans_and_nonfinite_timeout(tmp_path, monkeypatch) -> None:
+    import json
+
+    from typer.testing import CliRunner
+
+    from kater.capabilities.cli import app
+
+    monkeypatch.setenv("KATER_CAPABILITIES_DB", str(tmp_path / "caps.db"))
+    base = {
+        "capability_id": "domain.search.hybrid",
+        "version": "1.2.3",
+        "lifecycle_state": "active",
+        "method": "GET",
+        "path": "/search",
+        "timeout_seconds": 1.0,
+        "mutation": False,
+        "idempotency_required": False,
+    }
+
+    string_bool = tmp_path / "string-bool.json"
+    doc = dict(base, mutation="false")
+    string_bool.write_text(json.dumps(doc))
+    result = CliRunner().invoke(app, ["register", "--file", str(string_bool)])
+    assert result.exit_code != 0, result.output
+
+    nan_timeout = tmp_path / "nan-timeout.json"
+    doc = dict(base, timeout_seconds="NaN")
+    nan_timeout.write_text(json.dumps(doc))
+    result = CliRunner().invoke(app, ["register", "--file", str(nan_timeout)])
+    assert result.exit_code != 0, result.output
+
+    clear_capability_state()
+    reset_default_registry()

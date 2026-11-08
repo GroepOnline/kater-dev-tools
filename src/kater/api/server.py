@@ -10,12 +10,13 @@ from __future__ import annotations
 import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 # Import routes once so every @route decorator fires and populates ROUTER.
 # This import MUST happen before any call to handle(); it is safe at module
 # level because routes.py only uses lazy imports for heavy dependencies.
 from kater.api.models import ROUTER, Request, Response
+from kater.resource_auth import ResourceAuthConfigurationError
 from kater.settings import (
     RateLimiter,
     cors_allow_origin,
@@ -30,6 +31,11 @@ _log = logging.getLogger(__name__)
 # ── Rate limiter (module-level) ────────────────────────────────────
 
 _rate_limiter: RateLimiter | None = None
+
+
+def _resource_auth_configuration_response() -> Response:
+    """Return the fixed, non-sensitive response for invalid resource auth state."""
+    return Response.json(503, {"error": ResourceAuthConfigurationError.code})
 
 
 def _get_rate_limiter() -> RateLimiter:
@@ -65,6 +71,132 @@ def _resolve_client_ip(forwarded_for: str | None, client_address_ip: str) -> str
 
 # ── The pipeline: one function decides every request ───────────────
 
+_PRODUCT_BROWSER_PAGES = frozenset({"/", "/dashboard", "/studio"})
+_SAFE_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _is_product_browser_page(path: str, *, oidc_on: bool) -> bool:
+    return oidc_on and path in _PRODUCT_BROWSER_PAGES
+
+
+def _session_cookie_value(request: Request) -> str:
+    from kater.browser_auth import SESSION_COOKIE, cookie_value
+
+    return cookie_value(request.header("cookie"), SESSION_COOKIE)
+
+
+def _enforce_session_origin_for_mutations(request: Request, session_value: str) -> Response | None:
+    from kater.browser_auth import valid_origin
+
+    if not session_value or request.method in _SAFE_READ_METHODS:
+        return None
+    if request.header("authorization") or valid_origin(request.header("origin"), request.base_url):
+        return None
+    return Response.json(403, {"error": "origin_required"})
+
+
+def _oidc_partial_block(request: Request, *, route_public: bool) -> Response | None:
+    from kater.oidc import oidc_partial
+
+    if not oidc_partial():
+        return None
+    if route_public and request.path not in _PRODUCT_BROWSER_PAGES:
+        return None
+    return Response.json(503, {"error": "oidc_partial"})
+
+
+def _oidc_session_error_status(code: str) -> int:
+    if code == "oidc_session_invalid":
+        return 401
+    if code == "oidc_entitlement_required":
+        return 403
+    return 503
+
+
+def _apply_browser_session(session_value: str) -> Response | None:
+    from kater.authgate import RequestIdentity, set_request_identity
+    from kater.browser_auth import authenticate_session
+    from kater.oidc import OidcError
+
+    try:
+        session = authenticate_session(session_value)
+    except OidcError as exc:
+        return Response.json(_oidc_session_error_status(exc.code), {"error": exc.code})
+    set_request_identity(RequestIdentity(principal_id=session.subject))
+    return None
+
+
+def _redirect_product_login(request: Request) -> Response:
+    return_to = request.path
+    if request.query:
+        return_to += "?" + urlencode(request.query, doseq=True)
+    return Response.redirect("/oidc/login?" + urlencode({"returnTo": return_to}))
+
+
+def _authenticate_non_public_route(request: Request) -> Response | None:
+    from kater.authgate import AuthContext, authenticate
+
+    try:
+        decision = authenticate(
+            AuthContext(
+                settings=load_settings(),
+                authorization_header=request.header("authorization"),
+                query_api_key=request.query1("api_key"),
+                path=request.path,
+                context_header=request.header("x-kater-context"),
+            )
+        )
+    except ResourceAuthConfigurationError:
+        return _resource_auth_configuration_response()
+    if not decision.allowed:
+        return Response.json(401, {"error": decision.error or "Unauthorized"})
+    return None
+
+
+def _bind_public_route_identity(request: Request) -> Response | None:
+    from kater.authgate import resolve_identity_from_headers, set_request_identity
+
+    identity, ctx_error = resolve_identity_from_headers(
+        request.header("x-kater-context"), request.header("authorization")
+    )
+    if ctx_error:
+        set_request_identity(None)
+        return Response.json(401, {"error": ctx_error})
+    set_request_identity(identity)
+    return None
+
+
+def _enforce_access_policy(request: Request, matched_route: Any) -> Response | None:
+    from kater.oidc import oidc_enabled
+
+    oidc_on = oidc_enabled()
+    product_browser = _is_product_browser_page(request.path, oidc_on=oidc_on)
+    session_value = _session_cookie_value(request)
+    if denied := _enforce_session_origin_for_mutations(request, session_value):
+        return denied
+    if denied := _oidc_partial_block(request, route_public=matched_route.public):
+        return denied
+    use_session = oidc_on and session_value and not request.header("authorization")
+    if product_browser and use_session:
+        return _apply_browser_session(session_value)
+    if product_browser:
+        return _redirect_product_login(request)
+    if not matched_route.public:
+        return _authenticate_non_public_route(request)
+    return _bind_public_route_identity(request)
+
+
+def _dispatch_handler(request: Request, matched_route: Any) -> Response:
+    try:
+        return matched_route.handler(request)
+    except ResourceAuthConfigurationError:
+        return _resource_auth_configuration_response()
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    except Exception:
+        _log.exception("Internal error handling %s %s", request.method, request.path)
+        return Response.json(500, {"error": "Internal server error"})
+
 
 def handle(request: Request) -> Response:
     if request.method == "OPTIONS":
@@ -77,44 +209,18 @@ def handle(request: Request) -> Response:
     matched_route, params = matched
     request.params = params
 
-    if matched_route.rate_limit and not _get_rate_limiter().check(request.client_ip):
-        return Response.json(429, {"error": "Rate limit exceeded. Try again later."})
+    if matched_route.rate_limit:
+        try:
+            rate_limited = not _get_rate_limiter().check(request.client_ip)
+        except ResourceAuthConfigurationError:
+            return _resource_auth_configuration_response()
+        if rate_limited:
+            return Response.json(429, {"error": "Rate limit exceeded. Try again later."})
 
-    if not matched_route.public:
-        from kater.authgate import AuthContext, authenticate
+    if denied := _enforce_access_policy(request, matched_route):
+        return denied
 
-        decision = authenticate(
-            AuthContext(
-                settings=load_settings(),
-                authorization_header=request.header("authorization"),
-                query_api_key=request.query1("api_key"),
-                path=request.path,
-                context_header=request.header("x-kater-context"),
-            )
-        )
-        if not decision.allowed:
-            return Response.json(401, {"error": decision.error or "Unauthorized"})
-    else:
-        # Public routes skip credential checks, but a caller that presents an
-        # explicit context token must still fail closed when it is invalid --
-        # otherwise a bad token silently downgrades to anonymous access.
-        from kater.authgate import resolve_identity_from_headers, set_request_identity
-
-        identity, ctx_error = resolve_identity_from_headers(
-            request.header("x-kater-context"), request.header("authorization")
-        )
-        if ctx_error:
-            set_request_identity(None)
-            return Response.json(401, {"error": ctx_error})
-        set_request_identity(identity)
-
-    try:
-        return matched_route.handler(request)
-    except ValueError as exc:
-        return Response.json(400, {"error": str(exc)})
-    except Exception:
-        _log.exception("Internal error handling %s %s", request.method, request.path)
-        return Response.json(500, {"error": "Internal server error"})
+    return _dispatch_handler(request, matched_route)
 
 
 # ── Stdlib HTTP adapter ────────────────────────────────────────────
@@ -151,7 +257,12 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
             return None
         raw = b""
         if length:
-            if length > load_settings().body_size_limit:
+            try:
+                body_size_limit = load_settings().body_size_limit
+            except ResourceAuthConfigurationError:
+                self._write(_resource_auth_configuration_response())
+                return None
+            if length > body_size_limit:
                 self._write(Response.json(400, {"error": "Request body too large"}))
                 return None
             raw = self.rfile.read(length)
@@ -219,12 +330,17 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         # Apply rate limiting to OPTIONS (CORS preflight) to prevent DoS.
-        if _get_rate_limiter().check(
-            _resolve_client_ip(
-                self.headers.get("X-Forwarded-For", ""),
-                self.client_address[0] if self.client_address else "",
+        try:
+            allowed = _get_rate_limiter().check(
+                _resolve_client_ip(
+                    self.headers.get("X-Forwarded-For", ""),
+                    self.client_address[0] if self.client_address else "",
+                )
             )
-        ):
+        except ResourceAuthConfigurationError:
+            self._write(_resource_auth_configuration_response())
+            return
+        if allowed:
             self._write(Response.json(200, {"ok": True}))
         else:
             self._write(Response.json(429, {"error": "rate limit exceeded"}))
@@ -232,7 +348,12 @@ class KaterAPIHandler(BaseHTTPRequestHandler):
     def _write(self, response: Response) -> None:
         body = response.encoded()
         origin = self.headers.get("Origin")
-        allow = cors_allow_origin(load_settings(), origin)
+        try:
+            allow = cors_allow_origin(load_settings(), origin)
+        except ResourceAuthConfigurationError:
+            # The error response itself must not re-open the broken settings
+            # boundary or reveal any persisted configuration in a CORS header.
+            allow = None
         self.send_response(response.status)
         self.send_header("Content-Type", response.content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -271,5 +392,8 @@ def create_api_server(host: str = "127.0.0.1", port: int = 9091) -> ThreadingHTT
 
 
 def serve_api(host: str = "127.0.0.1", port: int = 9091) -> None:
+    from kater.build_identity import format_identity_log
+
+    _log.info("runtime identity %s", format_identity_log())
     server = create_api_server(host, port)
     server.serve_forever()

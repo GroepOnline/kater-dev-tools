@@ -415,19 +415,24 @@ def test_environment_json_wires_skills_sync() -> None:
     raw = (REPO / ".cursor" / "environment.json").read_text(encoding="utf-8")
     payload = json.loads(raw)
     assert "repositoryDependencies" not in payload
-    assert "sync-chefgroep-skills.sh" in payload["install"]
     install = payload["install"]
+    assert "cloud-agent-install.sh" in install
+    script = (REPO / "scripts" / "cloud-agent-install.sh").read_text(encoding="utf-8")
+    assert "sync-chefgroep-skills.sh" in script
     assert "CHEFGROEP_SKILLS_REPO=github.com/" not in install
+    assert "CHEFGROEP_SKILLS_REPO=github.com/" not in script
     # Concatenate so this test file is not itself an org-handle leak.
     assert "Groep" + "Online" not in raw
     assert "Online" + "ChefGroep" not in raw
-    uv_sync_at = install.find("uv sync --dev")
-    index_at = install.find("uv run python scripts/generate_cursor_index.py")
+    uv_sync_at = script.find("uv sync --dev")
+    index_at = script.find("uv run python scripts/generate_cursor_index.py")
     assert uv_sync_at >= 0
     assert index_at > uv_sync_at
-    assert "python3 scripts/generate_cursor_index.py" not in install
+    assert "python3 scripts/generate_cursor_index.py" not in script
     assert "posthog" not in install.lower()
     assert "harness" not in install.lower()
+    assert "posthog" not in script.lower()
+    assert "harness" not in script.lower()
 
 
 def test_cache_origin_never_stores_credentials(tmp_path: Path) -> None:

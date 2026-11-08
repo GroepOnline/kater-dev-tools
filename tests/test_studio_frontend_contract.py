@@ -47,6 +47,8 @@ def test_studio_never_replaces_the_python_runtime_with_mock_state() -> None:
     assert "/api/contexts" in source
     assert "/api/audit/capabilities" in source
     assert "/api/settings" in source
+    assert "/session/work" in source
+    assert "/session/events" in source
 
 
 def test_google_ai_studio_branch_is_documented_as_salvage_only() -> None:
@@ -95,14 +97,21 @@ def test_agent_runtime_handoff_is_correlation_only() -> None:
     assert "AgentRuntimeHandoff" in agents
 
 
-def test_agent_session_projection_stays_read_only_and_context_authoritative() -> None:
+def test_agent_session_transport_is_bound_to_python_context_authority() -> None:
     agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
     client = (STUDIO / "src/api/client.ts").read_text()
     assert "/api/contexts" in client
     assert "/api/audit/capabilities" in client
+    assert "/session/work" in client
+    assert "/session/events" in client
+    assert "/session/continue" in client
+    assert "sessionSubmit" in client
+    assert "katerContextId" in client
     assert "/api/execute" not in client
     assert ".metadata" not in agents
     assert 'surface="kater"' in agents
+    assert "useAgentSessionTransport" in agents
+    assert "AgentSessionEventRow" in agents
 
 
 def test_experimental_navigation_flag_controls_sidebar() -> None:
@@ -138,8 +147,12 @@ def test_agent_activity_is_session_centered_and_truth_bound() -> None:
     assert "const generation = ++requestGeneration.current" in activity_hook
     assert "data: null, error: null, loading: true" in activity_hook
     summary_source = summary.read_text()
-    assert "Read-only projection" in summary_source
-    assert "Write transport not bound" in summary_source
+    composer = (STUDIO / "src/components/AgentSessionComposer.tsx").read_text()
+    event_row = (STUDIO / "src/components/AgentSessionEventRow.tsx").read_text()
+    transport_hook = (STUDIO / "src/hooks/useAgentSessionTransport.ts").read_text()
+    assert "Write transport not bound" not in summary_source
+    assert "Python session transport" in summary_source
+    assert "AgentSessionComposer" in summary_source
     assert "type AuditStatus = 'loading' | 'available' | 'unavailable'" in summary_source
     assert "auditStatus === 'loading'" in summary_source
     assert "Audit loading…" in summary_source
@@ -148,9 +161,22 @@ def test_agent_activity_is_session_centered_and_truth_bound() -> None:
     assert "auditStatus === 'loading' ? 'audit loading…'" in agents
     assert "reason" in audit_row.read_text()
     assert "timestamp" in audit_row.read_text()
+    assert 'htmlFor="agent-session-prompt"' in composer
+    assert 'id="agent-session-prompt"' in composer
+    assert "Submit work" in composer
+    assert "Continue session" in composer
+    assert "Cancel work" in composer
+    assert "sessionSubmit" in transport_hook
+    assert "wait_ms" in transport_hook
+    assert "const generation = ++requestGeneration.current" in transport_hook
+    assert "requestGeneration.current === generation" in transport_hook
+    assert "classifyAgentProvider" in event_row
+    assert "event.provider" in event_row
     assert "/api/execute" not in agents
     assert "Send message" not in agents
     assert "Take over" not in agents
+    assert "setInterval" not in transport_hook
+    assert "Math.random" not in transport_hook
 
 
 def test_agent_workspace_has_session_and_audit_filtering_without_new_authority() -> None:
@@ -187,3 +213,4 @@ def test_agent_workspace_has_session_and_audit_filtering_without_new_authority()
     assert "/api/execute" not in agents
     assert "send message" not in agents.lower()
     assert "takeover" not in agents.lower()
+    assert "Submit work" not in agents

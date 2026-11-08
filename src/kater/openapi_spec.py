@@ -5,11 +5,12 @@ from functools import lru_cache
 from typing import Any
 
 from kater.api.fabric_routes import FABRIC_OPENAPI_PATHS
+from kater.api.session_routes import SESSION_OPENAPI_PATHS
 from kater.api.usage_routes import USAGE_OPENAPI_PATHS
 
 OPENAPI_VERSION = "3.1.0"
 API_TITLE = "Kater MCP Gateway API"
-API_VERSION = "1.1.1"
+API_VERSION = "1.2.0"
 DEFAULT_SERVER = "http://localhost:9091"
 
 _JSON: dict[str, Any] = {"application/json": {}}
@@ -146,6 +147,46 @@ def _build_paths() -> dict[str, Any]:
                 "200": {"description": "Consent page HTML.", "content": _HTML},
                 "302": {"description": "Authorization code redirect."},
                 "400": _error_ref(),
+            },
+        }
+    }
+    paths["/oidc/status"] = {
+        "get": _response(
+            "Product OIDC gate status (Authentik). No secrets.",
+            {"type": "object"},
+        )
+    }
+    paths["/oidc/login"] = {
+        "get": {
+            "summary": "Start Authentik OIDC login (302 to IdP authorize)",
+            "parameters": [_qp("next", default_val="/dashboard")],
+            "responses": {
+                "302": {"description": "Redirect to AUTH_OIDC issuer authorize."},
+                "404": _error_ref(),
+                "503": _error_ref(),
+            },
+        }
+    }
+    paths["/oidc/callback"] = {
+        "get": {
+            "summary": "OIDC authorization-code callback (Authentik → local /authorize code)",
+            "parameters": [_qp("code"), _qp("state"), _qp("error")],
+            "responses": {
+                "302": {"description": "Redirect to the original OAuth client or dashboard."},
+                "400": _error_ref(),
+                "503": _error_ref(),
+            },
+        }
+    }
+    paths["/oidc/logout"] = {
+        "post": {
+            "summary": "Clear browser OIDC session (HttpOnly kater_session cookie)",
+            "responses": {
+                "200": {
+                    "description": "Logged out.",
+                    "content": {"application/json": {"schema": {"type": "object"}}},
+                },
+                "403": _error_ref(),
             },
         }
     }
@@ -393,6 +434,10 @@ def _build_paths() -> dict[str, Any]:
         }
     }
 
+    paths["/api/integrations/{name}/credentials"] = paths["/api/mcp/servers/{name}/credentials"]
+    paths["/api/integrations/{name}/oauth/start"] = paths["/api/mcp/servers/{name}/oauth/start"]
+    paths["/api/integrations/{name}/connections"] = paths["/api/mcp/servers/{name}/connections"]
+
     paths["/api/mcp/servers/{name}/connections/{conn_id}"] = {
         "delete": {
             "summary": "Remove a saved catalog connection",
@@ -412,6 +457,10 @@ def _build_paths() -> dict[str, Any]:
             },
         }
     }
+
+    paths["/api/integrations/{name}/connections/{conn_id}"] = paths[
+        "/api/mcp/servers/{name}/connections/{conn_id}"
+    ]
 
     paths["/api/settings"] = {
         "get": _response("Get settings", _ref("Settings")),
@@ -936,8 +985,74 @@ def _build_paths() -> dict[str, Any]:
     paths["/api/automations/{id}/run"] = {
         "post": {
             "summary": "Run an automation now",
+            "description": (
+                "Result `status` (and the automation's `last_status`) is one of "
+                "`ok`, `error`, `skipped`, or `unknown` (timed out)."
+            ),
             "parameters": [_automation_id_param()],
             "responses": {"200": _ok(), "400": _error_ref(), "404": _error_ref()},
+        }
+    }
+
+    paths["/api/automations/{id}/runs"] = {
+        "get": {
+            "summary": "List recent runs of an automation",
+            "description": (
+                "Newest first. A run that timed out or never finished (crash, restart) "
+                "reports status `unknown`; a scheduled or manual attempt refused while the "
+                "previous run was still in flight reports `skipped` with error "
+                "`already running`. History keeps the newest 200 runs per automation."
+            ),
+            "parameters": [
+                _automation_id_param(),
+                {
+                    "name": "limit",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+                },
+            ],
+            "responses": {
+                "200": {
+                    "description": "Run history.",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["automation_id", "runs", "total"],
+                                "properties": {
+                                    "automation_id": {"type": "string"},
+                                    "total": {"type": "integer"},
+                                    "runs": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "id": {"type": "integer"},
+                                                "automation_id": {"type": "string"},
+                                                "started_at": {"type": "number"},
+                                                "finished_at": {"type": ["number", "null"]},
+                                                "duration_ms": {"type": ["number", "null"]},
+                                                "status": {
+                                                    "type": "string",
+                                                    "enum": ["ok", "error", "skipped", "unknown"],
+                                                },
+                                                "error": {"type": ["string", "null"]},
+                                                "trigger": {
+                                                    "type": "string",
+                                                    "enum": ["schedule", "manual"],
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            }
+                        }
+                    },
+                },
+                "400": _error_ref(),
+                "404": _error_ref(),
+            },
         }
     }
 
@@ -984,14 +1099,29 @@ def _build_paths() -> dict[str, Any]:
                     "application/json": {
                         "schema": {
                             "type": "object",
-                            "required": ["capability_id"],
+                            "anyOf": [
+                                {"required": ["action"]},
+                                {"required": ["capability_id"]},
+                            ],
                             "properties": {
+                                "connection": {"type": "string"},
+                                "action": {"type": "string"},
+                                "input": {"type": "object"},
+                                "identity": {"type": "object"},
+                                "policy_context": {"type": "object"},
                                 "capability_id": {"type": "string"},
                                 "arguments": {"type": "object"},
                                 "profile": {"type": "string"},
                                 "connector_id": {"type": "string"},
                                 "principal_id": {"type": "string"},
                                 "context_id": {"type": "string"},
+                                "timeout_seconds": {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0,
+                                },
+                                "idempotency_key": {"type": "string"},
+                                "run_id": {"type": "string"},
+                                "trace_id": {"type": "string"},
                             },
                         }
                     }
@@ -1146,6 +1276,7 @@ def _build_paths() -> dict[str, Any]:
     }
 
     paths.update(FABRIC_OPENAPI_PATHS)
+    paths.update(SESSION_OPENAPI_PATHS)
     paths.update(USAGE_OPENAPI_PATHS)
     return paths
 
@@ -1256,18 +1387,30 @@ def _automation_id_param() -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def _build_schemas() -> dict[str, Any]:
     return {
+        "BuildIdentity": {
+            "type": "object",
+            "required": ["version", "source_sha", "release", "artifact_digest"],
+            "properties": {
+                "version": {"type": ["string", "null"]},
+                "source_sha": {"type": ["string", "null"]},
+                "release": {"type": ["string", "null"]},
+                "artifact_digest": {"type": ["string", "null"]},
+            },
+        },
         "Health": {
             "type": "object",
-            "required": ["status", "version", "auth_mode"],
+            "required": ["status", "version", "auth_mode", "identity", "oidc"],
             "properties": {
                 "status": {"type": "string"},
                 "version": {"type": "string"},
                 "auth_mode": {"type": "string"},
+                "identity": {"$ref": "#/components/schemas/BuildIdentity"},
+                "oidc": {"type": "object"},
             },
         },
         "HealthReady": {
             "type": "object",
-            "required": ["status", "service", "version", "auth_mode", "components"],
+            "required": ["status", "service", "version", "auth_mode", "identity", "components"],
             "properties": {
                 "status": {
                     "type": "string",
@@ -1276,6 +1419,7 @@ def _build_schemas() -> dict[str, Any]:
                 "service": {"type": "string"},
                 "version": {"type": "string"},
                 "auth_mode": {"type": "string"},
+                "identity": {"$ref": "#/components/schemas/BuildIdentity"},
                 "components": {
                     "type": "object",
                     "additionalProperties": {

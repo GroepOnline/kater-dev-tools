@@ -76,6 +76,13 @@ class TestBuildPaths:
         paths = _build_paths()
         assert "/authorize" in paths
 
+    def test_oidc_endpoints_exist(self):
+        paths = _build_paths()
+        assert "/oidc/login" in paths
+        assert "/oidc/callback" in paths
+        assert "/oidc/logout" in paths
+        assert "/oidc/status" in paths
+
     def test_token_endpoint_exists(self):
         paths = _build_paths()
         assert "/token" in paths
@@ -111,12 +118,22 @@ class TestBuildPaths:
         assert {"get", "delete"} <= set(paths["/api/automations/{id}"])
         for suffix in ("run", "enable", "disable"):
             assert "post" in paths[f"/api/automations/{{id}}/{suffix}"]
+        assert "get" in paths["/api/automations/{id}/runs"]
 
 
 class TestBuildSchemas:
     def test_has_schemas(self):
         schemas = _build_schemas()
         assert len(schemas) > 0
+
+    def test_health_identity_is_nullable_and_required(self):
+        schemas = _build_schemas()
+        identity = schemas["BuildIdentity"]
+        assert identity["required"] == ["version", "source_sha", "release", "artifact_digest"]
+        for field in identity["required"]:
+            assert identity["properties"][field]["type"] == ["string", "null"]
+        assert "identity" in schemas["Health"]["required"]
+        assert "identity" in schemas["HealthReady"]["required"]
 
     def test_schemas_are_valid_structure(self):
         schemas = _build_schemas()

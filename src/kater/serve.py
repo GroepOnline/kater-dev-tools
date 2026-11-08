@@ -10,9 +10,9 @@ def serve_unified(
     listen: ListenConfig | None = None,
     use_proxy: bool | None = None,
 ) -> None:
-    """Run the REST API, MCP SSE server, and WebSocket in one process.
+    """Run REST API, private MCP, WebSocket and optional product MCP in one process.
 
-    All three servers bind the same host (``listen.host``). The default is
+    All enabled listeners bind the same host (``listen.host``). The default is
     loopback-only; pass a ListenConfig with an explicit host to expose them.
     """
     from kater.runtime import KaterRuntime

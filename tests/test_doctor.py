@@ -112,9 +112,12 @@ def test_doctor_passes_core_profile(monkeypatch, tmp_path) -> None:
 
     assert report.profiles == ["core"]
     assert [source["name"] for source in report.sources] == ["kater"]
-    # Informational browser-lane probe is allowed; no warnings/errors on core.
+    # Core may also report the GitHub native toolkit as an info-level connector.
     assert all(f.severity == "info" for f in report.findings)
-    assert all(f.code.startswith("browser_lane_") for f in report.findings)
+    assert all(
+        f.code.startswith("browser_lane_") or f.code.startswith("connector_")
+        for f in report.findings
+    )
 
 
 def test_doctor_ops_skips_high_risk_missing_env_warnings(monkeypatch, tmp_path) -> None:
@@ -160,6 +163,7 @@ def test_doctor_ops_adapter_ready_when_linear_and_sentry_configured(monkeypatch,
 
 def test_browser_lane_unsupported_when_not_expected(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("kater.doctor.socket.gethostname", lambda: "generic-test-host")
     monkeypatch.delenv("KATER_BROWSER_ENABLE", raising=False)
     monkeypatch.delenv("KATER_BROWSER_CDP_URL", raising=False)
     monkeypatch.delenv("KATER_BROWSER_STEEL_URL", raising=False)
@@ -314,6 +318,29 @@ def test_doctor_ok_for_public_oauth(monkeypatch, tmp_path) -> None:
     assert any(f.code == "public_oauth_ready" for f in report.findings)
     assert not any(f.code == "public_connect_secret_sink_disabled" for f in report.findings)
     assert any(f.code == "public_connect_base_url_missing" for f in report.findings)
+
+
+def test_doctor_flags_partial_oidc(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTH_OIDC_ISSUER", "https://auth.example.com/application/o/kater/")
+    monkeypatch.delenv("AUTH_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("AUTH_OIDC_CLIENT_SECRET", raising=False)
+
+    report = run_doctor(profiles={"core"})
+
+    assert any(f.code == "oidc_partial" and f.severity == "error" for f in report.findings)
+
+
+def test_doctor_oidc_ready_and_secret_warning(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTH_OIDC_ISSUER", "https://auth.example.com/application/o/kater/")
+    monkeypatch.setenv("AUTH_OIDC_CLIENT_ID", "demo-client")
+    monkeypatch.delenv("AUTH_OIDC_CLIENT_SECRET", raising=False)
+
+    report = run_doctor(profiles={"core"})
+
+    assert any(f.code == "oidc_ready" for f in report.findings)
+    assert any(f.code == "oidc_secret_missing" for f in report.findings)
 
 
 def test_doctor_flags_dynamic_registration_without_token(monkeypatch, tmp_path) -> None:

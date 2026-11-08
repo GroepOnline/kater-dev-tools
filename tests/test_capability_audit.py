@@ -185,6 +185,45 @@ def test_browser_rest_allows_prefix_glob(ctx_db, monkeypatch) -> None:
     assert resp.status == 200
 
 
+def test_automation_runs_rest_denies_out_of_allowlist(ctx_db) -> None:
+    from kater.control_plane import contexts
+    from kater.control_plane import tokens as context_tokens
+
+    record = contexts.create_context(
+        principal_id="agent-automations",
+        allowed_capabilities=["kater.automations.list"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=300)
+
+    resp = call(
+        "GET",
+        "/api/automations/auto_anything/runs",
+        headers={"x-kater-context": token},
+    )
+    assert resp.status == 403
+    assert resp.payload is not None
+    assert resp.payload["code"] == "capability_denied"
+    assert resp.payload["capability_id"] == "kater.automations.get"
+
+
+def test_automation_runs_rest_allows_dotted_prefix(ctx_db) -> None:
+    from kater.control_plane import contexts
+    from kater.control_plane import tokens as context_tokens
+
+    record = contexts.create_context(
+        principal_id="agent-automations",
+        allowed_capabilities=["kater.automations"],
+    )
+    token = context_tokens.issue_token(record, ttl_seconds=300)
+
+    resp = call(
+        "GET",
+        "/api/automations/auto_anything/runs",
+        headers={"x-kater-context": token},
+    )
+    assert resp.status == 404
+
+
 def test_computer_invoke_denies_out_of_allowlist(ctx_db, monkeypatch) -> None:
     import kater.api.routes as routes
     from kater.control_plane import contexts

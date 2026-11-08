@@ -73,6 +73,10 @@ ALLOWED_PROD_DOMAIN = frozenset(
         "AUDIT.md",
         "no-org-leak.yml",
         "docs/deploy-server.md",
+        "docs/ops/auth-mesh-vs-cf-access.md",
+        "config/oidc/README.md",
+        "config/oidc/authentik-gateway-client.example.yaml",
+        "config/oidc/authentik-product-mcp-client.example.yaml",
         # Leak-sample fixture file — see the ALLOWED_ORG_HANDLE note above.
         "tests/test_no_org_leak.py",
         # Immutable design-system consumer contract — see the

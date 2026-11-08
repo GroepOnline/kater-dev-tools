@@ -149,3 +149,7 @@ def test_scan_allows_pre_commit_config_no_org_leak_hook(tmp_path, monkeypatch):
     )
     monkeypatch.chdir(tmp_path)
     assert nol.scan([".pre-commit-config.yaml"]) == []
+
+
+def test_environment_example_is_domain_neutral():
+    assert nol.scan([".env.example"]) == []

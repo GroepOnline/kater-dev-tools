@@ -1,0 +1,13 @@
+# Local development override — loopback-shaped, auth off.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  kater:
+    environment:
+      KATER_PUBLIC: "0"
+      KATER_AUTH_MODE: none
+      KATER_CORS_ORIGINS: "*"
+      KATER_RATE_LIMIT: "0"
+    ports:
+      - "127.0.0.1:${MCP_PORT:-9090}:9090"
+      - "127.0.0.1:${API_PORT:-9091}:9091"
+      - "127.0.0.1:${WS_PORT:-9092}:9092"

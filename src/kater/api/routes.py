@@ -18,6 +18,7 @@ from kater.adapters.external import scan_adapters
 from kater.api.models import Request, Response, route
 from kater.authgate import capability_allowed, resolve_request_identity
 from kater.automations import get_engine
+from kater.automations.store import RUN_HISTORY_KEEP
 from kater.browser.models import BrowserAction
 from kater.browser.policy import PolicyViolation
 from kater.browser.providers import BrowserUnavailableError, probe_providers
@@ -224,14 +225,27 @@ def _ws_broadcast(event_type: str, data: dict[str, Any]) -> None:
 # ── Public endpoints (no auth) ─────────────────────────────────────
 
 
+def _runtime_identity() -> dict[str, str | None]:
+    from kater.build_identity import load_build_identity
+
+    return load_build_identity()
+
+
 @route("GET", "/health", public=True)
 def _health(_: Request) -> Response:
     from kater import __version__
+    from kater.oidc import oidc_public_status
 
     settings = load_settings()
     return Response.json(
         200,
-        {"status": "ok", "version": __version__, "auth_mode": settings.auth.mode},
+        {
+            "status": "ok",
+            "version": __version__,
+            "auth_mode": settings.auth.mode,
+            "identity": _runtime_identity(),
+            "oidc": oidc_public_status(),
+        },
     )
 
 
@@ -248,7 +262,12 @@ def _health_live(_: Request) -> Response:
         auth_mode = "unknown"
     return Response.json(
         200,
-        {"status": "ok", "version": __version__, "auth_mode": auth_mode},
+        {
+            "status": "ok",
+            "version": __version__,
+            "auth_mode": auth_mode,
+            "identity": _runtime_identity(),
+        },
     )
 
 
@@ -309,6 +328,25 @@ def _health_ready(_: Request) -> Response:
         }
         degraded = True
 
+    if settings is not None and settings.resource_auth.enabled:
+        from kater.mcp.product_server import product_mcp_ready
+
+        ready = product_mcp_ready(
+            settings.resource_auth, settings.host, settings.product_mcp_port
+        )
+        components["product_mcp"] = {"status": "ok" if ready else "unavailable"}
+        unhealthy = unhealthy or not ready
+
+    from kater.oidc import oidc_enabled, oidc_partial
+
+    if oidc_partial():
+        components["oidc"] = {"status": "unavailable", "reason": "partial_config"}
+        degraded = True
+    elif oidc_enabled():
+        components["oidc"] = {"status": "ok", "reason": "configured"}
+    else:
+        components["oidc"] = {"status": "ok", "reason": "unset"}
+
     # UTRECHT_REPO_PATH is optional in current live env; when unset the Utrecht
     # CLI tools degrade, but the gateway itself remains up. Report that clearly.
     utrecht_path = os.environ.get("UTRECHT_REPO_PATH")
@@ -359,12 +397,13 @@ def _health_ready(_: Request) -> Response:
     status = "unhealthy" if unhealthy else "degraded" if degraded else "ok"
 
     return Response.json(
-        200,
+        503 if unhealthy else 200,
         {
             "status": status,
             "service": "kater",
             "version": __version__,
             "auth_mode": auth_mode,
+            "identity": _runtime_identity(),
             "components": components,
         },
     )
@@ -445,7 +484,12 @@ def _authorize(req: Request) -> Response:
     if not validate_redirect_uri(client, redirect_uri):
         return Response.json(400, {"error": "invalid_redirect_uri"})
 
-    if approve == "1":
+    from kater.oidc import oidc_enabled, oidc_partial
+
+    if oidc_partial():
+        return Response.json(503, {"error": "oidc_partial"})
+
+    if approve == "1" and not oidc_enabled():
         if not _consume_consent_nonce(req):
             return Response.json(403, {"error": "consent_required"})
         try:
@@ -473,6 +517,36 @@ def _authorize(req: Request) -> Response:
         _consume_consent_nonce(req)
         sep = "&" if "?" in redirect_uri else "?"
         return Response.redirect(f"{redirect_uri}{sep}error=access_denied")
+
+    from kater.oidc import OidcError, begin_authorize_login, oidc_enabled, resolve_callback_uri
+
+    if oidc_enabled():
+        from kater.browser_auth import LOGIN_COOKIE, cookie
+
+        binding = secrets.token_urlsafe(32)
+        try:
+            location = begin_authorize_login(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                code_challenge=challenge,
+                code_challenge_method=method,
+                scope=scope,
+                state=state,
+                profile=profile,
+                browser_binding=binding,
+                callback_uri=resolve_callback_uri(
+                    req.base_url, public=is_public_settings(load_settings())
+                ),
+            )
+        except OidcError as exc:
+            return Response.json(
+                503,
+                {"error": exc.code, "detail": exc.safe_message},
+            )
+        response = Response.redirect(location)
+        response.headers["Set-Cookie"] = cookie(LOGIN_COOKIE, binding, max_age=600)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     consent_params = {
         "response_type": "code",
@@ -502,6 +576,161 @@ def _authorize(req: Request) -> Response:
         f"{_CONSENT_COOKIE}={consent_nonce}; Path=/authorize; HttpOnly; SameSite=Lax; "
         f"Max-Age={_CONSENT_TTL_SECONDS}"
     )
+    return response
+
+
+def _safe_oidc_next(path: str) -> str:
+    from kater.browser_auth import safe_return_to
+
+    return safe_return_to(path)
+
+
+def _oidc_error_status(code: str) -> int:
+    if code == "oidc_entitlement_required":
+        return 403
+    if code in {"oidc_not_configured", "oidc_partial"}:
+        return 404
+    if code in {
+        "oidc_callback_missing",
+        "oidc_state_invalid",
+        "oidc_redirect_invalid",
+        "oidc_id_token_invalid",
+        "oidc_id_token_iss",
+        "oidc_id_token_aud",
+        "oidc_id_token_exp",
+        "oidc_id_token_expired",
+        "oidc_id_token_nonce",
+        "oidc_id_token_sub",
+        "oidc_denied",
+    }:
+        return 400
+    return 503
+
+
+@route("GET", "/oidc/status", public=True)
+def _oidc_status(_: Request) -> Response:
+    from kater.oidc import oidc_public_status
+
+    return Response.json(200, oidc_public_status())
+
+
+@route("GET", "/oidc/login", public=True)
+def _oidc_login(req: Request) -> Response:
+    from kater.oidc import OidcError, begin_login, oidc_enabled, resolve_callback_uri
+
+    if not oidc_enabled():
+        return Response.json(404, {"error": "oidc_not_configured"})
+    from kater.browser_auth import LOGIN_COOKIE, cookie
+
+    binding = secrets.token_urlsafe(32)
+    try:
+        location = begin_login(
+            callback_uri=resolve_callback_uri(
+                req.base_url, public=is_public_settings(load_settings())
+            ),
+            next_path=_safe_oidc_next(
+                req.query1("returnTo") or req.query1("next") or "/dashboard"
+            ),
+            browser_binding=binding,
+        )
+    except OidcError as exc:
+        return Response.json(
+            _oidc_error_status(exc.code),
+            {"error": exc.code, "detail": exc.safe_message},
+        )
+    response = Response.redirect(location)
+    response.headers["Set-Cookie"] = cookie(LOGIN_COOKIE, binding, max_age=600)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@route("GET", "/oidc/callback", public=True)
+def _oidc_callback(req: Request) -> Response:
+    from kater.browser_auth import (
+        LOGIN_COOKIE,
+        SESSION_COOKIE,
+        cookie,
+        cookie_value,
+        create_session,
+    )
+    from kater.oauth import create_auth_code
+    from kater.oidc import OidcError, complete_callback, userinfo
+
+    denied = req.query1("error") or ""
+    if denied:
+        return Response.json(400, {"error": "oidc_denied", "detail": denied})
+    try:
+        result = complete_callback(
+            code=req.query1("code") or "",
+            state=req.query1("state") or "",
+            browser_binding=cookie_value(req.header("cookie"), LOGIN_COOKIE),
+        )
+    except OidcError as exc:
+        return Response.json(
+            _oidc_error_status(exc.code),
+            {"error": exc.code, "detail": exc.safe_message},
+        )
+    if result.pending is not None:
+        try:
+            userinfo(result.access_token, result.subject)
+        except OidcError as exc:
+            return Response.json(
+                _oidc_error_status(exc.code),
+                {"error": exc.code, "detail": exc.safe_message},
+            )
+        try:
+            code = create_auth_code(
+                client_id=result.pending.client_id,
+                redirect_uri=result.pending.redirect_uri,
+                code_challenge=result.pending.code_challenge,
+                code_challenge_method=result.pending.code_challenge_method,
+                scope=result.pending.scope,
+                state=result.pending.state,
+                profile=result.pending.profile,
+            )
+        except ValueError:
+            return Response.json(
+                400,
+                {"error": "invalid_request", "detail": "unsupported code_challenge_method"},
+            )
+        sep = "&" if "?" in result.pending.redirect_uri else "?"
+        location = f"{result.pending.redirect_uri}{sep}code={quote(code, safe='')}"
+        if result.pending.state:
+            location += f"&state={quote(result.pending.state, safe='')}"
+        return Response.redirect(location)
+
+    try:
+        session_value = create_session(result)
+    except OidcError as exc:
+        return Response.json(
+            _oidc_error_status(exc.code),
+            {"error": exc.code, "detail": exc.safe_message},
+        )
+    response = Response.redirect(_safe_oidc_next(result.next_path))
+    response.headers["Set-Cookie"] = cookie(
+        SESSION_COOKIE, session_value, max_age=max(0, int(result.expires_at - time.time())),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@route("POST", "/oidc/logout", public=True)
+def _oidc_logout(req: Request) -> Response:
+    from kater.browser_auth import (
+        SESSION_COOKIE,
+        cookie,
+        cookie_value,
+        revoke_session,
+        valid_origin,
+    )
+
+    if not valid_origin(req.header("origin"), req.base_url):
+        return Response.json(403, {"error": "origin_required"})
+    revoke_session(cookie_value(req.header("cookie"), SESSION_COOKIE))
+    response = Response.json(200, {"logged_out": True, "scope": "kater"})
+    response.headers["Set-Cookie"] = cookie(SESSION_COOKIE, "", max_age=0)
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -1096,25 +1325,60 @@ def _executor_execute(req: Request) -> Response:
     if not isinstance(body, dict):
         return Response.json(400, {"error": "body must be an object"})
 
-    capability_id = str(body.get("capability_id") or "").strip()
-    if not capability_id:
-        return Response.json(400, {"error": "capability_id is required"})
-    arguments = body.get("arguments") or {}
+    capability_id = str(body.get("capability_id") or body.get("action") or "").strip()
+    if not capability_id and not body.get("action"):
+        return Response.json(400, {"error": "action or capability_id is required"})
+    arguments = body.get("input") if body.get("input") is not None else body.get("arguments")
+    if arguments is None:
+        arguments = {}
     if not isinstance(arguments, dict):
-        return Response.json(400, {"error": "arguments must be an object"})
+        return Response.json(400, {"error": "input must be an object"})
 
     from kater.connectors.errors import ConnectorError
+    from kater.execution import ActorIdentity, PolicyContext
     from kater.executor import execute
 
+    identity_raw = body.get("identity")
+    if identity_raw is not None and not isinstance(identity_raw, dict):
+        return Response.json(400, {"error": "identity must be an object"})
+    policy_raw = body.get("policy_context")
+    if policy_raw is not None and not isinstance(policy_raw, dict):
+        return Response.json(400, {"error": "policy_context must be an object"})
     try:
-        result = execute(
-            capability_id,
-            arguments,
+        identity = ActorIdentity.from_mapping(
+            identity_raw,
+            default_actor=str(body.get("principal_id") or "api"),
+        )
+        policy = PolicyContext.from_mapping(
+            policy_raw,
             profile=str(body.get("profile") or "core"),
-            connector_id=(str(body["connector_id"]) if body.get("connector_id") else None),
-            principal_id=str(body.get("principal_id") or "api"),
             context_id=(str(body["context_id"]) if body.get("context_id") else None),
         )
+        timeout_raw = body.get("timeout_seconds")
+        timeout_seconds = float(timeout_raw) if timeout_raw is not None else None
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        result = execute(
+            capability_id or None,
+            arguments,
+            connection=(str(body["connection"]) if body.get("connection") else None),
+            action=(str(body["action"]) if body.get("action") else None),
+            input=arguments,
+            identity=identity,
+            policy_context=policy,
+            profile=str(body.get("profile") or policy.profile or "core"),
+            connector_id=(str(body["connector_id"]) if body.get("connector_id") else None),
+            principal_id=str(body.get("principal_id") or identity.actor_id),
+            context_id=(str(body["context_id"]) if body.get("context_id") else None),
+            timeout_seconds=timeout_seconds,
+            idempotency_key=(
+                str(body["idempotency_key"]) if body.get("idempotency_key") else None
+            ),
+            run_id=(str(body["run_id"]) if body.get("run_id") else None),
+            trace_id=(str(body["trace_id"]) if body.get("trace_id") else None),
+        )
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
     except ConnectorError as exc:
         return _connector_error_response(exc)
     return Response.json(200, result)
@@ -1140,6 +1404,9 @@ def _connector_error_response(exc: Exception) -> Response:
     }.get(exc.code, 409)
     payload = exc.as_dict()
     payload["message"] = redact_text(str(payload.get("message") or exc))
+    execution = getattr(exc, "execution", None)
+    if isinstance(execution, dict):
+        payload["execution"] = execution
     return Response.json(status, payload)
 
 
@@ -1241,6 +1508,7 @@ def _connector_action(req: Request) -> Response:
     return Response.json(400, {"error": f"Unknown action: {action}"})
 
 
+@route("POST", "/api/integrations/{name}/credentials")
 @route("POST", "/api/mcp/servers/{name}/credentials")
 def _server_credentials(req: Request) -> Response:
     # Store the credentials a server needs to connect. Only env vars the server
@@ -1306,6 +1574,7 @@ def _server_credentials(req: Request) -> Response:
     return Response.json(200, {"name": name, "env_configured": env_present, "applied": applied})
 
 
+@route("POST", "/api/integrations/{name}/oauth/start")
 @route("POST", "/api/mcp/servers/{name}/oauth/start")
 def _server_oauth_start(req: Request) -> Response:
     denied = _catalog_admin_denied(req)
@@ -1533,6 +1802,7 @@ def _mcp_oauth_callback(req: Request) -> Response:
     return Response.html(200, page)
 
 
+@route("GET", "/api/integrations/{name}/connections")
 @route("GET", "/api/mcp/servers/{name}/connections")
 def _server_connections(req: Request) -> Response:
     source = _visible_source(req.params["name"])
@@ -1544,6 +1814,7 @@ def _server_connections(req: Request) -> Response:
     return Response.json(200, {"name": source.name, "connections": oauth.get("connections") or []})
 
 
+@route("DELETE", "/api/integrations/{name}/connections/{conn_id}")
 @route("DELETE", "/api/mcp/servers/{name}/connections/{conn_id}")
 def _server_connection_delete(req: Request) -> Response:
     denied = _catalog_admin_denied(req)
@@ -1853,8 +2124,8 @@ def _browser_close_all(req: Request) -> Response:
 def _automations_list(req: Request) -> Response:
     if denied := _require_capability(req, "kater.automations.list"):
         return denied
+    # Runtime startup/maintenance own seeding; discovery must not activate jobs.
     engine = get_engine()
-    engine.ensure_defaults()
     items = [item.to_dict() for item in engine.list()]
     return Response.json(200, {"automations": items, "total": len(items)})
 
@@ -1867,6 +2138,25 @@ def _automations_get(req: Request) -> Response:
     if automation is None:
         return Response.json(404, {"error": "automation not found"})
     return Response.json(200, automation.to_dict())
+
+
+@route("GET", "/api/automations/{id}/runs")
+def _automations_runs(req: Request) -> Response:
+    if denied := _require_capability(req, "kater.automations.get"):
+        return denied
+    automation_id = req.params["id"]
+    try:
+        limit = _parse_limit(req, default=50, maximum=RUN_HISTORY_KEEP)
+        raw_limit = req.query1("limit")
+        if raw_limit is not None and int(raw_limit) < 1:
+            raise ValueError(f"Invalid limit: {raw_limit!r}")
+    except ValueError as exc:
+        return Response.json(400, {"error": str(exc)})
+    engine = get_engine()
+    if engine.get(automation_id) is None:
+        return Response.json(404, {"error": "automation not found"})
+    runs = [run.to_dict() for run in engine.list_runs(automation_id, limit=limit)]
+    return Response.json(200, {"automation_id": automation_id, "runs": runs, "total": len(runs)})
 
 
 @route("POST", "/api/automations")
@@ -2062,3 +2352,4 @@ def _computer_invoke(req: Request) -> Response:
 
 # Fabric lane (capability discovery + remote contexts). Side-effect import.
 from kater.api import fabric_routes as _fabric_routes  # noqa: E402, F401
+from kater.api import session_routes as _session_routes  # noqa: E402, F401

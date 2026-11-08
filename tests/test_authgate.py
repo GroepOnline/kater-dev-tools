@@ -41,6 +41,11 @@ class TestIsPublicPath:
     def test_authorize_is_public(self):
         assert should_proxy_to_api("/authorize") is True
 
+    def test_oidc_paths_are_public(self):
+        assert should_proxy_to_api("/oidc/login") is True
+        assert should_proxy_to_api("/oidc/callback") is True
+        assert should_proxy_to_api("/oidc/status") is True
+
     def test_token_is_public(self):
         assert should_proxy_to_api("/token") is True
 

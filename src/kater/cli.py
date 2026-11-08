@@ -13,7 +13,9 @@ from kater.doctor import parse_profiles, run_doctor
 from kater.profiles import DEFAULT_PROFILE, all_tool_sources, get_source, list_profiles
 from kater.registry import tools_for_profile
 
-app = typer.Typer(help="Developer MCP gateway — one unified tool surface for code agents.")
+app = typer.Typer(
+    help="Agent capability fabric — toolkits, integrations, plugins, and MCP in one surface."
+)
 profiles_app = typer.Typer(help="Inspect profiles.")
 mcp_app = typer.Typer(help="MCP server management.")
 chain_app = typer.Typer(help="Tool chain execution.")
@@ -166,6 +168,95 @@ def tools_command(
         return
     for tool in tools:
         typer.echo(f"{tool.name}: {tool.description}")
+
+
+# ── capability catalog ─────────────────────────────────────────────
+
+
+def _catalog_cli(kind: str | None, query: str, profile: str, json_output: bool) -> None:
+    from kater.connectors.seed import seed_builtin_connectors
+    from kater.fabric_catalog import CatalogKind, catalog_payload
+
+    seed_builtin_connectors()
+    parsed_kind = CatalogKind(kind) if kind else None
+    payload = catalog_payload(query=query, profile=profile, kind=parsed_kind)
+    if json_output:
+        _print_json(payload)
+        return
+    rows = payload["items"]
+    if not rows:
+        typer.echo("No matching catalog entries.")
+        return
+    for item in rows:
+        status = item.get("status") or "available"
+        transport = item.get("transport") or "-"
+        typer.echo(f"{item['id']} [{status}] ({transport}) {item['description']}")
+
+
+@app.command("catalog")
+def catalog_command(
+    kind: Annotated[
+        str | None,
+        typer.Option(
+            "--kind",
+            help="toolkit, integration, connection, action, plugin, or mcp.",
+        ),
+    ] = None,
+    query: Annotated[str, typer.Option("--query", "-q", help="Search the catalog.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """Browse the complete Kater capability catalog."""
+    from kater.fabric_catalog import CatalogKind
+
+    if kind:
+        try:
+            CatalogKind(kind)
+        except ValueError as exc:
+            raise typer.BadParameter(
+                "kind must be toolkit, integration, connection, action, plugin, or mcp"
+            ) from exc
+    _catalog_cli(kind, query, profile, json_output)
+
+
+@app.command("toolkits")
+def toolkits_command(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search toolkits.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List agent-facing Kater toolkits."""
+    _catalog_cli("toolkit", query, profile, json_output)
+
+
+@app.command("integrations")
+def integrations_command(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search integrations.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List provider integrations and connection readiness."""
+    _catalog_cli("integration", query, profile, json_output)
+
+
+@app.command("actions")
+def actions_command(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search actions.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List toolkit actions on the generic execute path."""
+    _catalog_cli("action", query, profile, json_output)
+
+
+@app.command("plugins")
+def plugins_command(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search plugins.")] = "",
+    profile: Annotated[str, typer.Option("--profile", help="Filter by profile.")] = "",
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List installed Kater plugin bundles."""
+    _catalog_cli("plugin", query, profile, json_output)
 
 
 # ── chains ─────────────────────────────────────────────────────────
@@ -420,7 +511,9 @@ def search_tools_command(
 
 @app.command("execute")
 def execute_command(
-    capability_id: Annotated[str, typer.Argument(help="Capability id returned by search-tools.")],
+    capability_id: Annotated[
+        str, typer.Argument(help="Action or capability id (compatibility).")
+    ] = "",
     profile: Annotated[
         str, typer.Option("--profile", help="Permission profile.")
     ] = DEFAULT_PROFILE,
@@ -428,28 +521,64 @@ def execute_command(
         str | None,
         typer.Option("--connector", help="Explicit connector for ambiguous capability ids."),
     ] = None,
+    connection: Annotated[
+        str | None,
+        typer.Option("--connection", help="Connection id (toolkit:account)."),
+    ] = None,
+    action: Annotated[
+        str | None,
+        typer.Option("--action", help="Canonical action id."),
+    ] = None,
     args_json: Annotated[str, typer.Option("--args", help="JSON object of arguments.")] = "{}",
+    actor: Annotated[str, typer.Option("--actor", help="Actor id for audit.")] = "cli",
+    run_id: Annotated[str | None, typer.Option("--run-id", help="Caller run id.")] = None,
+    trace_id: Annotated[str | None, typer.Option("--trace-id", help="Trace id.")] = None,
+    idempotency_key: Annotated[
+        str | None, typer.Option("--idempotency-key", help="Idempotency key.")
+    ] = None,
 ) -> None:
-    """Execute one capability through connector auth, policy, transport, and audit."""
+    """Execute one action through connection, policy, transport, and audit."""
     from kater.connectors.auth import redact_text
     from kater.connectors.errors import ConnectorError
+    from kater.execution import ActorIdentity, PolicyContext
     from kater.executor import execute
 
     try:
         arguments = json.loads(args_json or "{}")
         if not isinstance(arguments, dict):
             raise ValueError("--args must be a JSON object")
+        resolved_action = (action or capability_id or "").strip()
+        if not resolved_action:
+            raise ValueError("action or capability id is required")
         result = execute(
-            capability_id,
+            resolved_action,
             arguments,
+            connection=connection,
+            action=action,
+            input=arguments,
+            identity=ActorIdentity(actor_id=actor, kind="human", principal_id=actor),
+            policy_context=PolicyContext(
+                profile=profile,
+                run_id=run_id,
+                trace_id=trace_id,
+                idempotency_key=idempotency_key,
+            ),
             profile=profile,
             connector_id=connector_id,
-            principal_id="cli",
+            principal_id=actor,
         )
     except (ConnectorError, ValueError) as exc:
         typer.echo(redact_text(str(exc)), err=True)
         raise typer.Exit(code=1) from exc
     _print_json(result)
+
+
+@app.command("connections")
+def connections_command(
+    json_output: Annotated[bool, typer.Option("--json", help="Output as JSON.")] = False,
+) -> None:
+    """List secret-free connection views."""
+    _catalog_cli("connection", "", "", json_output)
 
 
 # ── connector catalog (behind the native tools) ─────────────────────
@@ -541,8 +670,7 @@ def connector_validate_command(
         _print_json(record.as_dict())
         return
     typer.echo(
-        f"Validated {record.id}: {len(record.capabilities)} capabilities, "
-        f"{record.status.value}"
+        f"Validated {record.id}: {len(record.capabilities)} capabilities, {record.status.value}"
     )
 
 
@@ -603,9 +731,7 @@ def connector_invoke_command(
     connector_id: Annotated[str, typer.Argument(help="Connector id.")],
     capability_id: Annotated[str, typer.Argument(help="Capability id to invoke.")],
     profile: Annotated[str, typer.Option("--profile", help="Calling profile.")] = DEFAULT_PROFILE,
-    args_json: Annotated[
-        str, typer.Option("--args", help="JSON object of arguments.")
-    ] = "{}",
+    args_json: Annotated[str, typer.Option("--args", help="JSON object of arguments.")] = "{}",
 ) -> None:
     """Invoke one connector capability in-process (redacts secrets on error)."""
     from kater.connectors.auth import redact_text
@@ -666,6 +792,18 @@ def mcp_status_command(
 # ── serve (unified) ────────────────────────────────────────────────
 
 
+def _apply_mcp_credentials_or_exit() -> None:
+    """Apply MCP credentials or exit without exposing invalid persisted configuration."""
+    from kater.resource_auth import ResourceAuthConfigurationError
+    from kater.settings import load_settings
+
+    try:
+        load_settings().apply_credentials_to_env()
+    except ResourceAuthConfigurationError:
+        typer.echo(ResourceAuthConfigurationError.code, err=True)
+        raise typer.Exit(code=1) from None
+
+
 @app.command("serve")
 def serve_command(
     profile: Annotated[str, typer.Option("--profile", help="Profile to expose.")] = DEFAULT_PROFILE,
@@ -693,26 +831,30 @@ def serve_command(
 
     if api_only:
         from kater.api import serve_api
+        from kater.build_identity import format_identity_log
 
         typer.echo(f"Kater API on http://{host}:{api_port}")
+        typer.echo(f"kater identity {format_identity_log()}")
         serve_api(host, api_port)
         return
 
     if mcp_only:
         from kater.mcp_server import serve
-        from kater.settings import load_settings
 
-        load_settings().apply_credentials_to_env()
+        _apply_mcp_credentials_or_exit()
         typer.echo(
             f"Kater MCP on http://{host}:{mcp_port}/sse (proxy={'on' if use_proxy else 'off'})"
         )
         serve(profile=profile, host=host, port=mcp_port, use_proxy=use_proxy)
         return
 
+    from kater.build_identity import format_identity_log
+
     typer.echo(
         f"Kater unified: API :{api_port} + MCP :{mcp_port}/sse + WS :{ws_port} "
         f"(proxy={'on' if use_proxy else 'off'})"
     )
+    typer.echo(f"kater identity {format_identity_log()}")
     from kater.serve import serve_unified
     from kater.settings import resolve_listen_config
 
@@ -794,11 +936,10 @@ def mcp_serve_command(
     """Start the MCP SSE server (alias for `kater serve --mcp-only`)."""
     from kater.envfile import load_project_env, resolve_use_proxy
     from kater.mcp_server import serve
-    from kater.settings import load_settings
 
     load_project_env()
     os.environ["KATER_PROFILE"] = profile
-    load_settings().apply_credentials_to_env()
+    _apply_mcp_credentials_or_exit()
     serve(
         profile=profile,
         use_proxy=resolve_use_proxy(profile=profile),
@@ -810,10 +951,10 @@ def mcp_serve_command(
 
 @app.command("version")
 def version_command() -> None:
-    """Show the Kater version."""
-    from kater import __version__
+    """Show package version plus stamped runtime identity as JSON."""
+    from kater.build_identity import cli_version_payload
 
-    typer.echo(__version__)
+    _print_json(cli_version_payload())
 
 
 # ── enable / disable / toggle ─────────────────────────────────────

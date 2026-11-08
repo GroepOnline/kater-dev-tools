@@ -102,11 +102,20 @@ def test_cors_advertises_the_context_header_and_mutating_methods(api_server) -> 
 # ── Basic endpoints ────────────────────────────────────────────────
 
 
+def _assert_identity_shape(payload: dict) -> None:
+    identity = payload["identity"]
+    assert set(identity) == {"version", "source_sha", "release", "artifact_digest"}
+    for value in identity.values():
+        assert value is None or isinstance(value, str)
+
+
 def test_health(api_server) -> None:
     data = _get(_api_port(api_server), "/health")
     assert data["status"] == "ok"
     assert "version" in data
     assert data["auth_mode"] == "none"
+    assert "oidc" in data
+    _assert_identity_shape(data)
 
 
 def test_health_live(api_server) -> None:
@@ -114,6 +123,7 @@ def test_health_live(api_server) -> None:
     assert data["status"] == "ok"
     assert "version" in data
     assert data["auth_mode"] == "none"
+    _assert_identity_shape(data)
 
 
 def test_health_ready(api_server) -> None:
@@ -123,6 +133,7 @@ def test_health_ready(api_server) -> None:
     assert "components" in data
     assert "api" in data["components"]
     assert "mcp" in data["components"]
+    _assert_identity_shape(data)
 
 
 def test_profiles(api_server) -> None:

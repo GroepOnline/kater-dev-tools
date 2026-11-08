@@ -12,6 +12,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs
 
 from kater.registry import tools_for_profile
+from kater.resource_auth import ResourceAuthConfigurationError
 from kater.settings import load_settings, resolve_client_ip
 from kater.telemetry import wrap_tool_handler
 
@@ -446,20 +447,24 @@ class AuthASGIMiddleware:
         client = scope.get("client")
         peer_ip = client[0] if client else "unknown"
         client_ip = resolve_client_ip(headers.get("x-forwarded-for"), peer_ip)
-        if not check_transport_rate_limit(client_ip):
-            await self._send_429(send)
-            return
+        try:
+            if not check_transport_rate_limit(client_ip):
+                await self._send_429(send)
+                return
 
-        query = parse_qs(scope.get("query_string", b"").decode("latin-1"))
-        path = scope.get("path") or "/"
-        decision = authenticate(
-            AuthContext(
-                settings=load_settings(),
-                authorization_header=headers.get("authorization"),
-                query_api_key=query.get("api_key", [None])[0],
-                path=path,
+            query = parse_qs(scope.get("query_string", b"").decode("latin-1"))
+            path = scope.get("path") or "/"
+            decision = authenticate(
+                AuthContext(
+                    settings=load_settings(),
+                    authorization_header=headers.get("authorization"),
+                    query_api_key=query.get("api_key", [None])[0],
+                    path=path,
+                )
             )
-        )
+        except ResourceAuthConfigurationError:
+            await self._send_503(send)
+            return
         if not decision.allowed:
             await self._send_401(send, decision.error or "Unauthorized")
             return
@@ -489,6 +494,21 @@ class AuthASGIMiddleware:
             {
                 "type": "http.response.start",
                 "status": 429,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    @staticmethod
+    async def _send_503(send: Any) -> None:
+        body = json.dumps({"error": ResourceAuthConfigurationError.code}).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 503,
                 "headers": [
                     (b"content-type", b"application/json"),
                     (b"content-length", str(len(body)).encode("ascii")),

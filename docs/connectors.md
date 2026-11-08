@@ -1,11 +1,18 @@
-# Connectors vs native Kater tools
+# Toolkits, integrations, plugins, and connectors
 
+Kater's public product model has four first-class views:
+
+- a **toolkit** is the agent-facing capability bundle for a provider;
+- an **integration** is the concrete provider adapter/binding behind that toolkit;
+- a **plugin** is an installable bundle that contributes toolkits or provider wiring;
+- **MCP** is a supported transport and exposure surface, not Kater's entire architecture.
+
+The existing connector layer remains the internal runtime abstraction for integrations.
+The public execution model is `toolkit → integration → connection → action`.
 A new vendor integration normally does not require a new native Kater MCP tool.
-
-The Cursor / ChatGPT / agent session talks to the **Kater gateway**. That
-gateway exposes a **stable native tool surface** (today: 17 `kater_*` tools).
-GitHub, Linear, Sentry, Cloudflare, ClickHouse, a downstream MCP server, or
-any future API sit **behind** that surface as connectors.
+GitHub is the first fully migrated toolkit (`github.pr.*` via generic execute).
+Linear, Sentry, Cloudflare, ClickHouse, downstream MCP servers, and
+future APIs share that path.
 
 ```text
 Cursor / ChatGPT / Agent
@@ -133,6 +140,12 @@ github.issues.read
 github.issues.write
 github.pull_requests.read
 github.pull_requests.write
+github.pr.list
+github.pr.status
+github.pr.gate
+github.pr.policy
+github.pr.audit
+github.pr.merge
 sentry.issues.read
 sentry.events.read
 clickhouse.ping

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 
 from kater import mcp_server
-from kater.settings import AuthConfig, KaterSettings, save_settings
+from kater.settings import AuthConfig, KaterSettings, save_settings, settings_path
 
 
 def test_mcp_missing_package_message() -> None:
@@ -170,6 +171,47 @@ def test_mcp_rate_limit_ignores_spoofed_xff_from_public_peer(monkeypatch, tmp_pa
 
     assert seen_clients == ["8.8.8.8"]
     assert sent[0]["status"] == 429
+
+
+def test_mcp_sse_malformed_resource_auth_is_a_redacted_503(monkeypatch, tmp_path) -> None:
+    secret = "persisted-mcp-resource-auth-secret"
+    monkeypatch.chdir(tmp_path)
+    path = settings_path()
+    path.parent.mkdir()
+    path.write_text(json.dumps({"resource_auth": {"enabled": True, "issuer": secret}}))
+    reached = False
+
+    async def app(scope, receive, send):
+        nonlocal reached
+        reached = True
+
+    sent: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(
+        mcp_server.AuthASGIMiddleware(app)(
+            {
+                "type": "http",
+                "path": "/sse",
+                "query_string": b"",
+                "headers": [],
+                "client": ("127.0.0.1", 12345),
+            },
+            receive,
+            send,
+        )
+    )
+
+    body = b"".join(message.get("body", b"") for message in sent)
+    assert reached is False
+    assert sent[0]["status"] == 503
+    assert json.loads(body) == {"error": "resource_auth_configuration_error"}
+    assert secret.encode() not in body
 
 
 def test_build_mcp_app_combines_sse_and_streamable_http() -> None:

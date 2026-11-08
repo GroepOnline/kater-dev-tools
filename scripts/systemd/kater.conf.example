@@ -37,3 +37,10 @@ CHEF_VAULT_PROFILE_COMMAND=chefvault-profile
 # Extensions: use ChefVault when bootstrapped; Utrecht overlay is separate package.
 # KATER_EXTENSIONS_MODULE is set by kater-with-chefvault.py to kater.chefvault_extension.
 # For Utrecht tools on top, load a combined extensions module in the release image.
+
+# Optional deploy stamp. Prefer src/kater/_build_identity.json from the install
+# script. Unset or malformed values are reported as null, never guessed from git.
+# KATER_BUILD_VERSION=
+# KATER_BUILD_SHA=
+# KATER_BUILD_RELEASE=
+# KATER_BUILD_ARTIFACT_DIGEST=

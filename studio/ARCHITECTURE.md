@@ -26,4 +26,4 @@ Move one existing capability at a time from the embedded dashboard to Studio, bi
 - Existing Kater remote contexts are the agent-session authority; Studio does not create a second session store.
 - `Agent Activity` lists `/api/contexts` and reads the selected context's `/api/audit/capabilities?context_id=...` rows.
 - Context metadata is caller-supplied, so it never proves provider/model identity and is not used for provider styling. Context audit stays Kater-neutral.
-- Natural-language prompt execution remains disabled until Python Kater exposes an explicit transport for it.
+- Natural-language work is a replaceable Studio client over Python Kater: `POST /api/contexts/{id}/session/work`, continue, cancel, and JSON poll of `/session/events` (`wait_ms`, generation/`AbortController` — no `setInterval`). Correlation remains `katerContextId`. Unknown events render as Kater unless `provider` is explicit.

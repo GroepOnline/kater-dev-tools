@@ -23,6 +23,9 @@ htmlcov/
 # Runtime state — never commit (db + sqlite sidecars + oauth)
 .kater/
 
+# Deploy/build stamp written at install or release time, never authored in git.
+src/kater/_build_identity.json
+
 # Advisory lock sidecars for the agent-taste signals registry
 .agents/registry/*.lock
 

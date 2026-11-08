@@ -47,7 +47,8 @@ The module may export `TOOL_SOURCES`, `PRIVATE_PROFILES`, `NATIVE_TOOLS`, and
 
 ## Secured public deploy (Cloudflare Tunnel)
 
-Recommended for ChatGPT Remote MCP (OAuth + PKCE built in):
+Generic gateway deployment with its built-in OAuth authority. For the ChefGroep
+ChatGPT integration, use the dedicated product transport described below:
 
 ```bash
 cloudflared tunnel login   # once
@@ -65,7 +66,9 @@ cp .env.example .env
 ./scripts/deploy-cloudflare.sh kater.yourdomain.com kater
 ```
 
-ChatGPT → Settings → MCP → `https://kater.yourdomain.com/sse`
+This generic deployment serves private MCP clients at
+`https://kater.yourdomain.com/sse`. It is separate from the ChefGroep product OAuth
+contract at `/mcp`.
 
 ## API key auth (Cursor / agents over HTTPS)
 
@@ -97,14 +100,15 @@ Add to Cursor MCP config:
 
 ## Ports
 
-One `kater serve` process opens three listeners, each overridable via its own
-environment variable:
+One `kater serve` process opens three core listeners plus an opt-in product
+listener, each overridable via its own environment variable:
 
 | Port | Env var | Role |
 |------|---------|------|
 | 9090 | `KATER_MCP_PORT` | MCP SSE (`/sse`) |
 | 9091 | `KATER_API_PORT` | REST API + dashboard |
 | 9092 | `KATER_WS_PORT` | WebSocket telemetry |
+| 9093 | `KATER_PRODUCT_MCP_PORT` | Opt-in product Streamable HTTP (`/mcp`) |
 
 Persist SQLite and secrets under `.kater/` (Docker/K8s: mount a volume at `/app/.kater`).
 
@@ -149,3 +153,89 @@ export KATER_REGISTRATION_TOKEN="$(openssl rand -hex 24)"
 ```
 
 See [SECURITY.md](../SECURITY.md) for the full threat model.
+
+## ChefGroep mesh Auth (operator status)
+
+Auth greenfield **smoke is GREEN** on **chef-authvault**. Public Authentik is live
+at **`https://auth.chefgroep.online`** (healthz/readyz 200; `.nl` is a mesh alias).
+There is still **no public Vault** endpoint. Authentik exposes the mesh OIDC
+application **`chefgroep-kater-oidc`** (client id only — secrets stay in ChefVault
+/ `.kater/.env`). Issuer slug is **`kater`**:
+
+`https://auth.chefgroep.online/application/o/kater/`
+
+Kater on **bc-scan-arm** is still primarily Cloudflare Access gated until
+`AUTH_OIDC_*` is set and the Access policy is updated. This repo does **not**
+apply Cloudflare DNS.
+
+When `AUTH_OIDC_ISSUER` + `AUTH_OIDC_CLIENT_ID` are set, `/authorize` redirects
+to Authentik and `/oidc/callback` finishes the code flow (local `/token` PKCE
+unchanged). Prefer that product gate over Access.
+
+Canonical redirect URIs for `chefgroep-kater-oidc` (register in Authentik if missing):
+
+| Use | URI |
+| --- | --- |
+| Local OIDC callback | `http://127.0.0.1:9091/oidc/callback` |
+| Local OIDC callback (alt) | `http://localhost:9091/oidc/callback` |
+| Public OIDC callback | `https://kater.chefgroep.online/oidc/callback` |
+| Local dashboard (legacy) | `http://127.0.0.1:9091/dashboard` |
+| Local dashboard (alt) | `http://localhost:9091/dashboard` |
+| Public dashboard | `https://kater.chefgroep.online/dashboard` |
+| Catalog Connect callback | `https://kater.chefgroep.online/api/mcp/oauth/callback` |
+
+Repo templates (no secrets): `config/oidc/authentik-gateway-client.example.yaml`.
+Access vs Authentik modes, CF Access policy change, and cutover checklist:
+[ops/auth-mesh-vs-cf-access.md](ops/auth-mesh-vs-cf-access.md).
+Loopback canary: `./scripts/oidc-canary.sh`.
+
+## Dedicated ChefGroep product transport
+
+The opt-in product listener serves only the fixed ChefGroep product tool registry.
+It does not import native or proxy tools, and leaves private MCP on port 9090.
+Configure these variables on the **service process** (systemd EnvironmentFile,
+GitHub Environment/secret authority, or the Compose `.env`):
+
+```dotenv
+KATER_RESOURCE_AUTH_ENABLED=1
+KATER_RESOURCE_AUTH_ISSUER=https://auth.chefgroep.online
+KATER_RESOURCE_AUTH_RESOURCE=https://kater.chefgroep.online/mcp
+KATER_RESOURCE_AUTH_SCOPES=kater:read brain:read chefshare:read
+KATER_RESOURCE_AUTH_SERVICE_KEY_ENV=KATER_RESOURCE_AUTH_SERVICE_KEY
+KATER_PRODUCT_MCP_PORT=9093
+```
+
+Provision `KATER_RESOURCE_AUTH_SERVICE_KEY` through the secret authority. The
+configured name is safe to persist; the key itself must never be committed. Env
+contract values override persisted settings. Malformed contracts, missing keys
+and port collisions fail startup. An unset enable flag keeps the listener off.
+
+Route only these machine paths to port 9093, preserving the public Host header:
+
+| Public path | Origin |
+| --- | --- |
+| `/mcp` | `http://127.0.0.1:9093/mcp` |
+| `/.well-known/oauth-protected-resource/mcp` | `http://127.0.0.1:9093/.well-known/oauth-protected-resource/mcp` |
+
+Those two paths must reach Kater without an interactive Cloudflare Access login;
+the product listener validates OAuth bearer tokens itself. Keep existing Access
+protection and routing on all other paths. The generic Cloudflare generator is
+for the private gateway and does not install these product routes. Compose binds
+its optional product port to host loopback so a local tunnel can reach it.
+
+The exact resource/audience is `https://kater.chefgroep.online/mcp`, with issuer
+`https://auth.chefgroep.online`. Auth owns ChatGPT client metadata, callbacks,
+PKCE and consent. Kater neither registers clients nor issues tokens. Every MCP
+request is remotely introspected; there is no positive token cache. Invalid or
+revoked tokens return HTTP 401 with resource metadata, Auth failures return 503,
+and a valid token missing a tool scope returns an MCP auth challenge. Tools/list
+mirrors OAuth security schemes at top level and under `_meta` for ChatGPT.
+
+`GET /health/ready` checks the enabled listener's exact discovery metadata,
+unauthenticated bearer rejection and Auth introspection using a deliberately
+invalid probe token. Failure returns 503. It does not validate a real user's
+consent or a backend adapter. The deployment script checks this readiness before
+disarming rollback; `/health/live` remains API process liveness. Production
+release evidence must additionally prove the public HTTPS paths and a real
+consent/call/revoke sequence. The product registry's unimplemented backend tools
+continue returning explicit unavailable errors until their owning adapters land.

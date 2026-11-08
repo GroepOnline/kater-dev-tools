@@ -6,22 +6,78 @@ for specific pinned versions/flags rather than executed, since these files
 only run inside GitHub Actions.
 """
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CI = ROOT / ".github/workflows/ci.yml"
-AUTOMERGE = ROOT / ".github/workflows/automerge.yml"
-RELEASE = ROOT / ".github/workflows/release.yml"
-NO_ORG_LEAK = ROOT / ".github/workflows/no-org-leak.yml"
+WORKFLOWS = ROOT / ".github/workflows"
+CI = WORKFLOWS / "ci.yml"
+AUTOMERGE = WORKFLOWS / "automerge.yml"
+RELEASE = WORKFLOWS / "release.yml"
+NO_ORG_LEAK = WORKFLOWS / "no-org-leak.yml"
+AGENT_TASTE = WORKFLOWS / "agent-taste-eval.yml"
+DESIGN_SYSTEM = WORKFLOWS / "design-system-contract.yml"
+
+HOSTED_RUNNER = re.compile(
+    r"^\s*runs-on:\s*.*(ubuntu-latest|macos-latest|windows-latest)",
+    re.MULTILINE,
+)
+UBUNTU_LATEST = "runs-on: ubuntu-latest"
+FLEET_PR_OR_HEAVY = (
+    "runs-on: ${{ github.event_name == 'pull_request' && "
+    "fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"pr-isolated\"]') || "
+    "fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"heavy\"]') }}"
+)
+FLEET_HEAVY = "runs-on: [self-hosted, Linux, X64, heavy]"
+COMPANY_CONTROL = "runs-on: [self-hosted, Linux, X64, company-control]"
+COMPANY_CONTROL_WF = WORKFLOWS / "company-control-deploy.yml"
 PYPROJECT = ROOT / "pyproject.toml"
 E2E_MCP = ROOT / "scripts/e2e-mcp.sh"
 
 KATER_CHECKOUT_SHA = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 GITHUB_SCRIPT_SHA = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3"
+SETUP_UV_V10_3_3 = "astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3"
+SETUP_UV_V10_3_0 = "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0"
+SETUP_UV_V10_1 = "astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0"
+SETUP_UV_V10_0 = "astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d"
 
 
 def _job_block(text: str, job: str, next_job: str) -> str:
     return text.split(f"  {job}:\n", 1)[1].split(f"\n  {next_job}:\n", 1)[0]
+
+
+def test_public_workflows_use_ubuntu_latest() -> None:
+    for path in (CI, AUTOMERGE, NO_ORG_LEAK, DESIGN_SYSTEM, AGENT_TASTE, RELEASE):
+        text = path.read_text(encoding="utf-8")
+        assert UBUNTU_LATEST in text, path.name
+        assert FLEET_PR_OR_HEAVY not in text, path.name
+        assert FLEET_HEAVY not in text, path.name
+    assert CI.read_text(encoding="utf-8").count(UBUNTU_LATEST) == 11
+
+
+def test_company_control_deploy_stays_on_private_fleet() -> None:
+    text = COMPANY_CONTROL_WF.read_text(encoding="utf-8")
+    assert COMPANY_CONTROL in text
+    assert HOSTED_RUNNER.search(text) is None
+
+
+def test_setup_uv_is_pinned_to_v10_3_3() -> None:
+    for path in (CI, NO_ORG_LEAK, AGENT_TASTE, RELEASE):
+        text = path.read_text(encoding="utf-8")
+        assert SETUP_UV_V10_3_3 in text, path.name
+        assert SETUP_UV_V10_3_0 not in text, path.name
+        assert SETUP_UV_V10_1 not in text, path.name
+        assert SETUP_UV_V10_0 not in text, path.name
+    assert CI.read_text(encoding="utf-8").count(SETUP_UV_V10_3_3) == 9
+
+
+def test_ci_upload_artifacts_expire_after_seven_days() -> None:
+    text = CI.read_text(encoding="utf-8")
+    assert text.count("retention-days: 7") == 2
+    acceptance = _job_block(text, "computer-acceptance", "e2e")
+    coverage = _job_block(text, "coverage", "gate")
+    assert "retention-days: 7" in acceptance
+    assert "retention-days: 7" in coverage
 
 
 def test_automerge_uses_github_script_v9() -> None:
@@ -39,7 +95,7 @@ def test_ci_runs_full_python_jobs_on_stacked_feature_base_prs() -> None:
     assert "  lint-type:" in text
     assert "uv run ruff check ." in text
     assert "uv run mypy" in text
-    assert "timeout 480s uv run pytest" in text
+    assert "timeout 900s uv run pytest" in text
     assert "GRO-1209" in text
     assert "INTERIM" in text
     assert "production-safe isolation" in text
@@ -76,7 +132,7 @@ def test_ci_jobs_install_the_browser_extra() -> None:
 def test_unit_matrix_job_uses_kater_checkout_sha_and_longer_timeout() -> None:
     block = _job_block(CI.read_text(encoding="utf-8"), "unit", "integration")
     assert KATER_CHECKOUT_SHA in block
-    assert "timeout 480s uv run pytest" in block
+    assert "timeout 900s uv run pytest" in block
     assert "--no-cov" in block
     assert "timeout 180s" not in block
     assert "timeout 300s" not in block
@@ -130,6 +186,18 @@ def test_release_workflow_bumps_checkout_action() -> None:
     assert "actions/checkout@v7" not in text
 
 
+def test_release_workflow_records_checksums_and_stamps_identity() -> None:
+    text = RELEASE.read_text(encoding="utf-8")
+    assert 'tags:\n      - "v*"' in text
+    assert "stamp-build-identity.py" in text
+    assert "--no-git" in text
+    assert "sha256sum -- *.whl *.tar.gz" in text
+    assert "tee SHA256SUMS" in text
+    assert "dist/*.whl dist/*.tar.gz dist/SHA256SUMS" in text
+    assert "# - name: Publish to PyPI" in text
+    assert "#   uses: pypa/gh-action-pypi-publish@release/v1" in text
+
+
 def test_no_org_leak_workflow_matches_shared_checkout_sha() -> None:
     text = NO_ORG_LEAK.read_text(encoding="utf-8")
     assert KATER_CHECKOUT_SHA in text
@@ -137,7 +205,7 @@ def test_no_org_leak_workflow_matches_shared_checkout_sha() -> None:
 
 def test_pyproject_pins_newer_uv_build_range() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
-    assert 'requires = ["uv_build>=0.12.7,<0.13"]' in text
+    assert 'requires = ["uv_build>=0.12.19,<0.14"]' in text
     assert "0.11.32" not in text
     assert "0.12.2" not in text
 

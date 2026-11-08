@@ -73,6 +73,11 @@ sudo mkdir -p "/opt/kater/releases/$SHA"
 sudo rsync -a --delete \
   --exclude .git --exclude .venv --exclude .kater \
   /path/to/checkout/ "/opt/kater/releases/$SHA/"
+# Install-time only. The running service never reads git for identity.
+# Exact tag becomes identity.release; otherwise that field stays null.
+sudo python3 /path/to/checkout/scripts/stamp-build-identity.py \
+  --root "/opt/kater/releases/$SHA" \
+  --sha "$SHA"
 sudo chown -R kater:kater "/opt/kater/releases/$SHA"
 # Runtime state dir the unit lists in ReadWritePaths; systemd needs it to exist
 # before ExecStart, and rsync excluded it from the release.

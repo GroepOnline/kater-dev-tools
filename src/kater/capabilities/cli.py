@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -111,12 +112,23 @@ def _manifest_from_mapping(data: dict[str, Any]) -> CapabilityManifest:
         tags=_as_set("tags"),
         method=(str(data["method"]) if data.get("method") is not None else None),
         path=(str(data["path"]) if data.get("path") is not None else None),
-        timeout_seconds=(
-            float(data["timeout_seconds"]) if data.get("timeout_seconds") is not None else None
-        ),
-        mutation=bool(data.get("mutation", False)),
-        idempotency_required=bool(data.get("idempotency_required", False)),
+        timeout_seconds=_optional_timeout(data),
+        mutation=data.get("mutation", False),
+        idempotency_required=data.get("idempotency_required", False),
     )
+
+
+def _optional_timeout(data: dict[str, Any]) -> float | None:
+    raw = data.get("timeout_seconds")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError("timeout_seconds must be a number") from None
+    if not math.isfinite(value):
+        raise ValueError("timeout_seconds must be finite")
+    return value
 
 
 def _persist_and_register(manifest: CapabilityManifest) -> None:

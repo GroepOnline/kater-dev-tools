@@ -104,12 +104,17 @@ uv run kater-capabilities discover \
 
 # `list` and `set-lifecycle` operate on the persisted registry; built-in and
 # extension CAPABILITIES manifests live in the in-memory registry until they
-# are registered. Built-ins such as `web.search` are never persisted, so
-# `set-lifecycle` cannot target them — persist the overlay manifest first and
+# are registered. Built-ins such as `web.search` are never persisted by
+# default, so `set-lifecycle` cannot target them *until the same ID exists in
+# the persisted registry* — persist the overlay manifest first and
 # lifecycle-manage the registered ID:
 #   uv run kater-capabilities register --file <manifest>.json
 # (`register --file` persists every manifest field, including method, path,
 # timeout_seconds, mutation and idempotency_required.)
+# Re-registration note: re-registering a manifest whose content digest is
+# unchanged still re-applies its `lifecycle_state` to the in-memory registry,
+# so a manifest file carrying a stale lifecycle silently revives or revokes
+# the live entry — keep the file's lifecycle in sync with the desired state.
 uv run kater-capabilities set-lifecycle domain.search.hybrid 1.0.0 revoked
 ```
 

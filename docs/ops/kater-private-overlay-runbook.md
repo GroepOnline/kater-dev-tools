@@ -104,9 +104,13 @@ uv run kater-capabilities discover \
 
 # `list` and `set-lifecycle` operate on the persisted registry; built-in and
 # extension CAPABILITIES manifests live in the in-memory registry until they
-# are registered. Persist the overlay manifest first when needed:
+# are registered. Built-ins such as `web.search` are never persisted, so
+# `set-lifecycle` cannot target them — persist the overlay manifest first and
+# lifecycle-manage the registered ID:
 #   uv run kater-capabilities register --file <manifest>.json
-uv run kater-capabilities set-lifecycle web.search 1.0.0 revoked
+# (`register --file` persists every manifest field, including method, path,
+# timeout_seconds, mutation and idempotency_required.)
+uv run kater-capabilities set-lifecycle domain.search.hybrid 1.0.0 revoked
 ```
 
 Unmanaged `backend__tool` names keep working. Domain packages should register stable IDs such as `domain.search.hybrid` through extension `CAPABILITIES`.
@@ -124,7 +128,7 @@ Unmanaged `backend__tool` names keep working. Domain packages should register st
 - [ ] The client uses one Kater MCP server.
 - [ ] Domain search/ask returns the expected cited results.
 - [ ] Ops tools are available only through the authenticated control surface.
-- [ ] `kater-capabilities list` shows the persisted overlay manifests when present (built-ins live in the in-memory registry, not in `list`).
+- [ ] `kater-capabilities list` shows the persisted overlay manifests when present — add `--all` to include candidate/verified/deprecated/revoked states (built-ins live in the in-memory registry, not in `list`).
 - [ ] `./scripts/e2e-mcp.sh` is green.
 
 ## Follow-on

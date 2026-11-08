@@ -54,6 +54,11 @@ def _manifest_payload(manifest: CapabilityManifest) -> dict[str, Any]:
         "rollback_version": manifest.rollback_version,
         "network_targets": list(manifest.network_targets),
         "tags": sorted(manifest.tags),
+        "method": manifest.method,
+        "path": manifest.path,
+        "timeout_seconds": manifest.timeout_seconds,
+        "mutation": manifest.mutation,
+        "idempotency_required": manifest.idempotency_required,
     }
 
 
@@ -104,6 +109,13 @@ def _manifest_from_mapping(data: dict[str, Any]) -> CapabilityManifest:
         rollback_version=(str(data["rollback_version"]) if data.get("rollback_version") else None),
         network_targets=_as_tuple("network_targets"),
         tags=_as_set("tags"),
+        method=(str(data["method"]) if data.get("method") is not None else None),
+        path=(str(data["path"]) if data.get("path") is not None else None),
+        timeout_seconds=(
+            float(data["timeout_seconds"]) if data.get("timeout_seconds") is not None else None
+        ),
+        mutation=bool(data.get("mutation", False)),
+        idempotency_required=bool(data.get("idempotency_required", False)),
     )
 
 

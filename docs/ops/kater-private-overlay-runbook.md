@@ -15,7 +15,7 @@ One Kater endpoint that agents can use for:
 
 ## Prerequisites
 
-- Python 3.11+ with `uv`.
+- Python 3.11-3.14 with `uv` (matching `requires-python = ">=3.11,<3.15"`).
 - Node/`npx` for stdio MCP backends.
 - A cloned `kater-dev-tools` checkout plus a separately managed private extension package and reachable private data plane.
 - Secrets only in local environment/configuration files, never in git.
@@ -30,12 +30,16 @@ uv sync --dev
 export KATER_EXTENSIONS_MODULE=domain_overlay.extensions
 export KATER_PROFILE=domain,ops
 
-# Recommended for anything beyond loopback:
+# Recommended for anything beyond loopback (auth + rate limits guard public
+# serving; the admin key is only needed for public settings mutations, which
+# `kater doctor` reports as informational when absent):
 # export KATER_AUTH_MODE=apikey
 # export KATER_API_KEY=...
 # export KATER_ADMIN_KEY=...
 
-uv run kater up
+# `kater up` defaults --profile to `ops` and does not read KATER_PROFILE, so
+# pass the profile list explicitly.
+uv run kater up --profile domain,ops
 ```
 
 `kater up` writes `.cursor/mcp.json` pointing at the local SSE gateway.
@@ -95,9 +99,13 @@ Fallback is infrastructure-only and must not replay business errors.
 uv run kater-capabilities discover \
   --profile domain,ops \
   --intent "search the private domain index" \
-  --max-risk READ \
+  --max-risk read \
   --json
 
+# `list` and `set-lifecycle` operate on the persisted registry; built-in and
+# extension CAPABILITIES manifests live in the in-memory registry until they
+# are registered. Persist the overlay manifest first when needed:
+#   uv run kater-capabilities register --file <manifest>.json
 uv run kater-capabilities set-lifecycle web.search 1.0.0 revoked
 ```
 
@@ -116,7 +124,7 @@ Unmanaged `backend__tool` names keep working. Domain packages should register st
 - [ ] The client uses one Kater MCP server.
 - [ ] Domain search/ask returns the expected cited results.
 - [ ] Ops tools are available only through the authenticated control surface.
-- [ ] `kater-capabilities list` shows built-ins and overlay manifests when present.
+- [ ] `kater-capabilities list` shows the persisted overlay manifests when present (built-ins live in the in-memory registry, not in `list`).
 - [ ] `./scripts/e2e-mcp.sh` is green.
 
 ## Follow-on

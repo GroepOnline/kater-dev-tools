@@ -46,6 +46,13 @@ def _job_block(text: str, job: str, next_job: str) -> str:
     return text.split(f"  {job}:\n", 1)[1].split(f"\n  {next_job}:\n", 1)[0]
 
 
+HOSTED_CONCURRENCY_CANCEL = (
+    "concurrency:\n"
+    "  group: ${{ github.workflow }}-${{ github.ref }}\n"
+    "  cancel-in-progress: true"
+)
+
+
 def test_public_workflows_use_ubuntu_latest() -> None:
     for path in (CI, AUTOMERGE, NO_ORG_LEAK, DESIGN_SYSTEM, AGENT_TASTE, RELEASE):
         text = path.read_text(encoding="utf-8")
@@ -59,6 +66,21 @@ def test_company_control_deploy_stays_on_private_fleet() -> None:
     text = COMPANY_CONTROL_WF.read_text(encoding="utf-8")
     assert COMPANY_CONTROL in text
     assert HOSTED_RUNNER.search(text) is None
+    assert text.count("concurrency:") == 1
+    assert "cancel-in-progress: false" in text
+
+
+def test_lint_guards_cancel_superseded_runs() -> None:
+    for path in (DESIGN_SYSTEM, NO_ORG_LEAK):
+        text = path.read_text(encoding="utf-8")
+        assert text.count("concurrency:") == 1, path.name
+        assert HOSTED_CONCURRENCY_CANCEL in text, path.name
+
+
+def test_release_does_not_cancel_in_progress() -> None:
+    text = RELEASE.read_text(encoding="utf-8")
+    assert text.count("concurrency:") == 1
+    assert "cancel-in-progress: false" in text
 
 
 def test_setup_uv_is_pinned_to_v10_3_3() -> None:

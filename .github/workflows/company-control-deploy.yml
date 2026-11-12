@@ -1,10 +1,6 @@
 name: Company-control deploy
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       sha:
@@ -21,16 +17,12 @@ concurrency:
 
 jobs:
   deploy:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.conclusion == 'success')
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, Linux, X64, company-control]
     environment: production
     timeout-minutes: 20
     env:
-      REQUESTED_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.sha }}
+      REQUESTED_DEPLOY_SHA: ${{ inputs.sha }}
     steps:
       - name: Checkout current deployment controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -58,11 +50,6 @@ jobs:
           }
           resolved="$(git rev-parse "$requested^{commit}")"
           [[ "$resolved" =~ ^[0-9a-f]{40}$ ]]
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
-            [[ "${{ github.event.workflow_run.event }}" == "push" ]]
-            [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]
-            [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]
-          fi
           echo "sha=$resolved" >> "$GITHUB_OUTPUT"
 
       - name: Deploy exact SHA with rollback snapshot
@@ -87,7 +74,7 @@ jobs:
           {
             echo "## Company-control deploy"
             echo
-            echo "Deployed \`$DEPLOY_SHA\` after green main CI and health-gated cutover."
+            echo "Deployed \`$DEPLOY_SHA\` via manual dispatch and health-gated cutover."
             echo
             echo "The deployment controller came from current main; the application payload was resolved separately to an immutable main commit."
             echo "Rollback state is retained by the deploy controller under the Kater state directory."

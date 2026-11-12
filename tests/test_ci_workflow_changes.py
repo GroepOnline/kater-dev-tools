@@ -70,6 +70,19 @@ def test_company_control_deploy_stays_on_private_fleet() -> None:
     assert "cancel-in-progress: false" in text
 
 
+def test_company_control_deploy_is_manual_dispatch_only() -> None:
+    """A merge to main must not start a production deploy on its own."""
+    text = COMPANY_CONTROL_WF.read_text(encoding="utf-8")
+    assert "workflow_run" not in text
+    on_block = text.split("\njobs:", 1)[0]
+    assert "workflow_dispatch:" in on_block
+    sha_block = on_block.split("sha:", 1)[1]
+    assert "required: true" in sha_block
+    assert "if: github.event_name == 'workflow_dispatch'" in text
+    assert "REQUESTED_DEPLOY_SHA: ${{ inputs.sha }}" in text
+    assert "environment: production" in text
+
+
 def test_lint_guards_cancel_superseded_runs() -> None:
     for path in (DESIGN_SYSTEM, NO_ORG_LEAK):
         text = path.read_text(encoding="utf-8")

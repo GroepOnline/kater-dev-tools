@@ -31,7 +31,9 @@ def _run_script(scenario: dict[str, object]) -> dict[str, object]:
         const context = {
             repo: { owner: 'test-owner', repo: 'test-repo' },
             payload: {
-                pull_request: scenario.noPr ? undefined : { node_id: 'PR_node', number: 85 },
+                pull_request: scenario.noPr ? undefined : {
+                    node_id: 'PR_node', number: 85, base: { ref: scenario.baseRef },
+                },
             },
         };
         const github = {
@@ -84,7 +86,9 @@ def test_disabled_policy_skips_without_a_mutation() -> None:
 
 def test_enabled_policy_preserves_squash_automerge() -> None:
     """Keep squash auto-merge behavior when repository policy allows it."""
-    result = _run_script({"repository": {"allow_auto_merge": True}})
+    result = _run_script(
+        {"baseRef": "stacked-feature", "repository": {"allow_auto_merge": True}}
+    )
     assert result["error"] is None
     assert [call["kind"] for call in result["calls"]] == ["metadata", "mutation"]
     mutation = result["calls"][1]
@@ -93,6 +97,19 @@ def test_enabled_policy_preserves_squash_automerge() -> None:
     assert mutation["variables"] == {"id": "PR_node"}
     assert result["notices"] == []
     assert result["infos"] == ["auto-merge enabled for PR #85"]
+
+
+def test_main_base_never_enables_automerge() -> None:
+    """Skip the mutation when the pull request targets the default branch main."""
+    result = _run_script(
+        {"baseRef": "main", "repository": {"allow_auto_merge": True}}
+    )
+    assert result["error"] is None
+    assert result["calls"] == []
+    assert result["notices"] == [
+        "Auto-merge skipped: pull request targets the default branch (main)."
+    ]
+    assert result["infos"] == []
 
 
 @pytest.mark.parametrize("error", ["Forbidden", "Not Found", "API unavailable"])

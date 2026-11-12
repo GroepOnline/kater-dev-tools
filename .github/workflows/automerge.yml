@@ -2,6 +2,7 @@ name: Automerge
 
 # Auto-merge Dependabot PRs once the CI gate is green.
 # Keeps public dependency/security bumps moving without manual babysitting.
+# Never auto-merges into main: a main merge can trigger production deploys.
 
 on:
   check_suite:
@@ -31,6 +32,10 @@ jobs:
           script: |
             const pr = context.payload.pull_request;
             if (!pr) return;
+            if (pr.base?.ref === 'main') {
+              core.notice('Auto-merge skipped: pull request targets the default branch (main).');
+              return;
+            }
             const { data: repository } = await github.rest.repos.get(context.repo);
             if (repository.allow_auto_merge === false) {
               core.notice('Auto-merge skipped: disabled by repository policy (allow_auto_merge=false).');

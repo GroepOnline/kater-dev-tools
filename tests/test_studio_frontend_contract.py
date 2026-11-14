@@ -110,3 +110,68 @@ def test_experimental_navigation_flag_controls_sidebar() -> None:
     sidebar = (STUDIO / "src/components/Sidebar.tsx").read_text()
     assert "experimental: true" in config
     assert "studioConfig.features.showExperimentalViews" in sidebar
+
+
+def test_catalog_sort_markup_ships_in_studio_bundle() -> None:
+    source = "\n".join(
+        path.read_text() for path in (STUDIO / "src").rglob("*") if path.is_file()
+    )
+    # The Studio IntegrationsView renders a sort <select> next to its toolbar.
+    assert "catalog-sort-select" in source
+    assert "Popularity" in source
+    assert "Name (A-Z)" in source
+    assert "Name (Z-A)" in source
+    assert "onSortChange" in source
+    assert "SEARCH_DEBOUNCE_MS" in source
+
+    # The bundled studio assets must also surface the sort markup, since the
+    # runtime UI ships from `studio_dist/assets/*` (no manual hand-edits in
+    # dashboard.py). The grep'd substring proves the rebuild captured it.
+    dist_js = (ROOT / "src/kater/web/studio_dist/assets/studio.js")
+    assert dist_js.exists(), "studio dist bundle missing; run `cd studio && npm run build`"
+    bundle = dist_js.read_text()
+    assert "catalog-sort-select" in bundle
+    assert "Popularity" in bundle
+
+
+def test_connection_count_pill_is_wired_into_studio() -> None:
+    card = (STUDIO / "src/components/IntegrationCard.tsx").read_text()
+    types = (STUDIO / "src/types.ts").read_text()
+    # Source-level wiring: the prop is typed, optional, and the pill ships a
+    # distinct className so CSS can style it.
+    assert "connectionCount" in card
+    assert "connection-pill" in card
+    assert "connection_count" in types
+
+    # The bundled studio assets must also carry the prop and className so the
+    # runtime UI ships the pill without hand-edits in dashboard.py.
+    dist_js = (ROOT / "src/kater/web/studio_dist/assets/studio.js")
+    assert dist_js.exists(), "studio dist bundle missing; run `cd studio && npm run build`"
+    bundle = dist_js.read_text()
+    assert "connectionCount" in bundle
+    assert "connection-pill" in bundle
+
+
+def test_trigger_pills_render_in_studio_bundle() -> None:
+    types = (STUDIO / "src/types.ts").read_text()
+    card = (STUDIO / "src/components/IntegrationCard.tsx").read_text()
+    view = (STUDIO / "src/views/IntegrationsView.tsx").read_text()
+    # Source-level wiring: triggers are typed, and both card + detail panel
+    # render the pill row with cadence-aware className + glyph.
+    assert "triggers" in types
+    assert "cadence" in types
+    assert "'realtime' | 'poll'" in types
+    assert "trigger-pill" in card
+    assert "triggers" in card
+    assert "trigger-pill" in view
+    assert "triggers" in view
+
+    # The bundled studio assets must carry the pill class + cadence token so
+    # the runtime UI ships the pills without hand-edits in dashboard.py.
+    dist_js = ROOT / "src/kater/web/studio_dist/assets/studio.js"
+    assert dist_js.exists(), "studio dist bundle missing; run `cd studio && npm run build`"
+    bundle = dist_js.read_text()
+    assert "trigger-pill" in bundle
+    assert "triggers" in bundle
+    assert "realtime" in bundle
+    assert "poll" in bundle

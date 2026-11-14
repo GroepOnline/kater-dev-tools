@@ -58,6 +58,36 @@ def test_load_project_env_prefers_kater_over_root_and_keeps_process(
 
 
 def test_resolve_use_proxy_explicit_and_auto(monkeypatch) -> None:
+    # `resolve_use_proxy` auto-enables when ANY non-native tool source has all
+    # required env vars set. The ambient shell in some environments exports
+    # CLOUDFLARE_*/LINEAR_API_KEY/NOTION_API_KEY which would leak into this
+    # test and flip the last assertion to True. Wipe the known triggers first
+    # so the test is deterministic regardless of host environment.
+    for _key in (
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "LINEAR_API_KEY",
+        "NOTION_API_KEY",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "GITLAB_PERSONAL_ACCESS_TOKEN",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "HF_TOKEN",
+        "SENTRY_AUTH_TOKEN",
+        "EXA_API_KEY",
+        "FIRECRAWL_API_KEY",
+        "RESEND_API_KEY",
+        "SANITY_API_TOKEN",
+        "UPSTASH_EMAIL",
+        "UPSTASH_API_KEY",
+        "FIGMA_API_KEY",
+        "SLACK_ACCESS_TOKEN",
+        "DATABASE_URL",
+        "BRAVE_API_KEY",
+        "EVERART_API_KEY",
+    ):
+        monkeypatch.delenv(_key, raising=False)
+
     monkeypatch.setenv("KATER_PROXY", "0")
     monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
     assert resolve_use_proxy(profile="ops") is False

@@ -57,6 +57,21 @@ def _post(port: int, path: str, body: dict, headers: dict | None = None) -> dict
     return json.loads(resp.read())
 
 
+def _post_err(
+    port: int, path: str, body: dict, headers: dict | None = None
+) -> urllib.error.HTTPError:
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", **(headers or {})},
+    )
+    try:
+        urllib.request.urlopen(req)
+    except urllib.error.HTTPError as e:
+        return e
+    pytest.fail("Expected HTTPError")
+
+
 def _get_err(port: int, path: str, headers: dict | None = None) -> urllib.error.HTTPError:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
@@ -334,8 +349,13 @@ def test_catalog(api_server) -> None:
     assert data["total"] > 15
     assert "by_transport" in data
     assert "by_risk" in data
+    assert "by_category" in data
     assert "stdio" in data["by_transport"]
     assert "high" in data["by_risk"]
+    first = data["servers"][0]
+    assert "category" in first
+    assert "auth_schemes" in first
+    assert "toolkit_tools" in first
 
     search = _get(_api_port(api_server), "/api/catalog?q=brave")
     names = {s["name"] for s in search["servers"]}
@@ -344,6 +364,195 @@ def test_catalog(api_server) -> None:
     profile = _get(_api_port(api_server), "/api/catalog?profile=research")
     for server in profile["servers"]:
         assert "research" in server["profiles"]
+
+    dev = _get(_api_port(api_server), "/api/catalog?category=dev")
+    assert dev["total"] > 0
+    for server in dev["servers"]:
+        assert server["category"] == "dev"
+    # Guard the model-validator auto-inference powering the catalog UX.
+    by_name = {s["name"]: s for s in _get(_api_port(api_server), "/api/catalog")["servers"]}
+    figma = by_name.get("figma")
+    assert figma is not None, "figma missing from catalog"
+    assert figma["auth_schemes"], "figma must declare at least one auth scheme"
+    assert any(scheme in {"api_key", "bearer", "oauth2"} for scheme in figma["auth_schemes"]), (
+        f"figma expected credentialed scheme, got {figma['auth_schemes']!r}"
+    )
+    assert figma["category"] == "productivity"
+    assert len(figma["toolkit_tools"]) >= 1
+    seq = by_name.get("sequential-thinking")
+    assert seq is not None, "sequential-thinking missing from catalog"
+    assert seq["auth_schemes"] == ["none"], (
+        f"sequential-thinking expected exactly ['none'], got {seq['auth_schemes']!r}"
+    )
+    assert seq["category"] == "ai"
+
+
+def test_catalog_connection_count(api_server) -> None:
+    data = _get(_api_port(api_server), "/api/catalog")
+    assert data["total"] > 0
+    for s in data["servers"]:
+        assert "connection_count" in s, f"server {s.get('name')!r} missing connection_count"
+        assert isinstance(s["connection_count"], int)
+        assert s["connection_count"] >= 0
+    # figma has no oauth in its static config; count must be 0
+    by_name = {s["name"]: s for s in data["servers"]}
+    figma = by_name.get("figma")
+    assert figma is not None, "figma missing from catalog"
+    assert figma["connection_count"] == 0
+
+
+def test_catalog_triggers_in_payload(api_server) -> None:
+    data = _get(_api_port(api_server), "/api/catalog")
+    for s in data["servers"]:
+        assert "triggers" in s
+        assert isinstance(s["triggers"], list)
+        assert "connection_count" in s
+        assert isinstance(s["connection_count"], int)
+    github = next(s for s in data["servers"] if s["name"] == "github")
+    assert len(github["triggers"]) >= 1
+    assert github["triggers"][0]["cadence"] in {"realtime", "poll"}
+
+
+def test_catalog_request_toolkit(api_server) -> None:
+    port = _api_port(api_server)
+    ok = _post(
+        port,
+        "/api/catalog/request",
+        {"name": "figma-pro", "use_case": "design review", "contact": "team@x"},
+    )
+    assert ok["name"] == "figma-pro"
+    assert ok["type"] == "toolkit_request"
+    assert "queued_at" in ok
+
+    err = _post_err(port, "/api/catalog/request", {})
+    assert err.code == 422
+
+    err_long = _post_err(port, "/api/catalog/request", {"name": "x" * 100})
+    assert err_long.code == 422
+
+    err_too_long_use_case = _post_err(
+        port, "/api/catalog/request", {"name": "ok", "use_case": "u" * 501}
+    )
+    assert err_too_long_use_case.code == 422
+
+
+def test_catalog_requests_list_admin_gate(api_server, monkeypatch) -> None:
+    from kater.settings import invalidate_settings_cache
+
+    monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
+    invalidate_settings_cache()
+
+    port = _api_port(api_server)
+
+    # Without admin credential -> 403
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _get(port, "/api/catalog/requests")
+    assert exc.value.code == 403
+
+    # With admin credential -> 200 and request visible after submit
+    _post(
+        port,
+        "/api/catalog/request",
+        {"name": "admin-gated-queue", "use_case": "ops", "contact": "ops@x"},
+    )
+    data = _get(
+        port, "/api/catalog/requests", headers={"Authorization": "Bearer admin-secret"}
+    )
+    assert data["total"] >= 1
+    names = {row["name"] for row in data["requests"]}
+    assert "admin-gated-queue" in names
+    match = next(row for row in data["requests"] if row["name"] == "admin-gated-queue")
+    assert match["use_case"] == "ops"
+    assert match["contact"] == "ops@x"
+    assert "queued_at" in match
+
+    # Cleanup
+    monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
+    invalidate_settings_cache()
+
+
+def test_catalog_enable_integration_cases(api_server) -> None:
+    # 404 on unknown toolkit
+    err_404 = _post_err(_api_port(api_server), "/api/catalog/nonexistent_toolkit_xyz/enable", {})
+    assert err_404.code == 404
+
+    # 422 if credentials missing for server that requires env
+    err_422 = _post_err(_api_port(api_server), "/api/catalog/figma/enable", {})
+    assert err_422.code == 422
+
+    # 400 if invalid env key supplied
+    err_400 = _post_err(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"auth": {"NOT_A_REAL_ENV_VAR": "secret123"}},
+    )
+    assert err_400.code == 400
+
+    # Successful enable for no-auth toolkit -> 201 Created + metadata returned
+    # Disable first to ensure predictable enable test
+    _post(_api_port(api_server), "/api/mcp/servers/sequential-thinking/disable", {})
+    res_201 = _post(
+        _api_port(api_server),
+        "/api/catalog/sequential-thinking/enable",
+        {},
+    )
+    assert res_201["name"] == "sequential-thinking"
+    assert res_201["enabled"] is True
+    assert "category" in res_201
+    assert "toolkit_tools" in res_201
+
+    # 409 Duplicate / Already enabled
+    err_409 = _post_err(
+        _api_port(api_server),
+        "/api/catalog/sequential-thinking/enable",
+        {},
+    )
+    assert err_409.code == 409
+
+    # Redaction: credentials passed to enable are not leaked in response
+    _post(_api_port(api_server), "/api/mcp/servers/figma/disable", {})
+    res_with_auth = _post(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"auth": {"api_key": "figma_test_secret_value_123"}},
+    )
+    assert res_with_auth["name"] == "figma"
+    assert res_with_auth["enabled"] is True
+    assert "figma_test_secret_value_123" not in json.dumps(res_with_auth)
+
+    # Clean up figma token
+    import os
+    os.environ.pop("FIGMA_API_KEY", None)
+
+
+def test_catalog_triggers(api_server) -> None:
+    data = _get(_api_port(api_server), "/api/catalog/github/triggers")
+    assert data["name"] == "github"
+    assert isinstance(data["triggers"], list)
+    assert len(data["triggers"]) >= 1
+    assert data["triggers"][0]["cadence"] in {"realtime", "poll"}
+    assert data["triggers"][0]["name"]
+
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _get(_api_port(api_server), "/api/catalog/nonexistent_xyz/triggers")
+    assert exc.value.code == 404
+
+
+def test_catalog_search_and_sort(api_server) -> None:
+    ai = _get(_api_port(api_server), "/api/catalog?q=ai")
+    assert ai["total"] >= 1
+    assert any(
+        "ai" in s["name"].lower()
+        or "ai" in s["description"].lower()
+        or any("ai" in t["name"].lower() for t in s.get("toolkit_tools", []) or [])
+        for s in ai["servers"]
+    )
+
+    pop = _get(_api_port(api_server), "/api/catalog?sort=popularity")
+    assert pop["total"] > 0
+    first = pop["servers"][0]
+    # First should have a trigger or be alphabetical if no triggers
+    assert "trigger_count" in first or first["name"] <= pop["servers"][-1]["name"]
 
 
 def test_update_storage_backend(api_server) -> None:

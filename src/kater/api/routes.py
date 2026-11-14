@@ -196,7 +196,21 @@ def _server_doc(
         "enabled": settings.is_server_enabled(source.name, default=True),
         "oauth": oauth,
         "connections": (oauth or {}).get("connections") or [],
+        "connection_count": len(((oauth or {}).get("connections")) or []),
     }
+    doc["category"] = getattr(source, "category", "dev")
+    if hasattr(doc["category"], "value"):
+        doc["category"] = doc["category"].value
+    doc["logo_url"] = getattr(source, "logo_url", None)
+    doc["auth_schemes"] = getattr(source, "auth_schemes", ["none"])
+    tools = getattr(source, "toolkit_tools", [])
+    if tools and hasattr(tools[0], "model_dump"):
+        doc["toolkit_tools"] = [t.model_dump() for t in tools]
+    else:
+        doc["toolkit_tools"] = tools or []
+    doc["trigger_count"] = getattr(source, "trigger_count", 0)
+    doc["triggers"] = [t.model_dump(mode="json") for t in (getattr(source, "triggers", None) or [])]
+    doc["docs_url"] = getattr(source, "docs_url", None) or source.homepage
     if include_mcp:
         doc["mcp"] = source.mcp.model_dump() if source.mcp else None
     if include_context_cost:
@@ -398,6 +412,14 @@ def _studio_js(_: Request) -> Response:
 @route("GET", "/studio/assets/studio.css", public=True)
 def _studio_css(_: Request) -> Response:
     return _studio_resource_response("assets/studio.css")
+
+
+@route("GET", "/studio/assets/logos/{name}", public=True)
+def _studio_logo(req: Request) -> Response:
+    name = req.params["name"]
+    if not name or "/" in name or ".." in name or "\\" in name:
+        return Response.json(400, {"error": "invalid logo name"})
+    return _studio_resource_response(f"assets/logos/{name}")
 
 
 @route("GET", "/.well-known/oauth-authorization-server", public=True)
@@ -821,6 +843,8 @@ def _catalog(req: Request) -> Response:
     profile = (req.query1("profile") or "").strip()
     transport = (req.query1("transport") or "").strip().lower()
     risk = (req.query1("risk") or "").strip().lower()
+    category = (req.query1("category") or "").strip().lower()
+    sort = (req.query1("sort") or "popularity").strip().lower()
     results = []
     for source in visible_tool_sources():
         if source.transport == "native":
@@ -831,11 +855,24 @@ def _catalog(req: Request) -> Response:
             continue
         if risk and source.risk.value != risk:
             continue
+        if category and category != "all":
+            sc = getattr(source, "category", "dev")
+            scv = sc.value if hasattr(sc, "value") else str(sc)
+            if scv.lower() != category:
+                continue
         if query:
             haystack = f"{source.name} {source.description}".lower()
             if query not in haystack:
-                continue
+                toolkit = getattr(source, "toolkit_tools", []) or []
+                if not any(query in t.name.lower() for t in toolkit):
+                    continue
         results.append(_server_doc(source, settings, include_context_cost=True))
+    if sort == "popularity":
+        results.sort(key=lambda s: (-int(s.get("trigger_count", 0) or 0), s.get("name", "")))
+    elif sort == "recent":
+        results.sort(key=lambda s: s.get("name", ""), reverse=True)
+    else:
+        results.sort(key=lambda s: s.get("name", ""))
     return Response.json(
         200,
         {
@@ -843,8 +880,215 @@ def _catalog(req: Request) -> Response:
             "servers": results,
             "by_transport": _group_by(results, "transport"),
             "by_risk": _group_by(results, "risk"),
+            "by_category": _group_by(results, "category"),
         },
     )
+
+
+@route("POST", "/api/catalog/{name}/enable")
+def _catalog_enable(req: Request) -> Response:
+    name = req.params["name"]
+    source = _visible_source(name)
+    if not source:
+        return Response.json(404, {"error": f"Unknown server: {name}"})
+    try:
+        body = req.json or {}
+    except ValueError:
+        body = {}
+    env_input: dict[str, Any] | None = None
+    if isinstance(body, dict):
+        if isinstance(body.get("env"), dict):
+            env_input = body["env"]
+        elif isinstance(body.get("auth"), dict):
+            raw_auth = body["auth"]
+            from kater.connect import declared_credential_keys
+
+            declared = declared_credential_keys(source)
+            declared_list = sorted(declared)
+            mapped: dict[str, Any] = {}
+            for k, v in raw_auth.items():
+                if k in declared:
+                    mapped[k] = v
+                elif len(declared_list) == 1 and k.lower() in {
+                    "api_key",
+                    "apikey",
+                    "token",
+                    "bearer_token",
+                    "key",
+                    "value",
+                }:
+                    mapped[declared_list[0]] = v
+                else:
+                    mapped[k] = v
+            if mapped:
+                env_input = mapped
+    settings = load_settings()
+    if env_input is not None:
+        denied = _secret_persist_denied(req)
+        if denied:
+            return denied
+        from kater.connect import declared_credential_keys, source_is_configured, upsert_connection
+
+        declared = declared_credential_keys(source)
+        for key in env_input:
+            if key not in declared:
+                return Response.json(400, {"error": f"{name} does not use credential '{key}'."})
+        override = settings.server_overrides.get(name) or ServerOverride()
+        applied: list[str] = []
+        cleaned: dict[str, str] = {}
+        cleared: set[str] = set()
+        for key, value in env_input.items():
+            text = str(value or "").strip()
+            if text:
+                override.env[key] = text
+                _remember_runtime_env(key, text)
+                applied.append(key)
+                cleaned[key] = text
+            else:
+                override.env.pop(key, None)
+                cleared.add(key)
+        settings.server_overrides[name] = override
+        label = str(body.get("label") or "").strip() if isinstance(body, dict) else ""
+        token_key = source.oauth.token_env if source.oauth else None
+        if token_key and cleaned.get(token_key):
+            upsert_connection(settings, name, cleaned, label=label or "manual")
+        elif cleared:
+            _forget_runtime_env(cleared)
+        save_settings(settings)
+        try:
+            get_proxy().sync_source(source)
+        except Exception:
+            from kater.api.server import _log
+
+            _log.exception("failed to sync %s after catalog enable", name)
+        settings = load_settings()
+        if not source_is_configured(source, settings):
+            server_env = settings.get_server_env(source.name)
+            conns = (
+                settings.server_overrides.get(source.name) or ServerOverride()
+            ).connections
+            return Response.json(
+                422,
+                {
+                    "error": f"{name} missing required credentials",
+                    "missing_env": [
+                        k
+                        for k in declared
+                        if not (
+                            server_env.get(k)
+                            or os.environ.get(k)
+                            or (
+                                source.oauth
+                                and source.oauth.token_env == k
+                                and conns
+                            )
+                        )
+                    ],
+                },
+            )
+    else:
+        denied = _catalog_admin_denied(req)
+        if denied:
+            return denied
+        from kater.connect import source_is_configured
+
+        if source.env and not source_is_configured(source, settings):
+            return Response.json(
+                422,
+                {
+                    "error": f"{name} missing required credentials",
+                    "auth_schemes": getattr(source, "auth_schemes", ["none"]),
+                },
+            )
+    if settings.is_server_enabled(name, default=True):
+        return Response.json(
+            409, {"error": f"{name} already enabled", "name": name, "enabled": True}
+        )
+    settings.set_server_enabled(name, True)
+    save_settings(settings)
+    record_server_toggle(name, "enable", True)
+    _ws_broadcast("server_enabled", {"name": name})
+    return Response.json(
+        201, _server_doc(source, settings, include_mcp=True, include_context_cost=True)
+    )
+
+
+@route("GET", "/api/catalog/{name}/triggers", public=True)
+def _catalog_triggers(req: Request) -> Response:
+    from kater.profiles import get_triggers
+
+    name = req.params["name"]
+    if not _visible_source(name):
+        return Response.json(404, {"error": f"Unknown server: {name}"})
+    return Response.json(
+        200,
+        {"name": name, "triggers": [t.model_dump(mode="json") for t in get_triggers(name)]},
+    )
+
+
+def _catalog_request_now_iso() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(time.time(), tz=UTC).isoformat()
+
+
+@route("POST", "/api/catalog/request", public=True)
+def _catalog_request(req: Request) -> Response:
+    from kater.telemetry import TelemetryEvent, record_event
+
+    try:
+        body = req.json or {}
+    except ValueError:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    name = str(body.get("name") or "").strip()
+    use_case = str(body.get("use_case") or "").strip()
+    contact = str(body.get("contact") or "").strip()
+    if not name:
+        return Response.json(422, {"error": "name required", "field": "name"})
+    if len(name) > 64:
+        return Response.json(422, {"error": "name too long", "field": "name"})
+    if len(use_case) > 500:
+        return Response.json(422, {"error": "use_case too long", "field": "use_case"})
+    if len(contact) > 120:
+        return Response.json(422, {"error": "contact too long", "field": "contact"})
+    encoded = f"{name}|{use_case.replace('|', '/')}|{contact.replace('|', '/')}"
+    record_event(TelemetryEvent(type="toolkit_request", name=encoded))
+    queued_at = _catalog_request_now_iso()
+    return Response.json(
+        201,
+        {
+            "id": (int(time.time() * 1_000_000) ^ abs(hash(name))) & 0x7FFFFFFF,
+            "name": name,
+            "type": "toolkit_request",
+            "queued_at": queued_at,
+        },
+    )
+
+
+@route("GET", "/api/catalog/requests")
+def _catalog_requests_list(req: Request) -> Response:
+    denied = _catalog_admin_denied(req)
+    if denied:
+        return denied
+    raw = [row for row in load_events(limit=100) if row.get("type") == "toolkit_request"]
+    out = []
+    for row in raw:
+        encoded = str(row.get("name", "") or "")
+        parts = encoded.split("|", 2)
+        while len(parts) < 3:
+            parts.append("")
+        out.append(
+            {
+                "id": row.get("id"),
+                "name": parts[0],
+                "use_case": parts[1],
+                "contact": parts[2],
+                "queued_at": row.get("timestamp"),
+            }
+        )
+    return Response.json(200, {"total": len(out), "requests": out})
 
 
 @route("GET", "/api/spec")

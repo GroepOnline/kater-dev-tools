@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 from enum import StrEnum
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Transport(StrEnum):
@@ -17,6 +18,30 @@ class RiskLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+class Category(StrEnum):
+    DEV = "dev"
+    CRM = "crm"
+    COMMS = "comms"
+    AI = "ai"
+    DATA = "data"
+    INFRA = "infra"
+    PRODUCTIVITY = "productivity"
+
+
+AuthScheme = Literal["api_key", "oauth2", "bearer", "none"]
+
+
+class ToolRef(BaseModel):
+    name: str
+    description: str = ""
+
+
+class TriggerRef(BaseModel):
+    name: str
+    description: str = ""
+    cadence: Literal["realtime", "poll"] = "realtime"
 
 
 class McpServerConfig(BaseModel):
@@ -57,6 +82,250 @@ class ToolSource(BaseModel):
     mcp: McpServerConfig | None = None
     homepage: str | None = None
     oauth: OAuthConnectConfig | None = None
+    category: Category = Category.DEV
+    logo_url: str | None = None
+    auth_schemes: list[AuthScheme] = Field(default_factory=list)
+    toolkit_tools: list[ToolRef] = Field(default_factory=list)
+    triggers: list[TriggerRef] = Field(default_factory=list)
+    trigger_count: int = 0
+    docs_url: str | None = None
+
+    @model_validator(mode="after")
+    def _infer_toolkit_defaults(self) -> ToolSource:
+        name_category: dict[str, Category] = {
+            "kater": Category.INFRA,
+            "github": Category.DEV,
+            "gitlab": Category.DEV,
+            "linear": Category.PRODUCTIVITY,
+            "sentry": Category.DATA,
+            "exa": Category.DATA,
+            "firecrawl": Category.DATA,
+            "huggingface": Category.AI,
+            "sanity": Category.PRODUCTIVITY,
+            "cloudflare": Category.INFRA,
+            "upstash": Category.INFRA,
+            "browser": Category.DEV,
+            "resend": Category.COMMS,
+            "slack": Category.COMMS,
+            "quiverai": Category.AI,
+            "figma": Category.PRODUCTIVITY,
+            "postgres": Category.DATA,
+            "sqlite": Category.DATA,
+            "filesystem": Category.DEV,
+            "brave-search": Category.DATA,
+            "sequential-thinking": Category.AI,
+            "memory": Category.AI,
+            "context7": Category.DEV,
+            "deepwiki": Category.DEV,
+            "notion": Category.PRODUCTIVITY,
+            "fetch": Category.DEV,
+            "time": Category.PRODUCTIVITY,
+            "puppeteer": Category.DEV,
+            "everart": Category.AI,
+        }
+        toolkit_map: dict[str, list[ToolRef]] = {
+            "github": [
+                ToolRef(name="create_issue", description="Create GitHub issue"),
+                ToolRef(name="search_code", description="Search code"),
+                ToolRef(name="get_pr", description="Get PR details"),
+                ToolRef(name="list_repos", description="List repositories"),
+            ],
+            "gitlab": [
+                ToolRef(name="create_mr", description="Create merge request"),
+                ToolRef(name="list_issues", description="List issues"),
+                ToolRef(name="get_pipeline", description="Get pipeline"),
+                ToolRef(name="search_code", description="Search code"),
+            ],
+            "linear": [
+                ToolRef(name="create_issue", description="Create Linear issue"),
+                ToolRef(name="list_projects", description="List projects"),
+                ToolRef(name="update_issue", description="Update issue"),
+                ToolRef(name="search_issues", description="Search issues"),
+            ],
+            "sentry": [
+                ToolRef(name="list_issues", description="List Sentry issues"),
+                ToolRef(name="get_event", description="Get event"),
+                ToolRef(name="list_releases", description="List releases"),
+                ToolRef(name="search_events", description="Search events"),
+            ],
+            "exa": [
+                ToolRef(name="web_search", description="Web search"),
+                ToolRef(name="fetch_page", description="Fetch page"),
+                ToolRef(name="crawl", description="Crawl site"),
+                ToolRef(name="research", description="Research"),
+            ],
+            "firecrawl": [
+                ToolRef(name="scrape", description="Scrape URL"),
+                ToolRef(name="crawl", description="Crawl"),
+                ToolRef(name="search", description="Search"),
+                ToolRef(name="extract", description="Extract"),
+            ],
+            "huggingface": [
+                ToolRef(name="search_models", description="Search models"),
+                ToolRef(name="get_model", description="Get model"),
+                ToolRef(name="list_datasets", description="List datasets"),
+                ToolRef(name="search_papers", description="Search papers"),
+            ],
+            "sanity": [
+                ToolRef(name="query", description="GROQ query"),
+                ToolRef(name="create_doc", description="Create document"),
+                ToolRef(name="patch_doc", description="Patch document"),
+                ToolRef(name="list_datasets", description="List datasets"),
+            ],
+            "cloudflare": [
+                ToolRef(name="list_workers", description="List workers"),
+                ToolRef(name="get_zone", description="Get zone"),
+                ToolRef(name="kv_get", description="KV get"),
+                ToolRef(name="r2_list", description="R2 list"),
+            ],
+            "upstash": [
+                ToolRef(name="redis_get", description="Redis get"),
+                ToolRef(name="qstash_publish", description="Publish message"),
+                ToolRef(name="create_db", description="Create DB"),
+                ToolRef(name="list_backups", description="List backups"),
+            ],
+            "browser": [
+                ToolRef(name="navigate", description="Navigate"),
+                ToolRef(name="click", description="Click"),
+                ToolRef(name="screenshot", description="Screenshot"),
+                ToolRef(name="fill", description="Fill form"),
+            ],
+            "resend": [
+                ToolRef(name="send_email", description="Send email"),
+                ToolRef(name="list_contacts", description="List contacts"),
+                ToolRef(name="create_broadcast", description="Create broadcast"),
+                ToolRef(name="get_template", description="Get template"),
+            ],
+            "slack": [
+                ToolRef(name="post_message", description="Post message"),
+                ToolRef(name="list_channels", description="List channels"),
+                ToolRef(name="search_messages", description="Search"),
+                ToolRef(name="create_trigger", description="Trigger event"),
+            ],
+            "figma": [
+                ToolRef(name="get_file", description="Get file"),
+                ToolRef(name="get_components", description="Get components"),
+                ToolRef(name="export_image", description="Export image"),
+                ToolRef(name="list_projects", description="List projects"),
+            ],
+            "postgres": [
+                ToolRef(name="query", description="SQL query"),
+                ToolRef(name="list_tables", description="List tables"),
+                ToolRef(name="describe", description="Describe"),
+                ToolRef(name="insert", description="Insert"),
+            ],
+            "sqlite": [
+                ToolRef(name="query", description="SQL query"),
+                ToolRef(name="list_tables", description="List tables"),
+                ToolRef(name="backup", description="Backup"),
+                ToolRef(name="vacuum", description="Vacuum"),
+            ],
+            "notion": [
+                ToolRef(name="query_db", description="Query DB"),
+                ToolRef(name="create_page", description="Create page"),
+                ToolRef(name="search", description="Search"),
+                ToolRef(name="patch_page", description="Patch page"),
+            ],
+            "context7": [
+                ToolRef(name="query_docs", description="Query docs"),
+                ToolRef(name="resolve_lib", description="Resolve library"),
+                ToolRef(name="search", description="Search"),
+                ToolRef(name="fetch", description="Fetch"),
+            ],
+            "brave-search": [
+                ToolRef(name="web_search", description="Web search"),
+                ToolRef(name="news_search", description="News search"),
+                ToolRef(name="image_search", description="Image search"),
+                ToolRef(name="summarize", description="Summarize"),
+            ],
+            "sequential-thinking": [
+                ToolRef(name="think", description="Think step"),
+                ToolRef(name="plan", description="Plan"),
+                ToolRef(name="reflect", description="Reflect"),
+                ToolRef(name="conclude", description="Conclude"),
+            ],
+            "memory": [
+                ToolRef(name="store", description="Store"),
+                ToolRef(name="recall", description="Recall"),
+                ToolRef(name="graph", description="Graph"),
+                ToolRef(name="forget", description="Forget"),
+            ],
+            "fetch": [
+                ToolRef(name="fetch", description="Fetch URL"),
+                ToolRef(name="parse", description="Parse"),
+                ToolRef(name="monitor", description="Monitor"),
+                ToolRef(name="extract", description="Extract"),
+            ],
+            "time": [
+                ToolRef(name="now", description="Current time"),
+                ToolRef(name="convert", description="Convert TZ"),
+                ToolRef(name="schedule", description="Schedule"),
+                ToolRef(name="parse", description="Parse"),
+            ],
+            "puppeteer": [
+                ToolRef(name="navigate", description="Navigate"),
+                ToolRef(name="act", description="Act"),
+                ToolRef(name="screenshot", description="Screenshot"),
+                ToolRef(name="pdf", description="PDF"),
+            ],
+            "everart": [
+                ToolRef(name="generate", description="Generate image"),
+                ToolRef(name="transform", description="Transform"),
+                ToolRef(name="list_models", description="List models"),
+                ToolRef(name="upscale", description="Upscale"),
+            ],
+        }
+        trigger_seed: dict[str, list[TriggerRef]] = {
+            "github": [TriggerRef(
+                name="GITHUB_PUSH_EVENT",
+                description="Push to any watched repo",
+                cadence="realtime",
+            )],
+            "slack": [TriggerRef(
+                name="SLACK_MESSAGE_EVENT",
+                description="New message in channel",
+                cadence="realtime",
+            )],
+            "notion": [TriggerRef(
+                name="NOTION_PAGE_UPDATED_EVENT",
+                description="Page updated",
+                cadence="realtime",
+            )],
+            "cloudflare": [TriggerRef(
+                name="CLOUDFLARE_DEPLOY_EVENT",
+                description="Worker deploy completed", cadence="realtime",
+            )],
+            "upstash": [TriggerRef(
+                name="UPSTASH_REDIS_TICK_EVENT",
+                description="Polled Redis change",
+                cadence="poll",
+            )],
+        }
+        if self.category == Category.DEV and self.name in name_category:
+            self.category = name_category[self.name]
+        if not self.auth_schemes or self.auth_schemes == ["none"]:
+            if self.oauth:
+                self.auth_schemes = ["oauth2"]
+            elif self.env:
+                has_bearer = bool(
+                    self.mcp
+                    and self.mcp.headers_template
+                    and any("Bearer" in v for v in self.mcp.headers_template.values())
+                )
+                self.auth_schemes = ["bearer" if has_bearer else "api_key"]
+            else:
+                self.auth_schemes = ["none"]
+        if not self.toolkit_tools and self.name in toolkit_map:
+            self.toolkit_tools = toolkit_map[self.name]
+        if not self.triggers and self.name in trigger_seed:
+            self.triggers = trigger_seed[self.name]
+        if self.trigger_count == 0:
+            self.trigger_count = len(self.triggers)
+        if not self.docs_url and self.homepage:
+            self.docs_url = self.homepage
+        if not self.logo_url and self.name:
+            self.logo_url = f"/studio/assets/logos/{self.name}.svg"
+        return self
 
 
 DEFAULT_PROFILE = "core"
@@ -592,3 +861,10 @@ def get_source(name: str) -> ToolSource | None:
         if source.name == name:
             return source
     return None
+
+
+def get_triggers(name: str) -> list[TriggerRef]:
+     for src in visible_tool_sources():
+         if src.name == name:
+             return list(src.triggers)
+     return []

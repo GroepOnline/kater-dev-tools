@@ -111,6 +111,20 @@ def _build_paths() -> dict[str, Any]:
             "responses": {"200": {"description": "Kater Studio stylesheet.", "content": _CSS}},
         }
     }
+    paths["/studio/assets/logos/{name}"] = {
+        "get": {
+            "summary": "Kater Studio toolkit logo (SVG)",
+            "responses": {
+                "200": {
+                    "description": "Per-toolkit SVG logo served from the Studio asset bundle.",
+                    "content": {
+                        "image/svg+xml": {"schema": {"type": "string", "format": "binary"}}
+                    },
+                },
+                "400": {"description": "Invalid logo name."},
+            },
+        }
+    }
 
     paths["/.well-known/oauth-authorization-server"] = {
         "get": _response(
@@ -574,12 +588,111 @@ def _build_paths() -> dict[str, Any]:
                     "schema": {"type": "string"},
                     "description": "Filter by risk level.",
                 },
+                {
+                    "name": "category",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string"},
+                    "description": "Filter by category (e.g. dev, ai, data, infra).",
+                },
             ],
             "responses": {
                 "200": {
                     "description": "Matching servers.",
                     "content": {"application/json": {"schema": _ref("McpServerList")}},
                 }
+            },
+        }
+    }
+
+    paths["/api/catalog/{name}/enable"] = {
+        "post": {
+            "summary": "Enable an integration toolkit, optionally supplying credentials",
+            "parameters": [_name_param()],
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": _ref("CreateIntegrationRequest"),
+                    }
+                },
+            },
+            "responses": {
+                "201": {
+                    "description": "Integration enabled.",
+                    "content": {"application/json": {"schema": _ref("McpServer")}},
+                },
+                "400": _error_ref(),
+                "403": _error_ref(),
+                "404": _error_ref(),
+                "409": _error_ref(),
+                "422": _error_ref(),
+            },
+        }
+    }
+
+    paths["/api/catalog/{name}/triggers"] = {
+        "get": {
+            "summary": "List trigger types for a catalog server",
+            "parameters": [_name_param()],
+            "responses": {
+                "200": {
+                    "description": "Trigger types.",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["name", "triggers"],
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "triggers": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/components/schemas/TriggerRef"},
+                                    },
+                                },
+                            },
+                        }
+                    },
+                },
+                "404": _error_ref(),
+            },
+        }
+    }
+
+    paths["/api/catalog/request"] = {
+        "post": {
+            "summary": "Request a toolkit",
+            "description": (
+                "Submit a new toolkit request (Composio-style 'Request a toolkit')."
+            ),
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {"schema": _ref("ToolkitRequest")},
+                },
+            },
+            "responses": {
+                "201": {
+                    "description": "Request queued.",
+                    "content": {"application/json": {"schema": _ref("ToolkitRequestAck")}},
+                },
+                "422": _error_ref(),
+            },
+        }
+    }
+
+    paths["/api/catalog/requests"] = {
+        "get": {
+            "summary": "List toolkit requests",
+            "description": (
+                "Newest-first list of queued toolkit requests (admin only)."
+            ),
+            "responses": {
+                "200": {
+                    "description": "List.",
+                    "content": {"application/json": {"schema": _ref("ToolkitRequestList")}},
+                },
+                "403": _error_ref(),
             },
         }
     }
@@ -1339,6 +1452,29 @@ def _build_schemas() -> dict[str, Any]:
                 "homepage": {"type": ["string", "null"]},
                 "mcp": {},
                 "enabled": {"type": "boolean"},
+                "category": {"type": "string"},
+                "logo_url": {"type": ["string", "null"]},
+                "auth_schemes": {"type": "array", "items": {"type": "string"}},
+                "toolkit_tools": {"type": "array", "items": {"type": "object"}},
+                "trigger_count": {"type": "integer"},
+                "triggers": {"type": "array", "items": {"$ref": "#/components/schemas/TriggerRef"}},
+                "connection_count": {"type": "integer", "minimum": 0},
+                "docs_url": {"type": ["string", "null"]},
+            },
+        },
+        "CreateIntegrationRequest": {
+            "type": "object",
+            "properties": {
+                "auth": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "description": "Auth credentials (e.g. api_key or specific env keys)",
+                },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                },
+                "label": {"type": "string"},
             },
         },
         "McpServerList": {
@@ -1349,6 +1485,18 @@ def _build_schemas() -> dict[str, Any]:
                 "servers": {
                     "type": "array",
                     "items": {"$ref": "#/components/schemas/McpServer"},
+                },
+            },
+        },
+        "TriggerRef": {
+            "type": "object",
+            "required": ["name", "description", "cadence"],
+            "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "cadence": {
+                    "type": "string",
+                    "enum": ["realtime", "poll"],
                 },
             },
         },
@@ -1509,6 +1657,46 @@ def _build_schemas() -> dict[str, Any]:
                 "client_name": {"type": "string"},
                 "redirect_uris": {"type": "array", "items": {"type": "string"}},
                 "token_endpoint_auth_method": {"type": "string"},
+            },
+        },
+        "ToolkitRequest": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 64},
+                "use_case": {"type": "string", "maxLength": 500},
+                "contact": {"type": "string", "maxLength": 120},
+            },
+        },
+        "ToolkitRequestAck": {
+            "type": "object",
+            "required": ["name", "type", "queued_at"],
+            "properties": {
+                "name": {"type": "string"},
+                "type": {"type": "string", "enum": ["toolkit_request"]},
+                "queued_at": {"type": "string"},
+            },
+        },
+        "ToolkitRequestListItem": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+                "id": {"type": "integer"},
+                "name": {"type": "string"},
+                "use_case": {"type": "string"},
+                "contact": {"type": "string"},
+                "queued_at": {"type": "string"},
+            },
+        },
+        "ToolkitRequestList": {
+            "type": "object",
+            "required": ["total", "requests"],
+            "properties": {
+                "total": {"type": "integer"},
+                "requests": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/ToolkitRequestListItem"},
+                },
             },
         },
     }

@@ -27,4 +27,13 @@
   --shadow-focus: 0 0 0 3px rgba(45,212,191,.11);
   --font-ui: Inter, "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --bn-blue: #7dcfff;
+  --bn-purple: #bb9af7;
+  --bn-cyan: #7aa2f7;
+  --bn-pink: #f7768e;
+  --bn-green: #4ea96f;
+  --bn-yellow: #e0af68;
+  --bn-silver: #c0c0c0;
+  --bn-muted: #565f89;
+  --bn-fg: #c0caf5;
 }

@@ -11,6 +11,14 @@ export interface CatalogServer {
   env_configured?: boolean;
   missing_env?: string[] | boolean;
   context_cost?: number;
+  category?: string;
+  logo_url?: string | null;
+  auth_schemes?: string[];
+  toolkit_tools?: Array<{ name: string; description?: string }>;
+  trigger_count?: number;
+  triggers?: Array<{ name: string; description?: string; cadence: 'realtime' | 'poll' }>;
+  docs_url?: string | null;
+  connection_count?: number;
 }
 
 export interface CatalogResponse {
@@ -18,6 +26,7 @@ export interface CatalogResponse {
   servers: CatalogServer[];
   by_transport?: Record<string, number>;
   by_risk?: Record<string, number>;
+  by_category?: Record<string, number>;
 }
 
 export interface StatusResponse {

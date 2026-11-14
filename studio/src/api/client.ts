@@ -1,6 +1,6 @@
 import { studioConfig } from '../config';
 import type {
-  AutomationsResponse, BrowserProvidersResponse, BrowserSessionsResponse,
+  AutomationsResponse, BrowserProvidersResponse, BrowserSessionsResponse, CatalogServer,
   CapabilityAuditResponse, CatalogResponse, ContextsResponse, EventsResponse, PrListResponse, SettingsResponse, StatusResponse,
 } from '../types';
 
@@ -28,7 +28,10 @@ const json = (method: string, body?: unknown): RequestInit => ({
 export const katerApi = {
   status: () => request<StatusResponse>('/api/status'),
   catalog: (query = '') => request<CatalogResponse>(`/api/catalog${query ? `?q=${encodeURIComponent(query)}` : ''}`),
+  enableIntegration: (name: string, auth?: Record<string, unknown>) => request<CatalogServer>(`/api/catalog/${encodeURIComponent(name)}/enable`, json('POST', auth ? { auth } : {})),
+  toggleServer: (name: string, action: 'enable' | 'disable' | 'toggle') => request<{ name: string; enabled: boolean }>(`/api/mcp/servers/${encodeURIComponent(name)}/${action}`, json('POST')),
   profiles: () => request<{ profiles?: string[]; active?: string; default_profile?: string }>('/api/profiles'),
+
   pullRequests: (limit = 30) => request<PrListResponse>(`/api/pr/list?state=open&limit=${limit}`),
   browserProviders: () => request<BrowserProvidersResponse>('/api/browser/providers'),
   browserSessions: () => request<BrowserSessionsResponse>('/api/browser/sessions'),

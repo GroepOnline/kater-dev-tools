@@ -33,7 +33,7 @@ PUBLIC_API_PATHS = frozenset(
         "/api/mcp/oauth/callback",
     }
 )
-PUBLIC_API_PREFIXES = ("/.well-known",)
+PUBLIC_API_PREFIXES = ("/.well-known", "/studio/assets/logos")
 WEB_PUBLIC_PATHS = frozenset(
     {
         "/",

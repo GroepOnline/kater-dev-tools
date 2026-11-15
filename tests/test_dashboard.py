@@ -302,6 +302,7 @@ class El {
   }
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return name in this.attributes ? this.attributes[name] : null; }
+  removeAttribute(name) { delete this.attributes[name]; }
   appendChild(child) { this.children.push(child); return child; }
   addEventListener() {}
   focus() { this.focused = true; }
@@ -367,7 +368,8 @@ def _open_credentials_modal(env_required: list[str], tmp_path) -> dict:
     assert node is not None
     html = render_dashboard()
     dashboard_js = "\n".join(
-        _extract_js_function(html, name) for name in ("credInputId", "openCredentialsModal")
+        _extract_js_function(html, name)
+        for name in ("safeHref", "credInputId", "openCredentialsModal")
     )
     server = {"name": "demo", "env_required": env_required, "env_configured": False}
     script = tmp_path / "cred_modal.cjs"
@@ -416,6 +418,224 @@ def test_credential_input_ids_stay_unique_when_env_names_collide_after_sanitize(
         assert field["idMatchCount"] == 1
         assert field["resolvesToOwnInput"] is True
         assert " " not in field["inputId"]
+
+
+# The detail panel and the credentials modal both bind catalog metadata
+# (docs_url/homepage) to an anchor href. That metadata can come from extension
+# tool sources, so it is untrusted data: only http(s) may reach href.
+_SAFE_HREF_CASES = [
+    ("javascript", "javascript:alert(document.domain)"),
+    ("javascriptMixedCase", "JaVaScRiPt:alert(1)"),
+    ("javascriptNewline", "java\nscript:alert(1)"),
+    ("javascriptTab", "java\tscript:alert(1)"),
+    ("javascriptComment", "javascript://comment%0aalert(1)"),
+    ("data", "data:text/html,<script>alert(1)</script>"),
+    ("vbscript", "vbscript:msgbox(1)"),
+    ("file", "file:///etc/passwd"),
+    ("relative", "/docs"),
+    ("protocolRelative", "//example.com/docs"),
+    ("garbage", "not a url"),
+    ("empty", ""),
+    ("null", None),
+    ("number", 123),
+    ("https", "https://example.com/docs"),
+    ("http", "http://127.0.0.1:9091/help"),
+    ("httpsPadded", "  https://example.com/docs  "),
+]
+
+_LINK_SINK_HARNESS = r"""
+class El {
+  constructor(tag) {
+    this.tagName = String(tag).toUpperCase();
+    this.children = [];
+    this.attributes = {};
+    this.dataset = {};
+    this.style = {};
+    this.textContent = '';
+    this.href = '';
+    this.focused = false;
+    this._id = '';
+    const classes = new Set();
+    this.classList = {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    };
+  }
+  get id() { return this._id; }
+  set id(value) { this._id = String(value); }
+  get innerHTML() { return ''; }
+  set innerHTML(value) {
+    if (value !== '') throw new Error('harness only supports clearing innerHTML');
+    this.children = [];
+  }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return name in this.attributes ? this.attributes[name] : null; }
+  removeAttribute(name) {
+    delete this.attributes[name];
+    if (name === 'href') this.href = '';
+  }
+  appendChild(child) { this.children.push(child); return child; }
+  addEventListener() {}
+  focus() { this.focused = true; }
+  contains() { return false; }
+  querySelector() { return null; }
+}
+
+const byId = new Map();
+const document = {
+  activeElement: null,
+  createElement: (tag) => new El(tag),
+  getElementById(id) {
+    if (!byId.has(id)) byId.set(id, new El('div'));
+    return byId.get(id);
+  },
+};
+const makeBadge = () => new El('span');
+const formatLaunch = () => '-';
+const writeUrlState = () => {};
+let selectedNode = null;
+let detailInvoker = null;
+let credServer = null;
+let credInvoker = null;
+
+/*__DASHBOARD_JS__*/
+
+const detailSnapshot = () => ({
+  href: document.getElementById('detail-homepage').href,
+  text: document.getElementById('detail-homepage').textContent,
+  display: document.getElementById('detail-homepage-row').style.display,
+});
+const providerSnapshot = () => ({
+  href: document.getElementById('cred-provider').href,
+  display: document.getElementById('cred-provider').style.display,
+});
+
+const out = {};
+openDetail({ name: 'x', docs_url: 'javascript:alert(document.domain)' });
+out.javascriptDocs = detailSnapshot();
+
+openDetail({ name: 'x', homepage: 'data:text/html,<script>alert(1)</script>' });
+out.dataHomepage = detailSnapshot();
+
+openDetail({ name: 'x', docs_url: 'https://example.com/docs' });
+out.httpsDocs = detailSnapshot();
+
+openDetail({ name: 'x', docs_url: 'HTTP://127.0.0.1:9091/help' });
+out.httpDocs = detailSnapshot();
+
+openDetail({
+  name: 'x', docs_url: 'javascript:alert(1)', homepage: 'https://example.com/fallback',
+});
+out.docsUnusableFallsBack = detailSnapshot();
+
+openDetail({ name: 'x' });
+out.noLinks = detailSnapshot();
+
+openCredentialsModal({ name: 'demo', env_required: [] });
+out.providerNoHomepage = providerSnapshot();
+
+openCredentialsModal({ name: 'demo', env_required: [], homepage: 'javascript:alert(1)' });
+out.providerJavascript = providerSnapshot();
+
+openCredentialsModal({ name: 'demo', env_required: [], homepage: 'https://linear.app' });
+out.providerHttps = providerSnapshot();
+
+openCredentialsModal({ name: 'demo', env_required: [] });
+out.providerCleared = providerSnapshot();
+
+out.safeHref = {};
+for (const [label, value] of /*__SAFE_HREF_CASES__*/) {
+  out.safeHref[label] = safeHref(value);
+}
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+def _run_link_sink_harness(tmp_path) -> dict:
+    """Run the shipped safeHref/openDetail/openCredentialsModal JS in Node."""
+    node = shutil.which("node") or shutil.which("nodejs")
+    if node is None:  # pragma: no cover - depends on the host toolchain
+        pytest.skip("node is required to execute the dashboard JS")
+    assert node is not None
+    html = render_dashboard()
+    dashboard_js = "\n".join(
+        _extract_js_function(html, name)
+        for name in ("safeHref", "openDetail", "openCredentialsModal")
+    )
+    script = tmp_path / "link_sinks.cjs"
+    script.write_text(
+        _LINK_SINK_HARNESS.replace("/*__DASHBOARD_JS__*/", dashboard_js).replace(
+            "/*__SAFE_HREF_CASES__*/", json.dumps(_SAFE_HREF_CASES)
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_safe_href_allows_only_http_and_https(tmp_path):
+    # Protocol allowlist: script-capable, local-file and malformed values never
+    # come back usable, while real HTTP(S) links survive (whitespace trimmed).
+    hrefs = _run_link_sink_harness(tmp_path)["safeHref"]
+    for label in (
+        "javascript",
+        "javascriptMixedCase",
+        "javascriptNewline",
+        "javascriptTab",
+        "javascriptComment",
+        "data",
+        "vbscript",
+        "file",
+        "relative",
+        "protocolRelative",
+        "garbage",
+        "empty",
+        "null",
+        "number",
+    ):
+        assert hrefs[label] == "", label
+    assert hrefs["https"] == "https://example.com/docs"
+    assert hrefs["http"] == "http://127.0.0.1:9091/help"
+    assert hrefs["httpsPadded"] == "https://example.com/docs"
+
+
+def test_detail_homepage_link_never_renders_non_http_urls(tmp_path):
+    # Executed JS: an unsafe docs_url/homepage hides the row and clears the
+    # anchor (no stale href from the previously opened server), while safe
+    # links keep the row visible.
+    result = _run_link_sink_harness(tmp_path)
+    hidden = {"href": "", "text": "", "display": "none"}
+    assert result["javascriptDocs"] == hidden
+    assert result["dataHomepage"] == hidden
+    assert result["noLinks"] == hidden
+    assert result["httpsDocs"] == {
+        "href": "https://example.com/docs",
+        "text": "https://example.com/docs",
+        "display": "",
+    }
+    assert result["httpDocs"]["href"] == "HTTP://127.0.0.1:9091/help"
+    assert result["httpDocs"]["display"] == ""
+    # An unusable docs_url falls back to a valid homepage instead of hiding it.
+    assert result["docsUnusableFallsBack"] == {
+        "href": "https://example.com/fallback",
+        "text": "https://example.com/fallback",
+        "display": "",
+    }
+
+
+def test_credentials_modal_provider_link_never_renders_non_http_urls(tmp_path):
+    # Same boundary for the provider link: hidden and href-less unless the
+    # homepage is http(s), including when a prior modal left a valid href.
+    result = _run_link_sink_harness(tmp_path)
+    hidden = {"href": "", "display": "none"}
+    assert result["providerNoHomepage"] == hidden
+    assert result["providerJavascript"] == hidden
+    assert result["providerCleared"] == hidden
+    assert result["providerHttps"] == {"href": "https://linear.app", "display": ""}
 
 
 def test_pr_view_reload_is_race_safe_and_dom_safe():
@@ -530,6 +750,7 @@ const document = {
       classList: { remove() {}, add() {}, contains() { return false; } },
       appendChild() {},
       contains() { return false; },
+      removeAttribute() {},
       innerHTML: '',
       textContent: '',
       style: {},
@@ -647,7 +868,7 @@ def test_focus_restoration_behavior_node(tmp_path):
     html = render_dashboard()
     dashboard_js = "\n".join(
         _extract_js_function(html, name)
-        for name in ("openDetail", "closeDetail", "openServerDetail")
+        for name in ("safeHref", "openDetail", "closeDetail", "openServerDetail")
     )
     script = tmp_path / "focus_restoration.cjs"
     script.write_text(
@@ -696,6 +917,7 @@ class El {
     this.children = [];
   }
   setAttribute() {}
+  removeAttribute() {}
   appendChild(child) { this.children.push(child); return child; }
   addEventListener() {}
   focus() { this.focused = true; }
@@ -761,7 +983,7 @@ def test_credentials_modal_focus_restoration_behavior_node(tmp_path):
     html = render_dashboard()
     dashboard_js = "\n".join(
         _extract_js_function(html, name)
-        for name in ("credInputId", "openCredentialsModal", "closeCredentialsModal")
+        for name in ("safeHref", "credInputId", "openCredentialsModal", "closeCredentialsModal")
     )
     script = tmp_path / "cred_focus_restoration.cjs"
     script.write_text(

@@ -1712,6 +1712,19 @@ function cls(s) {
   return String(s == null ? '' : s).replace(/[^a-z0-9_-]/gi, '');
 }
 
+// Catalog metadata is untrusted data (extensions can add tool sources), so a
+// link value is only usable when it parses as an absolute http(s) URL.
+function safeHref(value) {
+  if (typeof value !== 'string') return '';
+  const raw = value.trim();
+  try {
+    const protocol = new URL(raw).protocol;
+    return (protocol === 'http:' || protocol === 'https:') ? raw : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function authHeaders() {
@@ -2562,12 +2575,14 @@ function openDetail(node, refresh, invoker) {
 
   const homeRow = document.getElementById('detail-homepage-row');
   const homeLink = document.getElementById('detail-homepage');
-  const docs = node.docs_url || node.homepage;
+  const docs = safeHref(node.docs_url) || safeHref(node.homepage);
   if (docs) {
     homeLink.href = docs;
     homeLink.textContent = docs;
     homeRow.style.display = '';
   } else {
+    homeLink.removeAttribute('href');
+    homeLink.textContent = '';
     homeRow.style.display = 'none';
   }
   const toolsEl = document.getElementById('detail-desc');
@@ -2705,8 +2720,14 @@ function openCredentialsModal(server, invoker) {
     });
   }
   const prov = document.getElementById('cred-provider');
-  if (server.homepage) { prov.href = server.homepage; prov.style.display = ''; }
-  else { prov.style.display = 'none'; }
+  const providerUrl = safeHref(server.homepage);
+  if (providerUrl) {
+    prov.href = providerUrl;
+    prov.style.display = '';
+  } else {
+    prov.removeAttribute('href');
+    prov.style.display = 'none';
+  }
   document.getElementById('cred-modal').classList.add('show');
   const first = fields.querySelector('input');
   if (first) first.focus();

@@ -567,6 +567,74 @@ def test_catalog_enable_integration_cases(api_server) -> None:
     os.environ.pop("FIGMA_API_KEY", None)
 
 
+def test_concurrent_catalog_enables_preserve_both_settings_updates(api_server, monkeypatch) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event, Lock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    persisted = KaterSettings()
+    persisted.set_server_enabled("memory", False)
+    persisted.set_server_enabled("sequential-thinking", False)
+    state_lock = Lock()
+    save_lock = Lock()
+    save_count = 0
+    first_save_entered = Event()
+    second_save_entered = Event()
+    release_first_save = Event()
+
+    def load_snapshot():
+        with state_lock:
+            return persisted.model_copy(deep=True)
+
+    def save_snapshot(settings):
+        nonlocal persisted, save_count
+        with save_lock:
+            save_count += 1
+            current_save = save_count
+        if current_save == 1:
+            first_save_entered.set()
+            if not release_first_save.wait(timeout=5):
+                raise TimeoutError("test did not release the first settings write")
+        elif current_save == 2:
+            second_save_entered.set()
+        with state_lock:
+            persisted = settings.model_copy(deep=True)
+
+    monkeypatch.setattr(routes, "load_settings", load_snapshot)
+    monkeypatch.setattr(routes, "save_settings", save_snapshot)
+    monkeypatch.setattr(routes, "_sync_source_after_catalog_change", lambda _source: None)
+    monkeypatch.setattr(routes, "record_server_toggle", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(routes, "_ws_broadcast", lambda *_args, **_kwargs: None)
+
+    port = _api_port(api_server)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(_post, port, "/api/catalog/memory/enable", {})
+        second = None
+        try:
+            assert first_save_entered.wait(timeout=5)
+
+            def enable_second():
+                second_request_started.set()
+                return _post(port, "/api/catalog/sequential-thinking/enable", {})
+
+            second_request_started = Event()
+            second = pool.submit(enable_second)
+            assert second_request_started.wait(timeout=5)
+            assert not second_save_entered.wait(timeout=0.5)
+        finally:
+            release_first_save.set()
+
+        assert first.result(timeout=5)["enabled"] is True
+        assert second is not None
+        assert second.result(timeout=5)["enabled"] is True
+
+    with state_lock:
+        assert persisted.is_server_enabled("memory", default=False)
+        assert persisted.is_server_enabled("sequential-thinking", default=False)
+
+
 def test_catalog_enable_rejection_does_not_persist_missing_credentials(
     api_server, monkeypatch
 ) -> None:

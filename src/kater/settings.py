@@ -6,6 +6,8 @@ import os
 import secrets
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -308,7 +310,15 @@ def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
 # concurrent API requests cannot overwrite each other's changes, and an
 # atomic write (tmp + replace) prevents corruption on crash.
 
-_settings_lock = threading.Lock()
+_settings_lock = threading.RLock()
+
+
+@contextmanager
+def settings_update_lock(project_dir: Path | None = None) -> Iterator[None]:
+    """Serialize in-process settings read-modify-write transactions."""
+    with _settings_lock:
+        invalidate_settings_cache(project_dir)
+        yield
 
 
 def save_settings(settings: KaterSettings, project_dir: Path | None = None) -> Path:

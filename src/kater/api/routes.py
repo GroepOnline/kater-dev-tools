@@ -11,6 +11,7 @@ import secrets
 import threading
 import time
 from collections.abc import Callable
+from functools import wraps
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode
 
@@ -43,6 +44,7 @@ from kater.settings import (
     load_settings,
     persisted_env_keys,
     save_settings,
+    settings_update_lock,
     unsafe_public_settings_override_enabled,
 )
 from kater.telemetry import (
@@ -65,6 +67,15 @@ _CONSENT_COOKIE = "kater_oauth_consent"
 _CONSENT_TTL_SECONDS = 600
 _consent_nonces: dict[str, float] = {}
 _consent_lock = threading.Lock()
+
+
+def _serialize_settings_update(handler: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(handler)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        with settings_update_lock():
+            return handler(*args, **kwargs)
+
+    return wrapped
 
 
 def _env_truthy(name: str) -> bool:
@@ -1310,6 +1321,7 @@ def _enable_with_catalog_credentials(
 
 
 @route("POST", "/api/catalog/{name}/enable")
+@_serialize_settings_update
 def _catalog_enable(req: Request) -> Response:
     name = req.params["name"]
     source = _visible_source(name)
@@ -1614,6 +1626,7 @@ def _chain_run(req: Request) -> Response:
 
 
 @route("POST", "/api/mcp/servers/{name}/{action}")
+@_serialize_settings_update
 def _server_action(req: Request) -> Response:
     name = req.params["name"]
     action = req.params["action"]
@@ -1870,6 +1883,7 @@ def _connector_action(req: Request) -> Response:
 
 @route("POST", "/api/integrations/{name}/credentials")
 @route("POST", "/api/mcp/servers/{name}/credentials")
+@_serialize_settings_update
 def _server_credentials(req: Request) -> Response:
     # Store the credentials a server needs to connect. Only env vars the server
     # actually declares (including OAuth client/token keys) are accepted.
@@ -2130,20 +2144,22 @@ def _mcp_oauth_callback(req: Request) -> Response:
     extra = result.get("extra") or {}
     if extra.get("team_id"):
         env["SLACK_TEAM_ID"] = str(extra["team_id"])
-    had_connections = bool(
-        settings.server_overrides.get(source.name)
-        and settings.server_overrides[source.name].connections
-    )
-    conn = upsert_connection(
-        settings,
-        source.name,
-        env,
-        label=str(result.get("label") or extra.get("team") or ""),
-        extra=extra,
-    )
-    if not had_connections:
-        _remember_runtime_env(source.oauth.token_env, result["access_token"])
-    save_settings(settings)
+    with settings_update_lock():
+        settings = load_settings()
+        had_connections = bool(
+            settings.server_overrides.get(source.name)
+            and settings.server_overrides[source.name].connections
+        )
+        conn = upsert_connection(
+            settings,
+            source.name,
+            env,
+            label=str(result.get("label") or extra.get("team") or ""),
+            extra=extra,
+        )
+        if not had_connections:
+            _remember_runtime_env(source.oauth.token_env, result["access_token"])
+        save_settings(settings)
     try:
         get_proxy().sync_source(source)
     except Exception:
@@ -2176,6 +2192,7 @@ def _server_connections(req: Request) -> Response:
 
 @route("DELETE", "/api/integrations/{name}/connections/{conn_id}")
 @route("DELETE", "/api/mcp/servers/{name}/connections/{conn_id}")
+@_serialize_settings_update
 def _server_connection_delete(req: Request) -> Response:
     denied = _catalog_admin_denied(req)
     if denied:
@@ -2252,6 +2269,7 @@ def _tunnel_stop(req: Request) -> Response:
 
 
 @route("POST", "/api/settings")
+@_serialize_settings_update
 def _update_settings(req: Request) -> Response:
     from kater.api.server import _reset_rate_limiter
     from kater.settings import check_admin

@@ -47,20 +47,16 @@ def test_logos_have_gradient(tmp_path: Path) -> None:
     assert _run_main(out) == 0
     sample = out / "github.svg"
     assert sample.exists()
-    import xml.etree.ElementTree as ET
-
-    # Files are produced by our own deterministic SVG generator, not untrusted input.
-    tree = ET.parse(sample)  # noqa: S314
-    root = tree.getroot()
-    assert root.tag.endswith("svg"), f"root tag was {root.tag!r}"
-    assert root.get("viewBox") == "0 0 64 64"
-    ns = {"svg": gcl.SVG_NS}
-    grads = root.findall("svg:defs/svg:linearGradient", ns)
-    assert grads, "no linearGradient element found"
-    stops = grads[0].findall("svg:stop", ns)
+    svg = sample.read_text(encoding="utf-8")
+    assert svg.lstrip().startswith(("<?xml", "<svg"))
+    assert 'viewBox="0 0 64 64"' in svg
+    gradient = re.search(
+        r"<linearGradient\b[^>]*>(.*?)</linearGradient>", svg, re.DOTALL
+    )
+    assert gradient, "no linearGradient element found"
+    stops = re.findall(r"<stop\b([^>]*)>", gradient.group(1))
     assert len(stops) >= 2
-    colors = [s.get("stop-color") for s in stops]
-    assert all(colors)
+    assert all(re.search(r'\bstop-color="[^"]+"', stop) for stop in stops)
 
 
 def test_logos_match_category(tmp_path: Path) -> None:

@@ -58,7 +58,7 @@ def test_google_ai_studio_branch_is_documented_as_salvage_only() -> None:
     assert "Python remains authoritative" in architecture
 
 
-def test_studio_mutations_use_existing_policy_routes_without_secret_inputs() -> None:
+def test_studio_mutations_use_policy_routes_and_mask_catalog_credentials() -> None:
     source = "\n".join(
         path.read_text() for path in (STUDIO / "src").rglob("*") if path.is_file()
     )
@@ -70,7 +70,11 @@ def test_studio_mutations_use_existing_policy_routes_without_secret_inputs() -> 
     assert "storage_backend" in source
     assert "admin-secret" not in source
     assert "KATER_ADMIN_KEY" not in source
-    assert "type=\"password\"" not in source
+    credential_modal = source.split("function CredentialModal", 1)[1].split(
+        "export function IntegrationsView", 1
+    )[0]
+    assert 'id={`integration-credential-${key}`}' in credential_modal
+    assert 'type="password"' in credential_modal
 
 
 def test_brainless_agent_renderers_require_real_provider_evidence() -> None:

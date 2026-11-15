@@ -411,7 +411,7 @@ function CredentialModal({
             </label>
             <input
               id={`integration-credential-${key}`}
-              type="text"
+              type="password"
               className="form-input"
               style={{ width: '100%', padding: '8px 10px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)' }}
               value={values[key] ?? ''}

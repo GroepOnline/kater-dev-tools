@@ -64,6 +64,16 @@ class TestBuildPaths:
             in paths["/studio/assets/studio.css"]["get"]["responses"]["200"]["content"]
         )
 
+    def test_studio_logo_route_documents_its_name_parameter(self):
+        paths = _build_paths()
+        parameters = paths["/studio/assets/logos/{name}"]["get"]["parameters"]
+        assert any(
+            parameter["name"] == "name"
+            and parameter["in"] == "path"
+            and parameter["required"] is True
+            for parameter in parameters
+        )
+
     def test_profiles_endpoint_exists(self):
         paths = _build_paths()
         assert "/api/profiles" in paths

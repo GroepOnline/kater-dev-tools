@@ -115,6 +115,7 @@ def _build_paths() -> dict[str, Any]:
     paths["/studio/assets/logos/{name}"] = {
         "get": {
             "summary": "Kater Studio toolkit logo (SVG)",
+            "parameters": [_name_param()],
             "responses": {
                 "200": {
                     "description": "Per-toolkit SVG logo served from the Studio asset bundle.",

@@ -1162,7 +1162,8 @@ def _catalog_enable(req: Request) -> Response:
         for key in env_input:
             if key not in declared:
                 return Response.json(400, {"error": f"{name} does not use credential '{key}'."})
-        override = settings.server_overrides.get(name) or ServerOverride()
+        candidate = settings.model_copy(deep=True)
+        override = candidate.server_overrides.get(name) or ServerOverride()
         applied: list[str] = []
         cleaned: dict[str, str] = {}
         cleared: set[str] = set()
@@ -1170,31 +1171,20 @@ def _catalog_enable(req: Request) -> Response:
             text = str(value or "").strip()
             if text:
                 override.env[key] = text
-                _remember_runtime_env(key, text)
                 applied.append(key)
                 cleaned[key] = text
             else:
                 override.env.pop(key, None)
                 cleared.add(key)
-        settings.server_overrides[name] = override
+        candidate.server_overrides[name] = override
         label = str(body.get("label") or "").strip() if isinstance(body, dict) else ""
         token_key = source.oauth.token_env if source.oauth else None
         if token_key and cleaned.get(token_key):
-            upsert_connection(settings, name, cleaned, label=label or "manual")
-        elif cleared:
-            _forget_runtime_env(cleared)
-        save_settings(settings)
-        try:
-            get_proxy().sync_source(source)
-        except Exception:
-            from kater.api.server import _log
-
-            _log.exception("failed to sync %s after catalog enable", name)
-        settings = load_settings()
-        if not source_is_configured(source, settings):
-            server_env = settings.get_server_env(source.name)
+            upsert_connection(candidate, name, cleaned, label=label or "manual")
+        if not source_is_configured(source, candidate):
+            server_env = candidate.get_server_env(source.name)
             conns = (
-                settings.server_overrides.get(source.name) or ServerOverride()
+                candidate.server_overrides.get(source.name) or ServerOverride()
             ).connections
             return Response.json(
                 422,
@@ -1215,6 +1205,23 @@ def _catalog_enable(req: Request) -> Response:
                     ],
                 },
             )
+        if settings.is_server_enabled(name, default=True):
+            return Response.json(
+                409, {"error": f"{name} already enabled", "name": name, "enabled": True}
+            )
+        save_settings(candidate)
+        settings = candidate
+        for key, text in cleaned.items():
+            _remember_runtime_env(key, text)
+        if cleared:
+            _forget_runtime_env(cleared)
+        try:
+            get_proxy().sync_source(source)
+        except Exception:
+            from kater.api.server import _log
+
+            _log.exception("failed to sync %s after catalog enable", name)
+        settings = load_settings()
     else:
         denied = _catalog_admin_denied(req)
         if denied:
@@ -1261,6 +1268,12 @@ def _catalog_request_now_iso() -> str:
     return datetime.fromtimestamp(time.time(), tz=UTC).isoformat()
 
 
+def _catalog_request_timestamp_iso(timestamp: Any) -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(float(timestamp), tz=UTC).isoformat()
+
+
 @route("POST", "/api/catalog/request", public=True)
 def _catalog_request(req: Request) -> Response:
     from kater.telemetry import TelemetryEvent, record_event
@@ -1282,7 +1295,7 @@ def _catalog_request(req: Request) -> Response:
         return Response.json(422, {"error": "use_case too long", "field": "use_case"})
     if len(contact) > 120:
         return Response.json(422, {"error": "contact too long", "field": "contact"})
-    encoded = f"{name}|{use_case.replace('|', '/')}|{contact.replace('|', '/')}"
+    encoded = f"{name.replace('|', '/')}|{use_case.replace('|', '/')}|{contact.replace('|', '/')}"
     record_event(TelemetryEvent(type="toolkit_request", name=encoded))
     queued_at = _catalog_request_now_iso()
     return Response.json(
@@ -1301,7 +1314,7 @@ def _catalog_requests_list(req: Request) -> Response:
     denied = _catalog_admin_denied(req)
     if denied:
         return denied
-    raw = [row for row in load_events(limit=100) if row.get("type") == "toolkit_request"]
+    raw = load_events(limit=100, event_type="toolkit_request", newest_first=True)
     out = []
     for row in raw:
         encoded = str(row.get("name", "") or "")
@@ -1314,7 +1327,7 @@ def _catalog_requests_list(req: Request) -> Response:
                 "name": parts[0],
                 "use_case": parts[1],
                 "contact": parts[2],
-                "queued_at": row.get("timestamp"),
+                "queued_at": _catalog_request_timestamp_iso(row.get("timestamp")),
             }
         )
     return Response.json(200, {"total": len(out), "requests": out})

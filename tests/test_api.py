@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import http.client
+import io
 import json
 import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -77,10 +80,29 @@ def _get_err(port: int, path: str, headers: dict | None = None) -> urllib.error.
         f"http://127.0.0.1:{port}{path}",
         headers=headers or {},
     )
+    parsed = urlsplit(req.full_url)
+    host = parsed.hostname
+    port = parsed.port
+    if parsed.scheme != "http" or host != "127.0.0.1" or port is None:
+        raise ValueError("API tests only connect to their local HTTP server")
+    target = parsed.path or "/"
+    if parsed.query:
+        target += f"?{parsed.query}"
+    connection = http.client.HTTPConnection(host, port)
     try:
-        urllib.request.urlopen(req)
-    except urllib.error.HTTPError as e:
-        return e
+        connection.request(req.get_method(), target, headers=dict(req.header_items()))
+        response = connection.getresponse()
+        body = response.read()
+        if response.status >= 400:
+            return urllib.error.HTTPError(
+                req.full_url,
+                response.status,
+                response.reason,
+                response.headers,
+                io.BytesIO(body),
+            )
+    finally:
+        connection.close()
     pytest.fail("Expected HTTPError")
 
 
@@ -448,7 +470,10 @@ def test_catalog_request_toolkit(api_server) -> None:
 
 
 def test_catalog_requests_list_admin_gate(api_server, monkeypatch) -> None:
+    from datetime import datetime
+
     from kater.settings import invalidate_settings_cache
+    from kater.telemetry import TelemetryEvent, record_event
 
     monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
     invalidate_settings_cache()
@@ -461,21 +486,27 @@ def test_catalog_requests_list_admin_gate(api_server, monkeypatch) -> None:
     assert exc.value.code == 403
 
     # With admin credential -> 200 and request visible after submit
-    _post(
+    for index in range(100):
+        record_event(TelemetryEvent(type="error", name=f"unrelated-{index}"))
+
+    ack = _post(
         port,
         "/api/catalog/request",
-        {"name": "admin-gated-queue", "use_case": "ops", "contact": "ops@x"},
+        {
+            "name": "admin|gated|queue",
+            "use_case": "ops|sync",
+            "contact": "ops|x",
+        },
     )
+    assert isinstance(ack["queued_at"], str)
     data = _get(
         port, "/api/catalog/requests", headers={"Authorization": "Bearer admin-secret"}
     )
-    assert data["total"] >= 1
-    names = {row["name"] for row in data["requests"]}
-    assert "admin-gated-queue" in names
-    match = next(row for row in data["requests"] if row["name"] == "admin-gated-queue")
-    assert match["use_case"] == "ops"
-    assert match["contact"] == "ops@x"
-    assert "queued_at" in match
+    match = next(row for row in data["requests"] if row["name"] == "admin/gated/queue")
+    assert match["use_case"] == "ops/sync"
+    assert match["contact"] == "ops/x"
+    assert isinstance(match["queued_at"], str)
+    datetime.fromisoformat(match["queued_at"])
 
     # Cleanup
     monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
@@ -536,6 +567,63 @@ def test_catalog_enable_integration_cases(api_server) -> None:
     os.environ.pop("FIGMA_API_KEY", None)
 
 
+def test_catalog_enable_rejection_does_not_persist_missing_credentials(
+    api_server, monkeypatch
+) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    monkeypatch.delenv("FIGMA_API_KEY", raising=False)
+    settings = KaterSettings()
+    settings.set_server_enabled("figma", False)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    error = _post_err(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"env": {"FIGMA_API_KEY": ""}},
+    )
+
+    assert error.code == 422
+    assert settings.server_overrides["figma"].env == {}
+    assert settings.server_overrides["figma"].connections == []
+    save.assert_not_called()
+    proxy.sync_source.assert_not_called()
+
+
+def test_catalog_enable_conflict_does_not_persist_credentials(api_server, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    settings = KaterSettings()
+    settings.set_server_enabled("figma", True)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    error = _post_err(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"env": {"FIGMA_API_KEY": "test-credential"}},
+    )
+
+    assert error.code == 409
+    assert settings.server_overrides["figma"].env == {}
+    assert settings.server_overrides["figma"].connections == []
+    save.assert_not_called()
+    proxy.sync_source.assert_not_called()
+
+
 def test_catalog_triggers(api_server) -> None:
     data = _get(_api_port(api_server), "/api/catalog/github/triggers")
     assert data["name"] == "github"
@@ -561,9 +649,11 @@ def test_catalog_search_and_sort(api_server) -> None:
 
     pop = _get(_api_port(api_server), "/api/catalog?sort=popularity")
     assert pop["total"] > 0
-    first = pop["servers"][0]
-    # First should have a trigger or be alphabetical if no triggers
-    assert "trigger_count" in first or first["name"] <= pop["servers"][-1]["name"]
+    keys = [
+        (-int(server.get("trigger_count", 0) or 0), server["name"])
+        for server in pop["servers"]
+    ]
+    assert keys == sorted(keys)
 
 
 def test_update_storage_backend(api_server) -> None:

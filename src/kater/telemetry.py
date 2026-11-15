@@ -216,8 +216,12 @@ def record_error(source: str, message: str, **metadata: Any) -> None:
     )
 
 
-def load_events(limit: int = 0) -> list[dict[str, Any]]:
-    return query_events(limit=limit)
+def load_events(
+    limit: int = 0,
+    event_type: str | None = None,
+    newest_first: bool = False,
+) -> list[dict[str, Any]]:
+    return query_events(limit=limit, event_type=event_type, newest_first=newest_first)
 
 
 def clear_events() -> int:

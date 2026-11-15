@@ -624,6 +624,120 @@ def test_catalog_enable_conflict_does_not_persist_credentials(api_server, monkey
     proxy.sync_source.assert_not_called()
 
 
+def test_catalog_enable_rejects_clear_of_gateway_managed_credential(
+    api_server, monkeypatch
+) -> None:
+    import os
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    monkeypatch.setenv("FIGMA_API_KEY", "gateway-managed")
+    monkeypatch.setattr(routes, "_oauth_runtime_env", {"FIGMA_API_KEY"})
+    monkeypatch.setattr(routes, "persisted_env_keys", set())
+    settings = KaterSettings()
+    settings.set_server_enabled("figma", False)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    error = _post_err(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"env": {"FIGMA_API_KEY": ""}},
+    )
+
+    assert error.code == 422
+    assert json.loads(error.read())["missing_env"] == ["FIGMA_API_KEY"]
+    # A rejection must not touch the runtime env it would have removed.
+    assert os.environ["FIGMA_API_KEY"] == "gateway-managed"
+    save.assert_not_called()
+    proxy.sync_source.assert_not_called()
+
+
+def test_catalog_enable_syncs_proxy_after_enable(api_server, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    settings = KaterSettings()
+    settings.set_server_enabled("sequential-thinking", False)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    created = _post(_api_port(api_server), "/api/catalog/sequential-thinking/enable", {})
+
+    assert created["name"] == "sequential-thinking"
+    assert created["enabled"] is True
+    save.assert_called_once()
+    proxy.sync_source.assert_called_once()
+    assert proxy.sync_source.call_args.args[0].name == "sequential-thinking"
+
+
+def test_catalog_enable_survives_proxy_sync_failure(api_server, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    settings = KaterSettings()
+    settings.set_server_enabled("memory", False)
+    save = Mock()
+    proxy = Mock()
+    proxy.sync_source.side_effect = RuntimeError("proxy down")
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    created = _post(_api_port(api_server), "/api/catalog/memory/enable", {})
+
+    assert created["name"] == "memory"
+    assert created["enabled"] is True
+    save.assert_called_once()
+    proxy.sync_source.assert_called_once()
+
+
+def test_catalog_enable_maps_api_key_alias_to_oauth_token(api_server, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    monkeypatch.delenv("SLACK_ACCESS_TOKEN", raising=False)
+    monkeypatch.setattr(routes, "_oauth_runtime_env", set())
+    monkeypatch.setattr(routes, "persisted_env_keys", set())
+    settings = KaterSettings()
+    settings.set_server_enabled("slack", False)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    created = _post(
+        _api_port(api_server),
+        "/api/catalog/slack/enable",
+        {"auth": {"api_key": "xoxp-test-token"}},
+    )
+
+    assert created["name"] == "slack"
+    assert created["enabled"] is True
+    assert "xoxp-test-token" not in json.dumps(created)
+    stored = save.call_args_list[0].args[0]
+    assert stored.server_overrides["slack"].env["SLACK_ACCESS_TOKEN"] == "xoxp-test-token"
+    assert (
+        stored.server_overrides["slack"].connections[0].env["SLACK_ACCESS_TOKEN"]
+        == "xoxp-test-token"
+    )
+
+
 def test_catalog_triggers(api_server) -> None:
     data = _get(_api_port(api_server), "/api/catalog/github/triggers")
     assert data["name"] == "github"

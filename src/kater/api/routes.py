@@ -309,57 +309,60 @@ def _mcp_listener_reachable(host: str, port: int, timeout: float = 0.25) -> bool
         return False
 
 
-@route("GET", "/health/ready", public=True)
-def _health_ready(_: Request) -> Response:
-    from pathlib import Path
-
-    from kater import __version__
-
-    components: dict[str, dict[str, str]] = {"api": {"status": "ok"}}
-    degraded = False
-    unhealthy = False
-
-    # Readiness must report on settings failures rather than 500 out of the probe.
-    settings = None
+def _readiness_settings(components: dict[str, dict[str, str]]) -> tuple[Any, str, bool]:
+    """Load settings for readiness; report failures instead of 500ing the probe."""
     try:
         settings = load_settings()
         auth_mode = settings.auth.mode
         components["settings"] = {"status": "ok"}
+        return settings, auth_mode, False
     except Exception as exc:
-        auth_mode = "unknown"
         components["settings"] = {
             "status": "unavailable",
             "reason": f"settings_load_failed:{type(exc).__name__}",
         }
-        unhealthy = True
+        return None, "unknown", True
 
+
+def _readiness_mcp(settings: Any, components: dict[str, dict[str, str]]) -> bool:
     if settings is not None and _mcp_listener_reachable(settings.host, settings.mcp_port):
         components["mcp"] = {"status": "ok"}
-    else:
-        components["mcp"] = {
-            "status": "unavailable",
-            "reason": "mcp_listener_unreachable",
-        }
-        degraded = True
+        return False
+    components["mcp"] = {
+        "status": "unavailable",
+        "reason": "mcp_listener_unreachable",
+    }
+    return True
 
-    if settings is not None and settings.resource_auth.enabled:
-        from kater.mcp.product_server import product_mcp_ready
 
-        ready = product_mcp_ready(
-            settings.resource_auth, settings.host, settings.product_mcp_port
-        )
-        components["product_mcp"] = {"status": "ok" if ready else "unavailable"}
-        unhealthy = unhealthy or not ready
+def _readiness_product_mcp(settings: Any, components: dict[str, dict[str, str]]) -> bool:
+    if settings is None or not settings.resource_auth.enabled:
+        return False
+    from kater.mcp.product_server import product_mcp_ready
 
+    ready = product_mcp_ready(settings.resource_auth, settings.host, settings.product_mcp_port)
+    components["product_mcp"] = {"status": "ok" if ready else "unavailable"}
+    return not ready
+
+
+def _readiness_oidc(components: dict[str, dict[str, str]]) -> bool:
     from kater.oidc import oidc_enabled, oidc_partial
 
     if oidc_partial():
         components["oidc"] = {"status": "unavailable", "reason": "partial_config"}
-        degraded = True
-    elif oidc_enabled():
+        return True
+    if oidc_enabled():
         components["oidc"] = {"status": "ok", "reason": "configured"}
     else:
         components["oidc"] = {"status": "ok", "reason": "unset"}
+    return False
+
+
+def _readiness_env(components: dict[str, dict[str, str]]) -> bool:
+    """Report optional repo/inventory/CI env wiring without remote probes."""
+    from pathlib import Path
+
+    degraded = False
 
     # UTRECHT_REPO_PATH is optional in current live env; when unset the Utrecht
     # CLI tools degrade, but the gateway itself remains up. Report that clearly.
@@ -407,6 +410,21 @@ def _health_ready(_: Request) -> Response:
             "reason": "ci_health_env_missing",
         }
         degraded = True
+    return degraded
+
+
+@route("GET", "/health/ready", public=True)
+def _health_ready(_: Request) -> Response:
+    from kater import __version__
+
+    components: dict[str, dict[str, str]] = {"api": {"status": "ok"}}
+
+    settings, auth_mode, unhealthy = _readiness_settings(components)
+    degraded = _readiness_mcp(settings, components)
+    product_unhealthy = _readiness_product_mcp(settings, components)
+    unhealthy = unhealthy or product_unhealthy
+    degraded = _readiness_oidc(components) or degraded
+    degraded = _readiness_env(components) or degraded
 
     status = "unhealthy" if unhealthy else "degraded" if degraded else "ok"
 
@@ -1063,6 +1081,39 @@ def _evals(_: Request) -> Response:
     return Response.json(200, eval_summary())
 
 
+def _catalog_matches_filters(
+    source: Any,
+    *,
+    profile: str,
+    transport: str,
+    risk: str,
+    category: str,
+) -> bool:
+    if source.transport == "native":
+        return False
+    if profile and profile != "core" and profile not in source.profiles:
+        return False
+    if transport and source.transport.value != transport:
+        return False
+    if risk and source.risk.value != risk:
+        return False
+    if category and category != "all":
+        sc = getattr(source, "category", "dev")
+        scv = sc.value if hasattr(sc, "value") else str(sc)
+        return scv.lower() == category
+    return True
+
+
+def _catalog_matches_query(source: Any, query: str) -> bool:
+    if not query:
+        return True
+    haystack = f"{source.name} {source.description}".lower()
+    if query in haystack:
+        return True
+    toolkit = getattr(source, "toolkit_tools", []) or []
+    return any(query in t.name.lower() for t in toolkit)
+
+
 @route("GET", "/api/catalog")
 def _catalog(req: Request) -> Response:
     from kater.profiles import visible_tool_sources
@@ -1074,28 +1125,18 @@ def _catalog(req: Request) -> Response:
     risk = (req.query1("risk") or "").strip().lower()
     category = (req.query1("category") or "").strip().lower()
     sort = (req.query1("sort") or "popularity").strip().lower()
-    results = []
-    for source in visible_tool_sources():
-        if source.transport == "native":
-            continue
-        if profile and profile != "core" and profile not in source.profiles:
-            continue
-        if transport and source.transport.value != transport:
-            continue
-        if risk and source.risk.value != risk:
-            continue
-        if category and category != "all":
-            sc = getattr(source, "category", "dev")
-            scv = sc.value if hasattr(sc, "value") else str(sc)
-            if scv.lower() != category:
-                continue
-        if query:
-            haystack = f"{source.name} {source.description}".lower()
-            if query not in haystack:
-                toolkit = getattr(source, "toolkit_tools", []) or []
-                if not any(query in t.name.lower() for t in toolkit):
-                    continue
-        results.append(_server_doc(source, settings, include_context_cost=True))
+    results = [
+        _server_doc(source, settings, include_context_cost=True)
+        for source in visible_tool_sources()
+        if _catalog_matches_filters(
+            source,
+            profile=profile,
+            transport=transport,
+            risk=risk,
+            category=category,
+        )
+        and _catalog_matches_query(source, query)
+    ]
     if sort == "popularity":
         results.sort(key=lambda s: (-int(s.get("trigger_count", 0) or 0), s.get("name", "")))
     elif sort == "recent":
@@ -1114,6 +1155,160 @@ def _catalog(req: Request) -> Response:
     )
 
 
+_CREDENTIAL_ALIASES = frozenset({"api_key", "apikey", "token", "bearer_token", "key", "value"})
+
+
+def _catalog_credential_input(source: Any, body: Any) -> dict[str, Any] | None:
+    """Normalize enable credentials from an ``env`` map or a single ``auth`` field."""
+    if not isinstance(body, dict):
+        return None
+    if isinstance(body.get("env"), dict):
+        return body["env"]
+    raw_auth = body.get("auth")
+    if not isinstance(raw_auth, dict):
+        return None
+    from kater.connect import declared_credential_keys
+
+    declared = declared_credential_keys(source)
+    declared_list = sorted(declared)
+    token_env = source.oauth.token_env if source.oauth else None
+    mapped: dict[str, Any] = {}
+    for key, value in raw_auth.items():
+        if key in declared:
+            mapped[key] = value
+        elif key.lower() in _CREDENTIAL_ALIASES and len(declared_list) == 1:
+            mapped[declared_list[0]] = value
+        elif key.lower() in _CREDENTIAL_ALIASES and token_env:
+            # OAuth sources also declare client id/secret; a bare api_key can
+            # only mean the access token.
+            mapped[token_env] = value
+        else:
+            mapped[key] = value
+    return mapped or None
+
+
+def _apply_catalog_credentials(
+    env_input: dict[str, Any], override: ServerOverride
+) -> tuple[dict[str, str], set[str]]:
+    cleaned: dict[str, str] = {}
+    cleared: set[str] = set()
+    for key, value in env_input.items():
+        text = str(value or "").strip()
+        if text:
+            override.env[key] = text
+            cleaned[key] = text
+        else:
+            override.env.pop(key, None)
+            cleared.add(key)
+    return cleaned, cleared
+
+
+def _source_configured_after_clear(source: Any, settings: Any, pending: set[str]) -> bool:
+    """``source_is_configured`` minus gateway env values about to be removed."""
+    from kater.connect import list_connections, source_is_configured
+
+    if not pending:
+        return source_is_configured(source, settings)
+
+    def env_present(key: str) -> bool:
+        return key not in pending and bool(os.environ.get(key))
+
+    for conn in list_connections(source, settings):
+        if source.oauth and conn.env.get(source.oauth.token_env):
+            return True
+        if source.env and all(conn.env.get(var) or env_present(var) for var in source.env):
+            return True
+    if source.oauth and env_present(source.oauth.token_env):
+        return True
+    if source.env:
+        return all(env_present(var) for var in source.env)
+    return True
+
+
+def _catalog_missing_credentials(
+    name: str,
+    source: Any,
+    candidate: Any,
+    declared: set[str],
+    pending_removal: set[str],
+) -> Response:
+    server_env = candidate.get_server_env(source.name)
+    conns = (candidate.server_overrides.get(source.name) or ServerOverride()).connections
+
+    def present(key: str) -> bool:
+        if server_env.get(key):
+            return True
+        if key in pending_removal:
+            return False
+        if os.environ.get(key):
+            return True
+        return bool(source.oauth and source.oauth.token_env == key and conns)
+
+    return Response.json(
+        422,
+        {
+            "error": f"{name} missing required credentials",
+            "missing_env": [k for k in declared if not present(k)],
+        },
+    )
+
+
+def _catalog_already_enabled(name: str) -> Response:
+    return Response.json(409, {"error": f"{name} already enabled", "name": name, "enabled": True})
+
+
+def _sync_source_after_catalog_change(source: Any) -> None:
+    """Best-effort proxy refresh; a failed sync must not fail the mutation."""
+    try:
+        get_proxy().sync_source(source)
+    except Exception:
+        from kater.api.server import _log
+
+        _log.exception("failed to sync %s after catalog enable", source.name)
+
+
+def _enable_with_catalog_credentials(
+    req: Request,
+    name: str,
+    source: Any,
+    body: Any,
+    env_input: dict[str, Any],
+) -> Response | None:
+    """Validate and persist credentials for a disabled catalog server."""
+    denied = _secret_persist_denied(req)
+    if denied:
+        return denied
+    from kater.connect import declared_credential_keys, upsert_connection
+
+    declared = declared_credential_keys(source)
+    for key in env_input:
+        if key not in declared:
+            return Response.json(400, {"error": f"{name} does not use credential '{key}'."})
+    settings = load_settings()
+    candidate = settings.model_copy(deep=True)
+    override = candidate.server_overrides.get(name) or ServerOverride()
+    cleaned, cleared = _apply_catalog_credentials(env_input, override)
+    candidate.server_overrides[name] = override
+    label = str(body.get("label") or "").strip() if isinstance(body, dict) else ""
+    token_key = source.oauth.token_env if source.oauth else None
+    if token_key and cleaned.get(token_key):
+        upsert_connection(candidate, name, cleaned, label=label or "manual")
+    # _forget_runtime_env drops gateway-written values after saving, so a
+    # clear must not look satisfied through the env it is about to remove.
+    pending_removal = {k for k in cleared if k in _oauth_runtime_env or k in persisted_env_keys}
+    if not _source_configured_after_clear(source, candidate, pending_removal):
+        return _catalog_missing_credentials(name, source, candidate, declared, pending_removal)
+    if settings.is_server_enabled(name, default=True):
+        return _catalog_already_enabled(name)
+    save_settings(candidate)
+    for key, text in cleaned.items():
+        _remember_runtime_env(key, text)
+    if cleared:
+        _forget_runtime_env(cleared)
+    _sync_source_after_catalog_change(source)
+    return None
+
+
 @route("POST", "/api/catalog/{name}/enable")
 def _catalog_enable(req: Request) -> Response:
     name = req.params["name"]
@@ -1124,103 +1319,12 @@ def _catalog_enable(req: Request) -> Response:
         body = req.json or {}
     except ValueError:
         body = {}
-    env_input: dict[str, Any] | None = None
-    if isinstance(body, dict):
-        if isinstance(body.get("env"), dict):
-            env_input = body["env"]
-        elif isinstance(body.get("auth"), dict):
-            raw_auth = body["auth"]
-            from kater.connect import declared_credential_keys
-
-            declared = declared_credential_keys(source)
-            declared_list = sorted(declared)
-            mapped: dict[str, Any] = {}
-            for k, v in raw_auth.items():
-                if k in declared:
-                    mapped[k] = v
-                elif len(declared_list) == 1 and k.lower() in {
-                    "api_key",
-                    "apikey",
-                    "token",
-                    "bearer_token",
-                    "key",
-                    "value",
-                }:
-                    mapped[declared_list[0]] = v
-                else:
-                    mapped[k] = v
-            if mapped:
-                env_input = mapped
+    env_input = _catalog_credential_input(source, body)
     settings = load_settings()
     if env_input is not None:
-        denied = _secret_persist_denied(req)
-        if denied:
-            return denied
-        from kater.connect import declared_credential_keys, source_is_configured, upsert_connection
-
-        declared = declared_credential_keys(source)
-        for key in env_input:
-            if key not in declared:
-                return Response.json(400, {"error": f"{name} does not use credential '{key}'."})
-        candidate = settings.model_copy(deep=True)
-        override = candidate.server_overrides.get(name) or ServerOverride()
-        applied: list[str] = []
-        cleaned: dict[str, str] = {}
-        cleared: set[str] = set()
-        for key, value in env_input.items():
-            text = str(value or "").strip()
-            if text:
-                override.env[key] = text
-                applied.append(key)
-                cleaned[key] = text
-            else:
-                override.env.pop(key, None)
-                cleared.add(key)
-        candidate.server_overrides[name] = override
-        label = str(body.get("label") or "").strip() if isinstance(body, dict) else ""
-        token_key = source.oauth.token_env if source.oauth else None
-        if token_key and cleaned.get(token_key):
-            upsert_connection(candidate, name, cleaned, label=label or "manual")
-        if not source_is_configured(source, candidate):
-            server_env = candidate.get_server_env(source.name)
-            conns = (
-                candidate.server_overrides.get(source.name) or ServerOverride()
-            ).connections
-            return Response.json(
-                422,
-                {
-                    "error": f"{name} missing required credentials",
-                    "missing_env": [
-                        k
-                        for k in declared
-                        if not (
-                            server_env.get(k)
-                            or os.environ.get(k)
-                            or (
-                                source.oauth
-                                and source.oauth.token_env == k
-                                and conns
-                            )
-                        )
-                    ],
-                },
-            )
-        if settings.is_server_enabled(name, default=True):
-            return Response.json(
-                409, {"error": f"{name} already enabled", "name": name, "enabled": True}
-            )
-        save_settings(candidate)
-        settings = candidate
-        for key, text in cleaned.items():
-            _remember_runtime_env(key, text)
-        if cleared:
-            _forget_runtime_env(cleared)
-        try:
-            get_proxy().sync_source(source)
-        except Exception:
-            from kater.api.server import _log
-
-            _log.exception("failed to sync %s after catalog enable", name)
+        failure = _enable_with_catalog_credentials(req, name, source, body, env_input)
+        if failure is not None:
+            return failure
         settings = load_settings()
     else:
         denied = _catalog_admin_denied(req)
@@ -1237,11 +1341,10 @@ def _catalog_enable(req: Request) -> Response:
                 },
             )
     if settings.is_server_enabled(name, default=True):
-        return Response.json(
-            409, {"error": f"{name} already enabled", "name": name, "enabled": True}
-        )
+        return _catalog_already_enabled(name)
     settings.set_server_enabled(name, True)
     save_settings(settings)
+    _sync_source_after_catalog_change(source)
     record_server_toggle(name, "enable", True)
     _ws_broadcast("server_enabled", {"name": name})
     return Response.json(

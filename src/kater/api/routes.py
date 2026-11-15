@@ -487,7 +487,10 @@ def _studio_logo(req: Request) -> Response:
     name = req.params["name"]
     if not name or "/" in name or ".." in name or "\\" in name:
         return Response.json(400, {"error": "invalid logo name"})
-    return _studio_resource_response(f"assets/logos/{name}")
+    try:
+        return _studio_resource_response(f"assets/logos/{name}")
+    except (KeyError, FileNotFoundError):
+        return Response.json(404, {"error": "unknown logo"})
 
 
 @route("GET", "/.well-known/oauth-authorization-server", public=True)

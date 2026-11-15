@@ -446,6 +446,12 @@ def test_catalog_triggers_in_payload(api_server) -> None:
     assert github["triggers"][0]["cadence"] in {"realtime", "poll"}
 
 
+def test_studio_logo_unknown_resources_return_404(api_server) -> None:
+    port = _api_port(api_server)
+    assert _get_err(port, "/studio/assets/logos/not-a-logo.svg").code == 404
+    assert _get_err(port, "/studio/assets/logos/not-a-logo.png").code == 404
+
+
 def test_catalog_request_toolkit(api_server) -> None:
     port = _api_port(api_server)
     ok = _post(

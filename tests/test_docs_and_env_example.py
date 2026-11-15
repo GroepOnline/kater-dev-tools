@@ -17,7 +17,28 @@ DOC_BROWSER = ROOT / "docs" / "browser.md"
 DOC_DEPLOY_LOCAL = ROOT / "docs" / "deploy-local.md"
 DOC_DEPLOY_SERVER = ROOT / "docs" / "deploy-server.md"
 DOC_CATALOG_CONNECT = ROOT / "docs" / "ops" / "catalog-connect.md"
+DOC_AUTH_MESH = ROOT / "docs" / "ops" / "auth-mesh-vs-cf-access.md"
 DOC_SECURITY = ROOT / "SECURITY.md"
+CONFIG_OIDC_README = ROOT / "config" / "oidc" / "README.md"
+OIDC_CANARY = ROOT / "scripts" / "oidc-canary.sh"
+DOC_RELEASE = ROOT / "docs" / "release.md"
+
+
+class TestEnvExampleChefGroepAuthPointers:
+    def test_points_at_oidc_placeholders_without_prod_domains(self) -> None:
+        text = ENV_EXAMPLE.read_text(encoding="utf-8")
+        assert "config/oidc/*.example.yaml" in text
+        assert "docs/ops/auth-mesh-vs-cf-access.md" in text
+        assert "chefgroep" + ".online" not in text
+
+    def test_documents_product_oidc_env(self) -> None:
+        text = ENV_EXAMPLE.read_text(encoding="utf-8")
+        assert "AUTH_OIDC_ISSUER=" in text
+        assert "AUTH_OIDC_CLIENT_ID=" in text
+        assert "AUTH_OIDC_CLIENT_SECRET=" in text
+        assert "AUTH_OIDC_REDIRECT_URI=" in text
+        assert "AUTH_OIDC_SCOPES=openid" in text
+        assert "prefers Authentik" in text
 
 
 class TestEnvExampleCatalogConnectPolicy:
@@ -76,6 +97,16 @@ class TestEnvExampleBrowserLane:
         ]
         for var in expected_vars:
             assert var in text, f"missing expected browser env line: {var!r}"
+
+
+class TestEnvExampleBuildIdentity:
+    def test_documents_build_identity_vars(self) -> None:
+        text = ENV_EXAMPLE.read_text(encoding="utf-8")
+        assert "KATER_BUILD_VERSION=" in text
+        assert "KATER_BUILD_SHA=" in text
+        assert "KATER_BUILD_RELEASE=" in text
+        assert "KATER_BUILD_ARTIFACT_DIGEST=" in text
+        assert "malformed values become null" in text
 
 
 class TestEnvExampleComputerConnector:
@@ -138,6 +169,9 @@ class TestDocDeployLocalMd:
     def test_documents_health_check(self) -> None:
         text = DOC_DEPLOY_LOCAL.read_text(encoding="utf-8")
         assert "curl -fsS http://127.0.0.1:9091/health" in text
+        assert "health/ready" in text
+        assert "./scripts/dev-boot.sh" in text
+        assert "./scripts/dev-health.sh" in text
 
     def test_documents_migrate_and_backup_cli(self) -> None:
         text = DOC_DEPLOY_LOCAL.read_text(encoding="utf-8")
@@ -178,6 +212,58 @@ class TestDocDeployServerMd:
         assert "CDP/remote providers avoid shipping a browser" in text
         assert "KATER_CONNECT_PUBLIC_BASE_URL" in text
         assert "docs/ops/catalog-connect.md" in text
+
+
+class TestDocAuthMeshVsCfAccess:
+    def test_documents_mesh_and_access_split(self) -> None:
+        text = DOC_AUTH_MESH.read_text(encoding="utf-8")
+        assert "Cloudflare Access" in text
+        assert ":9000" in text
+        assert "chefgroep-kater-oidc" in text
+        assert "no Docker" in text or "no Docker daemon" in text
+        assert "config/oidc" in text
+        assert "./scripts/dev-health.sh" in text
+
+    def test_documents_authentik_preference_and_cutover(self) -> None:
+        text = DOC_AUTH_MESH.read_text(encoding="utf-8")
+        assert "AUTH_OIDC_ISSUER" in text
+        assert "/oidc/callback" in text
+        assert "./scripts/oidc-canary.sh" in text
+        assert "does **not** apply Cloudflare DNS" in text or "does not apply" in text.lower()
+        assert "/oidc/login" in text
+        assert "Bypass" in text or "bypass" in text
+
+
+class TestConfigOidcReadme:
+    def test_points_at_example_clients(self) -> None:
+        text = CONFIG_OIDC_README.read_text(encoding="utf-8")
+        assert "authentik-gateway-client.example.yaml" in text
+        assert "authentik-product-mcp-client.example.yaml" in text
+        assert "AUTH_OIDC_" in text
+        assert "./scripts/oidc-canary.sh" in text
+
+
+class TestOidcCanaryScript:
+    def test_exists_and_has_no_secrets_or_prod_domains(self) -> None:
+        assert OIDC_CANARY.is_file()
+        text = OIDC_CANARY.read_text(encoding="utf-8")
+        assert "AUTH_OIDC_ISSUER" in text
+        assert "/oidc/login" in text
+        assert "/oidc/callback" in text
+        assert "Never prints AUTH_OIDC_CLIENT_SECRET" in text
+        assert "chefgroep" + ".online" not in text
+        assert "sk-" not in text
+
+
+class TestDocRelease:
+    def test_documents_identity_route_and_unknown_until_stamp(self) -> None:
+        text = DOC_RELEASE.read_text(encoding="utf-8")
+        assert "Visible runtime identity" in text
+        assert "What remains UNKNOWN until a stamped deploy" in text
+        assert "src/kater/_build_identity.json" in text
+        assert "SHA256SUMS" in text
+        assert "identity.version" in text
+        assert "never a runtime `git` read" in text
 
 
 class TestDocCatalogConnect:

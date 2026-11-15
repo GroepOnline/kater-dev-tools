@@ -124,6 +124,7 @@ def run_doctor(
     findings.extend(_connector_health_check(selected_profiles))
     findings.extend(_find_context_bloat(cursor_mcp_path=effective_mcp_path, selected=sources))
     findings.extend(_security_check())
+    findings.extend(_oidc_check())
     findings.extend(_browser_lane_check())
     fix_actions = _build_fix_actions(findings) if include_fix_plan else []
     from kater.github_transport import github_token_identity
@@ -559,6 +560,71 @@ def _security_check() -> list[Finding]:
             )
         )
 
+    return findings
+
+
+def _oidc_check() -> list[Finding]:
+    from kater.oidc import load_oidc_config, oidc_partial
+    from kater.settings import _is_public_deploy, load_settings
+
+    findings: list[Finding] = []
+    config = load_oidc_config()
+    if oidc_partial(config):
+        findings.append(
+            Finding(
+                code="oidc_partial",
+                severity="error",
+                message=(
+                    "AUTH_OIDC_* is partially set; AUTH_OIDC_ISSUER and "
+                    "AUTH_OIDC_CLIENT_ID are required to enable the Authentik gate."
+                ),
+                suggested_action=(
+                    "Set both AUTH_OIDC_ISSUER and AUTH_OIDC_CLIENT_ID, or unset all AUTH_OIDC_*."
+                ),
+            )
+        )
+        return findings
+    if not config.enabled:
+        return findings
+
+    settings = load_settings()
+    host = os.environ.get("KATER_HOST", settings.host)
+    is_public = _is_public_deploy(host)
+    if not config.client_secret:
+        findings.append(
+            Finding(
+                code="oidc_secret_missing",
+                severity="warning",
+                message=(
+                    "AUTH_OIDC_CLIENT_SECRET is unset; confidential Authentik "
+                    "clients need it for the token exchange on /oidc/callback."
+                ),
+                suggested_action=(
+                    "Store the client secret in ChefVault / .kater/.env — never in git."
+                ),
+            )
+        )
+    if is_public and not config.redirect_uri:
+        findings.append(
+            Finding(
+                code="oidc_redirect_missing",
+                severity="error",
+                message=(
+                    "Public deploy has AUTH_OIDC enabled but AUTH_OIDC_REDIRECT_URI is unset."
+                ),
+                suggested_action="Set AUTH_OIDC_REDIRECT_URI to https://<host>/oidc/callback.",
+            )
+        )
+    findings.append(
+        Finding(
+            code="oidc_ready",
+            severity="info",
+            message="Authentik OIDC product gate is configured (AUTH_OIDC_*).",
+            suggested_action=(
+                "Run ./scripts/oidc-canary.sh on loopback, then the Access cutover checklist."
+            ),
+        )
+    )
     return findings
 
 

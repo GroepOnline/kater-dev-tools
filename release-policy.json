@@ -25,10 +25,17 @@
     "immutable_ancestry": true,
     "tag_must_point_at_commit_on_main": true,
     "version_must_match_package": true,
-    "artifact_version_must_equal_tag_version": true
+    "artifact_version_must_equal_tag_version": true,
+    "artifact_sha256_recorded": true
   },
   "version_sources": [
     "pyproject.toml (project.version)",
     "src/kater/__init__.py (__version__)"
-  ]
+  ],
+  "runtime_identity": {
+    "surface": ["/health", "/health/live", "/health/ready", "/api/status", "kater version"],
+    "fields": ["version", "source_sha", "release", "artifact_digest"],
+    "missing": "null",
+    "not_a_version_source": "package __version__ is not deployed identity"
+  }
 }

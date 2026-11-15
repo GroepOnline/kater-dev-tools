@@ -32,17 +32,6 @@ export function App() {
   const data = useKaterData();
   const profile = String(data.status?.profile ?? studioConfig.defaults.profile);
   const version = String(data.status?.version ?? studioConfig.product.version);
-  return (
-    <div className="app-shell">
-      <Sidebar active={view} onSelect={setView} />
-      <main className="workspace">
-        <ClaudeHeader profile={profile} version={version} />
-        <Topbar connected={!data.loading && !data.error && data.status !== null} profile={profile} />
-        {data.error && <div className="error-strip">Gateway data unavailable: {data.error}</div>}
-        <div className="workspace-scroll">
-          <ActiveView view={view} status={data.status} catalog={data.catalog} loading={data.loading} onRefresh={data.refresh} />
-        </div>
-      </main>
-    </div>
-  );
+  const activeNavigation = studioConfig.navigation.find(item => item.id === view) ?? { section: 'Workspace', label: 'Operator workspace' };
+  return <div className="app-shell"><Sidebar active={view} onSelect={setView} /><main className="workspace"><ClaudeHeader profile={profile} version={version} /><Topbar connected={!data.loading && !data.error && data.status !== null} profile={profile} section={activeNavigation.section} viewLabel={activeNavigation.label} />{data.error && <div className="error-strip">Gateway data unavailable: {data.error}</div>}<div className="workspace-scroll"><ActiveView view={view} status={data.status} catalog={data.catalog} loading={data.loading} onRefresh={data.refresh} /></div></main></div>;
 }

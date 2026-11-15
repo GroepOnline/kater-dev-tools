@@ -36,6 +36,17 @@ CREATE INDEX IF NOT EXISTS idx_capability_audit_ts ON capability_audit(timestamp
 CREATE INDEX IF NOT EXISTS idx_capability_audit_cap ON capability_audit(capability_id);
 """
 
+_AUDIT_COLUMNS = (
+    ("connection_id", "TEXT"),
+    ("action", "TEXT"),
+    ("actor_id", "TEXT"),
+    ("agent_id", "TEXT"),
+    ("run_id", "TEXT"),
+    ("trace_id", "TEXT"),
+    ("idempotency_key", "TEXT"),
+    ("error_code", "TEXT"),
+)
+
 _lock = threading.RLock()
 _db_cache: sqlite3.Connection | None = None
 _db_path_cache: str | None = None
@@ -73,6 +84,10 @@ def _get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=10.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(capability_audit)")}
+    for name, decl in _AUDIT_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE capability_audit ADD COLUMN {name} {decl}")
     conn.commit()
     _db_cache = conn
     _db_path_cache = db_path
@@ -99,6 +114,14 @@ def record_capability_audit(
     duration_ms: float | None = None,
     profile: str | None = None,
     timestamp: float | None = None,
+    connection_id: str | None = None,
+    action: str | None = None,
+    actor_id: str | None = None,
+    agent_id: str | None = None,
+    run_id: str | None = None,
+    trace_id: str | None = None,
+    idempotency_key: str | None = None,
+    error_code: str | None = None,
 ) -> int:
     """Append one capability-invoke audit row; returns the new row id."""
     cap = str(capability_id or "").strip()
@@ -113,8 +136,9 @@ def record_capability_audit(
         cur = db.execute(
             """INSERT INTO capability_audit
                (timestamp, capability_id, principal_id, context_id,
-                outcome, reason, duration_ms, profile)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                outcome, reason, duration_ms, profile, connection_id, action,
+                actor_id, agent_id, run_id, trace_id, idempotency_key, error_code)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 stamp,
                 cap,
@@ -124,6 +148,14 @@ def record_capability_audit(
                 reason,
                 duration_ms,
                 profile,
+                connection_id,
+                action or cap,
+                actor_id or principal_id,
+                agent_id,
+                run_id,
+                trace_id,
+                idempotency_key,
+                error_code,
             ),
         )
         db.commit()

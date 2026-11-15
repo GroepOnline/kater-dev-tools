@@ -674,6 +674,7 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   display: flex; flex-direction: column;
 }
 .server-card:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.server-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 
 .server-card-name { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text); }
 .server-card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; min-height: 36px; }
@@ -1434,12 +1435,13 @@ _VIEW_BROWSER = r"""
           <div class="browser-toolbar">
             <input class="browser-url" id="browser-url" type="url"
               placeholder="https://…" autocomplete="off" aria-label="Browser URL"
-              onkeydown="if(event.key==='Enter'){event.preventDefault();browserNavigate();}">
-            <button class="mini-btn interactive" type="button" onclick="browserNavigate()"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();browserNavigate(document.getElementById('browser-go'));}">
+            <button class="mini-btn interactive" type="button" id="browser-go"
+              onclick="browserNavigate(this)"
               aria-label="Navigate">Go</button>
-            <button class="mini-btn interactive" type="button" onclick="browserReload()"
+            <button class="mini-btn interactive" type="button" onclick="browserReload(this)"
               aria-label="Reload page">Reload</button>
-            <button class="mini-btn interactive" type="button" onclick="closeBrowserSession()"
+            <button class="mini-btn interactive" type="button" onclick="closeBrowserSession(this)"
               aria-label="Close session">Close</button>
           </div>
           <div class="browser-stage" id="browser-stage">
@@ -1679,7 +1681,7 @@ let catalogLoadSeq = 0;
 let catalogCategory = 'all';
 let catalogSort = 'popularity';
 let prLoadSeq = 0;
-
+let lastEventTotal = null;
 let lastLiveMs = 0;
 const HIST = 40;
 const histSuccess = [];
@@ -2070,7 +2072,7 @@ async function init() {
   initCatalogSort();
   initKeyboard();
   initWebSocket();
-
+  window.addEventListener('popstate', onPopState);
 
   setInterval(loadStatusSafe, 5000);
   appReady = true;
@@ -2173,6 +2175,7 @@ function switchProfile(p) {
   writeUrlState();
   loadCatalog();
   if (currentView === 'catalog') loadCatalogView();
+  if (currentView === 'fabric') loadFabricView();
   toast('profile: ' + p);
 }
 
@@ -2325,7 +2328,20 @@ function renderServerMap() {
         btn.onclick = resetRouteFilter;
         empty.appendChild(btn);
       }
-    } else { empty.textContent = 'No servers in this profile.'; }
+    } else {
+      empty.textContent = 'No servers in this profile.';
+      if (activeProfile !== 'core') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'view-empty-link';
+        btn.textContent = 'Switch profile to core';
+        btn.onclick = () => {
+          if (routeFilter !== 'all') setRouteFilter('all', true);
+          switchProfile('core');
+        };
+        empty.appendChild(btn);
+      }
+    }
     el.appendChild(empty);
     return;
   }
@@ -3653,6 +3669,9 @@ async function loadCatalogView() {
       addLink('Switch filter to all', resetCatalogFilter);
     } else {
       empty.textContent = 'No servers in this profile. Switch profiles in the top bar.';
+      if (activeProfile !== 'core') {
+        addLink('Switch profile to core', () => switchProfile('core'));
+      }
     }
     grid.appendChild(empty);
     return;
@@ -4139,6 +4158,7 @@ let browserSessions = [];
 let browserSelectedId = null;
 let browserPollTimer = null;
 let browserShotSeq = 0;
+let browserNavigating = false;
 const browserActionLog = new Map(); // session_id -> [{kind, ok, detail, ts}]
 
 function stopBrowserPoll() {
@@ -4325,9 +4345,14 @@ async function createBrowserSession() {
   }
 }
 
-async function closeBrowserSession() {
+async function closeBrowserSession(btn) {
   if (!browserSelectedId) { toast('no session selected', 'error'); return; }
   const id = browserSelectedId;
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = 'Closing...';
+  }
   try {
     await apiDelete('/api/browser/sessions/' + encodeURIComponent(id));
     toast('session closed');
@@ -4338,14 +4363,27 @@ async function closeBrowserSession() {
     await loadBrowserView();
   } catch (e) {
     toast('close: ' + (e.message || 'failed'), 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.textContent = 'Close';
+    }
   }
 }
 
-async function browserNavigate() {
+async function browserNavigate(btn) {
+  if (browserNavigating) return;
   if (!browserSelectedId) { toast('no session selected', 'error'); return; }
   const urlEl = document.getElementById('browser-url');
   const url = urlEl ? urlEl.value.trim() : '';
   if (!url) { toast('enter a URL', 'error'); return; }
+  browserNavigating = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = 'Go...';
+  }
   try {
     const data = await apiPost(
       '/api/browser/sessions/' + encodeURIComponent(browserSelectedId) + '/act',
@@ -4360,11 +4398,23 @@ async function browserNavigate() {
   } catch (e) {
     pushBrowserLog(browserSelectedId, { kind: 'navigate', ok: false, detail: e.message || 'failed' });
     toast('navigate: ' + (e.message || 'failed'), 'error');
+  } finally {
+    browserNavigating = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.textContent = 'Go';
+    }
   }
 }
 
-async function browserReload() {
+async function browserReload(btn) {
   if (!browserSelectedId) { toast('no session selected', 'error'); return; }
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = 'Reloading...';
+  }
   try {
     const data = await apiPost(
       '/api/browser/sessions/' + encodeURIComponent(browserSelectedId) + '/act',
@@ -4378,6 +4428,12 @@ async function browserReload() {
   } catch (e) {
     pushBrowserLog(browserSelectedId, { kind: 'reload', ok: false, detail: e.message || 'failed' });
     toast('reload: ' + (e.message || 'failed'), 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.textContent = 'Reload';
+    }
   }
 }
 
@@ -4429,7 +4485,7 @@ async function loadFabricView() {
   if (!capsEl || !ctxEl || !computerEl) return;
   try {
     const [capsRes, ctxRes, computerRes] = await Promise.allSettled([
-      api('/api/capabilities'),
+      api('/api/capabilities?profile=' + encodeURIComponent(activeProfile || 'core')),
       api('/api/contexts'),
       api('/api/computer'),
     ]);
@@ -4446,10 +4502,23 @@ async function loadFabricView() {
       count.textContent = caps.length + ' caps · ' + contexts.length + ' contexts';
     }
     capsEl.replaceChildren();
-    if (!caps.length) {
+    if (capsRes.status === 'rejected') {
+      const err = document.createElement('div');
+      err.className = 'view-empty';
+      err.textContent = 'Could not load capabilities: ' + ((capsRes.reason && capsRes.reason.message) || 'error');
+      capsEl.appendChild(err);
+    } else if (!caps.length) {
       const empty = document.createElement('div');
       empty.className = 'view-empty';
       empty.textContent = 'No capabilities discoverable for the current profile.';
+      if (activeProfile !== 'core') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'view-empty-link';
+        btn.textContent = 'Switch profile to core';
+        btn.onclick = () => switchProfile('core');
+        empty.appendChild(btn);
+      }
       capsEl.appendChild(empty);
     } else {
       for (const item of caps.slice(0, 50)) {

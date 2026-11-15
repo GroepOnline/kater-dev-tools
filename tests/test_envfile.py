@@ -9,6 +9,7 @@ from kater.envfile import (
     resolve_use_proxy,
 )
 from kater.init import init_project
+from kater.profiles import RiskLevel, ToolSource, Transport
 
 
 def test_parse_env_file_supports_export_and_quotes(tmp_path: Path) -> None:
@@ -57,39 +58,41 @@ def test_load_project_env_prefers_kater_over_root_and_keeps_process(
     assert os.environ["ROOT_ONLY"] == "1"
 
 
+def _proxy_source(
+    name: str,
+    transport: Transport,
+    profiles: tuple[str, ...],
+    env: tuple[str, ...] = (),
+) -> ToolSource:
+    return ToolSource(
+        name=name,
+        description=name,
+        transport=transport,
+        risk=RiskLevel.LOW,
+        profiles=set(profiles),
+        env=list(env),
+    )
+
+
 def test_resolve_use_proxy_explicit_and_auto(monkeypatch) -> None:
-    # `resolve_use_proxy` auto-enables when ANY non-native tool source has all
-    # required env vars set. The ambient shell in some environments exports
-    # CLOUDFLARE_*/LINEAR_API_KEY/NOTION_API_KEY which would leak into this
-    # test and flip the last assertion to True. Wipe the known triggers first
-    # so the test is deterministic regardless of host environment.
-    for _key in (
-        "CLOUDFLARE_ACCOUNT_ID",
-        "CLOUDFLARE_API_TOKEN",
-        "LINEAR_API_KEY",
-        "NOTION_API_KEY",
-        "GITHUB_PERSONAL_ACCESS_TOKEN",
-        "GITLAB_PERSONAL_ACCESS_TOKEN",
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "HF_TOKEN",
-        "SENTRY_AUTH_TOKEN",
-        "EXA_API_KEY",
-        "FIRECRAWL_API_KEY",
-        "RESEND_API_KEY",
-        "SANITY_API_TOKEN",
-        "UPSTASH_EMAIL",
-        "UPSTASH_API_KEY",
-        "FIGMA_API_KEY",
-        "SLACK_ACCESS_TOKEN",
-        "DATABASE_URL",
-        "BRAVE_API_KEY",
-        "EVERART_API_KEY",
-    ):
-        monkeypatch.delenv(_key, raising=False)
+    # Auto-enable reads the whole catalog, so ambient adapter credentials in the
+    # operator shell would otherwise decide the result. Pin the catalog and the
+    # env keys it references instead of relying on a clean machine.
+    catalog = (
+        _proxy_source("native-tools", Transport.NATIVE, ("ops",), ("LINEAR_API_KEY",)),
+        _proxy_source("free-stdio", Transport.STDIO, ("ops",)),
+        _proxy_source("cloud-only", Transport.HTTP, ("cloud",), ("CLOUDFLARE_API_TOKEN",)),
+        _proxy_source(
+            "linear", Transport.STDIO, ("ops",), ("LINEAR_API_KEY", "LINEAR_TEAM_KEY")
+        ),
+    )
+    monkeypatch.setattr("kater.profiles.all_tool_sources", lambda: catalog)
+    for key in ("KATER_PROXY", "LINEAR_API_KEY", "LINEAR_TEAM_KEY", "CLOUDFLARE_API_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
 
     monkeypatch.setenv("KATER_PROXY", "0")
     monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
+    monkeypatch.setenv("LINEAR_TEAM_KEY", "CHEF")
     assert resolve_use_proxy(profile="ops") is False
 
     monkeypatch.setenv("KATER_PROXY", "1")
@@ -101,6 +104,14 @@ def test_resolve_use_proxy_explicit_and_auto(monkeypatch) -> None:
     monkeypatch.delenv("LINEAR_API_KEY")
     assert resolve_use_proxy(profile="ops") is False
     assert resolve_use_proxy(profile="core") is False
+
+    monkeypatch.delenv("LINEAR_TEAM_KEY")
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
+    assert resolve_use_proxy(profile="ops") is False
+    assert resolve_use_proxy(profile="cloud") is False
+
+    monkeypatch.setenv("LINEAR_TEAM_KEY", "CHEF")
+    assert resolve_use_proxy(profile="ops") is True
 
 
 def test_init_writes_cursor_mcp_and_env_notes(tmp_path: Path) -> None:

@@ -68,6 +68,18 @@ def test_github_enabled_when_env_present(monkeypatch):
     assert github.status is ConnectorStatus.ENABLED
     assert github.permission_for("ops") is PermissionLevel.WRITE
     assert github.permission_for("analysis") is PermissionLevel.READ
+    assert github.permission_for("core") is PermissionLevel.WRITE
+
+
+def test_github_enabled_without_token_for_native_core_actions():
+    seed_builtin_connectors()
+    github = get_connector("github")
+    assert github.status is ConnectorStatus.ENABLED
+    assert github.permission_for("core") is PermissionLevel.WRITE
+    assert {item.id for item in github.capabilities} >= {
+        "github.pr.list",
+        "github.pr.merge",
+    }
 
 
 def test_clickhouse_proof_is_disabled_and_unsupported_without_url():

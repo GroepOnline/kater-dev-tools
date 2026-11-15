@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -54,6 +55,11 @@ def _manifest_payload(manifest: CapabilityManifest) -> dict[str, Any]:
         "rollback_version": manifest.rollback_version,
         "network_targets": list(manifest.network_targets),
         "tags": sorted(manifest.tags),
+        "method": manifest.method,
+        "path": manifest.path,
+        "timeout_seconds": manifest.timeout_seconds,
+        "mutation": manifest.mutation,
+        "idempotency_required": manifest.idempotency_required,
     }
 
 
@@ -104,7 +110,25 @@ def _manifest_from_mapping(data: dict[str, Any]) -> CapabilityManifest:
         rollback_version=(str(data["rollback_version"]) if data.get("rollback_version") else None),
         network_targets=_as_tuple("network_targets"),
         tags=_as_set("tags"),
+        method=(str(data["method"]) if data.get("method") is not None else None),
+        path=(str(data["path"]) if data.get("path") is not None else None),
+        timeout_seconds=_optional_timeout(data),
+        mutation=data.get("mutation", False),
+        idempotency_required=data.get("idempotency_required", False),
     )
+
+
+def _optional_timeout(data: dict[str, Any]) -> float | None:
+    raw = data.get("timeout_seconds")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError("timeout_seconds must be a number") from None
+    if not math.isfinite(value):
+        raise ValueError("timeout_seconds must be finite")
+    return value
 
 
 def _persist_and_register(manifest: CapabilityManifest) -> None:

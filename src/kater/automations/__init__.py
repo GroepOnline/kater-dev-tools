@@ -8,13 +8,19 @@ from kater.automations.engine import (
     get_engine,
     reset_engine,
 )
-from kater.automations.models import Automation, AutomationRunResult, new_automation_id
+from kater.automations.models import (
+    Automation,
+    AutomationRun,
+    AutomationRunResult,
+    new_automation_id,
+)
 from kater.automations.store import AutomationStore, reset_cache
 
 __all__ = [
     "DEFAULT_AUTOMATIONS",
     "Automation",
     "AutomationEngine",
+    "AutomationRun",
     "AutomationRunResult",
     "AutomationStore",
     "get_engine",

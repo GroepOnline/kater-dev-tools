@@ -1,0 +1,22 @@
+{
+  "name": "Kater (local dev)",
+  "dockerComposeFile": ["../docker-compose.yml", "../docker-compose.dev.yml"],
+  "service": "kater",
+  "workspaceFolder": "/app",
+  "shutdownAction": "stopCompose",
+  "forwardPorts": [9090, 9091, 9092],
+  "portsAttributes": {
+    "9090": { "label": "MCP SSE", "onAutoForward": "notify" },
+    "9091": { "label": "REST + dashboard", "onAutoForward": "openBrowser" },
+    "9092": { "label": "WebSocket telemetry" }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/app/.venv/bin/python"
+      }
+    }
+  },
+  "postCreateCommand": "uv sync --dev --frozen || uv sync --dev",
+  "postStartCommand": "curl -sf http://127.0.0.1:9091/health >/dev/null 2>&1 || true"
+}

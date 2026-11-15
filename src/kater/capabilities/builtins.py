@@ -28,6 +28,8 @@ def _native(
     required_scopes: frozenset[str] = frozenset(),
     input_schema: dict | None = None,
     output_schema: dict | None = None,
+    risk_class: RiskClass = RiskClass.READ,
+    mutation: bool = False,
 ) -> CapabilityManifest:
     return CapabilityManifest(
         capability_id=capability_id,
@@ -40,11 +42,12 @@ def _native(
         input_schema=input_schema if input_schema is not None else {},
         output_schema=output_schema if output_schema is not None else {},
         required_scopes=required_scopes,
-        risk_class=RiskClass.READ,
+        risk_class=risk_class,
         data_classification="internal",
         profiles=profiles,
         lifecycle_state=LifecycleState.ACTIVE,
         tags=tags,
+        mutation=mutation,
     )
 
 
@@ -78,6 +81,61 @@ BUILTIN_CAPABILITIES: tuple[CapabilityManifest, ...] = (
         required_scopes=frozenset({"web.search"}),
         input_schema={},
         output_schema={},
+    ),
+    _native(
+        "kater.session.continue",
+        description="Continue an active remote-context agent session.",
+        profiles=frozenset({"core"}),
+        tags=frozenset({"session", "kater"}),
+        risk_class=RiskClass.LOCAL_WRITE,
+        mutation=True,
+        input_schema={"type": "object", "properties": {"context_id": {"type": "string"}}},
+    ),
+    _native(
+        "kater.session.work.submit",
+        description="Submit natural-language work on a remote-context session.",
+        profiles=frozenset({"core"}),
+        tags=frozenset({"session", "kater"}),
+        risk_class=RiskClass.LOCAL_WRITE,
+        mutation=True,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "context_id": {"type": "string"},
+                "prompt": {"type": "string"},
+                "katerContextId": {"type": "string"},
+            },
+        },
+    ),
+    _native(
+        "kater.session.work.cancel",
+        description="Cancel in-flight session work.",
+        profiles=frozenset({"core"}),
+        tags=frozenset({"session", "kater"}),
+        risk_class=RiskClass.LOCAL_WRITE,
+        mutation=True,
+    ),
+    _native(
+        "kater.session.work.transition",
+        description="Advance session work through the Kater agent state machine.",
+        profiles=frozenset({"core"}),
+        tags=frozenset({"session", "kater"}),
+        risk_class=RiskClass.LOCAL_WRITE,
+        mutation=True,
+    ),
+    _native(
+        "kater.session.events.read",
+        description="Poll authoritative Kater-neutral session events.",
+        profiles=frozenset({"core"}),
+        tags=frozenset({"session", "kater"}),
+    ),
+    _native(
+        "kater.session.events.append",
+        description="Append a provider-neutral session event for an existing context.",
+        profiles=frozenset({"core"}),
+        tags=frozenset({"session", "kater"}),
+        risk_class=RiskClass.LOCAL_WRITE,
+        mutation=True,
     ),
 )
 

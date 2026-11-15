@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -259,12 +261,28 @@ def test_builtins_do_not_crash_with_mocks():
             record.assert_called_once()
 
 
-def test_api_list_seeds_defaults():
-    resp = call("GET", "/api/automations")
+def test_api_list_does_not_seed_defaults():
+    """A GET must not create enabled schedules in an uninitialized store."""
+    assert automations_store.count() == 0
+    assert automations_store.AutomationStore().defaults_seeded() is False
+
+    # Exercise the REST handler itself, not a mock read-only facade.
+    with patch("kater.automations.engine.AutomationEngine.ensure_defaults") as seed:
+        resp = call("GET", "/api/automations")
+    seed.assert_not_called()
     assert resp.status == 200
-    assert resp.payload is not None
-    assert resp.payload["total"] == len(DEFAULT_AUTOMATIONS)
-    assert len(resp.payload["automations"]) == len(DEFAULT_AUTOMATIONS)
+    assert resp.payload == {"automations": [], "total": 0}
+    assert automations_store.count() == 0
+    assert automations_store.AutomationStore().defaults_seeded() is False
+
+    # Startup/maintenance explicitly seed defaults, preserving existing UX.
+    seeded = get_engine().ensure_defaults()
+    assert len(seeded) == len(DEFAULT_AUTOMATIONS)
+    populated = call("GET", "/api/automations")
+    assert populated.status == 200
+    assert populated.payload is not None
+    assert populated.payload["total"] == len(DEFAULT_AUTOMATIONS)
+    assert len(populated.payload["automations"]) == len(DEFAULT_AUTOMATIONS)
 
 
 def test_api_crud_enable_run_delete():
@@ -329,6 +347,479 @@ def test_api_rejects_unknown_kind():
     assert resp.status == 400
     assert resp.payload is not None
     assert "unknown" in resp.payload["error"]
+
+
+def _reap_manager(manager_factory: MagicMock) -> MagicMock:
+    manager = MagicMock()
+    manager.reap_expired.return_value = 0
+    manager_factory.return_value = manager
+    return manager
+
+
+def test_runs_recorded_for_schedule_and_manual_triggers():
+    clock = {"now": 1000.0}
+    engine = AutomationEngine(clock=lambda: clock["now"])
+    engine.upsert(id="auto_hist", name="Hist", kind="browser_reap", schedule_seconds=60)
+
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        _reap_manager(manager_factory)
+        assert engine.tick() == 1
+        clock["now"] = 1010.0
+        engine.run_now("auto_hist")
+
+    runs = engine.list_runs("auto_hist")
+    assert [(r.trigger, r.status, r.started_at) for r in runs] == [
+        ("manual", "ok", 1010.0),
+        ("schedule", "ok", 1000.0),
+    ]
+    assert all(r.finished_at is not None and r.error is None for r in runs)
+    assert runs[0].to_dict()["duration_ms"] == 0.0
+
+
+def test_scheduled_runs_record_their_own_start_time():
+    clock = {"now": 1000.0}
+    engine = AutomationEngine(clock=lambda: clock["now"])
+    engine.upsert(id="auto_first", name="First", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_second", name="Second", kind="browser_reap", schedule_seconds=60)
+
+    def _slow_reap() -> int:
+        clock["now"] += 5.0
+        return 0
+
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        manager = _reap_manager(manager_factory)
+        manager.reap_expired.side_effect = _slow_reap
+        assert engine.tick() == 2
+
+    (first,) = engine.list_runs("auto_first")
+    (second,) = engine.list_runs("auto_second")
+    assert (first.started_at, first.finished_at) == (1000.0, 1005.0)
+    assert (second.started_at, second.finished_at) == (1005.0, 1010.0)
+    loaded = engine.get("auto_second")
+    assert loaded is not None
+    assert loaded.last_run_at == 1000.0
+
+
+def test_history_write_gives_up_fast_on_locked_db_and_restores_timeout(tmp_path):
+    db = automations_store._get_db()
+    blocker = sqlite3.connect(tmp_path / ".kater" / "kater.db", timeout=0)
+    try:
+        blocker.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            automations_store.start_run("auto_x", started_at=1.0, trigger="manual")
+        assert time.monotonic() - started < 2.0
+    finally:
+        blocker.rollback()
+        blocker.close()
+    assert (
+        db.execute("PRAGMA busy_timeout").fetchone()[0]
+        == automations_store._DEFAULT_BUSY_TIMEOUT_MS
+    )
+    assert not db.in_transaction
+    automations_store.start_run("auto_x", started_at=2.0, trigger="manual")
+    assert [r.started_at for r in automations_store.list_runs("auto_x")] == [2.0]
+
+
+def test_tick_survives_locked_last_run_update():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_one", name="One", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_two", name="Two", kind="browser_reap", schedule_seconds=60)
+    with (
+        patch.object(
+            automations_store.AutomationStore,
+            "record_run",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ),
+        patch("kater.automations.builtins.get_manager") as manager_factory,
+    ):
+        manager = _reap_manager(manager_factory)
+        assert engine.tick() == 2
+    assert manager.reap_expired.call_count == 2
+    assert [r.status for r in engine.list_runs("auto_two")] == ["ok"]
+
+
+def test_tick_cleanup_keeps_claims_retaken_by_concurrent_run():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_one", name="One", kind="browser_reap", schedule_seconds=60)
+
+    class _RetakenClaims(set[str]):
+        retaken = False
+
+        def discard(self, item: str) -> None:
+            super().discard(item)
+            if not self.retaken:
+                # Simulates one concurrent run_now claiming the id right after release.
+                self.retaken = True
+                self.add(item)
+
+    engine._in_flight = _RetakenClaims()
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        _reap_manager(manager_factory)
+        assert engine.tick() == 1
+    assert "auto_one" in engine._in_flight
+
+
+def test_non_timeout_error_with_timeout_in_name_is_error():
+    class InvalidTimeoutError(Exception):
+        pass
+
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_cfg", name="Cfg", kind="doctor_watch", schedule_seconds=60)
+    with patch("kater.automations.builtins.run_doctor", side_effect=InvalidTimeoutError("bad")):
+        assert engine.run_now("auto_cfg").status == "error"
+
+
+def test_history_write_discards_stale_transaction():
+    db = automations_store._get_db()
+    db.execute("BEGIN")
+    db.execute(
+        """INSERT INTO automation_runs (automation_id, started_at, status, "trigger")
+           VALUES ('auto_stale', 1.0, 'unknown', 'manual')"""
+    )
+    automations_store.start_run("auto_x", started_at=2.0, trigger="manual")
+    assert automations_store.list_runs("auto_stale") == []
+    assert len(automations_store.list_runs("auto_x")) == 1
+
+
+def test_aborted_tick_releases_unreached_claims():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_one", name="One", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_two", name="Two", kind="browser_reap", schedule_seconds=60)
+    with (
+        patch.object(AutomationEngine, "_execute", side_effect=RuntimeError("boom")),
+        pytest.raises(RuntimeError),
+    ):
+        engine.tick()
+    assert engine._in_flight == set()
+
+
+def test_run_errors_are_recorded_in_history():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_bad_hist", name="Bad", kind="doctor_watch", schedule_seconds=60)
+    with patch("kater.automations.builtins.run_doctor", side_effect=RuntimeError("boom")):
+        engine.run_now("auto_bad_hist")
+    (run,) = engine.list_runs("auto_bad_hist")
+    assert (run.status, run.error, run.trigger) == ("error", "boom", "manual")
+
+
+def test_timeout_is_recorded_as_unknown():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_slow", name="Slow", kind="doctor_watch", schedule_seconds=60)
+    with patch("kater.automations.builtins.run_doctor", side_effect=TimeoutError("30s")):
+        result = engine.run_now("auto_slow")
+    assert result.status == "unknown"
+    (run,) = engine.list_runs("auto_slow")
+    assert run.status == "unknown"
+    assert run.error == "timeout: 30s"
+    assert run.finished_at is not None
+    loaded = engine.get("auto_slow")
+    assert loaded is not None
+    assert loaded.last_status == "unknown"
+
+
+def test_http_client_timeout_is_recorded_as_unknown():
+    class ReadTimeout(Exception):
+        pass
+
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_http", name="Http", kind="doctor_watch", schedule_seconds=60)
+    with patch("kater.automations.builtins.run_doctor", side_effect=ReadTimeout("read")):
+        result = engine.run_now("auto_http")
+    assert result.status == "unknown"
+    (run,) = engine.list_runs("auto_http")
+    assert (run.status, run.error) == ("unknown", "timeout: read")
+
+
+def test_crash_mid_run_leaves_unknown_unfinished_run():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_crash", name="Crash", kind="doctor_watch", schedule_seconds=60)
+    with (
+        patch("kater.automations.builtins.run_doctor", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        engine.run_now("auto_crash")
+    (run,) = engine.list_runs("auto_crash")
+    assert run.status == "unknown"
+    assert run.finished_at is None
+    assert run.to_dict()["duration_ms"] is None
+
+
+def test_skipped_run_status():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_heal", name="Heal", kind="proxy_heal", schedule_seconds=60)
+    with patch("kater.automations.builtins.get_proxy") as proxy_factory:
+        proxy = MagicMock(spec=["started", "heal"])
+        proxy.started = False
+        proxy_factory.return_value = proxy
+        result = engine.run_now("auto_heal")
+    assert result.status == "skipped"
+    (run,) = engine.list_runs("auto_heal")
+    assert run.status == "skipped"
+
+
+def test_history_write_failure_does_not_block_run():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_nohist", name="NoHist", kind="browser_reap", schedule_seconds=60)
+    with (
+        patch.object(
+            automations_store.AutomationStore,
+            "start_run",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ),
+        patch("kater.automations.builtins.get_manager") as manager_factory,
+    ):
+        _reap_manager(manager_factory)
+        result = engine.run_now("auto_nohist")
+    assert result.status == "ok"
+    assert engine.list_runs("auto_nohist") == []
+
+
+def test_store_rejects_unknown_status_and_trigger():
+    with pytest.raises(ValueError, match="trigger"):
+        automations_store.start_run("auto_x", started_at=1.0, trigger="cron")
+    run_id = automations_store.start_run("auto_x", started_at=1.0, trigger="manual")
+    with pytest.raises(ValueError, match="status"):
+        automations_store.finish_run(run_id, finished_at=2.0, status="cancelled", error=None)
+
+
+def test_prune_runs_keeps_newest_per_automation_and_drops_orphans():
+    engine = AutomationEngine(clock=lambda: 1.0)
+    engine.upsert(id="auto_a", name="A", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_b", name="B", kind="browser_reap", schedule_seconds=60)
+    for i in range(5):
+        automations_store.start_run("auto_a", started_at=float(i), trigger="schedule")
+    automations_store.start_run("auto_b", started_at=1.0, trigger="schedule")
+    automations_store.start_run("auto_gone", started_at=1.0, trigger="manual")
+
+    assert automations_store.prune_runs(keep=2) == 4
+    assert [r.started_at for r in engine.list_runs("auto_a")] == [4.0, 3.0]
+    assert len(engine.list_runs("auto_b")) == 1
+    assert engine.list_runs("auto_gone") == []
+
+    deleted = engine.delete("auto_b")
+    assert deleted is True
+    assert engine.list_runs("auto_b") == []
+
+
+def test_api_runs_endpoint():
+    get_engine().upsert(id="auto_api_runs", name="Runs", kind="browser_reap", schedule_seconds=0)
+    for i in range(3):
+        automations_store.start_run("auto_api_runs", started_at=float(i), trigger="manual")
+
+    resp = call("GET", "/api/automations/auto_api_runs/runs", query={"limit": ["2"]})
+    assert resp.status == 200
+    assert resp.payload is not None
+    assert resp.payload["automation_id"] == "auto_api_runs"
+    assert resp.payload["total"] == 2
+    assert [r["started_at"] for r in resp.payload["runs"]] == [2.0, 1.0]
+    assert resp.payload["runs"][0]["status"] == "unknown"
+    assert resp.payload["runs"][0]["trigger"] == "manual"
+
+    for bad in ("nope", "0", "-3"):
+        rejected = call("GET", "/api/automations/auto_api_runs/runs", query={"limit": [bad]})
+        assert rejected.status == 400, bad
+    assert call("GET", "/api/automations/auto_missing/runs").status == 404
+
+
+def test_tick_records_one_skipped_run_while_automation_is_in_flight():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_busy", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy")
+
+    assert engine.tick() == 0
+    assert engine.tick() == 0
+
+    (run,) = engine.list_runs("auto_busy")
+    assert run.status == "skipped"
+    assert run.trigger == "schedule"
+    assert run.error == "already running"
+    assert run.started_at == 1000.0
+    assert run.finished_at is not None
+    assert engine._in_flight == {"auto_busy"}
+
+
+def test_tick_records_a_new_skip_after_the_in_flight_run_finishes():
+    clock = [1000.0]
+    engine = AutomationEngine(clock=lambda: clock[0])
+    engine.upsert(id="auto_busy", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy")
+    engine.tick()
+    engine._in_flight.discard("auto_busy")
+
+    clock[0] = 1100.0
+    with patch("kater.automations.builtins.get_manager") as manager_factory:
+        _reap_manager(manager_factory)
+        assert engine.tick() == 1
+
+    clock[0] = 1200.0
+    engine._in_flight.add("auto_busy")
+    engine.tick()
+
+    assert [r.status for r in engine.list_runs("auto_busy")] == ["skipped", "ok", "skipped"]
+
+
+def test_run_now_while_in_flight_records_skipped_run_and_still_raises():
+    engine = AutomationEngine(clock=lambda: 42.0)
+    engine.upsert(id="auto_busy2", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy2")
+
+    with pytest.raises(ValueError, match="already running"):
+        engine.run_now("auto_busy2")
+
+    (run,) = engine.list_runs("auto_busy2")
+    assert (run.status, run.trigger, run.error) == ("skipped", "manual", "already running")
+    assert engine._in_flight == {"auto_busy2"}
+
+
+def test_skip_history_write_failure_does_not_block_tick():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_busy3", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy3")
+    with patch.object(
+        automations_store.AutomationStore,
+        "record_skipped_run",
+        side_effect=sqlite3.OperationalError("database is locked"),
+    ):
+        assert engine.tick() == 0
+    assert engine.list_runs("auto_busy3") == []
+    assert engine._in_flight == {"auto_busy3"}
+
+
+def test_failed_skip_write_is_retried_by_the_next_blocked_tick():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_retry", name="Retry", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_retry")
+    with patch.object(
+        automations_store.AutomationStore,
+        "record_skipped_run",
+        side_effect=sqlite3.OperationalError("database is locked"),
+    ):
+        engine.tick()
+    assert engine._skip_recorded == set()
+
+    engine.tick()
+    (run,) = engine.list_runs("auto_retry")
+    assert (run.status, run.trigger) == ("skipped", "schedule")
+
+
+def test_skip_write_crash_still_releases_claimed_automations():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_claim", name="Claim", kind="browser_reap", schedule_seconds=60)
+    engine.upsert(id="auto_busy4", name="Busy", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_busy4")
+
+    with (
+        patch.object(
+            automations_store.AutomationStore,
+            "record_skipped_run",
+            side_effect=KeyboardInterrupt,
+        ),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        engine.tick()
+    assert engine._in_flight == {"auto_busy4"}
+    assert engine._skip_recorded == set()
+
+
+def test_skip_write_permanent_error_is_not_retried_every_tick():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_perm", name="Perm", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_perm")
+    with patch.object(
+        automations_store.AutomationStore,
+        "record_skipped_run",
+        side_effect=sqlite3.DatabaseError("malformed database schema"),
+    ) as write:
+        engine.tick()
+        engine.tick()
+    assert write.call_count == 1
+    assert engine._skip_recorded == {"auto_perm"}
+
+
+def test_skip_write_abort_returns_marks_for_unattempted_blocked_automations():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    for name in ("auto_b1", "auto_b2", "auto_b3"):
+        engine.upsert(id=name, name=name, kind="browser_reap", schedule_seconds=60)
+        engine._in_flight.add(name)
+
+    calls = {"n": 0}
+
+    def _abort(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt
+        return 1
+
+    with (
+        patch.object(automations_store.AutomationStore, "record_skipped_run", _abort),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        engine.tick()
+    # auto_b1 was written before the abort; auto_b2 returned its own mark and
+    # auto_b3 never got a turn, so both stay retryable.
+    assert engine._skip_recorded == {"auto_b1"}
+
+    engine.tick()
+    recorded = [
+        run.automation_id
+        for name in ("auto_b1", "auto_b2", "auto_b3")
+        for run in engine.list_runs(name)
+    ]
+    # The tail's skips land on the next tick; auto_b1 keeps its mark from the
+    # write that did happen, so it is not duplicated.
+    assert sorted(recorded) == ["auto_b2", "auto_b3"]
+
+
+def test_skip_retry_classifies_extended_busy_codes_as_transient():
+    engine = AutomationEngine(clock=lambda: 1000.0)
+    engine.upsert(id="auto_ext", name="Ext", kind="browser_reap", schedule_seconds=60)
+    engine._in_flight.add("auto_ext")
+
+    snapshot_busy = sqlite3.OperationalError("database is locked")
+    snapshot_busy.sqlite_errorcode = 517  # SQLITE_BUSY_SNAPSHOT
+    with patch.object(
+        automations_store.AutomationStore, "record_skipped_run", side_effect=snapshot_busy
+    ):
+        engine.tick()
+    assert engine._skip_recorded == set()
+
+    read_only = sqlite3.OperationalError("attempt to write a readonly database")
+    read_only.sqlite_errorcode = 8  # SQLITE_READONLY
+    with patch.object(
+        automations_store.AutomationStore, "record_skipped_run", side_effect=read_only
+    ):
+        engine.tick()
+    assert engine._skip_recorded == {"auto_ext"}
+
+
+def test_store_rejects_bad_trigger_for_skipped_run():
+    engine = AutomationEngine(clock=lambda: 1.0)
+    engine.upsert(id="auto_x", name="X", kind="browser_reap", schedule_seconds=60)
+    with pytest.raises(ValueError, match="trigger"):
+        automations_store.record_skipped_run(
+            "auto_x", started_at=1.0, trigger="cron", reason="already running"
+        )
+    run_id = automations_store.record_skipped_run(
+        "auto_x", started_at=1.0, trigger="manual", reason="already running"
+    )
+    assert run_id > 0
+    (run,) = automations_store.list_runs("auto_x")
+    assert (run.status, run.finished_at, run.error) == ("skipped", 1.0, "already running")
+
+
+def test_skipped_run_for_deleted_automation_writes_no_orphan_row():
+    engine = AutomationEngine(clock=lambda: 1.0)
+    engine.upsert(id="auto_gone", name="Gone", kind="browser_reap", schedule_seconds=60)
+    assert engine.delete("auto_gone") is True
+
+    assert (
+        automations_store.record_skipped_run(
+            "auto_gone", started_at=1.0, trigger="manual", reason="already running"
+        )
+        == 0
+    )
+    assert automations_store.list_runs("auto_gone") == []
 
 
 def test_get_engine_singleton_and_reset():

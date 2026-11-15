@@ -26,14 +26,13 @@ jobs:
   # self-hosted pr-isolated and heavy chef-ci listeners. Those are persistent
   # listeners, not ephemeral job sandboxes: listener credentials remain in the
   # guest and a workspace wipe is not a HOME/process boundary, so that lane was
-  # never production-safe isolation. Now that Actions spending is restored, all
-  # public jobs run on GitHub-hosted ubuntu-latest; only lanes needing private
-  # fleet access should opt back into self-hosted labels. INTERIM note kept for
-  # audit trail.
+  # never production-safe isolation. INTERIM #116 fleet labels are reverted:
+  # public jobs use GitHub-hosted ubuntu-latest (free for a public repo).
+  # company-control-deploy stays on the private fleet for bc-scan-arm.
   # ── validate: lockfile, config, generated files, docs, metadata ────────
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -41,14 +40,14 @@ jobs:
           persist-credentials: false
 
       - name: Install Node for Studio build
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: studio/package-lock.json
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
 
@@ -132,7 +131,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: "3.11"
           enable-cache: true
@@ -162,7 +161,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -186,7 +185,7 @@ jobs:
       # the suite (~1200 tests) even when coverage (with cov) finished cleanly.
       - name: Test
         run: >-
-          timeout 480s uv run pytest -vv --tb=short -ra --no-cov
+          timeout 900s uv run pytest -vv --tb=short -ra --no-cov
           --ignore=tests/test_computer_acceptance_e2e.py
 
   # ── integration: REST, OAuth PKCE, API-key, admin-key, storage, proxy ──
@@ -201,7 +200,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: "3.12"
           enable-cache: true
@@ -263,7 +262,7 @@ jobs:
 
       - name: Install uv
         if: steps.udo.outputs.available == 'true'
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: "3.12"
           enable-cache: true
@@ -286,11 +285,12 @@ jobs:
 
       - name: Publish schema-validated acceptance evidence
         if: steps.udo.outputs.available == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: computer-acceptance-evidence
           path: ${{ runner.temp }}/computer-acceptance-evidence.json
           if-no-files-found: error
+          retention-days: 7
 
   # ── e2e: real Kater processes (health, REST, MCP, SSE, WS, dashboard) ──
   e2e:
@@ -304,7 +304,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: "3.12"
           enable-cache: true
@@ -345,7 +345,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
 
@@ -396,7 +396,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
 
@@ -445,7 +445,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
       - name: Sync project
@@ -461,11 +461,12 @@ jobs:
             --cov-report=term-missing:skip-covered
       - name: Upload coverage XML
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: warn
+          retention-days: 7
 
   # ── gate: single stable required check aggregating the mandatory jobs ──
   gate:

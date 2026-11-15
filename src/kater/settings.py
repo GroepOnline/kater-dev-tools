@@ -10,7 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+
+from kater.resource_auth import ResourceAuthConfig, ResourceAuthConfigurationError
 
 # Environment keys materialized from persisted settings, rather than supplied externally.
 persisted_env_keys: set[str] = set()
@@ -49,12 +51,14 @@ class KaterSettings(BaseModel):
     version: int = 2
     default_profile: str = "core"
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    resource_auth: ResourceAuthConfig = Field(default_factory=ResourceAuthConfig)
     server_overrides: dict[str, ServerOverride] = Field(default_factory=dict)
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     rate_limit_per_min: int = 0
     host: str = "127.0.0.1"
     api_port: int = 9091
     mcp_port: int = 9090
+    product_mcp_port: int = Field(default=9093, ge=1, le=65535)
     ws_port: int = 9092
     storage_backend: str = "sqlite"
     db_path: str = ".kater/kater.db"
@@ -185,11 +189,23 @@ def load_settings(project_dir: Path | None = None) -> KaterSettings:
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            # A present but unreadable settings file may contain an enabled
+            # resource-auth contract. Never replace that contract with the
+            # disabled default merely because it cannot be parsed.
+            raise ResourceAuthConfigurationError() from None
+        try:
             settings = KaterSettings.from_dict(data)
-        except (json.JSONDecodeError, ValueError):
+        except ValidationError:
+            if isinstance(data, dict) and ("resource_auth" in data or "product_mcp_port" in data):
+                # An invalid resource contract must never silently become disabled.
+                raise ResourceAuthConfigurationError() from None
+            settings = _settings_from_env()
+        except ValueError:
             settings = _settings_from_env()
     else:
         settings = _settings_from_env()
+    settings = _apply_product_env(settings)
     settings = _apply_env_security_overrides(settings)
     _settings_cache[cache_key] = settings
     return settings
@@ -201,6 +217,34 @@ def invalidate_settings_cache(project_dir: Path | None = None) -> None:
         _settings_cache.pop(str(project_dir.resolve()), None)
     else:
         _settings_cache.clear()
+
+
+def _apply_product_env(settings: KaterSettings) -> KaterSettings:
+    """Overlay the explicit product contract; malformed values never disable auth."""
+    contract = settings.resource_auth.model_dump()
+    fields = {
+        "KATER_RESOURCE_AUTH_ISSUER": "issuer",
+        "KATER_RESOURCE_AUTH_RESOURCE": "resource",
+        "KATER_RESOURCE_AUTH_SERVICE_KEY_ENV": "service_key_env",
+    }
+    for env, field in fields.items():
+        if env in os.environ:
+            contract[field] = os.environ[env]
+    try:
+        if "KATER_RESOURCE_AUTH_ENABLED" in os.environ:
+            raw = os.environ["KATER_RESOURCE_AUTH_ENABLED"].strip().lower()
+            if raw not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+                raise ValueError("Invalid product enable flag")
+            contract["enabled"] = raw in {"1", "true", "yes", "on"}
+        if "KATER_RESOURCE_AUTH_SCOPES" in os.environ:
+            contract["allowed_scopes"] = tuple(os.environ["KATER_RESOURCE_AUTH_SCOPES"].split())
+        values = settings.model_dump()
+        values["resource_auth"] = ResourceAuthConfig.model_validate(contract)
+        if "KATER_PRODUCT_MCP_PORT" in os.environ:
+            values["product_mcp_port"] = int(os.environ["KATER_PRODUCT_MCP_PORT"])
+        return KaterSettings.model_validate(values)
+    except (ValueError, ValidationError):
+        raise ResourceAuthConfigurationError() from None
 
 
 def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
@@ -385,9 +429,9 @@ def _settings_from_env() -> KaterSettings:
 
 @dataclass(frozen=True)
 class ListenConfig:
-    """Single source of truth for where the three servers bind.
+    """Single source of truth for core and optional product listener addresses.
 
-    One process binds one host with three ports (REST API, MCP SSE, WebSocket).
+    One process binds REST API, private MCP, WebSocket and optional product MCP.
     Collapsing host/port handling here removes the literals that were scattered
     across cli, serve, api, mcp_server and websocket — and the footgun where
     different entrypoints defaulted to different hosts (0.0.0.0 vs 127.0.0.1).
@@ -397,6 +441,7 @@ class ListenConfig:
     api_port: int = 9091
     mcp_port: int = 9090
     ws_port: int = 9092
+    product_mcp_port: int = 9093
 
 
 def resolve_listen_config(
@@ -405,6 +450,7 @@ def resolve_listen_config(
     api_port: int | None = None,
     mcp_port: int | None = None,
     ws_port: int | None = None,
+    product_mcp_port: int | None = None,
     settings: KaterSettings | None = None,
 ) -> ListenConfig:
     """Merge explicit overrides over persisted/env settings.
@@ -417,6 +463,9 @@ def resolve_listen_config(
         api_port=api_port if api_port is not None else settings.api_port,
         mcp_port=mcp_port if mcp_port is not None else settings.mcp_port,
         ws_port=ws_port if ws_port is not None else settings.ws_port,
+        product_mcp_port=(
+            product_mcp_port if product_mcp_port is not None else settings.product_mcp_port
+        ),
     )
 
 

@@ -42,6 +42,40 @@ class Automation:
         }
 
 
+RUN_STATUSES = frozenset({"ok", "error", "skipped", "unknown"})
+RUN_TRIGGERS = frozenset({"schedule", "manual"})
+
+
+@dataclass(frozen=True)
+class AutomationRun:
+    """One persisted run; ``unknown`` with no ``finished_at`` means it never finished."""
+
+    id: int
+    automation_id: str
+    started_at: float
+    finished_at: float | None
+    status: str
+    error: str | None
+    trigger: str
+
+    def to_dict(self) -> dict[str, Any]:
+        duration_ms = (
+            round((self.finished_at - self.started_at) * 1000.0, 2)
+            if self.finished_at is not None
+            else None
+        )
+        return {
+            "id": self.id,
+            "automation_id": self.automation_id,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "duration_ms": duration_ms,
+            "status": self.status,
+            "error": self.error,
+            "trigger": self.trigger,
+        }
+
+
 @dataclass(frozen=True)
 class AutomationRunResult:
     id: str

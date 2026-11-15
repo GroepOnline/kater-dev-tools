@@ -2,19 +2,22 @@
 
 Uses the shared ``.kater/kater.db`` file (``settings.db_path``) with the same
 WAL / busy-timeout / cached-connection pattern as ``kater.browser.store``.
-The table is owned by migration v3; ``CREATE IF NOT EXISTS`` keeps tests and
+The tables are owned by migrations v3 / v7 / v12; ``CREATE IF NOT EXISTS`` keeps tests and
 early bootstraps safe when migrate has not run yet.
 """
 
 from __future__ import annotations
 
+import builtins
 import json
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
-from kater.automations.models import Automation
+from kater.automations.models import RUN_STATUSES, RUN_TRIGGERS, Automation, AutomationRun
 from kater.settings import load_settings
 
 _SCHEMA = """
@@ -42,10 +45,32 @@ CREATE TABLE IF NOT EXISTS automation_meta (
     value TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS automation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    automation_id TEXT NOT NULL,
+    started_at REAL NOT NULL,
+    finished_at REAL,
+    status TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (status IN ('ok', 'error', 'skipped', 'unknown')),
+    error TEXT,
+    "trigger" TEXT NOT NULL CHECK ("trigger" IN ('schedule', 'manual'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs_automation
+    ON automation_runs(automation_id, started_at DESC, id DESC);
 """
 
 #: Marker recording that the built-in automations were seeded once.
 DEFAULTS_SEEDED_KEY = "defaults_seeded"
+
+#: Run-history rows kept per automation; older rows are pruned by the janitor.
+RUN_HISTORY_KEEP = 200
+
+# History writes sit on the run path, so they give up on a locked database
+# quickly instead of waiting out the connection's 10s busy timeout.
+_HISTORY_BUSY_TIMEOUT_MS = 500
+_DEFAULT_BUSY_TIMEOUT_MS = 10000
 
 _lock = threading.RLock()
 _db_cache: sqlite3.Connection | None = None
@@ -216,8 +241,137 @@ def delete(automation_id: str) -> bool:
     with _lock:
         db = _get_db()
         cursor = db.execute("DELETE FROM automations WHERE id = ?", (automation_id,))
+        db.execute("DELETE FROM automation_runs WHERE automation_id = ?", (automation_id,))
         db.commit()
         return cursor.rowcount > 0
+
+
+def start_run(automation_id: str, *, started_at: float, trigger: str) -> int:
+    """Open a run row as ``unknown``; it stays that way unless finish_run lands."""
+    if trigger not in RUN_TRIGGERS:
+        raise ValueError(f"unknown run trigger: {trigger}")
+    with _lock:
+        db = _get_db()
+        with _history_write(db):
+            cursor = db.execute(
+                """INSERT INTO automation_runs (automation_id, started_at, status, "trigger")
+                   VALUES (?, ?, 'unknown', ?)""",
+                (automation_id, started_at, trigger),
+            )
+        if cursor.lastrowid is None:
+            raise RuntimeError(f"automation run for {automation_id} not recorded")
+        return int(cursor.lastrowid)
+
+
+def record_skipped_run(
+    automation_id: str, *, started_at: float, trigger: str, reason: str
+) -> int:
+    """Record a run that never started because the automation was already running.
+
+    Returns 0 when the automation was deleted meanwhile, so a skip write racing
+    a delete cannot leave an orphan row.
+    """
+    if trigger not in RUN_TRIGGERS:
+        raise ValueError(f"unknown run trigger: {trigger}")
+    with _lock:
+        db = _get_db()
+        with _history_write(db):
+            cursor = db.execute(
+                """INSERT INTO automation_runs
+                       (automation_id, started_at, finished_at, status, error, "trigger")
+                   SELECT ?, ?, ?, 'skipped', ?, ?
+                   WHERE EXISTS (SELECT 1 FROM automations WHERE id = ?)""",
+                (automation_id, started_at, started_at, reason, trigger, automation_id),
+            )
+        # ``lastrowid`` keeps the connection's previous insert id when the
+        # guarded INSERT inserts nothing, so ``rowcount`` decides.
+        if cursor.rowcount <= 0 or cursor.lastrowid is None:
+            return 0
+        return int(cursor.lastrowid)
+
+
+def finish_run(run_id: int, *, finished_at: float, status: str, error: str | None) -> None:
+    if status not in RUN_STATUSES:
+        raise ValueError(f"unknown run status: {status}")
+    with _lock:
+        db = _get_db()
+        with _history_write(db):
+            db.execute(
+                """UPDATE automation_runs SET finished_at = ?, status = ?, error = ?
+                   WHERE id = ?""",
+                (finished_at, status, error, run_id),
+            )
+
+
+@contextmanager
+def _history_write(db: sqlite3.Connection) -> Iterator[None]:
+    """Commit one history write under a short busy timeout; roll back on failure."""
+    row = db.execute("PRAGMA busy_timeout").fetchone()
+    previous = int(row[0]) if row else _DEFAULT_BUSY_TIMEOUT_MS
+    # Writers serialize on _lock, so a transaction still open here was left by a
+    # failed earlier write; start clean instead of committing its partial work.
+    if db.in_transaction:
+        db.rollback()
+    db.execute(f"PRAGMA busy_timeout = {_HISTORY_BUSY_TIMEOUT_MS}")
+    try:
+        yield
+        db.commit()
+    except BaseException:
+        with suppress(sqlite3.Error):
+            db.rollback()
+        raise
+    finally:
+        with suppress(sqlite3.Error):
+            db.execute(f"PRAGMA busy_timeout = {previous}")
+
+
+def list_runs(automation_id: str, *, limit: int = 50) -> list[AutomationRun]:
+    """Most recent runs first."""
+    with _lock:
+        rows = (
+            _get_db()
+            .execute(
+                """SELECT id, automation_id, started_at, finished_at, status, error, "trigger"
+                   FROM automation_runs WHERE automation_id = ?
+                   ORDER BY started_at DESC, id DESC LIMIT ?""",
+                (automation_id, max(1, int(limit))),
+            )
+            .fetchall()
+        )
+    return [
+        AutomationRun(
+            id=int(row["id"]),
+            automation_id=row["automation_id"],
+            started_at=float(row["started_at"]),
+            finished_at=float(row["finished_at"]) if row["finished_at"] is not None else None,
+            status=row["status"],
+            error=row["error"],
+            trigger=row["trigger"],
+        )
+        for row in rows
+    ]
+
+
+def prune_runs(keep: int = RUN_HISTORY_KEEP) -> int:
+    """Keep the newest ``keep`` runs per automation and drop runs of deleted ones."""
+    with _lock:
+        db = _get_db()
+        orphans = db.execute(
+            "DELETE FROM automation_runs WHERE automation_id NOT IN (SELECT id FROM automations)"
+        ).rowcount
+        overflow = db.execute(
+            """DELETE FROM automation_runs WHERE id IN (
+                   SELECT id FROM (
+                       SELECT id, ROW_NUMBER() OVER (
+                           PARTITION BY automation_id ORDER BY started_at DESC, id DESC
+                       ) AS rn
+                       FROM automation_runs
+                   ) WHERE rn > ?
+               )""",
+            (max(0, int(keep)),),
+        ).rowcount
+        db.commit()
+    return max(0, orphans) + max(0, overflow)
 
 
 def _row_to_automation(row: sqlite3.Row) -> Automation:
@@ -294,6 +448,29 @@ class AutomationStore:
 
     def delete(self, automation_id: str) -> bool:
         return delete(automation_id)
+
+    def start_run(self, automation_id: str, *, started_at: float, trigger: str) -> int:
+        return start_run(automation_id, started_at=started_at, trigger=trigger)
+
+    def record_skipped_run(
+        self, automation_id: str, *, started_at: float, trigger: str, reason: str
+    ) -> int:
+        return record_skipped_run(
+            automation_id, started_at=started_at, trigger=trigger, reason=reason
+        )
+
+    def finish_run(
+        self, run_id: int, *, finished_at: float, status: str, error: str | None
+    ) -> None:
+        finish_run(run_id, finished_at=finished_at, status=status, error=error)
+
+    def list_runs(
+        self, automation_id: str, *, limit: int = 50
+    ) -> builtins.list[AutomationRun]:
+        return list_runs(automation_id, limit=limit)
+
+    def prune_runs(self, keep: int = RUN_HISTORY_KEEP) -> int:
+        return prune_runs(keep)
 
     def reset_cache(self) -> None:
         reset_cache()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class ConnectorError(Exception):
     """Base class for connector control-plane failures."""
@@ -9,9 +11,10 @@ class ConnectorError(Exception):
     def __init__(self, code: str, message: str, *, connector_id: str | None = None) -> None:
         self.code = code
         self.connector_id = connector_id
+        self.execution: dict[str, Any] | None = None
         super().__init__(message)
 
-    def as_dict(self) -> dict[str, str | None]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "error": self.code,
             "message": str(self),

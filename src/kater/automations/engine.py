@@ -2,16 +2,69 @@
 
 from __future__ import annotations
 
+import builtins
 import logging
+import sqlite3
+import subprocess
 import threading
 import time
 from typing import Any
 
 from kater.automations.builtins import KNOWN_KINDS, run_kind
-from kater.automations.models import Automation, AutomationRunResult, new_automation_id
+from kater.automations.models import (
+    Automation,
+    AutomationRun,
+    AutomationRunResult,
+    new_automation_id,
+)
 from kater.automations.store import AutomationStore, reset_cache
 
 _log = logging.getLogger("kater.automations.engine")
+
+#: Recorded in ``automation_runs.error`` for a run the engine refused because the
+#: previous run of the same automation was still in flight.
+SKIP_ALREADY_RUNNING = "already running"
+
+#: SQLite primary result codes worth retrying a history write for: another
+#: writer held the lock.
+_TRANSIENT_SQLITE_CODES = frozenset({sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED})
+
+# A timed-out run may or may not have done its work, so it is recorded as
+# ``unknown`` rather than ``error``.
+_TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (TimeoutError, subprocess.TimeoutExpired)
+
+
+# HTTP client timeouts (httpx, requests, urllib3) do not subclass TimeoutError.
+_TIMEOUT_CLASS_NAMES = frozenset(
+    {
+        "TimeoutException",
+        "Timeout",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "ConnectTimeoutError",
+        "ReadTimeoutError",
+    }
+)
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    if isinstance(exc, _TIMEOUT_ERRORS):
+        return True
+    return any(cls.__name__ in _TIMEOUT_CLASS_NAMES for cls in type(exc).__mro__)
+
+
+def _is_transient_history_error(exc: BaseException) -> bool:
+    """True when retrying a failed history write can plausibly succeed."""
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        # Extended codes carry the primary code in the low byte (e.g. 517 is
+        # SQLITE_BUSY_SNAPSHOT), so classify on the primary code.
+        return (code & 0xFF) in _TRANSIENT_SQLITE_CODES
+    return isinstance(exc, sqlite3.OperationalError) and any(
+        token in str(exc).lower() for token in ("locked", "busy")
+    )
 
 DEFAULT_AUTOMATIONS: tuple[dict[str, Any], ...] = (
     {
@@ -58,6 +111,9 @@ class AutomationEngine:
         self._clock = clock or time.time
         self._lock = threading.RLock()
         self._in_flight: set[str] = set()
+        # Automations whose blocked schedule attempt is already in the history,
+        # so a long run records one `skipped` row instead of one per tick.
+        self._skip_recorded: set[str] = set()
         self._defaults_ensured = False
 
     def ensure_defaults(self) -> list[Automation]:
@@ -131,7 +187,18 @@ class AutomationEngine:
         return self._store.upsert(record)
 
     def delete(self, automation_id: str) -> bool:
-        return self._store.delete(automation_id)
+        with self._lock:
+            deleted = self._store.delete(automation_id)
+            self._skip_recorded.discard(automation_id)
+        return deleted
+
+    def list_runs(
+        self, automation_id: str, *, limit: int = 50
+    ) -> builtins.list[AutomationRun]:
+        return self._store.list_runs(automation_id, limit=limit)
+
+    def prune_runs(self) -> int:
+        return self._store.prune_runs()
 
     def tick(self) -> int:
         """Run every enabled automation that is due. Returns how many ran.
@@ -139,10 +206,12 @@ class AutomationEngine:
         Due automations are claimed under the lock (recorded in
         ``self._in_flight``) and then executed *outside* it, so a long-running
         ``run_kind`` never blocks a concurrent ``run_now`` on a different
-        automation. An automation already in flight is skipped this tick.
+        automation. An automation already in flight is skipped this tick, and
+        the blocked attempt is recorded once per in-flight run.
         """
         now = float(self._clock())
         due: list[Automation] = []
+        blocked: list[str] = []
         with self._lock:
             for automation in self._store.list():
                 if not automation.enabled:
@@ -155,17 +224,42 @@ class AutomationEngine:
                 ):
                     continue
                 if automation.id in self._in_flight:
+                    if automation.id not in self._skip_recorded:
+                        self._skip_recorded.add(automation.id)
+                        blocked.append(automation.id)
                     continue
                 self._in_flight.add(automation.id)
+                self._skip_recorded.discard(automation.id)
                 due.append(automation)
         ran = 0
-        for automation in due:
-            try:
-                self._execute(automation, ran_at=now)
-                ran += 1
-            finally:
+        unreached = [automation.id for automation in due]
+        try:
+            for index, automation_id in enumerate(blocked):
+                try:
+                    self._record_skip(automation_id, started_at=now, trigger="schedule")
+                except BaseException:
+                    # Abort before the tail is written: give its marks back so a
+                    # later tick can still record those skips.
+                    with self._lock:
+                        self._skip_recorded.difference_update(blocked[index + 1 :])
+                    raise
+            for automation in due:
+                try:
+                    self._execute(automation, ran_at=now, trigger="schedule")
+                    ran += 1
+                finally:
+                    with self._lock:
+                        self._in_flight.discard(automation.id)
+                        self._skip_recorded.discard(automation.id)
+                        unreached.remove(automation.id)
+        finally:
+            # Release only claims this tick never reached; a released id may
+            # already be re-claimed by a concurrent run_now.
+            if unreached:
                 with self._lock:
-                    self._in_flight.discard(automation.id)
+                    self._in_flight.difference_update(unreached)
+                    for automation_id in unreached:
+                        self._skip_recorded.discard(automation_id)
         return ran
 
     def run_now(self, automation_id: str, *, force: bool = False) -> AutomationRunResult:
@@ -175,32 +269,57 @@ class AutomationEngine:
                 raise KeyError(automation_id)
             if not automation.enabled and not force:
                 raise ValueError(f"automation {automation_id} is disabled")
-            if automation_id in self._in_flight:
-                raise ValueError(f"automation {automation_id} is already running")
-            self._in_flight.add(automation_id)
+            already_running = automation_id in self._in_flight
+            if not already_running:
+                self._in_flight.add(automation_id)
+                self._skip_recorded.discard(automation_id)
+        if already_running:
+            self._record_skip(automation_id, started_at=float(self._clock()), trigger="manual")
+            raise ValueError(f"automation {automation_id} is already running")
         try:
-            return self._execute(automation, ran_at=float(self._clock()))
+            return self._execute(automation, ran_at=float(self._clock()), trigger="manual")
         finally:
             with self._lock:
                 self._in_flight.discard(automation_id)
+                self._skip_recorded.discard(automation_id)
 
-    def _execute(self, automation: Automation, *, ran_at: float) -> AutomationRunResult:
+    def _execute(
+        self, automation: Automation, *, ran_at: float, trigger: str
+    ) -> AutomationRunResult:
+        # ``ran_at`` is the tick's schedule timestamp; later runs in one tick start later.
+        run_id = self._start_run(
+            automation.id, started_at=float(self._clock()), trigger=trigger
+        )
         started = time.perf_counter()
         status = "ok"
         error: str | None = None
         detail: dict[str, Any] = {}
         try:
             detail = run_kind(automation.kind, automation.config)
+            if detail.get("skipped"):
+                status = "skipped"
         except Exception as exc:
-            status = "error"
-            error = str(exc)
-            _log.warning(
-                "automation %s (%s) failed: %s", automation.id, automation.kind, exc
-            )
+            if _is_timeout(exc):
+                status = "unknown"
+                error = f"timeout: {exc}" if str(exc) else "timeout"
+                _log.warning(
+                    "automation %s (%s) timed out: %s", automation.id, automation.kind, exc
+                )
+            else:
+                status = "error"
+                error = str(exc)
+                _log.warning(
+                    "automation %s (%s) failed: %s", automation.id, automation.kind, exc
+                )
         duration_ms = (time.perf_counter() - started) * 1000.0
-        self._store.record_run(
-            automation.id, ran_at=ran_at, status=status, error=error
-        )
+        if run_id is not None:
+            self._finish_run(run_id, status=status, error=error)
+        try:
+            self._store.record_run(
+                automation.id, ran_at=ran_at, status=status, error=error
+            )
+        except sqlite3.Error as exc:
+            _log.warning("automation %s last-run update failed: %s", automation.id, exc)
         result = AutomationRunResult(
             id=automation.id,
             kind=automation.kind,
@@ -212,6 +331,47 @@ class AutomationEngine:
         )
         self._broadcast(result)
         return result
+
+    def _start_run(
+        self, automation_id: str, *, started_at: float, trigger: str
+    ) -> int | None:
+        # History is best-effort: a failed history write must not block the run.
+        try:
+            return self._store.start_run(automation_id, started_at=started_at, trigger=trigger)
+        except (sqlite3.Error, RuntimeError) as exc:
+            _log.warning("automation %s run history start failed: %s", automation_id, exc)
+            return None
+
+    def _finish_run(self, run_id: int, *, status: str, error: str | None) -> None:
+        try:
+            self._store.finish_run(
+                run_id, finished_at=float(self._clock()), status=status, error=error
+            )
+        except (sqlite3.Error, ValueError) as exc:
+            _log.warning("automation run %d history finish failed: %s", run_id, exc)
+
+    def _record_skip(
+        self, automation_id: str, *, started_at: float, trigger: str
+    ) -> None:
+        # History is best-effort: a failed write must never block a run. A
+        # scheduled skip gives its dedupe mark back when the failure is
+        # transient (locked DB) or aborts the process, so the next blocked tick
+        # retries instead of losing the row; permanent errors are not retried.
+        try:
+            self._store.record_skipped_run(
+                automation_id,
+                started_at=started_at,
+                trigger=trigger,
+                reason=SKIP_ALREADY_RUNNING,
+            )
+        except BaseException as exc:
+            retry = _is_transient_history_error(exc) or not isinstance(exc, Exception)
+            if retry and trigger == "schedule":
+                with self._lock:
+                    self._skip_recorded.discard(automation_id)
+            _log.warning("automation %s run history skip failed: %s", automation_id, exc)
+            if not isinstance(exc, Exception):
+                raise
 
     def _broadcast(self, result: AutomationRunResult) -> None:
         try:

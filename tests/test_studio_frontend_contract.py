@@ -47,6 +47,8 @@ def test_studio_never_replaces_the_python_runtime_with_mock_state() -> None:
     assert "/api/contexts" in source
     assert "/api/audit/capabilities" in source
     assert "/api/settings" in source
+    assert "/session/work" in source
+    assert "/session/events" in source
 
 
 def test_google_ai_studio_branch_is_documented_as_salvage_only() -> None:
@@ -95,14 +97,21 @@ def test_agent_runtime_handoff_is_correlation_only() -> None:
     assert "AgentRuntimeHandoff" in agents
 
 
-def test_agent_session_projection_stays_read_only_and_context_authoritative() -> None:
+def test_agent_session_transport_is_bound_to_python_context_authority() -> None:
     agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
     client = (STUDIO / "src/api/client.ts").read_text()
     assert "/api/contexts" in client
     assert "/api/audit/capabilities" in client
+    assert "/session/work" in client
+    assert "/session/events" in client
+    assert "/session/continue" in client
+    assert "sessionSubmit" in client
+    assert "katerContextId" in client
     assert "/api/execute" not in client
     assert ".metadata" not in agents
     assert 'surface="kater"' in agents
+    assert "useAgentSessionTransport" in agents
+    assert "AgentSessionEventRow" in agents
 
 
 def test_experimental_navigation_flag_controls_sidebar() -> None:
@@ -110,6 +119,101 @@ def test_experimental_navigation_flag_controls_sidebar() -> None:
     sidebar = (STUDIO / "src/components/Sidebar.tsx").read_text()
     assert "experimental: true" in config
     assert "studioConfig.features.showExperimentalViews" in sidebar
+
+
+def test_studio_shell_is_contextual_without_fake_primary_action() -> None:
+    app = (STUDIO / "src/App.tsx").read_text()
+    topbar = (STUDIO / "src/components/Topbar.tsx").read_text()
+    assert "activeNavigation" in app
+    assert "viewLabel={activeNavigation.label}" in app
+    assert "section={activeNavigation.section}" in app
+    assert "Runtime managed" in topbar
+    assert "Add MCP" not in topbar
+    assert "disabled" not in topbar
+
+
+def test_agent_activity_is_session_centered_and_truth_bound() -> None:
+    agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
+    summary = STUDIO / "src/components/AgentSessionSummary.tsx"
+    audit_row = STUDIO / "src/components/AgentAuditEventRow.tsx"
+    activity_hook = (STUDIO / "src/hooks/useAgentContextEvents.ts").read_text()
+    assert summary.exists()
+    assert audit_row.exists()
+    assert "AgentSessionSummary" in agents
+    assert "AgentAuditEventRow" in agents
+    assert "auditAvailable" in agents
+    assert "requestedContextId.current === requestedId" in activity_hook
+    assert "requestGeneration.current === generation" in activity_hook
+    assert "const generation = ++requestGeneration.current" in activity_hook
+    assert "data: null, error: null, loading: true" in activity_hook
+    summary_source = summary.read_text()
+    composer = (STUDIO / "src/components/AgentSessionComposer.tsx").read_text()
+    event_row = (STUDIO / "src/components/AgentSessionEventRow.tsx").read_text()
+    transport_hook = (STUDIO / "src/hooks/useAgentSessionTransport.ts").read_text()
+    assert "Write transport not bound" not in summary_source
+    assert "Python session transport" in summary_source
+    assert "AgentSessionComposer" in summary_source
+    assert "type AuditStatus = 'loading' | 'available' | 'unavailable'" in summary_source
+    assert "auditStatus === 'loading'" in summary_source
+    assert "Audit loading…" in summary_source
+    assert "Audit unavailable" in summary_source
+    assert "auditStatus={auditStatus}" in agents
+    assert "auditStatus === 'loading' ? 'audit loading…'" in agents
+    assert "reason" in audit_row.read_text()
+    assert "timestamp" in audit_row.read_text()
+    assert 'htmlFor="agent-session-prompt"' in composer
+    assert 'id="agent-session-prompt"' in composer
+    assert "Submit work" in composer
+    assert "Continue session" in composer
+    assert "Cancel work" in composer
+    assert "sessionSubmit" in transport_hook
+    assert "wait_ms" in transport_hook
+    assert "const generation = ++requestGeneration.current" in transport_hook
+    assert "requestGeneration.current === generation" in transport_hook
+    assert "classifyAgentProvider" in event_row
+    assert "event.provider" in event_row
+    assert "/api/execute" not in agents
+    assert "Send message" not in agents
+    assert "Take over" not in agents
+    assert "setInterval" not in transport_hook
+    assert "Math.random" not in transport_hook
+
+
+def test_agent_workspace_has_session_and_audit_filtering_without_new_authority() -> None:
+    agents = (STUDIO / "src/views/AgentsView.tsx").read_text()
+    session_filters = (STUDIO / "src/components/AgentSessionFilters.tsx").read_text()
+    audit_filters = (STUDIO / "src/components/AgentAuditFilters.tsx").read_text()
+    styles = (STUDIO / "src/styles/global.css").read_text()
+    assert "AgentSessionFilters" in agents
+    assert "AgentAuditFilters" in agents
+    assert "activeOnly" in agents
+    assert "outcomeFilter" in agents
+    assert "visibleRows" in agents
+    assert "visibleEvents" in agents
+    assert "aria-pressed" in session_filters
+    assert "aria-pressed" in audit_filters
+    assert 'htmlFor="agent-session-search"' in session_filters
+    assert 'id="agent-session-search"' in session_filters
+    assert 'htmlFor="agent-audit-search"' in audit_filters
+    assert 'id="agent-audit-search"' in audit_filters
+    assert 'role="group"' in audit_filters
+    assert ".topbar-actions .authority-chip{display:none}" in styles
+    assert styles.count(
+        "grid-template-columns:repeat(3,minmax(0,1fr))"
+    ) == 1
+    responsive_facts = (
+        "@media(max-width:900px){.agent-session-facts{"
+        "grid-template-columns:repeat(2,minmax(0,1fr))}}"
+    )
+    assert responsive_facts in styles
+    assert (
+        ".agent-context-list>.subsection-title,.agent-context-list>.agent-filter-panel,"
+        ".agent-context-list>.empty-state{grid-column:1/-1}"
+    ) in styles
+    assert "/api/execute" not in agents
+    assert "send message" not in agents.lower()
+    assert "takeover" not in agents.lower()
+    assert "Submit work" not in agents
 
 
 def test_catalog_sort_markup_ships_in_studio_bundle() -> None:

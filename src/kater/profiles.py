@@ -301,31 +301,41 @@ class ToolSource(BaseModel):
                 cadence="poll",
             )],
         }
-        if self.category == Category.DEV and self.name in name_category:
-            self.category = name_category[self.name]
-        if not self.auth_schemes or self.auth_schemes == ["none"]:
-            if self.oauth:
-                self.auth_schemes = ["oauth2"]
-            elif self.env:
-                has_bearer = bool(
-                    self.mcp
-                    and self.mcp.headers_template
-                    and any("Bearer" in v for v in self.mcp.headers_template.values())
-                )
-                self.auth_schemes = ["bearer" if has_bearer else "api_key"]
-            else:
-                self.auth_schemes = ["none"]
+        self._infer_category(name_category)
+        self._infer_auth_schemes()
         if not self.toolkit_tools and self.name in toolkit_map:
             self.toolkit_tools = toolkit_map[self.name]
         if not self.triggers and self.name in trigger_seed:
             self.triggers = trigger_seed[self.name]
         if self.trigger_count == 0:
             self.trigger_count = len(self.triggers)
+        self._infer_public_links()
+        return self
+
+    def _infer_category(self, by_name: dict[str, Category]) -> None:
+        if self.category == Category.DEV and self.name in by_name:
+            self.category = by_name[self.name]
+
+    def _infer_auth_schemes(self) -> None:
+        if self.auth_schemes and self.auth_schemes != ["none"]:
+            return
+        if self.oauth:
+            self.auth_schemes = ["oauth2"]
+        elif self.env:
+            self.auth_schemes = ["bearer" if self._has_bearer_header() else "api_key"]
+        else:
+            self.auth_schemes = ["none"]
+
+    def _has_bearer_header(self) -> bool:
+        if not self.mcp:
+            return False
+        return any("Bearer" in value for value in self.mcp.headers_template.values())
+
+    def _infer_public_links(self) -> None:
         if not self.docs_url and self.homepage:
             self.docs_url = self.homepage
         if not self.logo_url and self.name:
             self.logo_url = f"/studio/assets/logos/{self.name}.svg"
-        return self
 
 
 DEFAULT_PROFILE = "core"

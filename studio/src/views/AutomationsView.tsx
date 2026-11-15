@@ -12,6 +12,12 @@ function formatSchedule(seconds: number): string {
   return `${Math.round(seconds / 86400)}d`;
 }
 
+function nextScheduleSeconds(seconds: number): number {
+  const schedules = [60, 300, 900];
+  const index = schedules.indexOf(seconds);
+  return schedules[(index + 1) % schedules.length];
+}
+
 export function AutomationsView() {
   const { data, error, loading, pendingIds, refresh, runNow, setEnabled, saveSchedule } = useAutomationsData();
   const enabled = data?.automations.filter(item => item.enabled).length ?? 0;
@@ -76,8 +82,7 @@ export function AutomationsView() {
                   className="secondary-action"
                   disabled={pending}
                   onClick={() => {
-                    const next = item.schedule_seconds === 60 ? 300 : item.schedule_seconds === 300 ? 900 : 60;
-                    void saveSchedule(item.id, next);
+                    void saveSchedule(item.id, nextScheduleSeconds(item.schedule_seconds));
                   }}
                   aria-label={`Reschedule ${item.name}`}
                 >

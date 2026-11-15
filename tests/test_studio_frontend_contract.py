@@ -238,6 +238,13 @@ def test_catalog_sort_markup_ships_in_studio_bundle() -> None:
     assert "Popularity" in bundle
 
 
+def test_automation_reschedule_cycles_known_intervals_and_resets_unknown() -> None:
+    source = (STUDIO / "src/views/AutomationsView.tsx").read_text()
+    assert "const schedules = [60, 300, 900]" in source
+    assert "const index = schedules.indexOf(seconds)" in source
+    assert "schedules[(index + 1) % schedules.length]" in source
+
+
 def test_connection_count_pill_is_wired_into_studio() -> None:
     card = (STUDIO / "src/components/IntegrationCard.tsx").read_text()
     types = (STUDIO / "src/types.ts").read_text()

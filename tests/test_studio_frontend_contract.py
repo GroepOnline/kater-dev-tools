@@ -248,11 +248,13 @@ def test_automation_reschedule_cycles_known_intervals_and_resets_unknown() -> No
 def test_connection_count_pill_is_wired_into_studio() -> None:
     card = (STUDIO / "src/components/IntegrationCard.tsx").read_text()
     types = (STUDIO / "src/types.ts").read_text()
-    # Source-level wiring: the prop is typed, optional, and the pill ships a
-    # distinct className so CSS can style it.
+    view = (STUDIO / "src/views/IntegrationsView.tsx").read_text()
+    # Source-level wiring: the prop is typed, optional, fed from the catalog
+    # document, and the pill ships a distinct className so CSS can style it.
     assert "connectionCount" in card
     assert "connection-pill" in card
     assert "connection_count" in types
+    assert "connectionCount={server.connection_count}" in view
 
     # The bundled studio assets must also carry the prop and className so the
     # runtime UI ships the pill without hand-edits in dashboard.py.
@@ -286,3 +288,62 @@ def test_trigger_pills_render_in_studio_bundle() -> None:
     assert "triggers" in bundle
     assert "realtime" in bundle
     assert "poll" in bundle
+
+
+def test_control_room_renders_status_aggregates_without_fabricated_servers() -> None:
+    view = (STUDIO / "src/views/ControlRoomView.tsx").read_text()
+    # `/api/status` exposes aggregate counts only; Studio must not invent
+    # per-server names/transports from those counts.
+    assert "mcp-server-" not in view
+    assert "mcp-configured-" not in view
+    assert "mcp-missing-" not in view
+    assert "servers.enabled" in view
+    assert "servers.configured" in view
+    assert "servers.missing_env" in view
+
+    dist_js = ROOT / "src/kater/web/studio_dist/assets/studio.js"
+    assert dist_js.exists(), "studio dist bundle missing; run `cd studio && npm run build`"
+    bundle = dist_js.read_text()
+    assert "mcp-server-" not in bundle
+    assert "mcp-configured-" not in bundle
+    assert "mcp-missing-" not in bundle
+
+
+def test_kater_data_keeps_partial_success_when_one_request_fails() -> None:
+    hook = (STUDIO / "src/hooks/useKaterData.ts").read_text()
+    assert "Promise.allSettled" in hook
+    assert "Promise.all(" not in hook
+    assert "statusResult.status === 'fulfilled'" in hook
+    assert "catalogResult.status === 'fulfilled'" in hook
+
+    dist_js = ROOT / "src/kater/web/studio_dist/assets/studio.js"
+    assert dist_js.exists(), "studio dist bundle missing; run `cd studio && npm run build`"
+    assert "allSettled" in dist_js.read_text()
+
+
+def test_integration_actions_surface_failures_and_declared_credentials() -> None:
+    view = (STUDIO / "src/views/IntegrationsView.tsx").read_text()
+    card = (STUDIO / "src/components/IntegrationCard.tsx").read_text()
+    client = (STUDIO / "src/api/client.ts").read_text()
+    # Quick-add failures render outside the auth modal, enabled-but-unconfigured
+    # servers keep a Connect action, and credential fields come from the
+    # catalog's declared env keys instead of one hardcoded generic token.
+    assert 'role="alert"' in view
+    assert "actionError" in view
+    assert "env_required" in view
+    assert "serverCredentialKeys" in view
+    assert "server.enabled && !configured" in view
+    assert "Connect {server.name}" in view
+    assert "server.enabled ? 'Connect' : 'Add'" in card
+    assert "katerApi.saveCredentials(server.name, credentials)" in view
+    submit = view.split("async function submitCredentials", 1)[1].split("\n}", 1)[0]
+    assert "toggleServer" not in submit
+    assert "/api/integrations/${encodeURIComponent(name)}/credentials" in client
+    assert "json('POST', { env })" in client
+
+    dist_js = ROOT / "src/kater/web/studio_dist/assets/studio.js"
+    assert dist_js.exists(), "studio dist bundle missing; run `cd studio && npm run build`"
+    bundle = dist_js.read_text()
+    assert "env_required" in bundle
+    assert "declares no credential fields" in bundle
+    assert "Save & Connect" in bundle

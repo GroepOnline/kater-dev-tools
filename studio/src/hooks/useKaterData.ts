@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 import { katerApi } from '../api/client';
 import type { CatalogResponse, StatusResponse } from '../types';
 
+function failureText(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 export function useKaterData() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -13,15 +17,23 @@ export function useKaterData() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([katerApi.status(), katerApi.catalog()])
-      .then(([nextStatus, nextCatalog]) => {
+    Promise.allSettled([katerApi.status(), katerApi.catalog()])
+      .then(([statusResult, catalogResult]) => {
         if (cancelled) return;
-        setStatus(nextStatus);
-        setCatalog(nextCatalog);
-        setError(null);
-      })
-      .catch((reason: unknown) => !cancelled && setError(reason instanceof Error ? reason.message : String(reason)))
-      .finally(() => !cancelled && setLoading(false));
+        const failures: string[] = [];
+        if (statusResult.status === 'fulfilled') {
+          setStatus(statusResult.value);
+        } else {
+          failures.push(`status: ${failureText(statusResult.reason)}`);
+        }
+        if (catalogResult.status === 'fulfilled') {
+          setCatalog(catalogResult.value);
+        } else {
+          failures.push(`catalog: ${failureText(catalogResult.reason)}`);
+        }
+        setError(failures.length ? failures.join(' · ') : null);
+        setLoading(false);
+      });
     return () => { cancelled = true; };
   }, [tick]);
 

@@ -31,6 +31,11 @@ export const katerApi = {
   status: () => request<StatusResponse>('/api/status'),
   catalog: (query = '') => request<CatalogResponse>(`/api/catalog${query ? `?q=${encodeURIComponent(query)}` : ''}`),
   enableIntegration: (name: string, auth?: Record<string, unknown>) => request<CatalogServer>(`/api/catalog/${encodeURIComponent(name)}/enable`, json('POST', auth ? { auth } : {})),
+  saveCredentials: (name: string, env: Record<string, string>) =>
+    request<{ name: string; env_configured: boolean; applied: string[] }>(
+      `/api/integrations/${encodeURIComponent(name)}/credentials`,
+      json('POST', { env }),
+    ),
   toggleServer: (name: string, action: 'enable' | 'disable' | 'toggle') => request<{ name: string; enabled: boolean }>(`/api/mcp/servers/${encodeURIComponent(name)}/${action}`, json('POST')),
   profiles: () => request<{ profiles?: string[]; active?: string; default_profile?: string }>('/api/profiles'),
 

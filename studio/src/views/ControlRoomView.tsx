@@ -5,33 +5,36 @@ import { PageHeader } from '../components/PageHeader';
 import { CodexMessage } from '../components/brainless/codex/codex-message';
 import { ClaudeToolCall } from '../components/brainless/claude/claude-tool-call';
 
-interface BackendRow {
-  name: string;
-  transport: string;
-  configured: boolean;
+interface StatusFact {
+  label: string;
+  result: string;
+  tone: 'success' | 'error' | 'pending';
 }
 
-function backendRows(status: StatusResponse | null): BackendRow[] {
-  const servers = status?.servers ?? {};
+/**
+ * `/api/status` only exposes aggregate counts, so Studio must render those
+ * aggregates as aggregates. Per-server facts live in `/api/catalog`.
+ */
+function statusFacts(status: StatusResponse | null): StatusFact[] {
+  if (!status) return [];
+  const servers = status.servers ?? {};
   const enabled = Number(servers.enabled ?? 0);
   const configured = Number(servers.configured ?? 0);
   const missingEnv = Number(servers.missing_env ?? 0);
-  const rows: BackendRow[] = [];
-  for (let i = 0; i < enabled; i += 1) {
-    rows.push({ name: `mcp-server-${i + 1}`, transport: 'stdio', configured: true });
-  }
-  for (let i = 0; i < Math.max(0, configured - enabled); i += 1) {
-    rows.push({ name: `mcp-configured-${i + 1}`, transport: 'http', configured: true });
-  }
-  for (let i = 0; i < missingEnv; i += 1) {
-    rows.push({ name: `mcp-missing-${i + 1}`, transport: 'stdio', configured: false });
-  }
-  return rows;
+  return [
+    { label: 'gateway · enabled', result: `${enabled} servers enabled`, tone: 'success' },
+    { label: 'gateway · configured', result: `${configured} servers configured`, tone: 'success' },
+    {
+      label: 'gateway · missing env',
+      result: missingEnv ? `${missingEnv} servers need credentials` : 'no missing credentials',
+      tone: missingEnv ? 'error' : 'success',
+    },
+  ];
 }
 
 export function ControlRoomView({ status }: { status: StatusResponse | null }) {
   const servers = status?.servers ?? {};
-  const rows = backendRows(status);
+  const facts = statusFacts(status);
   const summary = status
     ? `Gateway health: ${servers.enabled ?? 0} enabled · ${servers.configured ?? 0} configured · ${servers.missing_env ?? 0} missing env · v${status.version ?? 'live'}`
     : 'Gateway health: awaiting status payload';
@@ -45,14 +48,8 @@ export function ControlRoomView({ status }: { status: StatusResponse | null }) {
         <MetricCard icon={Shield} label="Missing env" value={servers.missing_env ?? '—'} />
       </div>
       <div className="control-room-tool-calls">
-        {rows.map(b => (
-          <ClaudeToolCall
-            key={b.name}
-            tool={b.name}
-            arg={b.transport}
-            result={b.configured ? 'ready' : 'needs credentials'}
-            status={b.configured ? 'success' : 'error'}
-          />
+        {facts.map(fact => (
+          <ClaudeToolCall key={fact.label} tool={fact.label} result={fact.result} status={fact.tone} />
         ))}
       </div>
       <article className="truth-panel">

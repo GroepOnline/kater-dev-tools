@@ -6,6 +6,8 @@ import os
 import secrets
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -181,34 +183,38 @@ def settings_path(project_dir: Path | None = None) -> Path:
 def load_settings(project_dir: Path | None = None) -> KaterSettings:
     # In-process cache: the hot path (every HTTP request) used to re-read and
     # re-parse settings.json on each call. Invalidation happens in save_settings.
-    cache_key = str((project_dir or Path.cwd()).resolve())
-    cached = _settings_cache.get(cache_key)
-    if cached is not None:
-        return cached
-    path = settings_path(project_dir)
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            # A present but unreadable settings file may contain an enabled
-            # resource-auth contract. Never replace that contract with the
-            # disabled default merely because it cannot be parsed.
-            raise ResourceAuthConfigurationError() from None
-        try:
-            settings = KaterSettings.from_dict(data)
-        except ValidationError:
-            if isinstance(data, dict) and ("resource_auth" in data or "product_mcp_port" in data):
-                # An invalid resource contract must never silently become disabled.
+    # Keep the read and cache publish atomic with writes and invalidation.
+    with _settings_lock:
+        cache_key = str((project_dir or Path.cwd()).resolve())
+        cached = _settings_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        path = settings_path(project_dir)
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                # A present but unreadable settings file may contain an enabled
+                # resource-auth contract. Never replace that contract with the
+                # disabled default merely because it cannot be parsed.
                 raise ResourceAuthConfigurationError() from None
+            try:
+                settings = KaterSettings.from_dict(data)
+            except ValidationError:
+                if isinstance(data, dict) and (
+                    "resource_auth" in data or "product_mcp_port" in data
+                ):
+                    # An invalid resource contract must never silently become disabled.
+                    raise ResourceAuthConfigurationError() from None
+                settings = _settings_from_env()
+            except ValueError:
+                settings = _settings_from_env()
+        else:
             settings = _settings_from_env()
-        except ValueError:
-            settings = _settings_from_env()
-    else:
-        settings = _settings_from_env()
-    settings = _apply_product_env(settings)
-    settings = _apply_env_security_overrides(settings)
-    _settings_cache[cache_key] = settings
-    return settings
+        settings = _apply_product_env(settings)
+        settings = _apply_env_security_overrides(settings)
+        _settings_cache[cache_key] = settings
+        return settings
 
 
 def invalidate_settings_cache(project_dir: Path | None = None) -> None:
@@ -308,7 +314,15 @@ def _apply_env_security_overrides(settings: KaterSettings) -> KaterSettings:
 # concurrent API requests cannot overwrite each other's changes, and an
 # atomic write (tmp + replace) prevents corruption on crash.
 
-_settings_lock = threading.Lock()
+_settings_lock = threading.RLock()
+
+
+@contextmanager
+def settings_update_lock(project_dir: Path | None = None) -> Iterator[None]:
+    """Serialize in-process settings read-modify-write transactions."""
+    with _settings_lock:
+        invalidate_settings_cache(project_dir)
+        yield
 
 
 def save_settings(settings: KaterSettings, project_dir: Path | None = None) -> Path:

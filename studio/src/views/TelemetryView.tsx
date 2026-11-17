@@ -1,9 +1,7 @@
-import { Activity, CheckCircle2, RefreshCw, Timer } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import { CodexMessage } from '../components/brainless/codex/codex-message';
+import { GrokEvent } from '../components/brainless/grok/grok-event';
 import { EmptyState } from '../components/EmptyState';
-import { LatencyStrip } from '../components/LatencyStrip';
-import { MetricCard } from '../components/MetricCard';
-import { PageHeader } from '../components/PageHeader';
-import { TelemetryEventRow } from '../components/TelemetryEventRow';
 import { useTelemetryData } from '../hooks/useTelemetryData';
 
 export function TelemetryView() {
@@ -13,12 +11,28 @@ export function TelemetryView() {
   const avg = events.length ? Math.round(events.reduce((sum, event) => sum + event.duration_ms, 0) / events.length) : 0;
   const refreshButton = <button className="secondary-action" onClick={() => void refresh()} disabled={loading}><RefreshCw size={13} aria-hidden />{loading ? 'Refreshing' : 'Refresh'}</button>;
   return <section className="view-stack">
-    <PageHeader title="Telemetry" description="Latest persisted Kater events, including actual duration and outcome." aside={refreshButton} />
+    <div className="component-card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <strong style={{ fontSize: '15px' }}>Telemetry</strong>
+      <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Latest persisted Kater events, including actual duration and outcome.</span>
+      <div style={{ marginLeft: 'auto' }}>{refreshButton}</div>
+    </div>
     {error && <EmptyState>Telemetry unavailable: {error}</EmptyState>}
     {!error && <>
-      <div className="metrics-grid"><MetricCard icon={Activity} label="Loaded events" value={events.length} /><MetricCard icon={CheckCircle2} label="Successful" value={success} /><MetricCard icon={Timer} label="Average latency" value={`${avg}ms`} /></div>
-      <LatencyStrip events={events} />
-      {events.length ? <div className="event-list">{events.map(event => <TelemetryEventRow event={event} key={String(event.id)} />)}</div> : <EmptyState>No persisted telemetry events.</EmptyState>}
+      <CodexMessage role="assistant">events: {events.length} · ok: {success} · avg {avg}ms</CodexMessage>
+      {events.length ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <CodexMessage role="assistant">{events.length} events · last {avg}ms avg</CodexMessage>
+          {events.map(event => (
+            <GrokEvent
+              key={String(event.id)}
+              label={event.name ?? event.type ?? 'event'}
+              hooks={event.success ? 1 : 0}
+              hooksOk={event.success ? 1 : 0}
+              elapsed={`${event.duration_ms}ms`}
+            />
+          ))}
+        </div>
+      ) : <EmptyState>No persisted telemetry events.</EmptyState>}
     </>}
   </section>;
 }

@@ -64,6 +64,16 @@ class TestBuildPaths:
             in paths["/studio/assets/studio.css"]["get"]["responses"]["200"]["content"]
         )
 
+    def test_studio_logo_route_documents_its_name_parameter(self):
+        paths = _build_paths()
+        parameters = paths["/studio/assets/logos/{name}"]["get"]["parameters"]
+        assert any(
+            parameter["name"] == "name"
+            and parameter["in"] == "path"
+            and parameter["required"] is True
+            for parameter in parameters
+        )
+
     def test_profiles_endpoint_exists(self):
         paths = _build_paths()
         assert "/api/profiles" in paths
@@ -120,6 +130,11 @@ class TestBuildPaths:
             assert "post" in paths[f"/api/automations/{{id}}/{suffix}"]
         assert "get" in paths["/api/automations/{id}/runs"]
 
+    def test_catalog_triggers_path_exists(self):
+        paths = _build_paths()
+        assert "/api/catalog/{name}/triggers" in paths
+        assert "get" in paths["/api/catalog/{name}/triggers"]
+
 
 class TestBuildSchemas:
     def test_has_schemas(self):
@@ -142,6 +157,28 @@ class TestBuildSchemas:
                 f"Schema {name} has no type/ref/properties"
             )
 
+    def test_trigger_ref_schema_exists(self):
+        schemas = _build_schemas()
+        assert "TriggerRef" in schemas
+        ref = schemas["TriggerRef"]
+        assert ref["type"] == "object"
+        assert "name" in ref["properties"]
+        assert "cadence" in ref["properties"]
+        assert "realtime" in ref["properties"]["cadence"]["enum"]
+        assert "poll" in ref["properties"]["cadence"]["enum"]
+
+    def test_mcp_server_schema_documents_triggers_and_connection_count(self):
+        from kater.openapi_spec import generate_spec
+
+        spec = generate_spec()
+        props = spec["components"]["schemas"]["McpServer"]["properties"]
+        for key in ("triggers", "connection_count", "trigger_count"):
+            assert key in props, f"{key} missing from McpServer schema: {list(props)}"
+        assert props["connection_count"]["type"] == "integer"
+        assert props["triggers"]["type"] == "array"
+        assert props["triggers"]["items"]["$ref"] == "#/components/schemas/TriggerRef"
+        assert props["trigger_count"]["type"] == "integer"
+
 
 class TestDriftGuard:
     """Verify that every route registered in the ROUTER appears in the spec."""
@@ -155,3 +192,34 @@ class TestDriftGuard:
             # Normalize: strip trailing slash for comparison.
             normalized = pattern.rstrip("/") or "/"
             assert normalized in paths, f"Route {route.method} {pattern} not in OpenAPI spec"
+
+
+def test_catalog_request_paths_exist() -> None:
+    from kater.openapi_spec import generate_spec
+
+    spec = generate_spec()
+    paths = spec["paths"]
+    assert "/api/catalog/request" in paths
+    assert "/api/catalog/requests" in paths
+    post = paths["/api/catalog/request"]["post"]
+    assert "201" in post["responses"]
+    get = paths["/api/catalog/requests"]["get"]
+    assert "200" in get["responses"]
+    assert "403" in get["responses"]
+
+
+def test_toolkit_request_schemas_documented() -> None:
+    from kater.openapi_spec import generate_spec
+
+    spec = generate_spec()
+    schemas = spec["components"]["schemas"]
+    expected = (
+        "ToolkitRequest",
+        "ToolkitRequestAck",
+        "ToolkitRequestList",
+        "ToolkitRequestListItem",
+    )
+    for name in expected:
+        assert name in schemas, f"{name} missing"
+    assert schemas["ToolkitRequest"]["required"] == ["name"]
+    assert schemas["ToolkitRequest"]["properties"]["name"]["maxLength"] == 64

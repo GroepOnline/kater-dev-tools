@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import http.client
+import io
 import json
 import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -57,15 +60,49 @@ def _post(port: int, path: str, body: dict, headers: dict | None = None) -> dict
     return json.loads(resp.read())
 
 
-def _get_err(port: int, path: str, headers: dict | None = None) -> urllib.error.HTTPError:
+def _post_err(
+    port: int, path: str, body: dict, headers: dict | None = None
+) -> urllib.error.HTTPError:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
-        headers=headers or {},
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", **(headers or {})},
     )
     try:
         urllib.request.urlopen(req)
     except urllib.error.HTTPError as e:
         return e
+    pytest.fail("Expected HTTPError")
+
+
+def _get_err(port: int, path: str, headers: dict | None = None) -> urllib.error.HTTPError:
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        headers=headers or {},
+    )
+    parsed = urlsplit(req.full_url)
+    host = parsed.hostname
+    port = parsed.port
+    if parsed.scheme != "http" or host != "127.0.0.1" or port is None:
+        raise ValueError("API tests only connect to their local HTTP server")
+    target = parsed.path or "/"
+    if parsed.query:
+        target += f"?{parsed.query}"
+    connection = http.client.HTTPConnection(host, port)
+    try:
+        connection.request(req.get_method(), target, headers=dict(req.header_items()))
+        response = connection.getresponse()
+        body = response.read()
+        if response.status >= 400:
+            return urllib.error.HTTPError(
+                req.full_url,
+                response.status,
+                response.reason,
+                response.headers,
+                io.BytesIO(body),
+            )
+    finally:
+        connection.close()
     pytest.fail("Expected HTTPError")
 
 
@@ -345,8 +382,13 @@ def test_catalog(api_server) -> None:
     assert data["total"] > 15
     assert "by_transport" in data
     assert "by_risk" in data
+    assert "by_category" in data
     assert "stdio" in data["by_transport"]
     assert "high" in data["by_risk"]
+    first = data["servers"][0]
+    assert "category" in first
+    assert "auth_schemes" in first
+    assert "toolkit_tools" in first
 
     search = _get(_api_port(api_server), "/api/catalog?q=brave")
     names = {s["name"] for s in search["servers"]}
@@ -355,6 +397,451 @@ def test_catalog(api_server) -> None:
     profile = _get(_api_port(api_server), "/api/catalog?profile=research")
     for server in profile["servers"]:
         assert "research" in server["profiles"]
+
+    dev = _get(_api_port(api_server), "/api/catalog?category=dev")
+    assert dev["total"] > 0
+    for server in dev["servers"]:
+        assert server["category"] == "dev"
+    # Guard the model-validator auto-inference powering the catalog UX.
+    by_name = {s["name"]: s for s in _get(_api_port(api_server), "/api/catalog")["servers"]}
+    figma = by_name.get("figma")
+    assert figma is not None, "figma missing from catalog"
+    assert figma["auth_schemes"], "figma must declare at least one auth scheme"
+    assert any(scheme in {"api_key", "bearer", "oauth2"} for scheme in figma["auth_schemes"]), (
+        f"figma expected credentialed scheme, got {figma['auth_schemes']!r}"
+    )
+    assert figma["category"] == "productivity"
+    assert len(figma["toolkit_tools"]) >= 1
+    seq = by_name.get("sequential-thinking")
+    assert seq is not None, "sequential-thinking missing from catalog"
+    assert seq["auth_schemes"] == ["none"], (
+        f"sequential-thinking expected exactly ['none'], got {seq['auth_schemes']!r}"
+    )
+    assert seq["category"] == "ai"
+
+
+def test_catalog_connection_count(api_server) -> None:
+    data = _get(_api_port(api_server), "/api/catalog")
+    assert data["total"] > 0
+    for s in data["servers"]:
+        assert "connection_count" in s, f"server {s.get('name')!r} missing connection_count"
+        assert isinstance(s["connection_count"], int)
+        assert s["connection_count"] >= 0
+    # figma has no oauth in its static config; count must be 0
+    by_name = {s["name"]: s for s in data["servers"]}
+    figma = by_name.get("figma")
+    assert figma is not None, "figma missing from catalog"
+    assert figma["connection_count"] == 0
+
+
+def test_catalog_triggers_in_payload(api_server) -> None:
+    data = _get(_api_port(api_server), "/api/catalog")
+    for s in data["servers"]:
+        assert "triggers" in s
+        assert isinstance(s["triggers"], list)
+        assert "connection_count" in s
+        assert isinstance(s["connection_count"], int)
+    github = next(s for s in data["servers"] if s["name"] == "github")
+    assert len(github["triggers"]) >= 1
+    assert github["triggers"][0]["cadence"] in {"realtime", "poll"}
+
+
+def test_studio_logo_unknown_resources_return_404(api_server) -> None:
+    port = _api_port(api_server)
+    assert _get_err(port, "/studio/assets/logos/not-a-logo.svg").code == 404
+    assert _get_err(port, "/studio/assets/logos/not-a-logo.png").code == 404
+
+
+def test_catalog_request_toolkit(api_server) -> None:
+    port = _api_port(api_server)
+    ok = _post(
+        port,
+        "/api/catalog/request",
+        {"name": "figma-pro", "use_case": "design review", "contact": "team@x"},
+    )
+    assert ok["name"] == "figma-pro"
+    assert ok["type"] == "toolkit_request"
+    assert "queued_at" in ok
+
+    err = _post_err(port, "/api/catalog/request", {})
+    assert err.code == 422
+
+    err_long = _post_err(port, "/api/catalog/request", {"name": "x" * 100})
+    assert err_long.code == 422
+
+    err_too_long_use_case = _post_err(
+        port, "/api/catalog/request", {"name": "ok", "use_case": "u" * 501}
+    )
+    assert err_too_long_use_case.code == 422
+
+
+def test_catalog_requests_list_admin_gate(api_server, monkeypatch) -> None:
+    from datetime import datetime
+
+    from kater.settings import invalidate_settings_cache
+    from kater.telemetry import TelemetryEvent, record_event
+
+    monkeypatch.setenv("KATER_ADMIN_KEY", "admin-secret")
+    invalidate_settings_cache()
+
+    port = _api_port(api_server)
+
+    # Without admin credential -> 403
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _get(port, "/api/catalog/requests")
+    assert exc.value.code == 403
+
+    # With admin credential -> 200 and request visible after submit
+    for index in range(100):
+        record_event(TelemetryEvent(type="error", name=f"unrelated-{index}"))
+
+    ack = _post(
+        port,
+        "/api/catalog/request",
+        {
+            "name": "admin|gated|queue",
+            "use_case": "ops|sync",
+            "contact": "ops|x",
+        },
+    )
+    assert isinstance(ack["queued_at"], str)
+    data = _get(
+        port, "/api/catalog/requests", headers={"Authorization": "Bearer admin-secret"}
+    )
+    match = next(row for row in data["requests"] if row["name"] == "admin/gated/queue")
+    assert match["use_case"] == "ops/sync"
+    assert match["contact"] == "ops/x"
+    assert isinstance(match["queued_at"], str)
+    datetime.fromisoformat(match["queued_at"])
+
+    # Cleanup
+    monkeypatch.delenv("KATER_ADMIN_KEY", raising=False)
+    invalidate_settings_cache()
+
+
+def test_catalog_enable_integration_cases(api_server) -> None:
+    # 404 on unknown toolkit
+    err_404 = _post_err(_api_port(api_server), "/api/catalog/nonexistent_toolkit_xyz/enable", {})
+    assert err_404.code == 404
+
+    # 422 if credentials missing for server that requires env
+    err_422 = _post_err(_api_port(api_server), "/api/catalog/figma/enable", {})
+    assert err_422.code == 422
+
+    # 400 if invalid env key supplied
+    err_400 = _post_err(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"auth": {"NOT_A_REAL_ENV_VAR": "secret123"}},
+    )
+    assert err_400.code == 400
+
+    # Successful enable for no-auth toolkit -> 201 Created + metadata returned
+    # Disable first to ensure predictable enable test
+    _post(_api_port(api_server), "/api/mcp/servers/sequential-thinking/disable", {})
+    res_201 = _post(
+        _api_port(api_server),
+        "/api/catalog/sequential-thinking/enable",
+        {},
+    )
+    assert res_201["name"] == "sequential-thinking"
+    assert res_201["enabled"] is True
+    assert "category" in res_201
+    assert "toolkit_tools" in res_201
+
+    # 409 Duplicate / Already enabled
+    err_409 = _post_err(
+        _api_port(api_server),
+        "/api/catalog/sequential-thinking/enable",
+        {},
+    )
+    assert err_409.code == 409
+
+    # Redaction: credentials passed to enable are not leaked in response
+    _post(_api_port(api_server), "/api/mcp/servers/figma/disable", {})
+    res_with_auth = _post(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"auth": {"api_key": "figma_test_secret_value_123"}},
+    )
+    assert res_with_auth["name"] == "figma"
+    assert res_with_auth["enabled"] is True
+    assert "figma_test_secret_value_123" not in json.dumps(res_with_auth)
+
+    # Clean up figma token
+    import os
+    os.environ.pop("FIGMA_API_KEY", None)
+
+
+def test_concurrent_catalog_enables_preserve_both_settings_updates(api_server, monkeypatch) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event, Lock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    persisted = KaterSettings()
+    persisted.set_server_enabled("memory", False)
+    persisted.set_server_enabled("sequential-thinking", False)
+    state_lock = Lock()
+    save_lock = Lock()
+    save_count = 0
+    first_save_entered = Event()
+    second_save_entered = Event()
+    release_first_save = Event()
+
+    def load_snapshot():
+        with state_lock:
+            return persisted.model_copy(deep=True)
+
+    def save_snapshot(settings):
+        nonlocal persisted, save_count
+        with save_lock:
+            save_count += 1
+            current_save = save_count
+        if current_save == 1:
+            first_save_entered.set()
+            if not release_first_save.wait(timeout=5):
+                raise TimeoutError("test did not release the first settings write")
+        elif current_save == 2:
+            second_save_entered.set()
+        with state_lock:
+            persisted = settings.model_copy(deep=True)
+
+    monkeypatch.setattr(routes, "load_settings", load_snapshot)
+    monkeypatch.setattr(routes, "save_settings", save_snapshot)
+    monkeypatch.setattr(routes, "_sync_source_after_catalog_change", lambda _source: None)
+    monkeypatch.setattr(routes, "record_server_toggle", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(routes, "_ws_broadcast", lambda *_args, **_kwargs: None)
+
+    port = _api_port(api_server)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(_post, port, "/api/catalog/memory/enable", {})
+        second = None
+        try:
+            assert first_save_entered.wait(timeout=5)
+
+            def enable_second():
+                second_request_started.set()
+                return _post(port, "/api/catalog/sequential-thinking/enable", {})
+
+            second_request_started = Event()
+            second = pool.submit(enable_second)
+            assert second_request_started.wait(timeout=5)
+            assert not second_save_entered.wait(timeout=0.5)
+        finally:
+            release_first_save.set()
+
+        assert first.result(timeout=5)["enabled"] is True
+        assert second is not None
+        assert second.result(timeout=5)["enabled"] is True
+
+    with state_lock:
+        assert persisted.is_server_enabled("memory", default=False)
+        assert persisted.is_server_enabled("sequential-thinking", default=False)
+
+
+def test_catalog_enable_rejection_does_not_persist_missing_credentials(
+    api_server, monkeypatch
+) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    monkeypatch.delenv("FIGMA_API_KEY", raising=False)
+    settings = KaterSettings()
+    settings.set_server_enabled("figma", False)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    error = _post_err(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"env": {"FIGMA_API_KEY": ""}},
+    )
+
+    assert error.code == 422
+    assert settings.server_overrides["figma"].env == {}
+    assert settings.server_overrides["figma"].connections == []
+    save.assert_not_called()
+    proxy.sync_source.assert_not_called()
+
+
+def test_catalog_enable_conflict_does_not_persist_credentials(api_server, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    settings = KaterSettings()
+    settings.set_server_enabled("figma", True)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    error = _post_err(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"env": {"FIGMA_API_KEY": "test-credential"}},
+    )
+
+    assert error.code == 409
+    assert settings.server_overrides["figma"].env == {}
+    assert settings.server_overrides["figma"].connections == []
+    save.assert_not_called()
+    proxy.sync_source.assert_not_called()
+
+
+def test_catalog_enable_rejects_clear_of_gateway_managed_credential(
+    api_server, monkeypatch
+) -> None:
+    import os
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    monkeypatch.setenv("FIGMA_API_KEY", "gateway-managed")
+    monkeypatch.setattr(routes, "_oauth_runtime_env", {"FIGMA_API_KEY"})
+    monkeypatch.setattr(routes, "persisted_env_keys", set())
+    settings = KaterSettings()
+    settings.set_server_enabled("figma", False)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    error = _post_err(
+        _api_port(api_server),
+        "/api/catalog/figma/enable",
+        {"env": {"FIGMA_API_KEY": ""}},
+    )
+
+    assert error.code == 422
+    assert json.loads(error.read())["missing_env"] == ["FIGMA_API_KEY"]
+    # A rejection must not touch the runtime env it would have removed.
+    assert os.environ["FIGMA_API_KEY"] == "gateway-managed"
+    save.assert_not_called()
+    proxy.sync_source.assert_not_called()
+
+
+def test_catalog_enable_syncs_proxy_after_enable(api_server, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    settings = KaterSettings()
+    settings.set_server_enabled("sequential-thinking", False)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    created = _post(_api_port(api_server), "/api/catalog/sequential-thinking/enable", {})
+
+    assert created["name"] == "sequential-thinking"
+    assert created["enabled"] is True
+    save.assert_called_once()
+    proxy.sync_source.assert_called_once()
+    assert proxy.sync_source.call_args.args[0].name == "sequential-thinking"
+
+
+def test_catalog_enable_survives_proxy_sync_failure(api_server, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    settings = KaterSettings()
+    settings.set_server_enabled("memory", False)
+    save = Mock()
+    proxy = Mock()
+    proxy.sync_source.side_effect = RuntimeError("proxy down")
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    created = _post(_api_port(api_server), "/api/catalog/memory/enable", {})
+
+    assert created["name"] == "memory"
+    assert created["enabled"] is True
+    save.assert_called_once()
+    proxy.sync_source.assert_called_once()
+
+
+def test_catalog_enable_maps_api_key_alias_to_oauth_token(api_server, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from kater.api import routes
+    from kater.settings import KaterSettings
+
+    monkeypatch.delenv("SLACK_ACCESS_TOKEN", raising=False)
+    monkeypatch.setattr(routes, "_oauth_runtime_env", set())
+    monkeypatch.setattr(routes, "persisted_env_keys", set())
+    settings = KaterSettings()
+    settings.set_server_enabled("slack", False)
+    save = Mock()
+    proxy = Mock()
+    monkeypatch.setattr(routes, "load_settings", lambda: settings)
+    monkeypatch.setattr(routes, "save_settings", save)
+    monkeypatch.setattr(routes, "get_proxy", lambda: proxy)
+
+    created = _post(
+        _api_port(api_server),
+        "/api/catalog/slack/enable",
+        {"auth": {"api_key": "xoxp-test-token"}},
+    )
+
+    assert created["name"] == "slack"
+    assert created["enabled"] is True
+    assert "xoxp-test-token" not in json.dumps(created)
+    stored = save.call_args_list[0].args[0]
+    assert stored.server_overrides["slack"].env["SLACK_ACCESS_TOKEN"] == "xoxp-test-token"
+    assert (
+        stored.server_overrides["slack"].connections[0].env["SLACK_ACCESS_TOKEN"]
+        == "xoxp-test-token"
+    )
+
+
+def test_catalog_triggers(api_server) -> None:
+    data = _get(_api_port(api_server), "/api/catalog/github/triggers")
+    assert data["name"] == "github"
+    assert isinstance(data["triggers"], list)
+    assert len(data["triggers"]) >= 1
+    assert data["triggers"][0]["cadence"] in {"realtime", "poll"}
+    assert data["triggers"][0]["name"]
+
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _get(_api_port(api_server), "/api/catalog/nonexistent_xyz/triggers")
+    assert exc.value.code == 404
+
+
+def test_catalog_search_and_sort(api_server) -> None:
+    ai = _get(_api_port(api_server), "/api/catalog?q=ai")
+    assert ai["total"] >= 1
+    assert any(
+        "ai" in s["name"].lower()
+        or "ai" in s["description"].lower()
+        or any("ai" in t["name"].lower() for t in s.get("toolkit_tools", []) or [])
+        for s in ai["servers"]
+    )
+
+    pop = _get(_api_port(api_server), "/api/catalog?sort=popularity")
+    assert pop["total"] > 0
+    keys = [
+        (-int(server.get("trigger_count", 0) or 0), server["name"])
+        for server in pop["servers"]
+    ]
+    assert keys == sorted(keys)
 
 
 def test_update_storage_backend(api_server) -> None:

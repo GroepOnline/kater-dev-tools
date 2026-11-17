@@ -623,6 +623,12 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
   max-width: 380px;
   background: var(--surface); border: 1px solid var(--border);
 }
+#catalog-sort {
+  max-width: 220px;
+  background: var(--surface); border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px; padding: 6px 10px; border-radius: 4px;
+  color: var(--text);
+}
 .facet-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .facet {
   font-family: var(--mono); font-size: 11px;
@@ -632,17 +638,44 @@ select:focus-visible, [role="switch"]:focus-visible, [tabindex]:focus-visible {
 }
 .facet:hover { color: var(--text); border-color: var(--border-strong); }
 .facet.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-dim); }
+.category-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.category-pill { font-family: var(--mono); font-size: 10.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-faint); cursor: pointer; text-transform: lowercase; }
+.category-pill:hover { color: var(--text); border-color: var(--border-strong); }
+.category-pill.active { border-color: var(--accent-line); color: var(--accent); background: rgba(45,212,191,0.09); }
+.toolkit-pills { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.tool-pill { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); }
+.auth-badge { font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-faint); text-transform: lowercase; }
+.auth-badge.api_key { border-color: var(--accent-line); color: var(--accent); }
+.auth-badge.oauth2 { border-color: var(--info); color: var(--info); background: rgba(108,182,255,0.08); }
+.auth-badge.none { color: var(--text-faint); }
+.connection-pill { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--border); background: rgba(45, 212, 191, 0.08); color: var(--accent); }
+.trigger-count { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+.trigger-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 11px;
+  padding: 2px 6px; border-radius: 4px; margin-right: 4px;
+  background: var(--accent-dim); border: 1px solid var(--border);
+  color: var(--accent); white-space: nowrap;
+}
+.trigger-pill.trigger-poll {
+  color: var(--warn); background: var(--warn-dim);
+}
+.integration-mark { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), #5eead4); display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 10px; font-weight: 700; color: #0b0d10; margin-right: 6px; }
+.catalog-toolbar { display: flex; flex-direction: column; gap: 10px; }
 .server-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px; padding: 12px 18px 18px;
 }
+
 .server-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 15px; cursor: pointer;
+  display: flex; flex-direction: column;
 }
 .server-card:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .server-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+
 .server-card-name { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text); }
 .server-card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; min-height: 36px; }
 
@@ -1248,11 +1281,26 @@ _VIEW_CATALOG = r"""
         <input class="form-input" id="catalog-search" type="search"
           placeholder="Search servers..." autocomplete="off"
           aria-label="Search servers">
+        <select id="catalog-sort" class="form-input catalog-sort" data-sort aria-label="Sort servers">
+          <option value="popularity">Popularity</option>
+          <option value="name">Name (A-Z)</option>
+          <option value="recent">Name (Z-A)</option>
+        </select>
         <div class="facet-row" id="catalog-facets" role="group" aria-label="Filter by status">
           <button class="facet active interactive" type="button" data-cfilter="all" aria-pressed="true">All</button>
           <button class="facet interactive" type="button" data-cfilter="ready" aria-pressed="false">Ready</button>
           <button class="facet interactive" type="button" data-cfilter="needs" aria-pressed="false">Needs credentials</button>
           <button class="facet interactive" type="button" data-cfilter="disabled" aria-pressed="false">Disabled</button>
+        </div>
+        <div class="category-row" id="category-pills" role="group" aria-label="Filter by category">
+          <button class="category-pill active interactive" type="button" data-category="all" aria-pressed="true">All</button>
+          <button class="category-pill interactive" type="button" data-category="dev" aria-pressed="false">Dev</button>
+          <button class="category-pill interactive" type="button" data-category="ai" aria-pressed="false">AI</button>
+          <button class="category-pill interactive" type="button" data-category="data" aria-pressed="false">Data</button>
+          <button class="category-pill interactive" type="button" data-category="infra" aria-pressed="false">Infra</button>
+          <button class="category-pill interactive" type="button" data-category="comms" aria-pressed="false">Comms</button>
+          <button class="category-pill interactive" type="button" data-category="productivity" aria-pressed="false">Productivity</button>
+          <button class="category-pill interactive" type="button" data-category="crm" aria-pressed="false">CRM</button>
         </div>
       </div>
       <div class="server-grid" id="catalog-grid">
@@ -1630,6 +1678,8 @@ let streamErrorsOnly = false;
 let catalogFilter = 'all';
 let catalogItems = [];
 let catalogLoadSeq = 0;
+let catalogCategory = 'all';
+let catalogSort = 'popularity';
 let prLoadSeq = 0;
 let lastEventTotal = null;
 let lastLiveMs = 0;
@@ -1660,6 +1710,19 @@ function esc(s) {
 // Sanitize a value before it becomes a CSS class (badge transport/risk).
 function cls(s) {
   return String(s == null ? '' : s).replace(/[^a-z0-9_-]/gi, '');
+}
+
+// Catalog metadata is untrusted data (extensions can add tool sources), so a
+// link value is only usable when it parses as an absolute http(s) URL.
+function safeHref(value) {
+  if (typeof value !== 'string') return '';
+  const raw = value.trim();
+  try {
+    const protocol = new URL(raw).protocol;
+    return (protocol === 'http:' || protocol === 'https:') ? raw : '';
+  } catch (e) {
+    return '';
+  }
 }
 
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -1864,7 +1927,7 @@ function filterServers(all) {
   // the profile pills actually do something (the catalog payload carries a
   // `profiles` list per server).
   const seen = new Set();
-  return (activeProfile === 'core'
+  const filtered = (activeProfile === 'core'
     ? all
     : all.filter(s => (s.profiles || []).indexOf(activeProfile) !== -1)
   ).filter(s => {
@@ -1872,12 +1935,27 @@ function filterServers(all) {
     seen.add(s.name);
     return true;
   });
+  const sortKey = catalogSort || 'popularity';
+  if (sortKey === 'popularity') {
+    filtered.sort((a, b) => {
+      const ta = Number(a.trigger_count || 0);
+      const tb = Number(b.trigger_count || 0);
+      if (tb !== ta) return tb - ta;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+  } else if (sortKey === 'recent') {
+    filtered.sort((a, b) => String(b.name || '').localeCompare(String(a.name || '')));
+  } else {
+    filtered.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  }
+  return filtered;
 }
 
 function catalogApiPath() {
   const params = new URLSearchParams();
   if (catalogQuery) params.set('q', catalogQuery);
   if (activeProfile && activeProfile !== 'core') params.set('profile', activeProfile);
+  if (catalogSort && catalogSort !== 'popularity') params.set('sort', catalogSort);
   const q = params.toString();
   return '/api/catalog' + (q ? '?' + q : '');
 }
@@ -1975,8 +2053,10 @@ async function init() {
   bindServerMapClicks();
   initExceptionStrip();
   initCatalogFacets();
+  initCategoryPills();
   initLatencyStrip();
   initPalette();
+
   try {
     await loadProfiles();
   } catch (e) {
@@ -1985,20 +2065,24 @@ async function init() {
   }
   try {
     await loadCatalog();
+
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) { showAuthGate(); return; }
     console.error('catalog:', e);
   }
   try {
     await loadStatus();
+
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) { showAuthGate(); return; }
     console.error('status:', e);
   }
   try { await loadTunnelStatus(); } catch (e) { console.error('tunnel:', e); }
+
   initDelegation();
   initCommandBar();
   initCatalogSearch();
+  initCatalogSort();
   initKeyboard();
   initWebSocket();
   window.addEventListener('popstate', onPopState);
@@ -2034,6 +2118,10 @@ function restoreUrlState() {
   if (rf && ['all','ready','needs','disabled'].indexOf(rf) !== -1) routeFilter = rf;
   const cf = p.get('cfilter');
   if (cf && ['all','ready','needs','disabled'].indexOf(cf) !== -1) catalogFilter = cf;
+  const cat = p.get('category');
+  if (cat && ['all','dev','ai','data','infra','comms','productivity','crm'].indexOf(cat) !== -1) catalogCategory = cat;
+  const sort = p.get('sort');
+  if (sort && ['popularity','name','recent'].indexOf(sort) !== -1) catalogSort = sort;
 }
 
 function writeUrlState(replace) {
@@ -2043,6 +2131,8 @@ function writeUrlState(replace) {
   if (catalogQuery) p.set('q', catalogQuery);
   if (routeFilter && routeFilter !== 'all') p.set('filter', routeFilter);
   if (catalogFilter && catalogFilter !== 'all') p.set('cfilter', catalogFilter);
+  if (catalogCategory && catalogCategory !== 'all') p.set('category', catalogCategory);
+  if (catalogSort && catalogSort !== 'popularity') p.set('sort', catalogSort);
   if (selectedNode && selectedNode.name) p.set('server', selectedNode.name);
   const qs = p.toString();
   const url = location.pathname + (qs ? '?' + qs : '');
@@ -2057,6 +2147,8 @@ function onPopState() {
   });
   setRouteFilter(routeFilter, true);
   setCatalogFilter(catalogFilter, true);
+  const sortSel = document.getElementById('catalog-sort');
+  if (sortSel) sortSel.value = catalogSort || 'popularity';
   switchView(currentView, true);
   const server = new URLSearchParams(location.search).get('server');
   if (server) openServerDetail(server);
@@ -2413,6 +2505,30 @@ function openDetail(node, refresh, invoker) {
     node.env_configured ? 'low' : 'high',
     node.env_configured ? 'configured' : 'missing env'
   ));
+  if (node.category) badges.appendChild(makeBadge('low', node.category));
+  if (node.auth_schemes && node.auth_schemes[0]) {
+    const a = node.auth_schemes[0];
+    const lbl = a === 'oauth2' ? 'OAuth' : a === 'api_key' ? 'API key' : a === 'bearer' ? 'Bearer' : 'No auth';
+    const b = document.createElement('span');
+    b.className = 'auth-badge ' + cls(a);
+    b.textContent = lbl;
+    badges.appendChild(b);
+  }
+  const nodeTriggers = node.triggers || [];
+  if (nodeTriggers.length) {
+    for (const t of nodeTriggers) {
+      const pill = document.createElement('span');
+      pill.className = 'trigger-pill trigger-' + (t.cadence || 'realtime');
+      pill.title = t.description || t.name;
+      pill.textContent = (t.cadence === 'poll' ? '◔ ' : '⚡ ') + t.name;
+      badges.appendChild(pill);
+    }
+  } else if (node.trigger_count) {
+    const b = document.createElement('span');
+    b.className = 'badge low';
+    b.textContent = node.trigger_count + ' triggers';
+    badges.appendChild(b);
+  }
 
   const reqs = node.env_required || [];
   const configured = !!node.env_configured;
@@ -2459,12 +2575,35 @@ function openDetail(node, refresh, invoker) {
 
   const homeRow = document.getElementById('detail-homepage-row');
   const homeLink = document.getElementById('detail-homepage');
-  if (node.homepage) {
-    homeLink.href = node.homepage;
-    homeLink.textContent = node.homepage;
+  const docs = safeHref(node.docs_url) || safeHref(node.homepage);
+  if (docs) {
+    homeLink.href = docs;
+    homeLink.textContent = docs;
     homeRow.style.display = '';
   } else {
+    homeLink.removeAttribute('href');
+    homeLink.textContent = '';
     homeRow.style.display = 'none';
+  }
+  const toolsEl = document.getElementById('detail-desc');
+  if (node.toolkit_tools && node.toolkit_tools.length) {
+    const existing = document.getElementById('detail-tools');
+    let toolsRow = existing;
+    if (!toolsRow) {
+      toolsRow = document.createElement('div');
+      toolsRow.id = 'detail-tools';
+      toolsRow.className = 'toolkit-pills';
+      toolsRow.style.marginTop = '8px';
+      toolsEl.parentElement.appendChild(toolsRow);
+    }
+    toolsRow.innerHTML = '';
+    for (const t of node.toolkit_tools) {
+      const pill = document.createElement('span');
+      pill.className = 'tool-pill';
+      pill.textContent = t.name || t;
+      pill.title = t.description || '';
+      toolsRow.appendChild(pill);
+    }
   }
 
   // Offer "Connect…" only when the server is missing the credentials it needs.
@@ -2581,8 +2720,14 @@ function openCredentialsModal(server, invoker) {
     });
   }
   const prov = document.getElementById('cred-provider');
-  if (server.homepage) { prov.href = server.homepage; prov.style.display = ''; }
-  else { prov.style.display = 'none'; }
+  const providerUrl = safeHref(server.homepage);
+  if (providerUrl) {
+    prov.href = providerUrl;
+    prov.style.display = '';
+  } else {
+    prov.removeAttribute('href');
+    prov.style.display = 'none';
+  }
   document.getElementById('cred-modal').classList.add('show');
   const first = fields.querySelector('input');
   if (first) first.focus();
@@ -2689,6 +2834,29 @@ function initCatalogSearch() {
   });
 }
 
+function initCatalogSort() {
+  const sel = document.getElementById('catalog-sort');
+  if (!sel || sel.dataset.bound) return;
+  sel.dataset.bound = '1';
+  sel.value = catalogSort || 'popularity';
+  sel.addEventListener('change', () => {
+    const next = sel.value || 'popularity';
+    catalogSort = ['popularity', 'name', 'recent'].indexOf(next) === -1 ? 'popularity' : next;
+    sel.value = catalogSort;
+    writeUrlState();
+    if (currentView === 'catalog') loadCatalogView();
+    else scheduleCatalogReload();
+  });
+}
+
+function setCatalogSort(value, quiet) {
+  catalogSort = ['popularity', 'name', 'recent'].indexOf(value) === -1 ? 'popularity' : value;
+  const sel = document.getElementById('catalog-sort');
+  if (sel && sel.value !== catalogSort) sel.value = catalogSort;
+  if (currentView === 'catalog') loadCatalogView();
+  if (!quiet) writeUrlState();
+}
+
 function initCatalogFacets() {
   const row = document.getElementById('catalog-facets');
   if (!row || row.dataset.bound) return;
@@ -2705,6 +2873,29 @@ function setCatalogFilter(filter, quiet) {
   catalogFilter = filter || 'all';
   document.querySelectorAll('#catalog-facets .facet').forEach(el => {
     const on = el.dataset.cfilter === catalogFilter;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
+  });
+  if (currentView === 'catalog') loadCatalogView();
+  if (!quiet) writeUrlState();
+}
+
+function initCategoryPills() {
+  const row = document.getElementById('category-pills');
+  if (!row || row.dataset.bound) return;
+  row.dataset.bound = '1';
+  row.addEventListener('click', (e) => {
+    const btn = e.target.closest('.category-pill');
+    if (!btn) return;
+    setCatalogCategory(btn.dataset.category || 'all');
+  });
+  setCatalogCategory(catalogCategory, true);
+}
+
+function setCatalogCategory(cat, quiet) {
+  catalogCategory = cat || 'all';
+  document.querySelectorAll('#category-pills .category-pill').forEach(el => {
+    const on = el.dataset.category === catalogCategory;
     el.classList.toggle('active', on);
     el.setAttribute('aria-pressed', String(on));
   });
@@ -3460,10 +3651,14 @@ async function loadCatalogView() {
   if (seq !== catalogLoadSeq) return;  // superseded by a newer search/filter load; ignore stale response
   const grid = document.getElementById('catalog-grid');
   catalogItems = filterServers(data.servers || []);
-  const items = catalogFilter === 'all'
-    ? catalogItems
+  let items = catalogFilter === 'all'
+    ? catalogItems.slice()
     : catalogItems.filter(s => serverState(s) === catalogFilter);
+  if (catalogCategory !== 'all') {
+    items = items.filter(s => (s.category || 'dev') === catalogCategory);
+  }
   const serverCount = items.length;
+
   document.getElementById('catalog-count').textContent =
     serverCount === 1 ? '1 server' : serverCount + ' servers';
   grid.innerHTML = '';
@@ -3542,6 +3737,14 @@ async function loadCatalogView() {
       st === 'ready' ? 'low' : (st === 'needs' ? 'medium' : 'high'),
       st === 'ready' ? 'ready' : (st === 'needs' ? 'needs credentials' : 'disabled')
     ));
+    const auth = (s.auth_schemes && s.auth_schemes[0]) || 'none';
+    const authBadge = document.createElement('span');
+    authBadge.className = 'auth-badge ' + cls(auth);
+    authBadge.textContent = auth === 'oauth2' ? 'OAuth' : auth === 'api_key' ? 'API key' : auth === 'bearer' ? 'Bearer' : 'No auth';
+    badges.appendChild(authBadge);
+    if (s.category) {
+      badges.appendChild(makeBadge('low', s.category));
+    }
     card.appendChild(badges);
 
     const desc = document.createElement('div');
@@ -3549,8 +3752,36 @@ async function loadCatalogView() {
     desc.textContent = s.description || '';
     card.appendChild(desc);
 
+    const toolkitRow = document.createElement('div');
+    toolkitRow.className = 'toolkit-pills';
+    const tools = (s.toolkit_tools || []).slice(0, 4);
+    if (tools.length) {
+      for (const t of tools) {
+        const pill = document.createElement('span');
+        pill.className = 'tool-pill';
+        pill.textContent = t.name || t;
+        toolkitRow.appendChild(pill);
+      }
+      if ((s.toolkit_tools || []).length > 4) {
+        const more = document.createElement('span');
+        more.className = 'tool-pill';
+        more.textContent = '+' + ((s.toolkit_tools.length) - 4);
+        toolkitRow.appendChild(more);
+      }
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'tool-pill';
+      placeholder.style.opacity = '0.6';
+      placeholder.textContent = '••••';
+      toolkitRow.appendChild(placeholder);
+    }
+    card.appendChild(toolkitRow);
+
     const meta = document.createElement('div');
     meta.className = 'server-card-meta';
+    meta.style.marginTop = 'auto';
+    meta.style.borderTop = '1px solid var(--border)';
+    meta.style.paddingTop = '8px';
     const cost = document.createElement('span');
     cost.className = 'cost-dots';
     cost.title = 'context cost';
@@ -3559,6 +3790,27 @@ async function loadCatalogView() {
       const d = document.createElement('i');
       if (i < c) d.className = 'on';
       cost.appendChild(d);
+    }
+    const triggers = s.triggers || [];
+    if (triggers.length) {
+      for (const t of triggers) {
+        const pill = document.createElement('span');
+        pill.className = 'trigger-pill trigger-' + (t.cadence || 'realtime');
+        pill.title = t.description || t.name;
+        pill.textContent = (t.cadence === 'poll' ? '◔ ' : '⚡ ') + t.name;
+        cost.appendChild(pill);
+      }
+    } else if (s.trigger_count) {
+      const trig = document.createElement('span');
+      trig.className = 'trigger-count';
+      trig.textContent = s.trigger_count + ' triggers';
+      cost.appendChild(trig);
+    }
+    if (s.connection_count) {
+      const conn = document.createElement('span');
+      conn.className = 'connection-pill';
+      conn.textContent = '🔗 ' + s.connection_count + ' connected';
+      cost.appendChild(conn);
     }
     const stChip = document.createElement('span');
     stChip.className = 'status-chip';

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import stat
+import threading
 from pathlib import Path
 
 from kater.settings import (
@@ -39,6 +40,67 @@ def test_settings_roundtrip(tmp_path: Path):
     assert loaded.auth.mode == "apikey"
     assert "test123" in loaded.auth.api_keys
     assert loaded.is_server_enabled("sentry") is False
+
+
+def test_load_settings_serializes_cache_publish_with_save(tmp_path: Path, monkeypatch):
+    import kater.settings as settings_module
+
+    initial = KaterSettings()
+    updated = KaterSettings()
+    updated.set_server_enabled("github", False)
+    save_settings(initial, tmp_path)
+    settings_module.invalidate_settings_cache(tmp_path)
+
+    reader_paused = threading.Event()
+    allow_publish = threading.Event()
+    writer_started = threading.Event()
+    writer_done = threading.Event()
+    errors: list[BaseException] = []
+    apply_security_overrides = settings_module._apply_env_security_overrides
+
+    def pause_before_cache_publish(settings):
+        if threading.current_thread().name == "settings-reader":
+            reader_paused.set()
+            if not allow_publish.wait(timeout=5):
+                raise TimeoutError("reader was not released")
+        return apply_security_overrides(settings)
+
+    monkeypatch.setattr(
+        settings_module, "_apply_env_security_overrides", pause_before_cache_publish
+    )
+
+    def read_settings():
+        try:
+            load_settings(tmp_path)
+        except BaseException as exc:
+            errors.append(exc)
+
+    def write_settings():
+        writer_started.set()
+        try:
+            save_settings(updated, tmp_path)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            writer_done.set()
+
+    reader = threading.Thread(target=read_settings, name="settings-reader")
+    writer = threading.Thread(target=write_settings, name="settings-writer")
+    reader.start()
+    assert reader_paused.wait(timeout=5)
+    writer.start()
+    assert writer_started.wait(timeout=5)
+    try:
+        assert not writer_done.wait(timeout=0.5)
+    finally:
+        allow_publish.set()
+        reader.join(timeout=5)
+        writer.join(timeout=5)
+
+    assert not reader.is_alive()
+    assert not writer.is_alive()
+    assert not errors
+    assert load_settings(tmp_path).is_server_enabled("github") is False
 
 
 def test_explicit_local_auth_env_overrides_persisted_mode(tmp_path: Path, monkeypatch):
